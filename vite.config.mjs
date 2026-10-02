@@ -14,6 +14,7 @@ import { readFile, stat, mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import react from "@vitejs/plugin-react";
 import { createCmsHost, hashText } from "./scripts/cms-local.mjs";
+import { createGeoProxy } from "./scripts/geo-proxy.mjs";
 
 const APP_TAG = '<script type="module" src="src/app.js"></script>';
 const CSS_TAG = '<link rel="stylesheet" href="src/app.css">';
@@ -32,6 +33,7 @@ const MIME = {
    Node, byte for byte the same as `npm run dev` (see scripts/serve.mjs). */
 function cmsBackend() {
   const ROOT = process.cwd();
+  const geoProxy = createGeoProxy();
   let cms = null;
   let siteVersion = "vite";
   return {
@@ -205,6 +207,12 @@ function cmsBackend() {
               res.writeHead(413, { "cache-control": "no-store" });
               res.end("too large");
             });
+            return;
+          }
+
+          if ((pathname === "/__geo" || pathname === "/__rates") && req.method === "GET") {
+            if (pathname === "/__geo") await geoProxy.handleGeo(req, res);
+            else await geoProxy.handleRates(req, res);
             return;
           }
 

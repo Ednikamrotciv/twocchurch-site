@@ -60,5 +60,8 @@ computer (`data/uploads/`), so they work here — but they stay on that
 computer (the live site keeps its own copies, uploaded from its own
 console). YouTube reads
 (the live badge, recent services) go through the local server itself, so they
-work here exactly like the live site. Everything else —
+work here exactly like the live site. The visitor's own time zone and currency
+(the IP lookup behind the times and the Giving amounts) do too: when the
+browser's direct lookup is blocked here, the page asks the local server
+(`/__geo`, `/__rates`) instead, which looks it up from its side. Everything else —
 pages, slides, admin sign-in, invites, sub-admins, publishing — works.

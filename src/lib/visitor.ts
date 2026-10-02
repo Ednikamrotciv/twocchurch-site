@@ -115,6 +115,36 @@ async function ask(probe: Probe): Promise<Answer | null> {
   }
 }
 
+function isLocalHost(): boolean {
+  try {
+    const h = window.location.hostname.toLowerCase();
+    if (!h || h === "localhost") return true;
+    if (h === "127.0.0.1" || h === "[::1]" || h === "::1" || h.startsWith("127.")) return true;
+    if (h.endsWith(".localhost") || h.endsWith(".local")) return true;
+    if (/^10\./.test(h) || /^192\.168\./.test(h) || /^172\.(1[6-9]|2\d|3[01])\./.test(h)) return true;
+  } catch {
+    return false;
+  }
+  return false;
+}
+
+async function askLocalProxy(): Promise<Answer | null> {
+  if (!isLocalHost()) return null;
+  const controller = new AbortController();
+  const timer = window.setTimeout(() => controller.abort(), TIMEOUT_MS);
+  try {
+    const res = await fetch("/__geo", { signal: controller.signal, cache: "no-store", credentials: "omit" });
+    if (!res.ok) return null;
+    const json = await res.json();
+    const answer = { tz: str(json?.tz), place: str(json?.place), country: str(json?.country), currency: str(json?.currency) };
+    return answer.tz && isValidTimezone(answer.tz) ? answer : null;
+  } catch {
+    return null;
+  } finally {
+    window.clearTimeout(timer);
+  }
+}
+
 /** Ask the visitor's own device, used only when the IP services cannot answer. */
 function deviceZone(): string {
   try {
@@ -174,6 +204,8 @@ export async function findVisitorClock(): Promise<VisitorClock | null> {
     const answer = await ask(probe);
     if (answer) return ipClock(answer);
   }
+  const local = await askLocalProxy();
+  if (local) return ipClock(local);
   return deviceClock();
 }
 

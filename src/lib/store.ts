@@ -145,7 +145,7 @@ export const VISITOR_KEY = KEYS.visitor;
  * again rather than used as it is — the country and currency joined the time
  * zone afterwards (SPEC note 98).
  */
-export const VISITOR_CLOCK_V = 2;
+export const VISITOR_CLOCK_V = 3;
 
 export function normalizeVisitorClock(raw: any): VisitorClock | null {
   if (!raw || typeof raw !== "object") return null;

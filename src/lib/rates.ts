@@ -80,6 +80,36 @@ async function ask(feed: Feed): Promise<FxRates | null> {
   }
 }
 
+function isLocalHost(): boolean {
+  try {
+    const h = window.location.hostname.toLowerCase();
+    if (!h || h === "localhost") return true;
+    if (h === "127.0.0.1" || h === "[::1]" || h === "::1" || h.startsWith("127.")) return true;
+    if (h.endsWith(".localhost") || h.endsWith(".local")) return true;
+    if (/^10\./.test(h) || /^192\.168\./.test(h) || /^172\.(1[6-9]|2\d|3[01])\./.test(h)) return true;
+  } catch {
+    return false;
+  }
+  return false;
+}
+
+async function askLocalProxy(): Promise<FxRates | null> {
+  if (!isLocalHost()) return null;
+  const controller = new AbortController();
+  const timer = window.setTimeout(() => controller.abort(), TIMEOUT_MS);
+  try {
+    const res = await fetch("/__rates", { signal: controller.signal, cache: "no-store", credentials: "omit" });
+    if (!res.ok) return null;
+    const rates = numbers((await res.json())?.rates ?? {});
+    if (!rates.USD || Object.keys(rates).length < MIN_ENTRIES) return null;
+    return { base: "USD", rates, at: Date.now(), source: "live" };
+  } catch {
+    return null;
+  } finally {
+    window.clearTimeout(timer);
+  }
+}
+
 /** Ask the feeds, in turn, for today's rates. `null` when none of them answer. */
 export async function findRates(): Promise<FxRates | null> {
   if (typeof navigator !== "undefined" && navigator.onLine === false) return null;
@@ -87,7 +117,7 @@ export async function findRates(): Promise<FxRates | null> {
     const rates = await ask(feed);
     if (rates) return rates;
   }
-  return null;
+  return askLocalProxy();
 }
 
 let inFlight: Promise<FxRates | null> | null = null;

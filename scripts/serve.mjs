@@ -4,6 +4,7 @@ import { watch } from "node:fs";
 import { gzipSync } from "node:zlib";
 import path from "node:path";
 import { createCmsHost, hashText } from "./cms-local.mjs";
+import { createGeoProxy } from "./geo-proxy.mjs";
 
 const ROOT = process.cwd();
 const PORT = Number(process.env.PORT || 5173);
@@ -42,6 +43,7 @@ function broadcastReload() {
 }
 
 const cms = await createCmsHost(ROOT);
+const geoProxy = createGeoProxy();
 
 /* The browser runs the built bundle, not the sources — so saving anything
    under src/ rebuilds it on the spot, exactly like the live preview. */
@@ -177,6 +179,12 @@ const server = http.createServer(async (req, res) => {
       };
       reloadClients.add(send);
       req.on("close", () => reloadClients.delete(send));
+      return;
+    }
+
+    if ((pathname === "/__geo" || pathname === "/__rates") && req.method === "GET") {
+      if (pathname === "/__geo") await geoProxy.handleGeo(req, res);
+      else await geoProxy.handleRates(req, res);
       return;
     }
 
