@@ -1,0 +1,1497 @@
+/* ============================================================================
+   edit.css — the office's layer on top of the real pages (#/admin).
+
+   The site stays exactly the site: these rules only add the click targets, the
+   bottom bar, the drawer and the little editors that pop up over the page.
+   Everything is token-driven, so both themes come out right.
+   ========================================================================== */
+
+:root {
+  --editbar-h: 62px;
+}
+
+[data-editing] .eshell {
+  padding-bottom: var(--editbar-h);
+}
+
+/* ------------------------------------------------------------ click targets */
+
+.ed-copy {
+  cursor: pointer;
+  border-radius: 3px;
+  text-decoration: underline dotted color-mix(in srgb, var(--gold) 55%, transparent);
+  text-decoration-thickness: 2px;
+  text-underline-offset: 0.2em;
+  transition: background 0.15s ease, text-decoration-color 0.15s ease;
+}
+.ed-copy:hover,
+.ed-copy:focus-visible {
+  background: color-mix(in srgb, var(--gold) 18%, transparent);
+  text-decoration-style: solid;
+  text-decoration-color: var(--gold);
+  outline: none;
+}
+.ed-copy.ed-active {
+  background: color-mix(in srgb, var(--gold) 22%, transparent);
+  text-decoration-style: solid;
+  text-decoration-color: var(--gold);
+}
+
+img.ed-photo {
+  cursor: pointer;
+}
+img.ed-photo:hover {
+  outline: 3px solid var(--gold);
+  outline-offset: -3px;
+}
+img.ed-photo.ed-active {
+  outline: 3px solid var(--gold);
+  outline-offset: -3px;
+}
+
+/* the office should feel where the pencils are, without a fog of outlines */
+[data-editing] .page-head__bg img.ed-photo:hover {
+  outline-offset: 0;
+}
+
+[data-editing] .to-top {
+  bottom: calc(var(--editbar-h) + 1.1rem);
+}
+
+.admin__rot180 {
+  transform: rotate(180deg);
+}
+
+/* --------------------------------------------------------------- bottom bar */
+
+.editbar {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 220;
+  background: color-mix(in srgb, var(--ink-2) 95%, transparent);
+  border-top: 1px solid var(--line);
+  backdrop-filter: blur(12px);
+  color: var(--text);
+  box-shadow: 0 -22px 50px -34px rgba(0, 0, 0, 0.8);
+}
+.editbar__inner {
+  max-width: var(--maxw);
+  margin: 0 auto;
+  min-height: var(--editbar-h);
+  padding: 0.5rem 22px;
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+}
+.editbar__spacer {
+  flex: 1 1 auto;
+}
+.editbar__tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.3rem 0.6rem;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--gold) 18%, transparent);
+  border: 1px solid color-mix(in srgb, var(--gold) 40%, transparent);
+  color: var(--gold);
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+}
+.editbar__tag i {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--gold);
+  animation: editpulse 2.4s ease-in-out infinite;
+}
+@keyframes editpulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.35; }
+}
+.editbar__dirty {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.25rem 0.6rem;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--crimson-2) 16%, transparent);
+  border: 1px solid color-mix(in srgb, var(--crimson-2) 34%, transparent);
+  color: var(--crimson-2);
+  font-family: inherit;
+  font-size: 0.76rem;
+  font-weight: 600;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+.editbar__dirty:hover {
+  background: color-mix(in srgb, var(--crimson-2) 28%, transparent);
+  border-color: color-mix(in srgb, var(--crimson-2) 58%, transparent);
+}
+.editbar__dirty:focus-visible {
+  outline: 2px solid var(--gold);
+  outline-offset: 2px;
+}
+.editbar__status {
+  display: inline-flex;
+}
+
+/* ---------------------------------------------------------------- the drawer */
+
+.epanel {
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: var(--editbar-h);
+  width: min(460px, 100vw);
+  z-index: 210;
+  display: flex;
+  flex-direction: column;
+  background: var(--ink-2);
+  border-left: 1px solid var(--line);
+  box-shadow: -30px 0 70px -50px rgba(0, 0, 0, 0.9);
+}
+.epanel__head {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.7rem 0.8rem 0.7rem 1rem;
+  border-bottom: 1px solid var(--line-2);
+}
+.epanel__tabs {
+  display: flex;
+  gap: 0.25rem;
+  flex: 1;
+  min-width: 0;
+}
+.epanel__tab {
+  padding: 0.42rem 0.7rem;
+  border-radius: 999px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--muted);
+  font-size: 0.82rem;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.epanel__tab:hover {
+  color: var(--text);
+}
+.epanel__tab.is-active {
+  background: var(--panel-2);
+  border-color: var(--line);
+  color: var(--gold);
+}
+.epanel__close {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 9px;
+  border: 1px solid var(--line-2);
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+}
+.epanel__close:hover {
+  color: var(--text);
+  border-color: var(--line);
+}
+.epanel__body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 0.9rem 1rem 2rem;
+  display: grid;
+  /* The drawer's rows are its content, so they must never be squeezed: in a grid
+     whose container is shorter than its content, `auto` rows shrink down to their
+     min-content size, and a section block is `overflow: hidden`, so its min-content
+     is nothing. On a short window every section card collapsed to a 15px sliver
+     with its own title clipped out — the office saw empty bars and no way to
+     update anything (SPEC note 60). `max-content` rows keep their natural height
+     and the body scrolls instead. */
+  grid-auto-rows: max-content;
+  gap: 0.6rem;
+  align-content: start;
+  text-align: left;
+}
+.epanel__lede {
+  margin: 0 0 0.2rem;
+  font-size: 0.86rem;
+  color: var(--muted);
+  line-height: 1.6;
+}
+.epanel__lede b {
+  color: var(--text);
+}
+.epanel__search {
+  margin-bottom: 0.2rem;
+}
+.epanel__group {
+  display: grid;
+  gap: 0.5rem;
+}
+.epanel__group-title {
+  margin: 0.7rem 0 0.1rem;
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.11em;
+  text-transform: uppercase;
+  color: var(--faint);
+}
+.epanel__empty {
+  color: var(--muted);
+  font-size: 0.88rem;
+}
+
+/* ------------------------------------------------------------- section block */
+
+.pblock {
+  overflow: hidden;
+}
+.pblock__head {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.7rem 0.8rem;
+  background: transparent;
+  border: 0;
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+}
+.pblock__head:hover {
+  background: var(--panel-2);
+}
+.pblock__icon {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 8px;
+  background: var(--panel-2);
+  border: 1px solid var(--line-2);
+  color: var(--gold);
+}
+.pblock__title {
+  flex: 1;
+  min-width: 0;
+  display: grid;
+  gap: 0.1rem;
+}
+.pblock__title b {
+  font-size: 0.92rem;
+  font-weight: 600;
+}
+.pblock__title em {
+  font-style: normal;
+  font-size: 0.72rem;
+  color: var(--faint);
+}
+.pblock__dot {
+  flex: none;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--crimson-2);
+}
+.pblock__chev {
+  flex: none;
+  color: var(--faint);
+  transition: transform 0.2s ease;
+}
+.pblock__chev.is-open {
+  transform: rotate(180deg);
+}
+.pblock__sub {
+  margin: 1.1rem 0 0.45rem;
+  font-size: 0.76rem;
+  font-weight: 600;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.pblock__sub:first-child {
+  margin-top: 0;
+}
+hr.pblock__div {
+  border: 0;
+  border-top: 1px solid var(--line-2);
+  margin: 1.1rem 0 0;
+}
+.pblock__body {
+  padding: 0.2rem 0.8rem 0.9rem;
+  border-top: 1px solid var(--line-2);
+}
+.pblock__blurb {
+  margin: 0.6rem 0 0.8rem;
+  font-size: 0.8rem;
+  line-height: 1.6;
+  color: var(--muted);
+}
+.pblock__foot {
+  margin-top: 0.7rem;
+  padding-top: 0.6rem;
+  border-top: 1px dashed var(--line-2);
+}
+.pblock__reset {
+  background: none;
+  border: 0;
+  padding: 0;
+  color: var(--faint);
+  font-size: 0.78rem;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+.pblock__reset:hover {
+  color: var(--gold);
+}
+
+/* --------------------------------------------------------------- list items */
+
+.plist {
+  display: grid;
+  gap: 0.45rem;
+}
+.plist__group {
+  margin: 0.7rem 0 0.1rem;
+  font-size: 0.72rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--gold);
+}
+.plist__group:first-child {
+  margin-top: 0;
+}
+.pitem {
+  border: 1px solid var(--line-2);
+  border-radius: var(--radius-sm);
+  background: var(--panel);
+  overflow: hidden;
+}
+.pitem--open {
+  background: var(--panel-2);
+}
+.pitem__head {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.55rem 0.55rem;
+  background: transparent;
+  border: 0;
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+}
+.pitem__head--static {
+  cursor: default;
+  display: grid;
+  gap: 0.15rem;
+}
+/* The entry's own name outranks its aside: the name takes the room it needs and
+   the aside is what gives way (it used to be the other way round, which left a
+   row wearing a “Sub-branch” button showing “Overcomers' T…” — SPEC note 81). */
+.pitem__head b {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: 0.86rem;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.pitem__head em {
+  flex: 0 1 auto;
+  min-width: 0;
+  font-style: normal;
+  font-size: 0.76rem;
+  color: var(--faint);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.pitem__head .icon {
+  margin-left: auto;
+}
+.pitem__fields {
+  display: grid;
+  gap: 0.5rem;
+  padding: 0.1rem 0.65rem 0.75rem;
+}
+.pitem__actions {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0 0.65rem 0.65rem;
+}
+.pitem__actions button {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 8px;
+  border: 1px solid var(--line-2);
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+}
+.pitem__actions button:hover:not([disabled]) {
+  color: var(--gold);
+  border-color: var(--line);
+}
+.pitem__actions button[disabled] {
+  opacity: 0.35;
+  cursor: default;
+}
+
+/* --- an entry that carries children of its own (the branches) -------------- */
+
+/* The head and its quick "add a sub-branch" button share one row. */
+.pitem__top {
+  display: flex;
+  align-items: stretch;
+  gap: 0.25rem;
+}
+.pitem__top .pitem__head {
+  flex: 1 1 auto;
+  min-width: 0;
+  width: auto;
+}
+.pitem__quick {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.2rem;
+  padding: 0 0.32rem;
+  margin: 0.35rem 0.5rem 0.35rem 0;
+  border-radius: 8px;
+  border: 1px solid var(--line-2);
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+}
+/* Every branch wears this button, so it says what it does — a lone “+” read as
+   decoration, and the head office's row is no different. On a narrow window the
+   words shrink but never leave: the button the office asked for is the button
+   they can read (SPEC notes 81–82). */
+.pitem__quick-label {
+  font-size: 0.62rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+.pitem__quick:hover {
+  color: var(--gold);
+  border-color: var(--line);
+}
+@media (max-width: 560px) {
+  /* A branch row on a phone has no room for a name, a city, a parent chip and a
+     labelled button on one line — and the name and the button are the two the
+     office must be able to read. So the row wraps: the name keeps the whole
+     width for itself, and the *Sub-branch* button sits under it, still saying
+     what it does — a bare “+” is not a button anyone can find (SPEC note 82). */
+  .plist--tree .pitem__top {
+    flex-wrap: wrap;
+  }
+  .plist--tree .pitem__top .pitem__head {
+    flex: 1 1 100%;
+  }
+  .plist--tree .pitem__quick {
+    width: auto;
+    padding: 0 0.5rem;
+    margin: 0 0.5rem 0.45rem auto;
+  }
+  .pitem__quick-label {
+    font-size: 0.6rem;
+    letter-spacing: 0.03em;
+  }
+  /* The city and the parent chip step aside: the nesting is still the indent,
+     the gold rule and the shading, and *Sub-branch of* names the parent in the
+     open row (SPEC notes 81–82). */
+  .plist--tree .pitem__head em,
+  .plist--tree .pitem__parent {
+    display: none;
+  }
+  .pitem__head {
+    padding: 0.5rem;
+  }
+  .pitem__head b {
+    font-size: 0.82rem;
+  }
+  .plist--tree .pitem--child {
+    margin-left: 0.9rem;
+  }
+}
+/* A sub-branch sits under the branch it was added to: a gold rule down its
+   side, a row of its own behind it and a gold chip naming its parent, so the
+   nesting is unmistakable in the drawer (SPEC note 79). */
+.pitem--child {
+  margin-left: 1.25rem;
+}
+.pitem--child .pitem__head {
+  border-left: 3px solid var(--gold-ui);
+  background: var(--panel-2);
+}
+/* A sub-branch's row is the tightest thing in the drawer — the indent, its
+   parent's chip and its own Sub-branch button — so its aside steps aside; the
+   name it sits beside already ends in the city (SPEC note 81). */
+.pitem--child .pitem__head em {
+  display: none;
+}
+.pitem__parent {
+  /* The chip gives way before the name does (it is the third telling of the
+     same thing: the indent and the *Sub-branch of* field are the others). */
+  flex: 0 6 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: 0.63rem;
+  font-weight: 700;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--gold-ink);
+  background: var(--gold-ui);
+  border: 0;
+  border-radius: 999px;
+  padding: 0.14rem 0.48rem;
+  white-space: nowrap;
+}
+.pitem__subadd {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  padding: 0 0.65rem 0.5rem;
+}
+.plist__add {
+  margin-top: 0.15rem;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+/* The little form a growing list opens in place of its buttons: a name for the
+   new country, or the branch a new sub-branch hangs from. */
+.plist__form {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem;
+  width: 100%;
+}
+.plist__form .input,
+.plist__form .select {
+  flex: 1 1 150px;
+  width: auto;
+  min-width: 0;
+  padding: 0.45rem 0.6rem;
+  font-size: 0.82rem;
+}
+
+/* ---- page text: grouped into the segments the visitor sees --------------- */
+
+.plist--copy {
+  gap: 0.5rem;
+}
+.plist--copy > .pcopygroup--rest {
+  margin-top: 0.7rem;
+}
+/* A line of page text is never clipped: the box grows with what is in it
+   (`field-sizing` where the browser has it, `rows` from the shipped wording
+   everywhere else). */
+.plist--copy textarea {
+  field-sizing: content;
+  min-height: 4.6rem;
+}
+.pcopygroup {
+  display: grid;
+  gap: 0.4rem;
+}
+.pcopygroup__title {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin: 0;
+  padding-bottom: 0.25rem;
+  border-bottom: 1px solid var(--line-2);
+  font-size: 0.72rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--gold);
+}
+.pcopygroup__title .icon {
+  opacity: 0.7;
+}
+
+/* the small words and the site's own titles, in one group that stays closed */
+
+.pcopygroup--rest > summary {
+  cursor: pointer;
+  list-style: none;
+}
+.pcopygroup--rest > summary::-webkit-details-marker {
+  display: none;
+}
+.pcopygroup--rest > summary::after {
+  content: "Show";
+  margin-left: auto;
+  font-size: 0.62rem;
+  letter-spacing: 0.08em;
+  color: var(--muted);
+}
+.pcopygroup--rest[open] > summary::after {
+  content: "Hide";
+}
+.pcopygroup--rest[open] > summary {
+  border-bottom-color: var(--line);
+}
+.pcopygroup__rest {
+  display: grid;
+  gap: 0.4rem;
+}
+
+/* a line that is furniture: shown, so nothing is missing, but not editable */
+
+.pitem--fixed {
+  background: var(--panel-2);
+  border-style: dashed;
+  opacity: 0.92;
+}
+.pitem--fixed .pitem__head b {
+  color: var(--muted);
+}
+.pitem__lock {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  justify-self: start;
+  margin-top: 0.1rem;
+  padding: 0.1rem 0.4rem;
+  border-radius: 999px;
+  border: 1px solid var(--line-2);
+  font-size: 0.66rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--faint);
+}
+.pitem__fixedvalue {
+  margin: 0;
+  padding: 0 0.65rem 0.65rem;
+  font-size: 0.9rem;
+  color: var(--text);
+  text-align: left;
+  white-space: pre-wrap;
+}
+
+/* ------------------------------------------------------------- the popovers */
+
+.epop {
+  position: fixed;
+  z-index: 230;
+  display: grid;
+  gap: 0.55rem;
+  padding: 0.85rem;
+  border-radius: var(--radius);
+  border: 1px solid var(--line);
+  background: var(--ink-3);
+  color: var(--text);
+  box-shadow: var(--shadow);
+  text-align: left;
+}
+.epop__head {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+}
+.epop__head b {
+  flex: 1;
+  font-size: 0.92rem;
+}
+.epop__close {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  margin: -0.25rem -0.25rem 0 0;
+  border-radius: 8px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+}
+.epop__close:hover {
+  color: var(--text);
+  border-color: var(--line-2);
+}
+.epop__hint {
+  margin: -0.2rem 0 0;
+  font-size: 0.76rem;
+  line-height: 1.55;
+  color: var(--faint);
+}
+.epop__area {
+  width: 100%;
+  padding: 0.6rem 0.7rem;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--line-2);
+  background: var(--panel);
+  color: var(--text);
+  font: inherit;
+  font-size: 0.92rem;
+  line-height: 1.6;
+  resize: vertical;
+}
+.epop__area:focus {
+  outline: none;
+  border-color: var(--gold);
+  box-shadow: 0 0 0 3px rgba(227, 183, 92, 0.14);
+}
+.epop__note {
+  margin: 0;
+  font-size: 0.72rem;
+  line-height: 1.55;
+  color: var(--faint);
+}
+.epop__foot {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  flex-wrap: wrap;
+  padding-top: 0.35rem;
+  border-top: 1px solid var(--line-2);
+}
+.epop__photo {
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+  border: 1px solid var(--line-2);
+  background: var(--panel-2);
+  aspect-ratio: 16 / 10;
+}
+.epop__photo img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+/* the sign-in card sits inside a modal, so it needs no page-level padding */
+.admin__gate--modal {
+  padding: 0;
+}
+.admin__gate--modal .admin__gate-card {
+  border: 0;
+  box-shadow: none;
+  background: transparent;
+  padding: 0;
+  max-width: none;
+}
+
+/* ============================================================================
+   The update centre — the friendly end of the drawer.
+
+   The panel opens on a job list written in the office's words, with a single
+   search box over everything they can change. There is one welcome note, one
+   "two ways to change anything" card, and a drill-down per job.
+   ========================================================================== */
+
+.epanel {
+  /* Wide enough for a branch row's three things — its name, the chip naming its
+     parent and the Sub-branch button every branch wears (SPEC note 81). */
+  width: min(600px, 100%);
+}
+
+.epanel__head {
+  gap: 0.6rem;
+  padding: 0.7rem 0.8rem 0.55rem 1rem;
+  border-bottom: 0;
+}
+.epanel__mark {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 9px;
+  background: color-mix(in srgb, var(--gold) 15%, transparent);
+  border: 1px solid color-mix(in srgb, var(--gold) 36%, transparent);
+  color: var(--gold);
+}
+.epanel__brand {
+  flex: 1;
+  min-width: 0;
+  display: grid;
+  gap: 0.05rem;
+  text-align: left;
+}
+.epanel__brand b {
+  font-size: 0.94rem;
+  font-weight: 650;
+}
+.epanel__help {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 9px;
+  border: 1px solid var(--line-2);
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+}
+.epanel__help:hover {
+  color: var(--gold);
+  border-color: var(--line);
+}
+.epanel__tabs {
+  flex: none;
+  display: flex;
+  gap: 0.25rem;
+  padding: 0 0.8rem 0.6rem;
+  border-bottom: 1px solid var(--line-2);
+}
+
+/* --------------------------------------------------------------- the search */
+
+.esearch {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+.esearch > .icon {
+  position: absolute;
+  left: 0.62rem;
+  color: var(--faint);
+  pointer-events: none;
+}
+.esearch .input {
+  width: 100%;
+  padding-left: 2.05rem;
+  padding-right: 2.1rem;
+}
+.esearch__clear {
+  position: absolute;
+  right: 0.4rem;
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 7px;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+}
+.esearch__clear:hover {
+  color: var(--text);
+  background: var(--panel-2);
+}
+
+/* ------------------------------------------------------- welcome & teaching */
+
+.etip {
+  padding: 0.8rem 0.85rem;
+  border-radius: var(--radius);
+  border: 1px solid var(--line-2);
+  background: var(--panel);
+  text-align: left;
+}
+.etip > b {
+  display: block;
+  font-size: 0.84rem;
+  margin-bottom: 0.5rem;
+}
+.etip ol {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 0.5rem;
+}
+.etip li {
+  display: flex;
+  gap: 0.55rem;
+  font-size: 0.79rem;
+  line-height: 1.6;
+  color: var(--muted);
+}
+.etip__n {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  margin-top: 0.1rem;
+  border-radius: 50%;
+  background: var(--panel-2);
+  border: 1px solid var(--line-2);
+  color: var(--gold);
+  font-size: 0.7rem;
+  font-weight: 700;
+}
+.etip__dot {
+  text-decoration: underline dotted color-mix(in srgb, var(--gold) 70%, transparent);
+  text-decoration-thickness: 2px;
+  text-underline-offset: 0.2em;
+  color: var(--text);
+}
+.etip__foot {
+  margin: 0.6rem 0 0;
+  padding-top: 0.55rem;
+  border-top: 1px dashed var(--line-2);
+  font-size: 0.75rem;
+  line-height: 1.6;
+  color: var(--faint);
+}
+.etip__foot b {
+  color: var(--text);
+}
+
+/* ------------------------------------------------------------- the job list */
+
+.ejobs {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.45rem;
+}
+.ejob {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.55rem;
+  width: 100%;
+  padding: 0.6rem 0.6rem;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--line-2);
+  background: var(--panel);
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+.ejob:hover {
+  background: var(--panel-2);
+  border-color: color-mix(in srgb, var(--gold) 45%, var(--line-2));
+}
+.ejob__icon {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 9px;
+  background: var(--panel-2);
+  border: 1px solid var(--line-2);
+  color: var(--gold);
+}
+.ejob__text {
+  flex: 1;
+  min-width: 0;
+  display: grid;
+  gap: 0.12rem;
+}
+.ejob__text b {
+  font-size: 0.85rem;
+  font-weight: 600;
+  line-height: 1.35;
+}
+.ejob__text em {
+  font-style: normal;
+  font-size: 0.72rem;
+  line-height: 1.45;
+  color: var(--faint);
+}
+.ejob__chev {
+  flex: none;
+  margin-top: 0.35rem;
+  color: var(--faint);
+}
+.ejob--wide {
+  align-items: center;
+  border-color: color-mix(in srgb, var(--gold) 34%, var(--line-2));
+  background: color-mix(in srgb, var(--gold) 7%, var(--panel));
+}
+.ejob--wide .ejob__icon {
+  width: 34px;
+  height: 34px;
+  background: color-mix(in srgb, var(--gold) 16%, transparent);
+  border-color: color-mix(in srgb, var(--gold) 32%, transparent);
+}
+.ejob--wide .ejob__text b {
+  font-size: 0.9rem;
+}
+.ejob--wide .ejob__text em {
+  color: var(--muted);
+}
+.ejob--wide .ejob__chev {
+  margin-top: 0;
+}
+
+/* ------------------------------------------------------------- search results */
+
+.eres {
+  display: grid;
+  gap: 0.55rem;
+}
+.eres__group {
+  display: grid;
+  gap: 0.3rem;
+}
+.eres__item {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  width: 100%;
+  padding: 0.5rem 0.6rem;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--line-2);
+  background: var(--panel);
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+}
+.eres__item:hover {
+  background: var(--panel-2);
+  border-color: color-mix(in srgb, var(--gold) 45%, var(--line-2));
+}
+.eres__text {
+  flex: 1;
+  min-width: 0;
+  display: grid;
+  gap: 0.12rem;
+}
+.eres__text b {
+  font-size: 0.84rem;
+  font-weight: 600;
+  line-height: 1.4;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.eres__text em {
+  font-style: normal;
+  font-size: 0.72rem;
+  color: var(--faint);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* --------------------------------------------------------------- drill-downs */
+
+.epanel__back {
+  justify-self: start;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.35rem 0.55rem 0.35rem 0.4rem;
+  margin-left: -0.4rem;
+  border-radius: 8px;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+.epanel__back:hover {
+  color: var(--gold);
+  background: var(--panel-2);
+}
+.epanel__viewTitle {
+  margin: 0;
+  font-size: 1.02rem;
+  font-weight: 650;
+  text-align: left;
+}
+.epanel__viewHead {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.6rem;
+  text-align: left;
+}
+.epanel__viewIcon {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--gold) 14%, transparent);
+  border: 1px solid color-mix(in srgb, var(--gold) 30%, transparent);
+  color: var(--gold);
+}
+.epanel__viewHead b {
+  display: block;
+  font-size: 0.98rem;
+  font-weight: 650;
+}
+.epanel__viewHead em {
+  display: block;
+  margin-top: 0.1rem;
+  font-style: normal;
+  font-size: 0.78rem;
+  line-height: 1.5;
+  color: var(--muted);
+}
+.epanel__foot {
+  margin: 0.4rem 0 0;
+  padding-top: 0.7rem;
+  border-top: 1px dashed var(--line-2);
+  font-size: 0.76rem;
+  line-height: 1.6;
+  color: var(--faint);
+}
+
+/* --------------------------------------------------------- what is not saved */
+
+/* The list the “N unsaved changes” chip opens: one row per changed part of the
+   site, the row itself leading to its fields and the small button on its right
+   dropping that one change (SPEC note 114). */
+.unsaved {
+  display: grid;
+  gap: 0.45rem;
+  text-align: left;
+}
+.unsaved__item {
+  display: flex;
+  align-items: stretch;
+  gap: 0.25rem;
+  padding: 0.25rem;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--line-2);
+  background: var(--panel);
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+.unsaved__item:hover {
+  background: var(--panel-2);
+  border-color: color-mix(in srgb, var(--gold) 40%, var(--line-2));
+}
+.unsaved__open {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: flex-start;
+  gap: 0.55rem;
+  padding: 0.4rem 0.35rem 0.4rem 0.4rem;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+}
+.unsaved__icon {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 9px;
+  background: color-mix(in srgb, var(--crimson-2) 13%, transparent);
+  border: 1px solid color-mix(in srgb, var(--crimson-2) 28%, transparent);
+  color: var(--crimson-2);
+}
+.unsaved__text {
+  flex: 1;
+  min-width: 0;
+  display: grid;
+  gap: 0.1rem;
+}
+.unsaved__text b {
+  font-size: 0.85rem;
+  font-weight: 650;
+  line-height: 1.35;
+}
+.unsaved__text em {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+  font-style: normal;
+  font-size: 0.72rem;
+  line-height: 1.5;
+  color: var(--muted);
+}
+.unsaved__what {
+  color: var(--faint);
+}
+.unsaved__what::after {
+  content: ":";
+}
+.unsaved__detail {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.unsaved__text em.unsaved__more {
+  color: var(--faint);
+  font-style: italic;
+}
+.unsaved__revert {
+  flex: none;
+  align-self: center;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.3rem 0.5rem;
+  border-radius: 8px;
+  border: 1px solid var(--line-2);
+  background: transparent;
+  color: var(--faint);
+  font-family: inherit;
+  font-size: 0.7rem;
+  font-weight: 600;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: color 0.15s ease, border-color 0.15s ease;
+}
+.unsaved__revert:hover {
+  color: var(--crimson-2);
+  border-color: color-mix(in srgb, var(--crimson) 45%, var(--line-2));
+}
+
+/* A row that can be taken off the site carries both buttons: Delete (danger,
+   two taps to confirm) and Put back. */
+.unsaved__btns {
+  flex: none;
+  align-self: center;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+.unsaved__delete {
+  font-size: 0.7rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.admin .unsaved__btns .unsaved__delete.is-armed {
+  color: #fff;
+  background: var(--crimson);
+  border-color: var(--crimson);
+}
+
+/* The chip's list on a phone: one column, the row's buttons under its text
+   rather than squeezed beside it. */
+@media (max-width: 420px) {
+  .unsaved__item {
+    flex-wrap: wrap;
+  }
+  .unsaved__open {
+    flex: 1 1 100%;
+  }
+  .unsaved__btns {
+    width: 100%;
+    justify-content: flex-end;
+  }
+  .unsaved__revert span {
+    display: none;
+  }
+}
+
+/* Something a jump found is opened and marked, so it is easy to spot. The
+   scroll-margin keeps its title clear of the top when it is scrolled to. */
+.pitem.is-focus {
+  border-color: var(--gold);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--gold) 22%, transparent);
+  scroll-margin-top: 0.6rem;
+}
+
+/* ------------------------------------------------------------------ the help */
+
+.ehelp {
+  margin: 0.9rem 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 0.85rem;
+  text-align: left;
+}
+.ehelp li {
+  display: flex;
+  gap: 0.7rem;
+}
+.ehelp__n {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  margin-top: 0.05rem;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--gold) 16%, transparent);
+  border: 1px solid color-mix(in srgb, var(--gold) 36%, transparent);
+  color: var(--gold);
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+.ehelp__title {
+  display: block;
+  font-size: 0.92rem;
+  margin-bottom: 0.15rem;
+}
+.ehelp p {
+  margin: 0;
+  font-size: 0.85rem;
+  line-height: 1.65;
+  color: var(--muted);
+}
+.ehelp__foot {
+  margin: 0.9rem 0;
+  padding: 0.75rem 0.85rem;
+  border-radius: var(--radius);
+  border: 1px solid var(--line-2);
+  background: var(--panel);
+  text-align: left;
+}
+.ehelp__check {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.86rem;
+  cursor: pointer;
+}
+.ehelp__check input {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--gold);
+}
+.ehelp__foot p {
+  margin: 0.3rem 0 0;
+}
+
+/* ------------------------------------------------------- the guides are off */
+
+[data-guides="off"] .ed-copy {
+  cursor: default;
+  text-decoration: none;
+}
+[data-guides="off"] .ed-copy:hover,
+[data-guides="off"] .ed-copy:focus-visible {
+  background: transparent;
+  outline: none;
+}
+[data-guides="off"] img.ed-photo {
+  cursor: default;
+}
+[data-guides="off"] img.ed-photo:hover {
+  outline: none;
+}
+
+/* ----------------------------------------------------------------- the bar */
+
+.editbar__ask {
+  margin-left: 0.35rem;
+}
+.editbar__guides.is-off {
+  opacity: 0.5;
+}
+.editbar__utils {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.2rem;
+  margin-left: 0.15rem;
+  padding-left: 0.45rem;
+  border-left: 1px solid var(--line-2);
+}
+
+@media (max-width: 1100px) {
+  .editbar__status {
+    display: none;
+  }
+}
+
+@media (max-width: 700px) {
+  .editbar__ask span {
+    display: none;
+  }
+  .editbar__ask {
+    margin-left: 0;
+  }
+  .ejobs {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* ------------------------------------------------------------------- the gate */
+
+.epanel__gate {
+  display: grid;
+  justify-items: center;
+  gap: 0.6rem;
+  padding: 2.2rem 1.2rem;
+  text-align: center;
+}
+.epanel__gateIcon {
+  display: grid;
+  place-items: center;
+  width: 46px;
+  height: 46px;
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--gold) 14%, transparent);
+  border: 1px solid color-mix(in srgb, var(--gold) 34%, transparent);
+  color: var(--gold);
+}
+.epanel__gate b {
+  font-size: 1.02rem;
+}
+.epanel__gate p {
+  margin: 0;
+  max-width: 36ch;
+  font-size: 0.84rem;
+  line-height: 1.65;
+  color: var(--muted);
+}
+.epanel__gateHelp {
+  background: none;
+  border: 0;
+  padding: 0;
+  color: var(--faint);
+  font-size: 0.78rem;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+.epanel__gateHelp:hover {
+  color: var(--gold);
+}
+
+/* ------------------------------------------------------------------ narrow */
+
+@media (max-width: 860px) {
+  .epanel {
+    width: 100%;
+    border-left: 0;
+  }
+  .editbar__inner {
+    gap: 0.4rem;
+    padding: 0.45rem 0.7rem;
+  }
+  .editbar__status {
+    display: none;
+  }
+  .editbar__icononly span {
+    display: none;
+  }
+}
+
+@media (max-width: 560px) {
+  :root {
+    --editbar-h: 58px;
+  }
+  .epop {
+    left: 10px !important;
+    right: 10px;
+    width: auto !important;
+  }
+}

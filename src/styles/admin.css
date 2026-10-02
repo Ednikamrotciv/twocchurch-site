@@ -1,0 +1,1018 @@
+/* ============================================================================
+   admin.css — the *controls* the office edits with
+
+   There is no console any more: #/admin paints the real pages and this file
+   styles the widgets that sit on top of them (the field controls, the photo
+   uploader, the sign-in card, the publish and tools dialogs, the live-stream
+   archive panel, the site overview). The edit-mode shell, the bottom bar, the
+   drawer and the pop-ups live in edit.css.
+
+   Almost every rule is scoped `.admin …`, so the element that hosts them —
+   `.eshell` in src/pages/Admin.tsx — carries BOTH classes ("admin eshell").
+   Button rules use two-class selectors so they beat the platform's
+   `button:not([disabled]) { color: inherit }` reset.
+   ========================================================================== */
+
+/* ------------------------------------------------------------- status pills */
+
+.admin .admin__pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  font-size: 0.72rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  padding: 0.32rem 0.62rem;
+  border-radius: 999px;
+  border: 1px solid var(--line-2);
+  color: var(--muted);
+  background: var(--panel-2);
+  white-space: nowrap;
+}
+.admin__pill i {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: currentColor;
+  animation: adminPulse 2.4s ease-in-out infinite;
+}
+.admin .admin__pill--emerald {
+  color: var(--emerald);
+  border-color: rgba(107, 211, 164, 0.4);
+}
+.admin .admin__pill--sky {
+  color: var(--sky);
+  border-color: rgba(143, 199, 238, 0.4);
+}
+.admin .admin__pill--crimson {
+  color: var(--crimson-2);
+  border-color: rgba(227, 95, 107, 0.4);
+}
+@keyframes adminPulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.35; }
+}
+
+/* -------------------------------------------------------------------- pages */
+
+.admin__page {
+  display: grid;
+  gap: clamp(1.1rem, 2.2vw, 1.7rem);
+}
+
+.admin__two {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: 1rem;
+  align-items: start;
+}
+
+.admin__kv {
+  margin: 0 0 0.9rem;
+  display: grid;
+  gap: 0.5rem;
+}
+.admin__kv div {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding-bottom: 0.45rem;
+  border-bottom: 1px solid var(--line-2);
+}
+.admin__kv dt {
+  flex: none;
+  font-size: 0.8rem;
+  color: var(--muted);
+  white-space: nowrap;
+}
+.admin__kv dd {
+  flex: 1 1 auto;
+  min-width: 0;
+  margin: 0;
+  font-size: 0.86rem;
+  color: var(--text);
+  text-align: right;
+}
+
+.admin__chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin-top: 0.7rem;
+}
+.admin .admin__chip {
+  font-size: 0.74rem;
+  padding: 0.25rem 0.6rem;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: var(--panel);
+  color: var(--gold);
+  cursor: pointer;
+  /* A chip is one word-group: it never breaks inside the pill, and the row wraps
+     whole chips onto the next line instead (the activity log's row is narrow). */
+  white-space: nowrap;
+  flex: none;
+}
+
+.admin__next {
+  display: grid;
+  gap: 0.3rem;
+}
+.admin__next h4 {
+  margin: 0.3rem 0 0;
+  font-size: 1.05rem;
+}
+.admin__mini {
+  margin-top: 1rem;
+  padding-top: 0.8rem;
+  border-top: 1px solid var(--line-2);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  font-size: 0.82rem;
+  color: var(--muted);
+}
+.admin .admin__linkbtn {
+  background: none;
+  border: 0;
+  padding: 0;
+  color: var(--gold);
+  font-size: 0.82rem;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+
+.admin__log {
+  list-style: none;
+  margin: 0.6rem 0 0;
+  padding: 0;
+  display: grid;
+  gap: 0.55rem;
+}
+.admin__log li {
+  display: flex;
+  gap: 0.7rem;
+  align-items: baseline;
+  padding-bottom: 0.5rem;
+  border-bottom: 1px solid var(--line-2);
+}
+.admin__log li:last-child {
+  border-bottom: 0;
+  padding-bottom: 0;
+}
+.admin__log-dot {
+  font-size: 0.9rem;
+  color: var(--gold);
+  line-height: 1.4;
+}
+.admin__log-main {
+  flex: 1;
+  min-width: 0;
+}
+.admin__log-by {
+  margin-left: auto;
+  font-size: 0.74rem;
+  color: var(--faint);
+  white-space: nowrap;
+  padding-left: 0.7rem;
+}
+.admin__log-by--main {
+  color: var(--gold);
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+.admin__log b {
+  display: block;
+  font-size: 0.88rem;
+  font-weight: 500;
+}
+.admin__log em {
+  font-style: normal;
+  font-size: 0.74rem;
+  color: var(--faint);
+  overflow-wrap: anywhere;
+}
+.admin__log .admin__chips--log {
+  margin-top: 0.35rem;
+  gap: 0.3rem;
+}
+.admin__log-id {
+  font-size: 0.72rem;
+  color: var(--faint);
+  padding: 0.25rem 0;
+}
+.admin__rot90 {
+  transform: rotate(90deg);
+}
+
+/* --------------------------------------------------------------------- forms */
+
+.admin__form {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 0.85rem 1rem;
+}
+.admin__wide {
+  grid-column: 1 / -1;
+}
+.admin__form--tight {
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 0.6rem 0.8rem;
+}
+
+.admin .admin__bool {
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+  padding: 0.55rem 0.7rem;
+  border: 1px solid var(--line-2);
+  border-radius: 12px;
+  background: var(--panel);
+}
+.admin__bool span {
+  display: grid;
+}
+.admin__bool b {
+  font-size: 0.86rem;
+  font-weight: 500;
+}
+.admin__bool em {
+  font-style: normal;
+  font-size: 0.72rem;
+  color: var(--faint);
+}
+
+.admin .admin__switch {
+  flex: none;
+  width: 42px;
+  height: 24px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: rgba(128, 128, 128, 0.25);
+  position: relative;
+  cursor: pointer;
+  transition: background 0.2s ease;
+}
+.admin .admin__switch i {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: #d9d3c6;
+  transition: transform 0.2s ease, background 0.2s ease;
+}
+.admin .admin__switch.is-on {
+  background: var(--gold);
+}
+.admin .admin__switch.is-on i {
+  transform: translateX(18px);
+  background: #241a05;
+}
+
+.admin__imagefield {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.55rem;
+}
+.admin__imagepreview {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 66px;
+  height: 52px;
+  border-radius: 10px;
+  overflow: hidden;
+  border: 1px solid var(--line-2);
+  background: var(--panel-2);
+  color: var(--faint);
+}
+.admin__imagepreview img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.admin__imageinputs {
+  flex: 1;
+  min-width: 0;
+  display: grid;
+  gap: 0.35rem;
+}
+
+/* what the photo control is currently using, and what a visitor would see */
+.admin__imagecaption {
+  margin: 0;
+  font-size: 0.78rem;
+  color: var(--muted);
+  text-align: left;
+}
+
+/* upload a photo from the office's own device */
+
+.admin__upload {
+  display: grid;
+  gap: 0.35rem;
+  justify-items: start;
+}
+.admin__upload .admin__file {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  pointer-events: none;
+}
+.admin__upload-error {
+  margin: 0;
+  font-size: 0.8rem;
+  color: var(--crimson-2);
+  text-align: left;
+}
+.admin__upload-note {
+  margin: 0;
+  font-size: 0.78rem;
+  color: var(--gold);
+  text-align: left;
+}
+
+/* the slide helper: prompts when a pasted slide picture is not landscape */
+.admin__agent {
+  display: grid;
+  gap: 0.35rem;
+  padding: 0.6rem 0.7rem;
+  border-radius: 12px;
+  border: 1px solid color-mix(in srgb, var(--gold) 45%, transparent);
+  background: color-mix(in srgb, var(--gold) 9%, var(--panel-2));
+  text-align: left;
+}
+.admin__agent-head {
+  margin: 0;
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: var(--gold);
+}
+.admin__agent-text {
+  margin: 0;
+  font-size: 0.8rem;
+  line-height: 1.45;
+  color: var(--ink);
+}
+.admin__agent-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  align-items: center;
+}
+
+/* a video the office uploaded, shown with a small player */
+
+.admin__videofield {
+  display: grid;
+  gap: 0.55rem;
+}
+.admin__videopreview {
+  display: grid;
+  place-items: center;
+  width: 100%;
+  max-width: 340px;
+  aspect-ratio: 16 / 9;
+  border-radius: 10px;
+  overflow: hidden;
+  border: 1px solid var(--line-2);
+  background: var(--panel-2);
+  color: var(--faint);
+}
+.admin__videopreview video {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  background: #05050a;
+}
+.admin__videoinputs {
+  display: grid;
+  gap: 0.4rem;
+  justify-items: start;
+}
+
+/* a line that says the site is working on something, with its spinner */
+.admin__busy {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin: 0;
+  font-size: 0.8rem;
+  color: var(--muted);
+  text-align: left;
+}
+.admin__ring {
+  flex: none;
+  width: 15px;
+  height: 15px;
+  border-radius: 50%;
+  border: 2px solid rgba(227, 183, 92, 0.25);
+  border-top-color: var(--gold);
+  animation: spin 0.8s linear infinite;
+}
+/* a line of explanation the office reads but does not edit */
+
+.admin__statictext {
+  margin: 0;
+  padding: 0.6rem 0.75rem;
+  border-radius: var(--radius-sm);
+  border: 1px dashed var(--line-2);
+  background: var(--panel-2);
+  color: var(--text);
+  font-size: 0.92rem;
+  text-align: left;
+}
+
+.admin__chips-edit {
+  display: grid;
+  gap: 0.35rem;
+  justify-items: start;
+}
+.admin__chip-row {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  width: 100%;
+}
+.admin .admin__chip-row button {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 8px;
+  border: 1px solid var(--line-2);
+  background: transparent;
+  color: var(--faint);
+  cursor: pointer;
+}
+.admin .admin__chip-row button:hover {
+  color: var(--crimson-2);
+}
+
+.admin__sublist {
+  display: grid;
+  gap: 0.7rem;
+  border-top: 1px solid var(--line-2);
+  padding-top: 0.9rem;
+}
+.admin__sublist-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+}
+.admin__sublist-head b {
+  font-size: 0.9rem;
+}
+.admin__subcard {
+  border: 1px solid var(--line-2);
+  border-left: 3px solid var(--line);
+  border-radius: 12px;
+  background: var(--panel-2);
+  padding: 0.85rem 0.9rem 0.9rem;
+}
+.admin__subcard-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 0.6rem;
+}
+.admin__subcard-head b {
+  font-size: 0.85rem;
+}
+.admin__subcard-head em {
+  font-style: normal;
+  font-size: 0.74rem;
+  color: var(--faint);
+}
+.admin .admin__subcard-actions {
+  display: flex;
+  gap: 0.15rem;
+}
+.admin .admin__subcard-actions button {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 8px;
+  border: 0;
+  background: transparent;
+  color: var(--faint);
+  cursor: pointer;
+}
+.admin .admin__subcard-actions button:hover:not([disabled]) {
+  background: var(--panel);
+  color: var(--gold);
+}
+.admin .admin__subcard-actions button[disabled] {
+  opacity: 0.25;
+}
+
+/* --------------------------------------------------------------- confirm-btn */
+
+.admin .admin__danger-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.2rem 0.4rem;
+  border-radius: 8px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--faint);
+  font-size: 0.78rem;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.admin .admin__danger-btn:hover {
+  color: var(--crimson-2);
+}
+.admin .admin__danger-btn.is-armed {
+  border-color: var(--crimson-2);
+  background: rgba(200, 32, 47, 0.16);
+  color: var(--crimson-2);
+}
+/* Both words stacked, so Delete → Confirm never changes the button's size. */
+.admin .admin__danger-btn-label {
+  display: inline-grid;
+}
+.admin .admin__danger-btn-label > span {
+  grid-area: 1 / 1;
+  visibility: hidden;
+}
+.admin .admin__danger-btn-label > span.is-shown {
+  visibility: visible;
+}
+
+/* --------------------------------------------------------------- tool head */
+
+.admin .admin__tool-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.6rem;
+}
+.admin .admin__tool-head h4 {
+  margin: 0;
+}
+
+/* ------------------------------------------------------------------ switch */
+
+.admin .switch {
+  position: relative;
+  flex: none;
+  width: 48px;
+  height: 27px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: var(--panel-2);
+  padding: 0;
+  cursor: pointer;
+  transition: background 0.2s ease, border-color 0.2s ease;
+}
+.admin .switch .knob {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 21px;
+  height: 21px;
+  border-radius: 50%;
+  background: var(--muted);
+  transition: left 0.2s ease, background 0.2s ease;
+}
+.admin .switch.is-on {
+  background: linear-gradient(140deg, var(--gold-sheen), var(--gold-ui));
+  border-color: transparent;
+}
+.admin .switch.is-on .knob {
+  left: 23px;
+  background: #fff;
+}
+.admin .switch[disabled] {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+@media (prefers-reduced-motion: reduce) {
+  .admin .switch,
+  .admin .switch .knob {
+    transition: none;
+  }
+}
+
+/* ------------------------------------------------------------------- gate */
+
+.admin__gate {
+  display: grid;
+  place-items: center;
+  padding: clamp(0.5rem, 2vh, 1.5rem) 0 clamp(2rem, 5vh, 4rem);
+}
+.admin .admin__gate-card {
+  width: min(560px, 100%);
+  display: grid;
+  gap: 0.8rem;
+  padding: 1.6rem clamp(1rem, 3vw, 1.8rem) 1.8rem;
+  text-align: left;
+}
+.admin__gate-icon {
+  display: grid;
+  place-items: center;
+  width: 46px;
+  height: 46px;
+  border-radius: 14px;
+  border: 1px solid var(--line);
+  background: var(--panel-2);
+  color: var(--gold);
+}
+.admin__gate-card h2 {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: 1.9rem;
+  line-height: 1.1;
+}
+.admin__gate-card form {
+  display: grid;
+  gap: 0.9rem;
+}
+
+/* ------------------------------------------------------------------- tools */
+
+.admin__toolgrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 0.7rem;
+  margin: 0.9rem 0 1rem;
+}
+.admin .admin__tool {
+  display: grid;
+  gap: 0.4rem;
+  align-content: start;
+}
+.admin__tool h4 {
+  margin: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  font-size: 0.92rem;
+}
+.admin__tool h4 svg {
+  color: var(--gold);
+}
+.admin__tool p {
+  margin: 0;
+  font-size: 0.82rem;
+  color: var(--muted);
+}
+.admin .admin__tool .btn {
+  justify-self: start;
+}
+.admin .admin__tool--wide {
+  grid-column: 1 / -1;
+}
+.admin__roster {
+  list-style: none;
+  margin: 0.2rem 0 0;
+  padding: 0;
+  display: grid;
+  gap: 0.45rem;
+}
+.admin__roster li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.6rem;
+  border: 1px solid var(--line-2);
+  border-radius: 12px;
+  padding: 0.5rem 0.65rem;
+}
+.admin__roster b {
+  display: block;
+  font-size: 0.86rem;
+}
+.admin__roster em {
+  display: block;
+  font-style: normal;
+  font-size: 0.74rem;
+  color: var(--muted);
+}
+.admin__qr svg {
+  width: min(200px, 100%);
+  height: auto;
+  display: block;
+  border-radius: 12px;
+  background: #fff;
+  padding: 6px;
+}
+.admin__secret {
+  display: block;
+  font-size: 0.95rem;
+  letter-spacing: 0.08em;
+  font-weight: 700;
+  color: var(--gold);
+  margin: 0.35rem 0;
+  word-break: break-all;
+}
+.admin__invite-code {
+  display: block;
+  font-size: 1.35rem;
+  letter-spacing: 0.14em;
+  font-weight: 700;
+  color: var(--gold);
+  margin: 0.35rem 0;
+}
+.admin__file {
+  display: none;
+}
+
+.admin__publist {
+  list-style: none;
+  margin: 0.4rem 0 0.9rem;
+  padding: 0;
+  display: grid;
+  gap: 0.3rem;
+}
+.admin__publist li {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+.admin__publist svg {
+  color: var(--gold);
+}
+
+/* --------------------------------------------------------------- responsive */
+
+@media (max-width: 620px) {
+  .admin__form {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  /* On a phone the panel is the whole screen, so give the controls the full
+     width: the photo on top, the upload and the strip underneath it. */
+  .admin__imagefield {
+    flex-direction: column;
+  }
+  .admin__imagepreview {
+    width: 100%;
+    height: 128px;
+  }
+}
+
+/* ----------------------------------------------------------- locked fields */
+
+/* Fields the office cannot change — internal keys, and the values that are
+   deliberately fixed in code (the church name). `:not([disabled])` is needed
+   because the platform ships `input:not([disabled]) { color: inherit }`. */
+
+.admin__locked:not([disabled]),
+.admin__locked:not([disabled]):focus,
+.admin__locked:not([disabled]):hover {
+  background: var(--panel-2);
+  border-color: var(--line-2);
+  border-style: dashed;
+  color: var(--muted);
+  cursor: not-allowed;
+  box-shadow: none;
+}
+
+/* --------------------------------------------- filing a finished service */
+
+.admin__archive {
+  display: grid;
+  gap: 0.85rem;
+  text-align: left;
+}
+
+.admin__archive-head {
+  display: flex;
+  gap: 0.75rem;
+  align-items: flex-start;
+}
+.admin__archive-head h3 {
+  margin: 0 0 0.25rem;
+  font-size: 1.05rem;
+}
+.admin__archive-head p {
+  margin: 0;
+  font-size: 0.86rem;
+  color: var(--muted);
+  max-width: 62ch;
+}
+.admin__archive-icon {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 38px;
+  height: 38px;
+  border-radius: 12px;
+  color: var(--gold);
+  background: var(--panel-2);
+  border: 1px solid var(--line-2);
+}
+
+/* -------------------------------------- starting & stopping the livestream */
+
+.admin__live {
+  display: grid;
+  gap: 0.85rem;
+  text-align: left;
+  border-left: 3px solid var(--line);
+}
+.admin__live.is-on {
+  border-left-color: var(--crimson-2);
+}
+.admin__live.is-stopped {
+  border-left-color: var(--gold);
+}
+
+.admin__live-top {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.7rem;
+}
+.admin__live-top .live-dot {
+  margin-top: 0.42rem;
+}
+.admin__live-copy {
+  display: grid;
+  gap: 0.15rem;
+}
+.admin__live-copy b {
+  font-size: 1.02rem;
+}
+.admin__live-copy em {
+  font-style: normal;
+  font-size: 0.85rem;
+  color: var(--muted);
+  max-width: 58ch;
+}
+
+.admin__live-warn {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+  margin: 0;
+  padding: 0.6rem 0.75rem;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--line-2);
+  border-left: 3px solid var(--crimson-2);
+  background: var(--panel-2);
+  font-size: 0.84rem;
+}
+.admin__live-warn svg {
+  flex: none;
+  margin-top: 0.15rem;
+  color: var(--crimson-2);
+}
+
+.admin__live-note {
+  margin: 0;
+  font-size: 0.8rem;
+  color: var(--muted);
+  max-width: 62ch;
+}
+
+/* --------------------------------------------- the recent services list */
+
+.admin__recent {
+  display: grid;
+  gap: 0.85rem;
+  text-align: left;
+}
+
+.admin__recent-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 0.5rem;
+}
+.admin__recent-list li {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+  padding: 0.5rem 0.6rem;
+  border: 1px solid var(--line-2);
+  border-radius: var(--radius-sm);
+  background: var(--panel-2);
+}
+.admin__recent-thumb {
+  flex: none;
+  width: 64px;
+  height: 40px;
+  object-fit: cover;
+  border-radius: 6px;
+  background: var(--panel);
+}
+.admin__recent-copy {
+  flex: 1 1 12rem;
+  min-width: 0;
+  display: grid;
+  gap: 0.1rem;
+}
+.admin__recent-copy b {
+  font-size: 0.9rem;
+  overflow-wrap: anywhere;
+}
+.admin__recent-copy em {
+  font-style: normal;
+  font-size: 0.76rem;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+.admin__recent-open {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  font-size: 0.78rem;
+  color: var(--muted);
+}
+.admin__recent-open:hover {
+  color: var(--gold);
+}
+.admin__recent-remove {
+  margin-left: auto;
+}
+.admin__recent-off {
+  display: grid;
+  gap: 0.5rem;
+}
+.admin__recent-off > b {
+  font-size: 0.8rem;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+/* --------------------------------------------- the activity on right now */
+
+.admin__now {
+  display: grid;
+  gap: 0.85rem;
+  text-align: left;
+}
+
+.admin__now-card {
+  display: grid;
+  gap: 0.3rem;
+  justify-items: start;
+  padding: 0.75rem 0.85rem;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--line-2);
+  border-left: 3px solid var(--gold);
+  background: var(--panel-2);
+}
+.admin__now-card.is-live {
+  border-left-color: var(--crimson-2);
+}
+.admin__now-card b {
+  font-size: 1.02rem;
+}
+.admin__now-card em {
+  font-style: normal;
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
+.admin__now-when {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.76rem;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.admin__now-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 0.55rem;
+}
+.admin__now-list li {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+  font-size: 0.85rem;
+}
+.admin__now-list li b {
+  font-weight: 600;
+}
+.admin__now-list li .admin__linkbtn {
+  margin-left: auto;
+}

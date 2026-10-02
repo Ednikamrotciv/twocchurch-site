@@ -1,0 +1,46 @@
+// ============================================================================
+// The World Overcomers' Ministries Inc. — site configuration
+// Edit the values here and they flow straight into the website.
+// ============================================================================
+
+$meta
+  title = The World Overcomers' Ministries Inc. — Where Champions Are Raised in Christ
+  description = A global family of believers on four continents. Watch sermons, find a branch near you with directions, send a prayer request, share your testimony, read the daily devotional and give online.
+  image = https://user.uploads.dev/file/225e075b84e24b996390905fb81b38c5.png
+  tags = church, ministries, sermons, prayer request, giving, testimonies, worship, branch, devotional
+  header
+    mode = minimal
+
+churchName = The World Overcomers' Ministries Inc.
+churchShortName = World Overcomers
+churchTagline = Where Champions are raised in Christ
+churchPhone = +1 (214) 555-0147
+churchEmail = hello@worldovercomers.org
+
+// The currency the church's own figures are written in — the giving amounts,
+// every event's cost. An ISO code: USD, NGN, GBP. Every visitor is shown the
+// amounts converted into their own country's currency (found from their IP
+// address); change that in the console under Church profile.
+churchCurrency = USD
+
+// The church office edits all site content from #/admin, which talks to the
+// server-plugin content server declared in index.html.
+createServerSocket = {import:server-plugin}
+
+// Photo uploads from the console (the office replaces any photo on the site
+// with one from their own phone or computer).
+uploadPlugin = {import:upload-plugin}
+
+// The Watch live page asks YouTube whether the church is streaming right now
+// (see src/lib/livestatus.ts). YouTube sends no CORS headers, so the check goes
+// through perchance's own proxy instead of a plain fetch().
+superFetch = {import:super-fetch-plugin}
+
+// Everything else (branches, service times, sermons, events, testimonies,
+// ministries, giving funds) lives in the typed source files under src/:
+//   src/data/site.ts           — identity, values, beliefs, leadership, FAQs
+//   src/data/branches.ts       — branches, addresses, service schedules
+//   src/data/sermons.ts        — series + sermons (swap the video ids for your own)
+//   src/data/content.ts        — events, scriptures, seed testimonies
+//   src/data/announcements.ts  — notices posted from the admin console
+// See src/README.md for the full guide, and src/tools/build.mjs for the build.

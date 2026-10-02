@@ -1,0 +1,542 @@
+/* ==========================================================================
+   Liquid glass — the material pass over the whole site (SPEC note 132)
+
+   Two halves:
+
+   1. A *shadier* page background. The flat --ink / cream body fill becomes a
+      fixed, layered aurora: warm light spilling in from the top-left, a cool
+      bloom at the far corner, and the whole canvas falling away to something
+      noticeably deeper at the bottom. Nothing behind a panel is ever flat any
+      more, which is what makes the glass below read as glass — a blur only
+      looks frosted when there is something underneath it to frost.
+
+   2. The glass itself. Panels are a translucent gradient fill with a 1px
+      refracting rim (a bright top-left edge tapering to a dim bottom-right
+      one), plus inset highlights for thickness and a soft, offset drop shadow
+      so they float. Small things (chips, pills, quiet buttons) get the same
+      edge treatment without the blur, so the material is consistent without
+      paying for a backdrop filter on every tag on the page.
+
+   Loaded last (see src/main.tsx) so it can restate the surface rules that
+   global/pages/admin/edit already declare. Everything it changes is a fill,
+   edge, or shadow — no layout, no type.
+   ========================================================================== */
+
+:root {
+  --glass-blur: 20px;
+  --glass-sat: 180%;
+  --glass-fill: linear-gradient(
+    166deg,
+    rgba(255, 255, 255, 0.07) 0%,
+    rgba(255, 255, 255, 0.022) 48%,
+    rgba(255, 255, 255, 0.05) 100%
+  );
+  --glass-spec: radial-gradient(
+    74% 48% at 10% -16%,
+    rgba(255, 255, 255, 0.16),
+    transparent 62%
+  );
+  --glass-inset: inset 0 1px 0 rgba(255, 255, 255, 0.32),
+    inset 1px 0 0 rgba(255, 255, 255, 0.1),
+    inset -1px -1px 0 rgba(0, 0, 0, 0.42),
+    inset 0 -8px 12px -8px rgba(0, 0, 0, 0.5),
+    inset 0 8px 12px -10px rgba(255, 255, 255, 0.2);
+  --glass-shadow: 0 30px 44px -28px rgba(0, 0, 0, 0.95),
+    0 12px 22px -14px rgba(0, 0, 0, 0.75),
+    0 2px 6px -2px rgba(0, 0, 0, 0.6);
+  --glass-shadow-sm: 0 10px 24px -16px rgba(0, 0, 0, 0.8),
+    0 2px 6px -4px rgba(0, 0, 0, 0.55);
+  --glass-inset-sm: inset 0 1px 0 rgba(255, 255, 255, 0.20),
+    inset 0 -1px 1px rgba(0, 0, 0, 0.32);
+  --glass-edge: 1px solid rgba(255, 255, 255, 0.14);
+  /* Two layers, both clipped to the padding box: the corner specular over the
+     tint. The lit and shaded edges are box-shadow insets (see --glass-inset)
+     rather than a border-box gradient — a border-box gradient shows *through* a
+     translucent fill, smearing a diagonal wash across the panel. */
+  --glass-surface: var(--glass-spec) padding-box, var(--glass-fill) padding-box;
+}
+
+[data-theme="light"] {
+  --glass-blur: 30px;
+  --glass-sat: 240%;
+  --glass-fill: linear-gradient(
+    166deg,
+    rgba(255, 253, 247, 0.46) 0%,
+    rgba(255, 252, 244, 0.17) 48%,
+    rgba(255, 255, 255, 0.32) 100%
+  );
+  --glass-spec: radial-gradient(
+    48% 30% at 8% -9%,
+    rgba(255, 255, 255, 0.95),
+    rgba(255, 255, 255, 0.2) 46%,
+    transparent 70%
+  );
+  --glass-inset: inset 0 1.5px 0 rgba(255, 255, 255, 1),
+    inset 1px 0 0 rgba(255, 255, 255, 0.7),
+    inset -1px -1.5px 0 rgba(120, 100, 64, 0.26),
+    inset 0 -7px 11px -7px rgba(96, 76, 40, 0.38),
+    inset 0 7px 11px -9px rgba(255, 255, 255, 0.95);
+  --glass-shadow: 0 26px 40px -22px rgba(72, 52, 16, 0.62),
+    0 11px 18px -11px rgba(72, 52, 16, 0.4),
+    0 2px 5px -1px rgba(72, 52, 16, 0.24);
+  --glass-shadow-sm: 0 12px 18px -12px rgba(72, 52, 16, 0.55),
+    0 3px 7px -3px rgba(72, 52, 16, 0.3);
+  --glass-inset-sm: inset 0 1px 0 rgba(255, 255, 255, 1),
+    inset 0 -1px 1px rgba(96, 76, 40, 0.24);
+  /* The page behind the glass is deeper now, so muted copy keeps its contrast
+     by moving a shade darker. (Everything on a permanent dark surface — the top
+     bar, the footer, photo scrims — remaps --muted for itself.) */
+  --muted: #564f45;
+  --faint: #635c51;
+  --glass-edge: 1px solid rgba(255, 255, 255, 0.8);
+}
+
+/* The parchment band stays a *light* band in both themes, so everything inside
+   it takes the light glass regardless of which theme the page is in. Custom
+   properties resolve at the element that uses them, so overriding the tokens
+   here re-materials every panel in the band. */
+.section--light {
+  --glass-blur: 26px;
+  --glass-sat: 200%;
+  --glass-fill: linear-gradient(
+    166deg,
+    rgba(255, 253, 247, 0.56) 0%,
+    rgba(255, 252, 244, 0.2) 48%,
+    rgba(255, 255, 255, 0.4) 100%
+  );
+  --glass-spec: radial-gradient(
+    54% 34% at 9% -12%,
+    rgba(255, 255, 255, 0.95),
+    rgba(255, 255, 255, 0.22) 46%,
+    transparent 70%
+  );
+  --glass-inset: inset 0 1.5px 0 rgba(255, 255, 255, 1),
+    inset 1px 0 0 rgba(255, 255, 255, 0.7),
+    inset -1px -1.5px 0 rgba(120, 100, 64, 0.22),
+    inset 0 -7px 11px -7px rgba(96, 76, 40, 0.32),
+    inset 0 7px 11px -9px rgba(255, 255, 255, 0.95);
+  --glass-shadow: 0 24px 38px -22px rgba(72, 52, 16, 0.55),
+    0 10px 16px -11px rgba(72, 52, 16, 0.34),
+    0 2px 5px -1px rgba(72, 52, 16, 0.2);
+  --glass-edge: 1px solid rgba(255, 255, 255, 0.85);
+}
+
+/* --------------------------------------------------------------- the aurora */
+
+body {
+  background-color: var(--ink);
+  background-image: radial-gradient(
+      115% 70% at 6% -10%,
+      rgba(227, 183, 92, 0.13),
+      transparent 55%
+    ),
+    radial-gradient(85% 55% at 96% 0%, rgba(200, 32, 47, 0.12), transparent 58%),
+    radial-gradient(
+      62% 46% at 88% 68%,
+      rgba(227, 183, 92, 0.075),
+      transparent 62%
+    ),
+    radial-gradient(
+      70% 50% at 12% 86%,
+      rgba(120, 150, 200, 0.075),
+      transparent 62%
+    ),
+    radial-gradient(
+      90% 60% at 78% 118%,
+      rgba(143, 199, 238, 0.06),
+      transparent 60%
+    ),
+    linear-gradient(180deg, #0b0b12 0%, #06060b 42%, #020204 100%);
+  background-attachment: fixed;
+}
+
+[data-theme="light"] body {
+  background-color: var(--ink);
+  background-image: radial-gradient(
+      52% 40% at 4% -6%,
+      rgba(255, 255, 255, 0.98),
+      transparent 62%
+    ),
+    radial-gradient(44% 34% at 96% 4%, rgba(214, 162, 60, 0.5), transparent 60%),
+    radial-gradient(38% 30% at 18% 30%, rgba(198, 104, 72, 0.2), transparent 62%),
+    radial-gradient(42% 32% at 88% 56%, rgba(206, 156, 62, 0.44), transparent 60%),
+    radial-gradient(44% 34% at 4% 78%, rgba(84, 106, 136, 0.3), transparent 62%),
+    radial-gradient(50% 38% at 76% 106%, rgba(150, 120, 74, 0.44), transparent 62%),
+    radial-gradient(
+      34% 26% at 54% 44%,
+      rgba(255, 252, 244, 0.6),
+      transparent 66%
+    ),
+    linear-gradient(180deg, #f6f0e3 0%, #ece2ce 44%, #ded2b8 78%, #d3c5a6 100%);
+  background-attachment: fixed;
+}
+
+/* --------------------------------------------------------------- the glass */
+
+.card,
+.quick-tile,
+.next-service,
+.verse-card,
+.accordion__item,
+.sermon-card,
+.event-card,
+.person-card,
+.ministry-card,
+.branch-card,
+.watch-card,
+.recent-card,
+.home-feature,
+.visit-pass,
+.devotion-today,
+.counter,
+.bank-card,
+.give-summary,
+.give-reference,
+.newsletter,
+.faq-help,
+.contact-map,
+.branch-panel,
+.map-popup__frame,
+.prayer-form,
+.focus-card,
+.urgent-card,
+.wall-post,
+.side-cta,
+.split__badge,
+.countdown__unit,
+.event-feature__grid,
+.schedule-table,
+.player,
+.modal__panel,
+.admin__tool,
+.admin__gate-card,
+.admin__subcard,
+.admin__mini,
+.admin__kv,
+.admin__log,
+.admin__imagepreview,
+.admin__videopreview,
+.epanel,
+.pblock,
+.pitem,
+.epop,
+.ejob,
+.eres__item,
+.unsaved__item,
+.etip,
+.ehelp {
+  border: var(--glass-edge);
+  background: var(--glass-surface);
+  box-shadow: var(--glass-shadow), var(--glass-inset);
+  backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-sat));
+  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-sat));
+}
+
+/* The panes that were drawn square take the same corner as the rest, so the
+   refracting rim runs all the way around them. */
+.pblock,
+.ehelp,
+.admin__tool,
+.admin__gate-card,
+.admin__mini,
+.admin__kv,
+.admin__log,
+.admin__publist li,
+.admin__recent-off,
+.admin__imagepreview {
+  border-radius: 14px;
+}
+
+/* Re-stated so the glass pass doesn't flatten the states these carry. */
+.next-service--live {  background: radial-gradient(
+      140% 100% at 20% 0%,
+      rgba(200, 32, 47, 0.24),
+      transparent 62%
+    ),
+    var(--glass-fill);
+}
+
+.accordion__item--open {
+  box-shadow: var(--glass-shadow), var(--glass-inset),
+    0 0 0 1px color-mix(in srgb, var(--gold) 30%, transparent);
+}
+
+.newsletter--done {
+  background: linear-gradient(
+      152deg,
+      color-mix(in srgb, var(--emerald) 16%, transparent),
+      transparent 60%
+    ),
+    var(--glass-fill);
+}
+
+/* Full-width bands get the material without a backdrop filter — a blur on an
+   element this tall is pure cost, and there is a smooth gradient behind it
+   anyway. */
+.section--raised {
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--ink-2) 72%, transparent),
+    color-mix(in srgb, var(--ink) 62%, transparent)
+  );
+  border-top: 1px solid var(--line-2);
+  border-bottom: 1px solid var(--line-2);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.4);
+}
+
+[data-theme="light"] .section--raised {
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--ink-2) 78%, transparent),
+    color-mix(in srgb, #efe4cf 72%, transparent)
+  );
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.75),
+    inset 0 -1px 0 rgba(96, 76, 40, 0.1);
+}
+
+.section--light {
+  background: linear-gradient(
+    180deg,
+    rgba(250, 245, 235, 0.9),
+    rgba(242, 232, 213, 0.86)
+  );
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.8),
+    inset 0 -1px 0 rgba(96, 76, 40, 0.14);
+}
+
+[data-theme="light"] .section--light {
+  background: radial-gradient(
+      120% 100% at 50% 0%,
+      rgba(223, 176, 85, 0.18),
+      transparent 62%
+    ),
+    linear-gradient(180deg, rgba(253, 249, 241, 0.72) 0%, rgba(240, 229, 208, 0.62) 100%);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.85),
+    inset 0 -1px 0 rgba(96, 76, 40, 0.12);
+}
+
+/* --------------------------------------------------------------- small glass */
+
+.local-clock,
+.service-pill,
+.duration-pill,
+.watched-pill,
+.source-pill,
+.broadcast-pill,
+.distance-tag,
+.hq-tag,
+.branch-chip,
+.watched-chip,
+.today-chip,
+.hero__next,
+.hero__live,
+.split__badge,
+.pitem__quick {
+  backdrop-filter: blur(12px) saturate(1.6);
+  -webkit-backdrop-filter: blur(12px) saturate(1.6);
+  box-shadow: var(--glass-shadow-sm), var(--glass-inset-sm);
+}
+
+/* Interactive controls keep whatever fill their state gave them — we only add
+   the frosted edge and the lift, so an --active chip keeps its gold. */
+.chip,
+.copy-btn,
+.share-btn,
+.icon-btn,
+.search-trigger,
+.amount-btn,
+.method-btn,
+.fund-btn,
+.platform-pick__btn,
+.service-choose__item,
+.branch-choose__item,
+.btn--ghost,
+.btn--quiet {
+  backdrop-filter: blur(12px) saturate(1.6);
+  -webkit-backdrop-filter: blur(12px) saturate(1.6);
+  box-shadow: var(--glass-shadow-sm), var(--glass-inset-sm);
+}
+
+.btn--ghost,
+.btn--quiet {
+  background-color: color-mix(in srgb, var(--panel) 60%, transparent);
+}
+
+.btn--quiet {
+  border-color: var(--line);
+}
+
+.btn--ghost:hover {
+  box-shadow: var(--glass-shadow-sm), var(--glass-inset-sm),
+    0 0 0 1px color-mix(in srgb, var(--gold) 40%, transparent);
+}
+
+.chip:hover,
+.copy-btn:hover,
+.share-btn:hover,
+.icon-btn:hover {
+  box-shadow: var(--glass-shadow-sm), var(--glass-inset-sm),
+    0 0 0 1px color-mix(in srgb, var(--gold) 30%, transparent);
+}
+
+/* --------------------------------------------------------------- fields */
+
+.input,
+.textarea,
+.select {
+  background-color: color-mix(in srgb, var(--panel) 72%, transparent);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.10),
+    inset 0 -1px 1px rgba(0, 0, 0, 0.25);
+  backdrop-filter: blur(10px) saturate(1.5);
+  -webkit-backdrop-filter: blur(10px) saturate(1.5);
+}
+
+[data-theme="light"] .input,
+[data-theme="light"] .textarea,
+[data-theme="light"] .select {
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 1),
+    inset 0 -1px 1px rgba(96, 76, 40, 0.1);
+}
+
+.input:focus,
+.textarea:focus,
+.select:focus {
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.12),
+    0 0 0 3px rgba(227, 183, 92, 0.16);
+}
+
+/* --------------------------------------------------------------- chrome */
+
+.topbar {
+  background: linear-gradient(180deg, rgba(5, 5, 10, 0.9), rgba(5, 5, 10, 0.74));
+  backdrop-filter: blur(14px) saturate(1.4);
+  -webkit-backdrop-filter: blur(14px) saturate(1.4);
+  box-shadow: inset 0 -1px 0 rgba(255, 255, 255, 0.05);
+}
+
+[data-theme="light"] .topbar {
+  background: linear-gradient(180deg, rgba(20, 18, 27, 0.95), rgba(20, 18, 27, 0.82));
+}
+
+.header--scrolled {
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--header-bg) 100%, transparent),
+    color-mix(in srgb, var(--header-bg) 78%, transparent)
+  );
+  backdrop-filter: blur(22px) saturate(1.7);
+  -webkit-backdrop-filter: blur(22px) saturate(1.7);
+  border-bottom-color: var(--line-2);
+  box-shadow: 0 24px 50px -34px rgba(0, 0, 0, 0.95),
+    inset 0 1px 0 rgba(255, 255, 255, 0.07);
+}
+
+.footer {
+  background: radial-gradient(
+      120% 120% at 82% -20%,
+      rgba(227, 183, 92, 0.12),
+      transparent 58%
+    ),
+    linear-gradient(180deg, rgba(9, 9, 14, 0.92), rgba(3, 3, 6, 0.98));
+  border-top: 1px solid color-mix(in srgb, var(--gold) 28%, transparent);
+  backdrop-filter: blur(18px) saturate(1.25);
+  -webkit-backdrop-filter: blur(18px) saturate(1.25);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06),
+    0 -30px 60px -40px rgba(0, 0, 0, 0.9);
+}
+
+[data-theme="light"] .footer {
+  background: radial-gradient(
+      120% 120% at 82% -20%,
+      rgba(227, 183, 92, 0.14),
+      transparent 58%
+    ),
+    linear-gradient(180deg, rgba(24, 21, 31, 0.94), rgba(11, 10, 16, 0.98));
+}
+
+.to-top {
+  background: rgba(10, 10, 14, 0.6);
+  box-shadow: var(--glass-shadow-sm), var(--glass-inset-sm);
+}
+
+.toast {
+  backdrop-filter: blur(16px) saturate(1.5);
+  -webkit-backdrop-filter: blur(16px) saturate(1.5);
+  box-shadow: var(--glass-shadow), var(--glass-inset);
+}
+
+/* --------------------------------------------------------------- overlays */
+
+.modal__backdrop {
+  background: rgba(3, 3, 6, 0.72);
+  backdrop-filter: blur(16px) saturate(1.25);
+  -webkit-backdrop-filter: blur(16px) saturate(1.25);
+}
+
+.modal__head,
+.modal__foot {
+  background: color-mix(in srgb, var(--ink-3) 58%, transparent);
+  backdrop-filter: blur(18px) saturate(1.5);
+  -webkit-backdrop-filter: blur(18px) saturate(1.5);
+}
+
+.epanel {
+  border-left: 1px solid transparent;
+  box-shadow: -40px 0 80px -50px rgba(0, 0, 0, 0.95),
+    inset 1px 0 0 rgba(255, 255, 255, 0.08);
+}
+
+.epanel__head,
+.epanel__foot {
+  background: color-mix(in srgb, var(--ink-2) 62%, transparent);
+  backdrop-filter: blur(18px) saturate(1.5);
+  -webkit-backdrop-filter: blur(18px) saturate(1.5);
+}
+
+.editbar {
+  background: color-mix(in srgb, var(--ink-2) 82%, transparent);
+  backdrop-filter: blur(20px) saturate(1.5);
+  -webkit-backdrop-filter: blur(20px) saturate(1.5);
+}
+
+/* --------------------------------------------------------------- depth */
+
+.hero__scrim {
+  background: linear-gradient(
+    180deg,
+    rgba(5, 5, 9, 0.92) 0%,
+    rgba(5, 5, 9, 0.82) 44%,
+    rgba(2, 2, 5, 0.99) 100%
+  );
+}
+
+.page-head__bg::after {
+  background: linear-gradient(180deg, rgba(5, 5, 9, 0.8), rgba(3, 3, 6, 0.97));
+}
+
+.card--hover:hover {
+  transform: translateY(-5px) scale(1.006);
+  box-shadow: var(--glass-shadow), var(--glass-inset),
+    0 0 0 1px color-mix(in srgb, var(--gold) 22%, transparent);
+}
+
+.quick-tile:hover {
+  transform: translateY(-6px) scale(1.008);
+  box-shadow: var(--glass-shadow), var(--glass-inset),
+    0 0 0 1px color-mix(in srgb, var(--gold) 22%, transparent);
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  .card,
+  .quick-tile,
+  .next-service,
+  .verse-card,
+  .accordion__item,
+  .modal__panel,
+  .epanel {
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+    background: var(--ink-3, #12121a);
+  }
+}
