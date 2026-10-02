@@ -10,14 +10,14 @@
 // Run it:  npm install   (once — downloads react, vite, …)
 //          npm run vite  (opens http://localhost:5173/, admin at /admin)
 
-import { readFile, stat, mkdir, writeFile } from "node:fs/promises";
+import { readFile, stat, mkdir, writeFile, cp, unlink } from "node:fs/promises";
 import path from "node:path";
 import react from "@vitejs/plugin-react";
 import { createCmsHost, hashText } from "./scripts/cms-local.mjs";
 import { createGeoProxy } from "./scripts/geo-proxy.mjs";
 
-const APP_TAG = '<script type="module" src="src/app.js"></script>';
-const CSS_TAG = '<link rel="stylesheet" href="src/app.css">';
+const APP_TAG = '<script type="module" src="src/bundle.js"></script>';
+const CSS_TAG = '<link rel="stylesheet" href="src/bundle.css">';
 
 const MIME = {
   ".png": "image/png",
@@ -36,23 +36,65 @@ function cmsBackend() {
   const geoProxy = createGeoProxy();
   let cms = null;
   let siteVersion = "vite";
+  let outDir = path.join(ROOT, "dist");
   return {
     name: "wom-cms-backend",
-    async configResolved() {
+    async configResolved(config) {
       const html = await readFile(path.join(ROOT, "index.html"), "utf8");
       siteVersion = "vite-" + hashText(html);
       cms = await createCmsHost(ROOT);
+      outDir = path.resolve(config.root || ROOT, (config.build && config.build.outDir) || "dist");
+      try {
+        await stat(path.join(ROOT, "src", "bundle.js"));
+        for (const stale of ["app.js", "app.css"]) {
+          try {
+            await unlink(path.join(ROOT, "src", stale));
+          } catch { /* already gone */ }
+        }
+      } catch { /* no bundle yet — nothing to clean */ }
     },
     /* Perchance preview loads the prebuilt bundle; under Vite the entry is
        the source itself (with HMR), plus the shim that connects it to the
        backend below. The stale prebuilt stylesheet is dropped so styles also
-       hot-reload from src/styles/*.css. */
-    transformIndexHtml(html) {
-      return html
-        .split(CSS_TAG).join("")
-        .split(APP_TAG).join(
-          '<script src="/scripts/local-shim.js"></script>\n  <script type="module" src="/src/main.tsx"></script>'
-        );
+       hot-reload from src/styles/*.css. For `vite build` the same source is
+       the bundle entry — but the shim stays out (a static host has no
+       backend; baking it in would only point the page at missing endpoints). */
+    transformIndexHtml(html, ctx) {
+      const entry = '<script type="module" src="/src/main.tsx"></script>';
+      const body = html.split(CSS_TAG).join("").split(APP_TAG).join(ctx && ctx.server ? '<script src="/scripts/local-shim.js"></script>\n  ' + entry : entry);
+      return body;
+    },
+    /* `vite build` extras: the string-URL files the bundle points at, plus a
+       snapshot of the published content (data/cms-state.bin) as seed.json so
+       the static site opens on the office's words with no backend to ask. */
+    async closeBundle() {
+      if (process.env.VITE_WOM_SKIP_STATIC === "1") return;
+      try {
+        await mkdir(outDir, { recursive: true });
+        await cp(path.join(ROOT, "src", "assets"), path.join(outDir, "src", "assets"), { recursive: true });
+      } catch (err) {
+        console.warn("static assets not copied:", err?.message || err);
+      }
+      try {
+        const st = await stat(path.join(ROOT, "data", "uploads")).catch(() => null);
+        if (st && st.isDirectory()) {
+          await cp(path.join(ROOT, "data", "uploads"), path.join(outDir, "data", "uploads"), { recursive: true });
+        }
+      } catch (err) {
+        console.warn("uploads not copied:", err?.message || err);
+      }
+      try {
+        if (cms) {
+          cms.openConn("bake");
+          const r = await cms.call("getContent", "bake", "");
+          const res = JSON.parse(r.body);
+          const sections = res && res.sections ? JSON.parse(res.sections) : {};
+          await writeFile(path.join(outDir, "seed.json"), JSON.stringify({ rev: typeof res.rev === "number" ? res.rev : 0, sections }));
+          console.log(`baked ${Object.keys(sections).length} published sections into seed.json`);
+        }
+      } catch (err) {
+        console.warn("seed.json not baked:", err?.message || err);
+      }
     },
     configureServer(server) {
       server.middlewares.use(async (req, res, next) => {
@@ -275,4 +317,19 @@ export default {
   plugins: [react(), cmsBackend()],
   server: { port: 5173 },
   define: { "process.env.NODE_ENV": '"production"' },
+  optimizeDeps: {
+    include: [
+      "react",
+      "react-dom",
+      "react-dom/client",
+      "framer-motion",
+      "three",
+      "@react-three/fiber",
+      "@react-three/drei/core/Sparkles",
+      "swiper",
+      "swiper/modules",
+      "qrcode-generator",
+      "zustand",
+    ],
+  },
 };

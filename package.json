@@ -3,10 +3,11 @@
   "version": "1.0.0",
   "private": true,
   "type": "module",
-  "description": "The World Overcomers' Ministries Inc. website. Static React bundle (src/app.js + src/app.css); no runtime dependencies.",
+  "description": "The World Overcomers' Ministries Inc. website. Static React bundle (src/bundle.js + src/bundle.css); no runtime dependencies.",
   "scripts": {
     "start": "node scripts/serve.mjs",
-    "dev": "node scripts/serve.mjs",
+    "dev": "vite",
+    "serve": "node scripts/serve.mjs",
     "vite": "vite",
     "vite-build": "vite build",
     "build": "node scripts/build.mjs",

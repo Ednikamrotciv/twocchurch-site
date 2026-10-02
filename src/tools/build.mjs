@@ -4,11 +4,11 @@
      globalThis.fs = fs;                       // the workspace filesystem
      const src = await fs.readTextFile("src/tools/build.mjs");
      const mod = await import(URL.createObjectURL(new Blob([src], { type: "text/javascript" })));
-     return await mod.build();                 // writes src/app.js + src/app.css
+     return await mod.build();                 // writes src/bundle.js + src/bundle.css
 
    It bundles src/main.tsx (React + TypeScript) with esbuild-wasm, pulling React and
-   ReactDOM from esm.sh at build time so the shipped src/app.js has no runtime
-   dependencies. Never edit src/app.js by hand. */
+   ReactDOM from esm.sh at build time so the shipped src/bundle.js has no runtime
+   dependencies. Never edit src/bundle.js by hand. */
 
 import * as esbuildNamespace from "https://esm.sh/esbuild-wasm@0.21.5?bundle";
 
@@ -180,6 +180,7 @@ export async function build(options = {}) {
   const result = await esbuild.build({
     entryPoints: ["src/main.tsx"],
     bundle: true,
+    splitting: true,
     write: false,
     format: "esm",
     target: ["es2020"],
@@ -189,7 +190,8 @@ export async function build(options = {}) {
     legalComments: "none",
     define: { "process.env.NODE_ENV": '"production"' },
     outdir: "src",
-    entryNames: "app",
+    entryNames: "bundle",
+    chunkNames: "chunks/chunk-[hash]",
     assetNames: "assets/[name]",
     logLevel: "warning",
     plugins: [plugin],

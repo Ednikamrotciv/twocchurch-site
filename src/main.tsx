@@ -1,7 +1,7 @@
 import React from "react";
 import { createRoot } from "react-dom/client";
 import { MotionConfig } from "framer-motion";
-import { App } from "./App";
+import { App } from "./App.tsx";
 import "./styles/global.css";
 import "./styles/pages.css";
 import "./styles/admin.css";
@@ -14,8 +14,6 @@ function mount() {
     console.error("Root container #root not found");
     return;
   }
-  const splash = document.getElementById("splash");
-  if (splash) splash.remove();
   el.removeAttribute("data-loading");
   /* Motion respects the visitor's own setting: with reduced motion asked for,
      transforms and layout animations go quiet everywhere (SPEC note 147). */

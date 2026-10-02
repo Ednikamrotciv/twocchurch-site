@@ -55,7 +55,10 @@ import { ct } from "../data/copy";
 import { loadSlidePalette, paletteFor, type SlidePalette } from "../lib/palette";
 import { SLIDE_FRAME, framedImageSync, framedImageUrl } from "../lib/slideFrame";
 import { SLIDES, SLIDE_DESIGNS, slideDesigns, visibleSlides, slideDesignName, type AnnouncementSlide, type SlideDesign } from "../data/slides";
-import { CuboidSpace3D, useWebGLAvailable, StageErrorBoundary, type CuboidApi } from "./slides3d";
+import { useWebGLAvailable, StageErrorBoundary } from "./stageassist";
+import type { CuboidApi } from "./slides3d";
+
+const CuboidSpace3D = React.lazy(() => import("./slides3d").then((m) => ({ default: m.CuboidSpace3D })));
 
 /** How long a slide waits before the space moves to the next one on its own. */
 const ADVANCE_MS = 9000;
@@ -474,6 +477,15 @@ export function AnnouncementSlides({ slides = SLIDES }: { slides?: AnnouncementS
   /* Read once: flipping the OS setting mid-visit does not rebuild the stage. */
   const [calm] = useState(() => prefersReducedMotion());
   const webgl = useWebGLAvailable();
+  useEffect(() => {
+    if (calm || !webgl) return;
+    const ric = (window as unknown as { requestIdleCallback?: (cb: () => void) => number }).requestIdleCallback;
+    if (!ric) return;
+    const id = ric(() => {
+      void import("./slides3d");
+    });
+    return () => (window as unknown as { cancelIdleCallback?: (id: number) => void }).cancelIdleCallback?.(id);
+  }, [calm, webgl]);
   /* The 3D cuboid turns itself, slowly and without steps; the arrows, swipe,
      keys or a tap just lend it speed. */
   const cuboidApi = useRef<CuboidApi | null>(null);
@@ -653,7 +665,9 @@ export function AnnouncementSlides({ slides = SLIDES }: { slides?: AnnouncementS
             aria-label={ct("auto.site.ed1bc718392f9ee1")}
           >
             <StageErrorBoundary fallback={<img className="aslide__photo" src={standIn} alt="" />}>
-              <CuboidSpace3D slides={live} apiRef={cuboidApi} held={held} />
+              <React.Suspense fallback={null}>
+                <CuboidSpace3D slides={live} apiRef={cuboidApi} held={held} />
+              </React.Suspense>
             </StageErrorBoundary>
             {multi ? (
               <>

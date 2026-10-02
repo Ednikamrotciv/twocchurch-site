@@ -907,6 +907,20 @@ export async function startCms() {
   window.setInterval(() => dropLapsedSlides(true), 30000);
   // 2. Instant paint from the local cache (or the shipped defaults). Any section
   //    the office has edited is `dirty` and is kept exactly as they left it.
+  if (!socketFactory()) {
+    try {
+      const res = await fetch("seed.json", { cache: "no-store" });
+      if (res.ok) {
+        const seed = await res.json();
+        if (seed && seed.sections && typeof seed.sections === "object" && Object.keys(seed.sections).length) {
+          rev = typeof seed.rev === "number" ? seed.rev : 0;
+          applyOverrides(seed.sections);
+        }
+      }
+    } catch {
+      /* no baked seed (the live site, local runs) — the defaults stand */
+    }
+  }
   const cached = readJSON<{ rev?: number; overrides?: Snapshot } | null>(CACHE_KEY, null);
   if (cached?.overrides) {
     rev = cached.rev || 0;

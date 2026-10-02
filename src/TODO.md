@@ -584,7 +584,7 @@
   only downloads when the browser blocks the tab. Pass it the record's own title — the title is what
   makes the reminder useful — and do not put a `to=` on that button: the tap is meant to leave the
   visitor where they are (the Watch Live one used to download an empty file *and* jump to /events).
-- Never edit `src/app.js` / `src/app.css` directly — they are build output.
+- Never edit `src/bundle.js` / `src/bundle.css` directly — they are build output.
 - `localStorage` keys are prefixed `wom.`; the “Clear my data” button in My Library removes them
   (plus `wom.amenMap`, `wom.prayedMap`, `wom.memorised`, `wom.reminders`).
 - Renaming the generator changes the origin, which orphans visitors' saved data — pick the name

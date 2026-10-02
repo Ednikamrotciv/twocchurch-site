@@ -4,18 +4,18 @@ A complete, responsive church website built with **React 18 + TypeScript**, styl
 church seal (gold on near-black, crimson and sky accents, serif display type).
 
 Everything lives in this `src/` tree. `main.pjs` holds only `$meta` + a few church-wide
-strings, and `index.html` is a thin shell that loads `src/app.js` and `src/app.css`.
+strings, and `index.html` is a thin shell that loads `src/bundle.js` and `src/bundle.css`.
 
 ---
 
 ## 1. How it is built
 
 The generator ships a **pre-built bundle**, so visitors download one small JS file and one CSS
-file and nothing else — no CDN, no runtime transpiling. React and ReactDOM are compiled *into* `src/app.js` at build
+file and nothing else — no CDN, no runtime transpiling. React and ReactDOM are compiled *into* `src/bundle.js` at build
 time (fetched from esm.sh by the build script).
 
 - Source of truth: **`src/**/*.tsx`** (never edit the built files by hand)
-- Build output: **`src/app.js`** + **`src/app.css`** (both generated, both shipped)
+- Build output: **`src/bundle.js`** + **`src/bundle.css`** (both generated, both shipped)
 - Build script: **`src/tools/build.mjs`** (esbuild-wasm)
 - Copy collector: **`src/tools/auto-copy.mjs`** (see *Every text, not just the headlines* below)
 
@@ -70,7 +70,7 @@ Run this from the perchance agent workspace (`execute_js`), then `page_refresh`:
 globalThis.fs = fs;                                  // the workspace filesystem
 const src = await fs.readTextFile("src/tools/build.mjs");
 const mod = await import(URL.createObjectURL(new Blob([src], { type: "text/javascript" })));
-return await mod.build();                            // writes src/app.js + src/app.css
+return await mod.build();                            // writes src/bundle.js + src/bundle.css
 ```
 
 Notes:

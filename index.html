@@ -1205,17 +1205,9 @@ self.rpc = {
 <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,400;0,500;0,600;0,700;1,400;1,600&family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
 <meta name="theme-color" content="#08080a">
 
-<link rel="stylesheet" href="src/app.css">
+<link rel="stylesheet" href="src/bundle.css">
 
 <div id="root"></div>
-
-<div id="splash">
-  <div class="splash__logo">
-    <img src="src/assets/logo-mark.png" alt="The World Overcomers' Ministries Inc.">
-  </div>
-  <div class="splash__bar"><span></span></div>
-  <p class="splash__tag">Where Champions are raised in Christ</p>
-</div>
 
 <noscript>
   <p style="text-align:center;padding:2rem;font-family:Georgia,serif;font-size:1.1rem">
@@ -1225,51 +1217,25 @@ self.rpc = {
 
 <style>
   html { background: #07070a; }
-  #splash {
-    position: fixed;
-    inset: 0;
-    z-index: 500;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    gap: 1.1rem;
-    background: radial-gradient(closest-side at 50% 35%, rgba(227, 183, 92, 0.12), transparent 70%), #07070a;
-    color: #f4f0e8;
-    font-family: Inter, system-ui, sans-serif;
-    text-align: center;
-    padding: 2rem;
-  }
-  #splash .splash__logo img {
-    width: clamp(190px, 52vw, 280px);
-    height: auto;
-    display: block;
-    filter: drop-shadow(0 6px 26px rgba(0, 0, 0, 0.65));
-    animation: splashIn 0.8s cubic-bezier(0.22, 1, 0.36, 1);
-  }
-  #splash .splash__bar {
-    width: 168px;
-    height: 2px;
-    background: rgba(244, 240, 232, 0.14);
-    border-radius: 2px;
-    overflow: hidden;
-  }
-  #splash .splash__bar span {
-    display: block;
-    width: 40%;
-    height: 100%;
-    background: linear-gradient(90deg, transparent, #e3b75c, transparent);
-    animation: splashSlide 1.15s ease-in-out infinite;
-  }
-  #splash .splash__tag {
-    margin: 0;
-    font-size: 0.7rem;
-    letter-spacing: 0.22em;
-    text-transform: uppercase;
-    color: #a9a399;
-  }
-  @keyframes splashIn { from { opacity: 0; transform: translateY(14px) scale(0.96); } }
-  @keyframes splashSlide { from { transform: translateX(-120%); } to { transform: translateX(320%); } }
 </style>
 
-<script type="module" src="src/app.js"></script>
+<script>
+  window.__womBootErrors = [];
+  window.addEventListener("error", function (e) {
+    window.__womBootErrors.push(String((e && e.message) || e));
+  }, true);
+  window.addEventListener("unhandledrejection", function (e) {
+    window.__womBootErrors.push("Promise: " + String((e && e.reason && (e.reason.message || e.reason)) || e));
+  });
+  window.setTimeout(function () {
+    var root = document.getElementById("root");
+    if (!root || root.hasChildNodes()) return;
+    var banner = document.createElement("p");
+    banner.style.cssText = "position:fixed;top:0;left:0;right:0;z-index:500;margin:0;padding:0.6rem 1rem;background:#3a1111;color:#f0b0b0;font:0.8rem/1.4 system-ui,sans-serif;text-align:center;";
+    banner.textContent = window.__womBootErrors.length
+      ? "Could not start: " + window.__womBootErrors[0]
+      : "Still starting — the first load compiles the site; wait a little, then reload once";
+    document.body.appendChild(banner);
+  }, 20000);
+</script>
+<script type="module" src="src/bundle.js"></script>

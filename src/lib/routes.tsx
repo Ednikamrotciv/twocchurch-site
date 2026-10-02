@@ -16,21 +16,22 @@
 import React from "react";
 import { matchPath } from "./router";
 import { Home } from "../pages/Home";
-import { About } from "../pages/About";
-import { Locations } from "../pages/Locations";
-import { Sermons } from "../pages/Sermons";
-import { SermonDetail } from "../pages/SermonDetail";
-import { WatchLive } from "../pages/WatchLive";
-import { Events } from "../pages/Events";
-import { Testimonies } from "../pages/Testimonies";
-import { Giving } from "../pages/Giving";
-import { Prayer } from "../pages/Prayer";
-import { Contact } from "../pages/Contact";
-import { Visit } from "../pages/Visit";
-import { Devotional } from "../pages/Devotional";
-import { Ministries } from "../pages/Ministries";
-import { Library } from "../pages/Library";
 import { NotFound } from "../pages/NotFound";
+
+const About = React.lazy(() => import("../pages/About").then((m) => ({ default: m.About })));
+const Locations = React.lazy(() => import("../pages/Locations").then((m) => ({ default: m.Locations })));
+const Sermons = React.lazy(() => import("../pages/Sermons").then((m) => ({ default: m.Sermons })));
+const SermonDetail = React.lazy(() => import("../pages/SermonDetail").then((m) => ({ default: m.SermonDetail })));
+const WatchLive = React.lazy(() => import("../pages/WatchLive").then((m) => ({ default: m.WatchLive })));
+const Events = React.lazy(() => import("../pages/Events").then((m) => ({ default: m.Events })));
+const Testimonies = React.lazy(() => import("../pages/Testimonies").then((m) => ({ default: m.Testimonies })));
+const Giving = React.lazy(() => import("../pages/Giving").then((m) => ({ default: m.Giving })));
+const Prayer = React.lazy(() => import("../pages/Prayer").then((m) => ({ default: m.Prayer })));
+const Contact = React.lazy(() => import("../pages/Contact").then((m) => ({ default: m.Contact })));
+const Visit = React.lazy(() => import("../pages/Visit").then((m) => ({ default: m.Visit })));
+const Devotional = React.lazy(() => import("../pages/Devotional").then((m) => ({ default: m.Devotional })));
+const Ministries = React.lazy(() => import("../pages/Ministries").then((m) => ({ default: m.Ministries })));
+const Library = React.lazy(() => import("../pages/Library").then((m) => ({ default: m.Library })));
 
 export const ROUTES: { pattern: string; element: React.ReactNode }[] = [
   { pattern: "/", element: <Home /> },

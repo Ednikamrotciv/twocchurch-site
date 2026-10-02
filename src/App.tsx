@@ -13,9 +13,11 @@ import { nextService, onAir, churchTimezone } from "./lib/store";
 import { useNow } from "./lib/hooks";
 import { SERVICES } from "./data/site";
 import { resolvePath } from "./lib/routes";
-import { Admin, ADMIN_RETURN_MS, readAdminReturn } from "./pages/Admin";
+import { ADMIN_RETURN_MS, readAdminReturn } from "./lib/adminReturn";
 import { ct } from "./data/copy";
 import { SITE } from "./data/site";
+
+const Admin = React.lazy(() => import("./pages/Admin").then((m) => ({ default: m.Admin })));
 
 export function App() {
   const route = useRoute();
@@ -71,7 +73,12 @@ export function App() {
 
   // #/admin (and everything under it) is the very same site, with the office's
   // tools on top. See src/pages/Admin.tsx.
-  if (route.editing) return <Admin />;
+  if (route.editing)
+    return (
+      <React.Suspense fallback={null}>
+        <Admin />
+      </React.Suspense>
+    );
 
   return <SiteApp key={version} />;
 }
@@ -117,7 +124,9 @@ function SiteApp() {
       <Header />
       <AnnouncementBanner />
       <main id="main" key={to}>
-        <ErrorBoundary>{page}</ErrorBoundary>
+        <ErrorBoundary>
+          <React.Suspense fallback={null}>{page}</React.Suspense>
+        </ErrorBoundary>
       </main>
       <Footer />
       <ScrollTop />

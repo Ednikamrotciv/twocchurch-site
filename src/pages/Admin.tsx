@@ -48,6 +48,15 @@ import { COPY_ROLE_LABELS, copyDefault, copyIsEdited, copyIsLocked, copyIsParagr
 import { PHOTO_SLOTS, bundledPhoto, photoById, photoKeyOf, resolvePhoto } from "../data/photos";
 import { fireToast } from "../lib/hooks";
 import { useVisitorClock } from "../lib/visitor";
+import {
+  ADMIN_RETURN_MS,
+  clearAdminReturn,
+  isPanelMode,
+  readAdminReturn,
+  type AdminReturn,
+  type PanelMode,
+  type PanelView,
+} from "../lib/adminReturn";
 
 /* ------------------------------------------------------------------- shell */
 
@@ -56,55 +65,15 @@ import { useVisitorClock } from "../lib/visitor";
    tab *is*, not what it is called on screen — "edit" is the office's job list
    (labelled *Edit*) and "list" is every section (labelled *Update*); the labels
    themselves changed in SPEC note 53. */
-type PanelMode = "edit" | "list" | "status" | "tools";
-
-function isPanelMode(m: any): m is PanelMode {
-  return m === "edit" || m === "list" || m === "status" || m === "tools";
-}
-type PanelView =
-  | { kind: "home" }
-  | { kind: "unsaved" }
-  | { kind: "job"; jobId: string }
-  | { kind: "section"; sectionId: string; entryKey?: string; title: string };
 
 /* Leaving the admin to check the live site must not lose the office's place:
    the drawer (open or not, which tab, which section) is written down on exit
    and read back when they return — by hand or, after five minutes, by the
    site itself (see SiteApp in src/App.tsx). sessionStorage, so it never leaks
    into another tab or a later day. */
-const RETURN_KEY = "wom.cms.exitReturn";
-export const ADMIN_RETURN_MS = 5 * 60 * 1000;
 /* The exact admin page the office was last on — a bare #/admin visit comes
    back here (while fresh) instead of the admin home. */
 const LAST_PAGE_KEY = "wom.cms.lastAdminPage";
-
-type AdminReturn = { path: string; mode: PanelMode; view: PanelView; open: boolean; at: number };
-
-export function readAdminReturn(): AdminReturn | null {
-  try {
-    const raw = sessionStorage.getItem(RETURN_KEY);
-    if (!raw) return null;
-    const r = JSON.parse(raw);
-    if (!r || typeof r.path !== "string" || !r.path.startsWith("/")) return null;
-    if (!isPanelMode(r.mode)) return null;
-    if (typeof r.open !== "boolean") return null;
-    const v = r.view;
-    if (!v || typeof v.kind !== "string") return null;
-    if (v.kind !== "home" && v.kind !== "unsaved" && v.kind !== "job" && v.kind !== "section") return null;
-    if (v.kind === "job" && typeof v.jobId !== "string") return null;
-    if (v.kind === "section" && (typeof v.sectionId !== "string" || typeof v.title !== "string")) return null;
-    if (v.kind === "section" && v.entryKey !== undefined && typeof v.entryKey !== "string") return null;
-    return { path: r.path, mode: r.mode, view: v as PanelView, open: r.open, at: typeof r.at === "number" ? r.at : 0 };
-  } catch {
-    return null;
-  }
-}
-
-export function clearAdminReturn() {
-  try {
-    sessionStorage.removeItem(RETURN_KEY);
-  } catch {}
-}
 
 /* The drawer's open sections and open record survive the drawer unmounting
    (closed, or the trip to the live site) so coming back lands on the exact

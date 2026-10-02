@@ -5,44 +5,42 @@ Extract the zip, then double-click **start.bat** (Windows) or run `sh start.sh`
 (the admin console is at http://localhost:5173/admin). No `npm install`
 needed: the server and the admin backend run on plain Node.js.
 
-`npm install` is only for two extras: automatic rebuilding while you edit
-files under `src/` (`npm run dev` watches and rebuilds), and the typecheck
+To put the site on the internet (Vercel, Netlify, …), see **DEPLOY.md** —
+`npm run vite` is a development server and cannot be deployed itself.
+
+`npm install` is only for the Vite extras: instant refresh while you edit
+(`npm run dev` runs Vite with Hot Module Reload), the static deploy build
+(`npm run vite-build`, see DEPLOY.md), and the typecheck
 (`npm run typecheck`).
 
-What `npm run dev` starts (all in `scripts/`, no extra packages):
+What `npm run dev` starts: Vite on http://localhost:5173/ (admin at /admin),
+serving `src/main.tsx` directly — edits apply in the browser the moment you
+save — with the site's own publishing backend wired in
+(`scripts/cms-local.mjs`, the exact server code from index.html), so Publish,
+sign-in, recent services and the live badge all behave exactly like the
+preview. Published content is stored in `data/cms-state.bin`
+(created on first publish; keep that file to keep your content).
+`scripts/local-shim.js` connects the site to that backend. It only loads
+here, never on the live Perchance site.
 
-- a static file server for the site itself;
-- the **admin publishing backend**: `scripts/cms-local.mjs` runs the site's
-  own publishing code (the `<script type="text/x-server-plugin">` block in
-  `index.html`) in Node, byte for byte — same passwords, same admin accounts,
-  same publish log. Published content is stored in `data/cms-state.bin`
-  (created on first publish; keep that file to keep your content).
-- `scripts/local-shim.js` connects the site to that backend. It only loads
-  here, never on the live Perchance site.
-
-`npm run build` rebuilds `src/app.js` + `src/app.css` after editing anything
-under `src/` (needs internet once, to fetch the React libraries).
-`npm run dev` already rebuilds on every save, so you only need this if the
-watcher is off.
-
-## The Vite option (VS Code)
-
-Prefer editing with instant refresh? Run the site with Vite instead:
-
-```
-npm install   (once — downloads React, Vite and the site's libraries)
-npm run vite  (opens http://localhost:5173/, admin at /admin)
-```
-
-It is the same site and the same backend — `vite.config.mjs` serves
-`src/main.tsx` directly (edits apply in the browser the moment you save, no
-rebuild step) and wires in the admin publishing backend, the YouTube proxy and
-the photo files, so Publish, sign-in, recent services and the live badge all
-work exactly like the preview. Published content is still stored in
-`data/cms-state.bin`, shared with `npm run dev` — switch between the two
-freely. (If you edit the publishing rules themselves, the
+Prefer zero setup? `npm run serve` (or double-click **start.bat** / `sh
+start.sh`) runs the same site on the plain-Node server in `scripts/`
+instead — no install at all. Both servers share `data/cms-state.bin`, so
+switch between them freely. (If you edit the publishing rules themselves, the
 `<script type="text/x-server-plugin">` block in `index.html`, restart Vite so
 it picks them up.)
+
+`npm run build` rebuilds `src/bundle.js` + `src/bundle.css` after editing anything
+under `src/` (needs internet once, to fetch the React libraries).
+`npm run serve` already rebuilds on every save, so you only need this if the
+watcher is off.
+
+## The stuck splash screen
+
+The very first `npm run dev` start bundles the big libraries once (this can
+take up to a minute in the terminal) — after that, page loads are fast. If
+the logo screen still sits there after ~20 seconds, it will now say why (the
+error is also in the browser console — press `F12`).
 
 The extract you run is always the only state: the server prints a `[code …]`
 fingerprint on boot, and any new code retires only the undo history

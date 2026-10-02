@@ -1,4 +1,4 @@
-import { readFile, writeFile, mkdir, stat } from "node:fs/promises";
+import { readFile, writeFile, mkdir, stat, unlink, readdir } from "node:fs/promises";
 import path from "node:path";
 
 const CDN = "https://esm.sh";
@@ -138,6 +138,7 @@ export async function buildSite() {
   const result = await esbuild.build({
     entryPoints: ["src/main.tsx"],
     bundle: true,
+    splitting: true,
     write: false,
     format: "esm",
     target: ["es2020"],
@@ -147,7 +148,8 @@ export async function buildSite() {
     legalComments: "none",
     define: { "process.env.NODE_ENV": '"production"' },
     outdir: "src",
-    entryNames: "app",
+    entryNames: "bundle",
+    chunkNames: "chunks/chunk-[hash]",
     assetNames: "assets/[name]",
     logLevel: "warning",
     plugins: [plugin],
@@ -155,9 +157,26 @@ export async function buildSite() {
 
   const written = [];
   for (const file of result.outputFiles) {
+    await mkdir(path.dirname(file.path), { recursive: true });
     await writeFile(file.path, file.contents);
-    written.push({ path: file.path, bytes: file.contents.length });
+    written.push({ path: path.relative(process.cwd(), file.path), bytes: file.contents.length });
   }
+  for (const stale of ["src/app.js", "src/app.css"]) {
+    try {
+      await unlink(stale);
+    } catch { /* already gone */ }
+  }
+  try {
+    const keep = new Set(written.map((f) => f.path));
+    const dir = await readdir("src/chunks").catch(() => []);
+    for (const name of dir) {
+      if (/^chunk-.*\.js$/.test(name) && !keep.has("src/chunks/" + name)) {
+        try {
+          await unlink("src/chunks/" + name);
+        } catch { /* already gone */ }
+      }
+    }
+  } catch { /* best-effort */ }
   await esbuild.stop();
   return written;
 }

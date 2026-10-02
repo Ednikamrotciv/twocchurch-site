@@ -17,7 +17,7 @@
 
 | # | Requirement | Implementation |
 | --- | --- | --- |
-| 1 | React + TypeScript | `src/**/*.tsx`, bundled by `src/tools/build.mjs` (esbuild-wasm) into `src/app.js` |
+| 1 | React + TypeScript | `src/**/*.tsx`, bundled by `src/tools/build.mjs` (esbuild-wasm) into `src/bundle.js` |
 | 2 | About page | `src/pages/About.tsx` — mission, vision, anchor verse, 8 convictions, story timeline, 8 beliefs, leadership bios, FAQs, global stats |
 | 3 | Giving page | `src/pages/Giving.tsx` — six preset amounts, 6 funds, two ways to give (bank transfer, in person), an *Account details* tab with only the Lagos account, allocation breakdown, giving FAQs (also served at `#/give` and `#/donate`) |
 | 4 | Locations page | `src/pages/Locations.tsx` — 7 branches, region filter + search, geolocation distance sorting, OpenStreetMap embed, weekly rhythm, languages, **Get directions** button per branch |

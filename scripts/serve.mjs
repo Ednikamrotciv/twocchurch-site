@@ -1,5 +1,5 @@
 import http from "node:http";
-import { readFile, stat, mkdir, writeFile } from "node:fs/promises";
+import { readFile, stat, mkdir, writeFile, unlink } from "node:fs/promises";
 import { watch } from "node:fs";
 import { gzipSync } from "node:zlib";
 import path from "node:path";
@@ -8,7 +8,7 @@ import { createGeoProxy } from "./geo-proxy.mjs";
 
 const ROOT = process.cwd();
 const PORT = Number(process.env.PORT || 5173);
-const APP_TAG = '<script type="module" src="src/app.js"></script>';
+const APP_TAG = '<script type="module" src="src/bundle.js"></script>';
 const SHIM_TAG = '<script src="/scripts/local-shim.js"></script>';
 const RELOAD_TAG = '<script src="/scripts/local-reload.js"></script>';
 const INJECT = SHIM_TAG + "\n" + RELOAD_TAG + "\n" + APP_TAG;
@@ -19,14 +19,22 @@ const INJECT = SHIM_TAG + "\n" + RELOAD_TAG + "\n" + APP_TAG;
 let SITE_VERSION = "dev";
 try {
   const stamp = await readFile(path.join(ROOT, "index.html"), "utf8");
-  const js = await readFile(path.join(ROOT, "src", "app.js"), "utf8");
-  const css = await readFile(path.join(ROOT, "src", "app.css"), "utf8");
+  const js = await readFile(path.join(ROOT, "src", "bundle.js"), "utf8");
+  const css = await readFile(path.join(ROOT, "src", "bundle.css"), "utf8");
   let seedHead = "";
   try {
     seedHead = (await readFile(path.join(ROOT, "data", "cms-state.bin"))).subarray(0, 4096).toString("latin1");
   } catch { /* no seed ships — version ignores it */ }
   SITE_VERSION = hashText(stamp + "#" + js.length + "#" + js.slice(0, 4096) + "#" + css.length + "#" + seedHead.length + "#" + seedHead);
 } catch { /* version stays a constant; nothing else changes */ }
+try {
+  await stat(path.join(ROOT, "src", "bundle.js"));
+  for (const stale of ["app.js", "app.css"]) {
+    try {
+      await unlink(path.join(ROOT, "src", stale));
+    } catch { /* already gone */ }
+  }
+} catch { /* no bundle yet — nothing to clean */ }
 console.log(`running ${ROOT}  [code ${SITE_VERSION}]`);
 
 /* Browsers listening here get a `reload` nudge after every rebuild, so the
@@ -79,7 +87,7 @@ if (buildSite) {
   try {
     watch(path.join(ROOT, "src"), { recursive: true }, (_event, name) => {
       const n = String(name || "").replace(/\\/g, "/");
-      if (/(^|\/)app\.(js|css)$/.test(n)) return;
+      if (/(^|\/)bundle\.(js|css)$/.test(n)) return;
       if (!/\.(tsx|ts|jsx|js|mjs|css|json)$/.test(n)) return;
       clearTimeout(timer);
       timer = setTimeout(() => run(), 400);
