@@ -94,7 +94,7 @@ if (buildSite) {
     });
     console.log("watching src/ — saving a file rebuilds the site automatically");
   } catch {
-    console.log("file watching is unavailable here — run `npm run build` by hand after edits");
+    console.log("file watching is unavailable here — run `npm run build:bundle` by hand after edits");
   }
 }
 

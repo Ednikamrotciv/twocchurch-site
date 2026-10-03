@@ -10,7 +10,8 @@
     "serve": "node scripts/serve.mjs",
     "vite": "vite",
     "vite-build": "vite build",
-    "build": "node scripts/build.mjs && vite build",
+    "build": "vite build",
+    "build:bundle": "node scripts/build.mjs",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {

@@ -30,8 +30,8 @@ switch between them freely. (If you edit the publishing rules themselves, the
 `<script type="text/x-server-plugin">` block in `index.html`, restart Vite so
 it picks them up.)
 
-`npm run build` rebuilds `src/bundle.js` + `src/bundle.css` and the deployable
-`dist/` folder after editing anything
+`npm run build:bundle` rebuilds the preview's `src/bundle.js` + `src/bundle.css`
+after editing anything
 under `src/` (needs internet once, to fetch the React libraries).
 `npm run serve` already rebuilds on every save, so you only need this if the
 watcher is off.
