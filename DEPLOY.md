@@ -20,12 +20,17 @@ npm install   (once)
 npm run build
 ```
 
-This writes the whole site into `dist/` (pages, photos, styles, plus a
-`seed.json` with everything the office has published from the admin console
-so far). Upload the *contents* of `dist/` to any static host — Netlify,
+This assembles the whole site into `dist/` — the working pages, photos,
+styles, uploaded files, plus `seed.json` with everything the office has
+published from the admin console so far. It needs nothing but Node itself
+(no downloads, no bundler), so it cannot fail on the host. Upload the
+*contents* of `dist/` to any static host — Netlify,
 Cloudflare Pages, GitHub Pages, cPanel, an S3 bucket, anywhere
 that serves files. No server and no settings needed: the pages use `#`
-addresses (`/#/sermons`), so there is nothing to configure.
+addresses (`/#/sermons`), so there is nothing to configure. (After editing
+anything under `src/`, run `npm run build:bundle` first so the shipped
+bundle is fresh; `npm run vite-build` does a from-source production build
+instead, for those who want it.)
 
 ## The update routine
 

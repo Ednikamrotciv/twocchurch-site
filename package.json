@@ -10,7 +10,7 @@
     "serve": "node scripts/serve.mjs",
     "vite": "vite",
     "vite-build": "node node_modules/vite/bin/vite.js build",
-    "build": "node node_modules/vite/bin/vite.js build",
+    "build": "node scripts/build-static.mjs",
     "prebuild": "node scripts/fix-perms.mjs",
     "build:bundle": "node scripts/build.mjs",
     "typecheck": "tsc --noEmit"
