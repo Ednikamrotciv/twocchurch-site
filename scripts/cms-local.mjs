@@ -1,6 +1,9 @@
 import vm from "node:vm";
 import { readFile, writeFile, mkdir } from "node:fs/promises";
 import path from "node:path";
+import { createHash } from "node:crypto";
+import { recordSeen } from "./backup-data.mjs";
+import { notePublished } from "./auto-push.mjs";
 
 const STATE_SIZE = 8 * 1024 * 1024;
 
@@ -105,6 +108,17 @@ export async function createCmsHost(rootDir) {
       saving = true;
       try {
         await writeFile(statePath, state);
+        /* Fingerprint every store this folder's own server writes, so the
+           boot guard can tell our bytes from a zip's (see backup-data.mjs). */
+        try {
+          const sum = createHash("sha256").update(state).digest("hex").slice(0, 16);
+          await recordSeen(rootDir, sum);
+        } catch { /* fingerprinting never breaks a save */ }
+        /* The new words deploy themselves a couple of minutes later
+           (see auto-push.mjs) — never blocks or breaks the save. */
+        try {
+          notePublished(rootDir);
+        } catch { /* auto-deploy never breaks a save */ }
       } catch (err) {
         console.error("cms backend: could not save state:", err?.message || err);
       }

@@ -143,9 +143,11 @@ export const VISITOR_KEY = KEYS.visitor;
  * The shape of answer the lookup gives. Bumped when it starts carrying
  * something new, so a clock cached by an older version of the site is looked up
  * again rather than used as it is — the country and currency joined the time
- * zone afterwards (SPEC note 98).
+ * zone afterwards (SPEC note 98), and v4 re-resolves every cached answer
+ * through the time-zone country table, retiring answers the old browser
+ * -language fallback had guessed wrong.
  */
-export const VISITOR_CLOCK_V = 3;
+export const VISITOR_CLOCK_V = 4;
 
 export function normalizeVisitorClock(raw: any): VisitorClock | null {
   if (!raw || typeof raw !== "object") return null;

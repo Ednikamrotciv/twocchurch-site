@@ -29,7 +29,7 @@
    a currency with the generated table in src/data/currencies.ts when the
    service does not name one itself. If every IP service is unreachable — no
    network, a blocker, a service outage — the visitor's *device* is asked
-   instead (its time zone, and the region its language is set to), and failing
+   instead (its clock's country first, its language region second), and failing
    even that the site stays on the church's clock and the church's currency,
    which is where it was before any of this existed.
 
@@ -53,6 +53,7 @@ import {
   setVisitorClock,
   type VisitorClock,
 } from "./store";
+import { countryOfTimezone } from "../data/currencies";
 
 /** How long a found clock is trusted before it is looked up again. */
 const FRESH_MS = 12 * 60 * 60 * 1000;
@@ -73,13 +74,16 @@ const str = (v: unknown) => (typeof v === "string" ? v.trim() : "");
  */
 const PROBES: Probe[] = [
   {
-    /* Richest answer: zone, city, country *and* currency, in one call. */
-    url: "https://ipapi.co/json/",
-    read: (json) => ({ tz: str(json?.timezone), place: str(json?.city), country: str(json?.country_code), currency: str(json?.currency) }),
-  },
-  {
+    /* Asked first: generous keyless limits and rarely blocked, city included.
+       No currency in the answer — the country table covers that. */
     url: "https://get.geojs.io/v1/ip/geo.json",
     read: (json) => ({ tz: str(json?.timezone), place: str(json?.city), country: str(json?.country_code), currency: "" }),
+  },
+  {
+    /* Richest answer: zone, city, country *and* currency, in one call — but it
+       sits on blocklists and rate-limits hard, so it is the backup, not the lead. */
+    url: "https://ipapi.co/json/",
+    read: (json) => ({ tz: str(json?.timezone), place: str(json?.city), country: str(json?.country_code), currency: str(json?.currency) }),
   },
   {
     /* `country` here is already the two-letter code. */
@@ -156,12 +160,16 @@ function deviceZone(): string {
 }
 
 /**
- * The country the *device* is set to — the region of the browser's own language
- * ("en-NG" → "NG") — used only for the currency when the IP services cannot
- * answer. A region-less language ("en") tells us nothing, so the currency stays
- * unknown rather than being guessed from the clock.
+ * The country the *device* is set to — first the region its clock lives in
+ * ("Africa/Lagos" → "NG"), which follows the visitor even when their browser
+ * language does not (an "en-US" browser in Lagos is still in Nigeria); then,
+ * for a zone the table has never heard of, the region of the browser's own
+ * language ("en-NG" → "NG"). A region-less language ("en") tells us nothing,
+ * so the currency stays unknown rather than being guessed from the clock.
  */
-function deviceCountry(): string {
+function deviceCountry(tz: string): string {
+  const fromZone = countryOfTimezone(tz);
+  if (fromZone) return fromZone;
   try {
     const tags = [navigator.language, ...(navigator.languages || [])];
     for (const tag of tags) {
@@ -193,7 +201,7 @@ function ipClock(answer: Answer): VisitorClock {
 function deviceClock(): VisitorClock | null {
   const tz = deviceZone();
   if (!tz) return null;
-  const country = deviceCountry();
+  const country = deviceCountry(tz);
   return { tz, place: "", country, currency: currencyOfCountry(country), source: "device", v: VISITOR_CLOCK_V, at: Date.now() };
 }
 

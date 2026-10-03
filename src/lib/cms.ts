@@ -24,6 +24,8 @@ import { purgeExpiredSlides } from "../data/slides";
 import { purgeExpiredAnnouncements } from "../data/announcements";
 import { fmtDate } from "./store";
 import { fireToast } from "./hooks";
+import { createRemoteSocket, initServerUrl, serverUrl } from "./remoteserver";
+import { bakedFeedSpec, fetchLiveSeed, type FeedSpec } from "./livefeed";
 
 export type Snapshot = Record<string, any>;
 export type CmsStatus = "connecting" | "online" | "offline" | "local";
@@ -878,12 +880,77 @@ function socketFactory(): (() => any) | null {
   const r = w.root;
   if (r && typeof r.createServerSocket === "function") return () => r.createServerSocket();
   if (typeof w.createServerSocket === "function") return () => w.createServerSocket();
+  /* A deployed copy pointed at the office server (baked in at deploy time or
+     typed into the admin console): the same shared store, over plain HTTPS. */
+  const remote = serverUrl();
+  if (remote) return () => createRemoteSocket(remote);
   return null;
+}
+
+/* The baked snapshot, painted once — the instant words behind every first
+   paint, and the standing words whenever no server can be reached. */
+let seedApplied = false;
+async function applySeedOnce() {
+  if (seedApplied) return;
+  seedApplied = true;
+  try {
+    const res = await fetch("seed.json", { cache: "no-store" });
+    if (res.ok) {
+      const seed = await res.json();
+      if (seed && seed.sections && typeof seed.sections === "object" && Object.keys(seed.sections).length) {
+        rev = typeof seed.rev === "number" ? seed.rev : 0;
+        applyOverrides(seed.sections);
+      }
+    }
+  } catch {
+    /* no baked seed (the live site, local runs) — the defaults stand */
+  }
+}
+
+/* The live feed: the office's published words, read straight off the public
+   repo. Standalone copies (no socket anywhere) poll it a few minutes apart
+   and whenever the tab comes back, painting whatever is newer — the site goes
+   dynamic with no rebuild, no redeploy and no server. A live socket always
+   wins: while one is online the feed stays quiet. Anything fails and the
+   baked words stand; nothing here can publish, so there is nothing to abuse. */
+let feedSpec: FeedSpec | null | undefined;
+let feedSyncing = false;
+async function syncFromFeed() {
+  if (feedSyncing) return;
+  if (typeof socket !== "undefined" && socket && status === "online") return;
+  feedSyncing = true;
+  try {
+    if (feedSpec === undefined) feedSpec = await bakedFeedSpec();
+    if (!feedSpec) return;
+    const seed = await fetchLiveSeed(feedSpec, rev);
+    if (!seed) return;
+    rev = seed.rev;
+    applyOverrides(seed.sections as Snapshot);
+    writeJSON(CACHE_KEY, { rev, overrides });
+  } catch {
+    /* the feed stays a best effort */
+  } finally {
+    feedSyncing = false;
+  }
+}
+let feedStarted = false;
+function startFeed() {
+  if (feedStarted) return;
+  feedStarted = true;
+  syncFromFeed().catch(() => {});
+  window.setInterval(() => syncFromFeed().catch(() => {}), 5 * 60 * 1000);
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "visible") syncFromFeed().catch(() => {});
+  });
+  window.addEventListener("online", () => syncFromFeed().catch(() => {}));
 }
 
 export async function startCms() {
   if (starting) return;
   starting = true;
+  /* Which shared store, if any: the platform's, the local one, or the office
+     server this copy was pointed at (deploy config or admin console). */
+  await initServerUrl().catch(() => {});
 
   /* 1. A draft and an undo history left behind by the admin survive a reload.
      This comes FIRST, before anything is applied or persisted: the drawer has
@@ -905,22 +972,10 @@ export async function startCms() {
      re-check on the half minute so the row clears by itself. Only notifies when
      something actually lapsed. */
   window.setInterval(() => dropLapsedSlides(true), 30000);
-  // 2. Instant paint from the local cache (or the shipped defaults). Any section
-  //    the office has edited is `dirty` and is kept exactly as they left it.
-  if (!socketFactory()) {
-    try {
-      const res = await fetch("seed.json", { cache: "no-store" });
-      if (res.ok) {
-        const seed = await res.json();
-        if (seed && seed.sections && typeof seed.sections === "object" && Object.keys(seed.sections).length) {
-          rev = typeof seed.rev === "number" ? seed.rev : 0;
-          applyOverrides(seed.sections);
-        }
-      }
-    } catch {
-      /* no baked seed (the live site, local runs) — the defaults stand */
-    }
-  }
+  // 2. Instant paint from the baked snapshot (or the shipped defaults). Any
+  //    section the office has edited is `dirty` and is kept exactly as they
+  //    left it. The live server, when there is one, syncs over this below.
+  await applySeedOnce();
   const cached = readJSON<{ rev?: number; overrides?: Snapshot } | null>(CACHE_KEY, null);
   if (cached?.overrides) {
     rev = cached.rev || 0;
@@ -940,6 +995,8 @@ export async function startCms() {
     status = "local";
     localOnly = true;
     notify();
+    /* No socket anywhere: the live feed keeps this copy fresh instead. */
+    startFeed();
     return;
   }
   /* A publish nudge (SSE) can be missed while a tab sleeps — so a tab that
@@ -1048,10 +1105,12 @@ function onClose(event: any) {
     status = "local";
     localOnly = true;
     notify();
+    startFeed();
     return;
   }
   status = "offline";
   notify();
+  startFeed();
   scheduleReconnect();
 }
 

@@ -5,6 +5,7 @@ import { gzipSync } from "node:zlib";
 import path from "node:path";
 import { createCmsHost, hashText } from "./cms-local.mjs";
 import { createGeoProxy } from "./geo-proxy.mjs";
+import { guardAtBoot } from "./backup-data.mjs";
 
 const ROOT = process.cwd();
 const PORT = Number(process.env.PORT || 5173);
@@ -50,7 +51,17 @@ function broadcastReload() {
   }
 }
 
-const cms = await createCmsHost(ROOT);
+const cms = await (async () => {
+  /* Snapshot the published words first (a zip extract cannot touch the
+     timestamped backup names), and recover the newest snapshot if the live
+     store is missing — e.g. a fresh extract landed over the folder. */
+  try {
+    await guardAtBoot(ROOT);
+  } catch (err) {
+    console.warn("content backup skipped:", err?.message || err);
+  }
+  return createCmsHost(ROOT);
+})();
 const geoProxy = createGeoProxy();
 
 /* The browser runs the built bundle, not the sources — so saving anything
@@ -166,6 +177,18 @@ const server = http.createServer(async (req, res) => {
   try {
     const url = new URL(req.url || "/", "http://localhost");
     const pathname = url.pathname;
+
+    /* The office server doubles as the deployed site's backend: browsers from
+       anywhere may read it (the published content is public; writes take the
+       admin password and stay rate-limited as always). */
+    res.setHeader("Access-Control-Allow-Origin", "*");
+    res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+    res.setHeader("Access-Control-Allow-Headers", "content-type");
+    if (req.method === "OPTIONS") {
+      res.writeHead(204);
+      res.end();
+      return;
+    }
 
     if (pathname === "/scripts/local-shim.js" && req.method === "GET") {
       const shim = await readFile(path.join(ROOT, "scripts", "local-shim.js"), "utf8");

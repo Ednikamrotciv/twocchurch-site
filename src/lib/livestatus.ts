@@ -237,18 +237,39 @@ function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
 /** The channel page's HTML: the local dev server proxies it (scripts/serve.mjs
     /__yt — YouTube sends no CORS headers, so a plain fetch is refused and the
     superFetch plugin only exists on the live site), else through perchance's
-    proxy. Null when unreachable. */
+    proxy, else through a public CORS proxy so static deployments (which have
+    neither) still read the channel. Null when unreachable. */
 async function fetchPage(url: string): Promise<string | null> {
   const local = await fetchPageLocal(url);
   if (local) return local;
   const proxy = (window as any).root?.superFetch;
-  if (typeof proxy !== "function") return null; // the plugin has not loaded yet
+  if (typeof proxy === "function") {
+    try {
+      const res = await withTimeout(proxy(url) as Promise<Response>, CHECK_TIMEOUT_MS);
+      if (res && res.ok !== false) {
+        const text = await res.text();
+        if (typeof text === "string" && text.length > 0) return text;
+      }
+    } catch (err) {
+      /* fall through to the public proxy */
+    }
+  }
+  return fetchPageRemote(url);
+}
+
+/* Last resort for hosts with no same-origin proxy: a free public CORS proxy.
+   Only reached when both local and perchance doors are absent, and a miss
+   degrades exactly as before (unknown, quiet). */
+async function fetchPageRemote(url: string): Promise<string | null> {
   try {
-    const res = await withTimeout(proxy(url) as Promise<Response>, CHECK_TIMEOUT_MS);
-    if (!res || res.ok === false) return null;
+    const res = await withTimeout(
+      fetch(`https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`, { cache: "no-store" }),
+      CHECK_TIMEOUT_MS
+    );
+    if (!res || !res.ok) return null;
     const text = await res.text();
     return typeof text === "string" && text.length > 0 ? text : null;
-  } catch (err) {
+  } catch {
     return null;
   }
 }

@@ -29,6 +29,7 @@ import {
 import { PageHead } from "../components/layout";
 import { SearchBox, eventDate } from "../components/blocks";
 import { fireToast, useNow } from "../lib/hooks";
+import { normalizeServerUrl, serverOverride, serverUrl, setServerOverride } from "../lib/remoteserver";
 import { readLiveStatus } from "../lib/livestatus";
 import { SITE, SERVICES, img } from "../data/site";
 import { recentLimit } from "../data/live";
@@ -534,7 +535,64 @@ export function LoginGate({ onLocal, onExit, onDone }: { onLocal: () => void; on
             </button>
           </Notice>
         )}
+        <OfficeServerLink />
       </Card>
+    </div>
+  );
+}
+
+/* Point this copy at the office's own server (an always-on computer running
+   the site), so sign-in, publishing and uploads work here exactly like they
+   do locally — one shared store behind every copy of the site. Empty means
+   this copy stands alone. Takes effect on save (the page reloads). */
+function OfficeServerLink() {
+  const [draft, setDraft] = useState(() => serverOverride());
+  const current = serverUrl() || serverOverride();
+  const clean = normalizeServerUrl(draft);
+  return (
+    <div className="muted" style={{ marginTop: "1rem" }}>
+      <Field
+        label="Office server"
+        hint={
+          current
+            ? `This copy shares its content through ${current}.`
+            : "No shared server — this copy stands alone. Paste the office address to join it."
+        }
+      >
+        <Input
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          placeholder="https://office.example.com"
+          inputMode="url"
+          autoComplete="url"
+          aria-label="Office server address"
+        />
+      </Field>
+      <div className="btn-row">
+        <Btn
+          size="sm"
+          disabled={!clean || clean === current}
+          onClick={() => {
+            setServerOverride(draft);
+            window.location.reload();
+          }}
+        >
+          Connect
+        </Btn>
+        {current && (
+          <Btn
+            size="sm"
+            variant="ghost"
+            onClick={() => {
+              setServerOverride("");
+              setDraft("");
+              window.location.reload();
+            }}
+          >
+            Disconnect
+          </Btn>
+        )}
+      </div>
     </div>
   );
 }
@@ -1196,29 +1254,31 @@ export function CurrentEventPanel({ onOpen }: { onOpen: (id: string, entryKey?: 
 
 /* --------------------------------------------------------------- field types */
 
-/* Where an upload goes on a local run (VS Code). Perchance's upload service
-   only exists on the live site — locally the dev server keeps the file on the
-   office's own disk instead (POST /__upload, served back from data/uploads/),
-   so photos and videos work there exactly like the live site. */
+/* Where an upload goes when no upload plugin exists (local runs, or a copy
+   pointed at the office server): the backend keeps the file itself (POST
+   /__upload, served back from data/uploads/). Same-origin locally, absolute
+   back at the office server so the address stays good everywhere. */
 async function localHostFile(blob: Blob, filename: string): Promise<string> {
-  const res = await fetch(`/__upload?name=${encodeURIComponent(filename)}`, {
+  const base = serverUrl();
+  const res = await fetch(`${base}/__upload?name=${encodeURIComponent(filename)}`, {
     method: "POST",
     headers: { "content-type": blob.type || "application/octet-stream" },
     body: blob,
   });
-  if (!res.ok) throw new Error("The file could not be saved on this computer. Try a smaller file, or paste a link instead.");
+  if (!res.ok) throw new Error("The file could not be saved. Try a smaller file, or paste a link instead.");
   const data = await res.json().catch(() => null);
   if (!data || typeof data.url !== "string" || !data.url)
-    throw new Error("The file could not be saved on this computer. Try again, or paste a link instead.");
-  return data.url;
+    throw new Error("The file could not be saved. Try again, or paste a link instead.");
+  return base ? base + data.url : data.url;
 }
 
-/** True on a local run whose backend keeps uploads itself (no plugin to wait for). */
+/** True where the backend keeps uploads itself: local runs, or a copy pointed
+   at the office server (no plugin to wait for either way). */
 function useLocalUploadHost(): boolean {
-  if (typeof (window as any).root?.uploadPlugin === "function") return false;
+  if (typeof (window as any).root?.uploadPlugin === "function" && !serverUrl()) return false;
   try {
     const host = window.location?.hostname || "";
-    return host === "localhost" || host === "127.0.0.1" || host === "";
+    return host === "localhost" || host === "127.0.0.1" || host === "" || serverUrl() !== "";
   } catch {
     return false;
   }

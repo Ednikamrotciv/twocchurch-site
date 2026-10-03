@@ -102,6 +102,17 @@ function cmsBackend() {
           const url = new URL(req.url || "/", "http://localhost");
           const pathname = url.pathname;
 
+          /* Same open door as scripts/serve.mjs: this backend also serves
+             deployed copies pointed at it (see src/lib/remoteserver.ts). */
+          res.setHeader("Access-Control-Allow-Origin", "*");
+          res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+          res.setHeader("Access-Control-Allow-Headers", "content-type");
+          if (req.method === "OPTIONS") {
+            res.writeHead(204);
+            res.end();
+            return;
+          }
+
           /* Bundled photos are plain string URLs (src/data/photos.ts), never
              imports — Vite would 404 them, so serve them from disk here. */
           if (pathname.startsWith("/src/assets/") && req.method === "GET") {

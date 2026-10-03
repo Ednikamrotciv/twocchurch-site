@@ -47,7 +47,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import Swiper from "swiper";
 import { Autoplay, EffectCreative } from "swiper/modules";
 import { motion } from "framer-motion";
-import { Link } from "../lib/router";
+import { Link, isPathMode, refreshRoute } from "../lib/router";
 import { Icon } from "./ui";
 import { photoOr } from "../data/photos";
 import { useCmsVersion } from "../lib/cms";
@@ -450,12 +450,20 @@ function leaveDesignPreview() {
     text.replace(/[?&]slides=all(&|$)/g, (_m, tail) => (tail ? "?" : "")).replace(/[?&]$/, "") || empty;
   try {
     if (/[?&]slides=all(&|$)/.test(window.location.hash)) {
-      window.location.hash = strip(window.location.hash, "#/");
+      if (isPathMode()) {
+        const rest = strip(window.location.hash, "");
+        const url = window.location.pathname + window.location.search + (rest && rest !== "#" ? rest : "");
+        window.history.replaceState(null, "", url);
+        refreshRoute();
+      } else {
+        window.location.hash = strip(window.location.hash, "#/");
+      }
     } else {
       window.location.search = strip(window.location.search, "");
     }
   } catch {
-    window.location.hash = "#/";
+    if (isPathMode()) window.history.replaceState(null, "", "/");
+    else window.location.hash = "#/";
   }
 }
 

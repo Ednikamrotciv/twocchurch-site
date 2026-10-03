@@ -4,7 +4,7 @@ export type RouteState = {
   path: string;
   query: URLSearchParams;
   hash: string;
-  /** True when the URL is under #/admin — the site with the office's tools on. */
+  /** True when the URL is under /admin (or #/admin on perchance.org) — the site with the office's tools on. */
   editing: boolean;
   /** The address said "admin" somewhere other than the front ("…/ministries/admin"). */
   movedAdmin: boolean;
@@ -13,19 +13,45 @@ export type RouteState = {
 /** Every admin URL lives under this prefix; the site's own routes follow it. */
 export const ADMIN_PREFIX = "/admin";
 
+/* Clean path addresses everywhere except inside the Perchance frame, where
+   the platform owns the path and the hash stays the route. So /admin and
+   /sermons on the deployed site, #/admin and #/sermons on perchance.org —
+   same pages, same code, whichever the address bar says. */
+export function isPathMode(): boolean {
+  try {
+    return typeof window !== "undefined" && !(window as any).generatorName;
+  } catch {
+    return true;
+  }
+}
+
 const listeners = new Set<() => void>();
+
+/* Old hash bookmarks opened off Perchance (…/#/sermons) become the same
+   clean address once, before the first route is read. */
+if (typeof window !== "undefined" && isPathMode()) {
+  try {
+    const h = window.location.hash || "";
+    if (/^#\//.test(h)) window.history.replaceState(null, "", h.slice(1) || "/");
+  } catch { /* the address stands as-is */ }
+}
 let current: RouteState = readLocation();
 
 function readLocation(): RouteState {
-  let raw = window.location.hash || "";
-  if (raw.startsWith("#")) raw = raw.slice(1);
-  /* Standalone hosts (npm run dev, or any export off perchance.org where the
-     generator name is absent): the real path names the route, so /admin opens
-     the console without a hash. On perchance.org the path is the generator
-     name and the hash stays the route. */
-  if (!raw && !(window as any).generatorName) {
-    const pn = window.location.pathname || "";
-    if (pn && pn !== "/") raw = pn + (window.location.search || "");
+  let raw: string;
+  if (isPathMode()) {
+    raw = (window.location.pathname || "") + (window.location.search || "");
+  } else {
+    raw = window.location.hash || "";
+    if (raw.startsWith("#")) raw = raw.slice(1);
+    /* Standalone hosts (npm run dev, or any export off perchance.org where the
+       generator name is absent): the real path names the route, so /admin opens
+       the console without a hash. On perchance.org the path is the generator
+       name and the hash stays the route. */
+    if (!raw && !(window as any).generatorName) {
+      const pn = window.location.pathname || "";
+      if (pn && pn !== "/") raw = pn + (window.location.search || "");
+    }
   }
   // The perchance editor appends non-path hashes (e.g. "#edit"); anything that
   // is not an app route is treated as the home page.
@@ -69,6 +95,11 @@ export function getRoute(): RouteState {
   return current;
 }
 
+/** Re-read the address (for callers that change it without navigate). */
+export function refreshRoute() {
+  emit();
+}
+
 export function buildUrl(
   to: string,
   query?: Record<string, string | number | undefined>,
@@ -86,7 +117,8 @@ export function buildUrl(
     });
   }
   const qs = params.toString();
-  return "#" + path + (qs ? "?" + qs : "");
+  const url = path + (qs ? "?" + qs : "");
+  return isPathMode() ? url : "#" + url;
 }
 
 export function navigate(
@@ -95,6 +127,15 @@ export function navigate(
   opts?: { replace?: boolean; plain?: boolean }
 ) {
   const url = buildUrl(to, query, opts);
+  if (isPathMode()) {
+    const cur = window.location.pathname + window.location.search;
+    if (cur !== url) {
+      if (opts?.replace) window.history.replaceState(null, "", url);
+      else window.history.pushState(null, "", url);
+    }
+    emit();
+    return;
+  }
   if (opts?.replace) {
     const base = window.location.href.split("#")[0];
     window.history.replaceState(null, "", base + url);
@@ -163,9 +204,10 @@ export function Link({ to, query, children, onClick, ...rest }: LinkProps) {
 
 export function absoluteLink(to: string): string {
   const name = (window as any).generatorName || "";
-  const base = name ? `https://perchance.org/${name}` : window.location.href.split("#")[0];
-  // Share links always point at the public site, never at the office's view.
-  return base + buildUrl(to, undefined, { absolute: true });
+  if (name) return `https://perchance.org/${name}` + buildUrl(to, undefined, { absolute: true });
+  // Share links always point at the public site, never at the office's view —
+  // and at the domain root, which is where the deployed site lives.
+  return window.location.origin + buildUrl(to, undefined, { absolute: true });
 }
 
 export function useTitle(title: string) {

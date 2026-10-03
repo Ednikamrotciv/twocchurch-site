@@ -13,6 +13,11 @@
     "build": "node scripts/build-static.mjs",
     "prebuild": "node scripts/fix-perms.mjs",
     "build:bundle": "node scripts/build.mjs",
+    "bake-seed": "node scripts/bake-seed.mjs",
+    "backup": "node scripts/backup-data.mjs backup",
+    "restore": "node scripts/backup-data.mjs restore",
+    "adopt": "node scripts/backup-data.mjs adopt",
+    "set-server": "node scripts/set-server.mjs",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
