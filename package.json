@@ -3,9 +3,6 @@
   "version": "1.0.0",
   "private": true,
   "type": "module",
-  "engines": {
-    "node": "20.x"
-  },
   "description": "The World Overcomers' Ministries Inc. website. Static React bundle (src/bundle.js + src/bundle.css); no runtime dependencies.",
   "scripts": {
     "start": "node scripts/serve.mjs",
