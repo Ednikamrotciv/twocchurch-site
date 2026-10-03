@@ -4,8 +4,8 @@
 the site anywhere, build a static copy and upload that instead:
 
 ```
-npm install       (once)
-npm run vite-build
+npm install   (once)
+npm run build
 ```
 
 This writes the whole site into `dist/` (pages, photos, styles, plus a
@@ -21,7 +21,7 @@ The deployed copy is a snapshot. When the office changes something:
 
 1. Open the site locally (`npm run dev` or `start.bat`) and publish the
    change from the admin console as usual.
-2. Run `npm run vite-build` again (this re-bakes the new words into
+2. Run `npm run build` again (this re-bakes the new words into
    `seed.json`).
 3. Re-upload the new `dist/` contents.
 

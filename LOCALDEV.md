@@ -10,7 +10,7 @@ To put the site on the internet (Vercel, Netlify, …), see **DEPLOY.md** —
 
 `npm install` is only for the Vite extras: instant refresh while you edit
 (`npm run dev` runs Vite with Hot Module Reload), the static deploy build
-(`npm run vite-build`, see DEPLOY.md), and the typecheck
+(`npm run build`, see DEPLOY.md), and the typecheck
 (`npm run typecheck`).
 
 What `npm run dev` starts: Vite on http://localhost:5173/ (admin at /admin),
@@ -30,7 +30,8 @@ switch between them freely. (If you edit the publishing rules themselves, the
 `<script type="text/x-server-plugin">` block in `index.html`, restart Vite so
 it picks them up.)
 
-`npm run build` rebuilds `src/bundle.js` + `src/bundle.css` after editing anything
+`npm run build` rebuilds `src/bundle.js` + `src/bundle.css` and the deployable
+`dist/` folder after editing anything
 under `src/` (needs internet once, to fetch the React libraries).
 `npm run serve` already rebuilds on every save, so you only need this if the
 watcher is off.

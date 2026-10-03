@@ -10,7 +10,7 @@
     "serve": "node scripts/serve.mjs",
     "vite": "vite",
     "vite-build": "vite build",
-    "build": "node scripts/build.mjs",
+    "build": "node scripts/build.mjs && vite build",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
