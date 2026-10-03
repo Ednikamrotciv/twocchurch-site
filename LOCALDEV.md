@@ -5,7 +5,7 @@ Extract the zip, then double-click **start.bat** (Windows) or run `sh start.sh`
 (the admin console is at http://localhost:5173/admin). No `npm install`
 needed: the server and the admin backend run on plain Node.js.
 
-To put the site on the internet (Vercel, Netlify, …), see **DEPLOY.md** —
+To put the site on the internet (any static host), see **DEPLOY.md** —
 `npm run vite` is a development server and cannot be deployed itself.
 
 `npm install` is only for the Vite extras: instant refresh while you edit

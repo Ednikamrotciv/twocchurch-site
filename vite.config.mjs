@@ -316,7 +316,6 @@ function cmsBackend() {
 export default {
   plugins: [react(), cmsBackend()],
   server: { port: 5173 },
-  define: { "process.env.NODE_ENV": '"production"' },
   optimizeDeps: {
     include: [
       "react",

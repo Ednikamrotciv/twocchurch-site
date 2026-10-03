@@ -3,14 +3,18 @@
   "version": "1.0.0",
   "private": true,
   "type": "module",
+  "engines": {
+    "node": "20.x"
+  },
   "description": "The World Overcomers' Ministries Inc. website. Static React bundle (src/bundle.js + src/bundle.css); no runtime dependencies.",
   "scripts": {
     "start": "node scripts/serve.mjs",
     "dev": "vite",
     "serve": "node scripts/serve.mjs",
     "vite": "vite",
-    "vite-build": "vite build",
-    "build": "vite build",
+    "vite-build": "node node_modules/vite/bin/vite.js build",
+    "build": "node node_modules/vite/bin/vite.js build",
+    "prebuild": "node scripts/fix-perms.mjs",
     "build:bundle": "node scripts/build.mjs",
     "typecheck": "tsc --noEmit"
   },
@@ -29,12 +33,12 @@
     "three-mesh-bvh": "^0.8.0"
   },
   "devDependencies": {
-    "esbuild": "^0.25.0",
-    "vite": "^6.3.5",
-    "@vitejs/plugin-react": "^4.3.4",
-    "typescript": "^5.6.3",
-    "@types/react": "^18.3.12",
-    "@types/react-dom": "^18.3.1",
-    "@types/three": "^0.170.0"
+    "esbuild": "0.25.0",
+    "vite": "6.4.3",
+    "@vitejs/plugin-react": "4.3.4",
+    "typescript": "5.6.3",
+    "@types/react": "18.3.12",
+    "@types/react-dom": "18.3.1",
+    "@types/three": "0.170.0"
   }
 }

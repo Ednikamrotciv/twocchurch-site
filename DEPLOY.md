@@ -1,7 +1,19 @@
 # Putting the site on the internet
 
-`npm run dev` is a development server — it cannot be deployed. To publish
-the site anywhere, build a static copy and upload that instead:
+`npm run dev` is a development server — it cannot be deployed. Two ways to
+publish the site, both work on any static host — Netlify, Cloudflare Pages,
+GitHub Pages, cPanel, an S3 bucket, anywhere that serves files:
+
+**Option A — no build at all (easiest).** The repo already contains a working
+site (`index.html` + `src/bundle.js`, plus `seed.json` with everything the
+office has published). In the host's dashboard set the build command to
+*empty / disabled* and the output / publish directory to `./` (the repo
+root), then deploy. Nothing to install, nothing that can fail. When the
+office changes something, refresh the bundle locally
+(`npm run build:bundle`, plus a fresh `seed.json` baked from
+`data/cms-state.bin`), commit, and push.
+
+**Option B — build on the host:**
 
 ```
 npm install   (once)
@@ -10,8 +22,8 @@ npm run build
 
 This writes the whole site into `dist/` (pages, photos, styles, plus a
 `seed.json` with everything the office has published from the admin console
-so far). Upload the *contents* of `dist/` to any static host — Vercel,
-Netlify, Cloudflare Pages, GitHub Pages, cPanel, an S3 bucket, anywhere
+so far). Upload the *contents* of `dist/` to any static host — Netlify,
+Cloudflare Pages, GitHub Pages, cPanel, an S3 bucket, anywhere
 that serves files. No server and no settings needed: the pages use `#`
 addresses (`/#/sermons`), so there is nothing to configure.
 
@@ -35,3 +47,15 @@ Limited: the admin console cannot sign in on the deployed copy (there is no
 server to check the password), so content is managed locally and
 re-uploaded as above. Photos the office uploaded locally are included in
 the build automatically (`data/uploads/`).
+
+## If the host says "Permission denied" or "command not found"
+
+That means `node_modules/` got committed to the repo by mistake (it must
+never be committed — the host installs it fresh). In the repo folder run:
+
+```
+git rm -r --cached node_modules dist
+git add .gitignore
+git commit -m "remove committed dependencies"
+git push
+```
