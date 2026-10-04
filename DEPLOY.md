@@ -5,7 +5,7 @@ npm install   # once
 npm run build # → dist/
 ```
 
-Upload the *contents* of `dist/` to any static host — Vercel, Netlify,
+Upload the *contents* of `dist/` to any static host —
 Cloudflare Pages, GitHub Pages, cPanel, an S3 bucket, anywhere that serves
 files. No server and no settings needed: the pages use root-absolute addresses,
 so serve the site from the domain root. Every route (`/admin`, `/sermons`, …)
@@ -97,6 +97,16 @@ demand, `npm run restore` picks a snapshot by hand. Uploaded photos and videos
 are not copied into snapshots — if any are missing after a recovery the
 console says which.
 
+## Host settings (any static host)
+
+Install command: `npm install`. Build command: `npm run build`.
+Output directory: `dist/`. Node version: 24 (`.nvmrc` pins it).
+Type those values into the host's dashboard once — no other setup needed.
+
+The build never installs anything by itself: if dependencies are missing it
+fails with a message telling you the install step was skipped or pruned,
+instead of running a nested install that fights the host's own installer.
+
 ## If the host says "Permission denied" or "command not found"
 
 That means `node_modules/` got committed to the repo by mistake (it must
@@ -108,3 +118,11 @@ git add .gitignore
 git commit -m "remove committed dependencies"
 git push
 ```
+
+Still remove it from git (above) to keep the repo small.
+
+If a host installs but `vite` is still missing, that host pruned dev
+dependencies on its install step. The build tools (`vite`,
+`@vitejs/plugin-react`) live in `dependencies`, not `devDependencies`, so
+pruning cannot remove them — a missing `vite` means the host skipped its
+install step. Set it to `npm install` and redeploy.
