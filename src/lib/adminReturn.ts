@@ -10,7 +10,7 @@ export type AdminReturn = { path: string; mode: PanelMode; view: PanelView; open
 
 export const ADMIN_RETURN_MS = 5 * 60 * 1000;
 
-const RETURN_KEY = "wom.cms.exitReturn";
+export const RETURN_KEY = "wom.cms.exitReturn";
 
 export function isPanelMode(m: unknown): m is PanelMode {
   return m === "edit" || m === "list" || m === "status" || m === "tools";

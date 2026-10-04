@@ -1,3 +1,9 @@
+/* `npm run build` step two (right after `vite build`): finish dist/ for any
+   static host — baked content, office-server + live-feed pointers, photos,
+   uploads, and one page file per route (plus 404.html) so direct visits and
+   refreshes work with no rewrite rules. Served from the domain root (clean
+   addresses assume it). */
+
 import { cp, mkdir, readFile, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { bakeSeed } from "./bake-seed.mjs";
@@ -6,33 +12,26 @@ import { readFeedConfig, effectiveFeed } from "./feed-config.mjs";
 const ROOT = process.cwd();
 const OUT = path.join(ROOT, "dist");
 
-async function copyExists(from, to) {
-  try {
-    await stat(path.join(ROOT, from));
-  } catch {
-    return false;
-  }
-  await mkdir(path.dirname(to), { recursive: true });
-  await cp(path.join(ROOT, from), to, { recursive: true });
-  return true;
-}
-
-await mkdir(OUT, { recursive: true });
-/* Fresh words on every deploy: bake the pushed store before copying, so the
-   deployed seed.json always matches what the office last published. */
 try {
-  await bakeSeed(ROOT);
+  await stat(path.join(OUT, "index.html"));
+} catch {
+  console.error("no dist/index.html — `vite build` must run first (plain `npm run build` does both).");
+  process.exit(1);
+}
+await mkdir(OUT, { recursive: true });
+
+/* Fresh words on every deploy: bake the pushed store into dist/seed.json, so the
+   deployed seed always matches what the office last published. */
+try {
+  await bakeSeed(ROOT, path.join(OUT, "seed.json"));
 } catch (err) {
   console.warn("seed not re-baked:", err?.message || err);
 }
-await copyExists("index.html", path.join(OUT, "index.html"));
-await copyExists("seed.json", path.join(OUT, "seed.json"));
 
 /* The live feed address: with a valid publish-feed.txt (a public source repo
    line, or a mirror repo line for private sources), deployed copies read fresh
    words straight off the repo within minutes of a publish — no rebuild needed,
-   on any host. Without either, copies update on rebuilds only (still automatic
-   via auto-push). */
+   on any host. Without either, copies update on rebuilds only. */
 try {
   const cfg = await readFeedConfig(ROOT);
   const feed = effectiveFeed(cfg);
@@ -53,8 +52,7 @@ try {
    the office address (one origin, e.g. https://office.example.com), every
    deployed copy joins that shared backend automatically — sign-in,
    publishing, uploads and live updates, exactly like local. Absent file, or
-   a blank one, and the copy stands alone (browsers can still point
-   themselves at a server from the admin console). */
+   a blank one, and the copy stands alone. */
 try {
   const raw = await readFile(path.join(ROOT, "cms-server.txt"), "utf8").catch(() => "");
   const lines = String(raw).split(/\r?\n/).map((l) => l.trim()).filter((l) => l && !l.startsWith("#"));
@@ -66,16 +64,29 @@ try {
   } else if (!lines.length) {
     console.log("no office server in cms-server.txt — deployed copies stand alone (see DEPLOY.md, office server)");
   } else {
-    console.warn(`cms-server.txt ignored: "${first}" is not an origin (want just https://your-tunnel-address, nothing after it) — deployed copies stand alone`);
+    console.warn(`cms-server.txt ignored: "${first}" is not an origin (want just https://your-server-address, nothing after it) — deployed copies stand alone`);
   }
 } catch (err) {
   console.warn("server.json skipped:", err?.message || err);
 }
-await copyExists("src/bundle.js", path.join(OUT, "src", "bundle.js"));
-await copyExists("src/bundle.css", path.join(OUT, "src", "bundle.css"));
-await copyExists("src/chunks", path.join(OUT, "src", "chunks"));
-await copyExists("src/assets", path.join(OUT, "src", "assets"));
-await copyExists("data/uploads", path.join(OUT, "data", "uploads"));
+
+/* String-URL files the app points at (photos are plain "src/assets/…" strings,
+   never imports, so `vite build` skips them) plus the office's own uploads. */
+try {
+  await cp(path.join(ROOT, "src", "assets"), path.join(OUT, "src", "assets"), { recursive: true });
+  console.log("photos copied to dist/src/assets");
+} catch (err) {
+  console.warn("photos not copied:", err?.message || err);
+}
+try {
+  const st = await stat(path.join(ROOT, "data", "uploads")).catch(() => null);
+  if (st && st.isDirectory()) {
+    await cp(path.join(ROOT, "data", "uploads"), path.join(OUT, "data", "uploads"), { recursive: true });
+    console.log("uploads copied to dist/data/uploads");
+  }
+} catch (err) {
+  console.warn("uploads not copied:", err?.message || err);
+}
 
 /* Clean addresses on hosts with no rewrite rules: /admin, /sermons, … each
    get their own copy of the entry page, so a direct visit or refresh boots
@@ -102,4 +113,4 @@ try {
 } catch (err) {
   console.warn("route pages skipped:", err?.message || err);
 }
-console.log("static dist assembled (no bundler needed — ships the working preview files as-is)");
+console.log("dist/ ready to upload (the *contents* of dist/ go to the static host)");

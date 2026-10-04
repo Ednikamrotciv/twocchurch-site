@@ -1,17 +1,4 @@
-/* ============================================================================
-   admin.css — the *controls* the office edits with
-
-   There is no console any more: #/admin paints the real pages and this file
-   styles the widgets that sit on top of them (the field controls, the photo
-   uploader, the sign-in card, the publish and tools dialogs, the live-stream
-   archive panel, the site overview). The edit-mode shell, the bottom bar, the
-   drawer and the pop-ups live in edit.css.
-
-   Almost every rule is scoped `.admin …`, so the element that hosts them —
-   `.eshell` in src/pages/Admin.tsx — carries BOTH classes ("admin eshell").
-   Button rules use two-class selectors so they beat the platform's
-   `button:not([disabled]) { color: inherit }` reset.
-   ========================================================================== */
+/* admin.css — the widgets the office edits with (fields, uploader, sign-in, dialogs). Scoped .admin. */
 
 /* ------------------------------------------------------------- status pills */
 

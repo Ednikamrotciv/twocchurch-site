@@ -1,51 +1,5 @@
-/* ============================================================================
-   auto-copy.mjs — "let the office edit *every* text on the site."
-
-   The curated strings in src/data/copy.ts cover the headlines and paragraphs,
-   but plenty of words were still hard-coded in the components: the small labels
-   ("Donate", "Clear filters", "Speaker"), the little messages ("Reminder set",
-   "That email doesn't look right."), hints, placeholders, tooltips and the
-   labels the code builds itself ("in 3 days", "Map of Dallas"). This tool finds
-   them, gives each a stable key and rewrites the source to
-
-       {ct("auto.<page>.<hash>")}                 // …inside JSX
-       ct("auto.<page>.<hash>")                   // …inside an expression
-       ct("auto.<page>.<hash>", { days: days })   // …a template with holes
-
-   while writing the matching defaults into src/data/autocopy.ts (which copy.ts
-   merges into COPY_PAGES). From then on they are ordinary editable lines: they
-   show up in the page-text sections of the drawer, can be clicked on the page,
-   and publish exactly like the hand-written ones.
-
-   The key is content-addressed — auto.<page>.<hash of file+text+occurrence> —
-   so re-ordering code never moves an override onto different words. Template
-   holes are recorded as {{names}} and filled in by the page at render time
-   (see ct() in copy.ts), so the office never sees the code that produced them.
-
-   Each entry also records whether the words are furniture: a caption printed
-   on a button (or on a link styled as one), a page title (an <h1> or a
-   PageHead heading) or a section title (an <h2>/<h3> or a SectionHeading).
-   Those three kinds are shown in the editor but cannot be reworded — see
-   `roleOf` below and the roles in src/data/copy.ts. Everything else the office
-   may change.
-
-   What it deliberately leaves alone: class names and other markup strings
-   (className, to, href, src, style …), comparison/switch/import/type positions,
-   storage keys and ids, anything at module scope (a ct() call there would be
-   frozen before the published content loads) and the office's own tools
-   (Admin.tsx, editor.tsx, ErrorBoundary.tsx).
-
-   Run it from the perchance agent workspace (execute_js):
-
-     globalThis.fs = fs;
-     const src = await fs.readTextFile("src/tools/auto-copy.mjs");
-     const mod = await import(URL.createObjectURL(new Blob([src], { type: "text/javascript" })));
-     return await mod.run();              // pass {dryRun:true} to preview,
-                                          // {dump:"scratch/x.tsv"} to list them
-
-   Then rebuild (src/tools/build.mjs). It is idempotent: run it again after
-   adding new literal text to a component and only the new strings change.
-   ========================================================================== */
+/* auto-copy.mjs — every text editable: finds hard-coded words, keys them, rewrites sources to ct().
+   Run from the agent workspace, then rebuild (see README). Idempotent. */
 
 const PAGES_DIR = "src/pages/";
 const COMPONENTS_DIR = "src/components/";
@@ -240,12 +194,7 @@ const HEADING_ELEMENTS = new Set(["h1", "h2", "h3", "h4", "h5", "h6"]);
 /* Attributes a component uses for the words it puts on screen. */
 const LABEL_ATTRS = new Set(["label", "aria-label", "ariaLabel"]);
 
-/**
- * Would a visitor read this as a button caption, a page title or a section
- * title? Those three are the site's furniture — the editor shows them but
- * leaves them alone — so the role travels with the entry into autocopy.ts.
- * Everything else (a paragraph, a hint, a message) stays editable.
- */
+/** Furniture check: button caption, page or section title (shown, not reworded). */
 function roleOf(node, sf, ts) {
   let attrName = "";
   let element = null;

@@ -1,23 +1,5 @@
-/* ============================================================================
-   The announcement slides as a rotating 3D cuboid (React Three Fiber).
-
-   One rectangular box in a slow, seamless turn: each of its six faces carries
-   one of the office's uploaded slide pictures as a texture (cover-fit, so the
-   rectangle fills the face), with no edges drawn — just the pictures meeting
-   at the corners. The four side faces are one
-   equal broad rectangle (the depth matches the width), so the turn shows the
-   same wide shape all the way round; the top and bottom are the matching
-   squares. The box never steps from face to face — it glides round
-   continuously, side to side, tilting diagonally and tipping up and down as
-   it goes, slowly enough to take in the depth, while it keeps breathing.
-   The arrows, a sideways swipe, the arrow keys, or a tap on the box itself
-   lend the turn speed in either direction; hovering, focusing or touching it
-   holds the turn still. Past six announcements the faces carry the first six.
-
-   Reduced motion, missing WebGL, or a stage that throws all fall back to the
-   flat swiper stage in ./slides.tsx — see `StageErrorBoundary` and
-   `useWebGLAvailable`.
-   ========================================================================== */
+/* Announcement slides as a rotating 3D cuboid. Past six, the faces carry the first six.
+   Flat swiper fallback in ./slides.tsx. */
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import * as THREE from "three";
@@ -161,7 +143,7 @@ function Cuboid({ slides, apiRef, held }: { slides: SlideT[]; apiRef?: { current
 }
 
 function CuboidFit({ children }: { children: React.ReactNode }) {
-  const size = useThree((s) => s.size);
+  const { size } = useThree();
   const ref = useRef<any>(null);
   const target = useMemo(() => {
     const aspect = size.width / Math.max(1, size.height);

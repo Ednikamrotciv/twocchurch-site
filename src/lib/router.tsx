@@ -4,7 +4,7 @@ export type RouteState = {
   path: string;
   query: URLSearchParams;
   hash: string;
-  /** True when the URL is under /admin (or #/admin on perchance.org) — the site with the office's tools on. */
+  /** Under /admin (or #/admin on perchance.org): the site with tools on. */
   editing: boolean;
   /** The address said "admin" somewhere other than the front ("…/ministries/admin"). */
   movedAdmin: boolean;
@@ -13,10 +13,7 @@ export type RouteState = {
 /** Every admin URL lives under this prefix; the site's own routes follow it. */
 export const ADMIN_PREFIX = "/admin";
 
-/* Clean path addresses everywhere except inside the Perchance frame, where
-   the platform owns the path and the hash stays the route. So /admin and
-   /sermons on the deployed site, #/admin and #/sermons on perchance.org —
-   same pages, same code, whichever the address bar says. */
+/* Clean paths off perchance.org; hash route inside its frame. */
 export function isPathMode(): boolean {
   try {
     return typeof window !== "undefined" && !(window as any).generatorName;
@@ -44,10 +41,7 @@ function readLocation(): RouteState {
   } else {
     raw = window.location.hash || "";
     if (raw.startsWith("#")) raw = raw.slice(1);
-    /* Standalone hosts (npm run dev, or any export off perchance.org where the
-       generator name is absent): the real path names the route, so /admin opens
-       the console without a hash. On perchance.org the path is the generator
-       name and the hash stays the route. */
+    /* Off perchance.org the real path routes; on it, the hash does. */
     if (!raw && !(window as any).generatorName) {
       const pn = window.location.pathname || "";
       if (pn && pn !== "/") raw = pn + (window.location.search || "");
@@ -60,13 +54,7 @@ function readLocation(): RouteState {
   let path = qIndex === -1 ? raw : raw.slice(0, qIndex);
   const search = qIndex === -1 ? "" : raw.slice(qIndex + 1);
   let cleaned = path.length > 1 && path.endsWith("/") ? path.slice(0, -1) : path;
-  /* #/admin renders the home page with the office's tools on; #/admin/sermons is
-     the sermons page, editable. The prefix is opaque to every page.
-
-     People also write it the other way round — "…/ministries/admin" — when they
-     mean "the ministries page, with the tools". So "admin" is the office's word
-     wherever it appears in the address: take it out, keep the order of the rest,
-     and treat it as the office's view. */
+  /* "admin" anywhere in the address means the office's view of that page. */
   const parts = cleaned.split("/").filter(Boolean);
   const rest = parts.filter((p) => p.toLowerCase() !== "admin");
   const editing = rest.length !== parts.length;

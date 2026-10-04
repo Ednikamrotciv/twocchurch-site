@@ -6460,3 +6460,153 @@ Verified live, zip re-attached. Nothing was published.
 - Sermon videos are embeddable public teaching messages used as demo content — replace with the
   church's own uploads.
 - Photography is AI-generated placeholder imagery, to be replaced by real church photos.
+
+## 192. Online-only sign-in: local preview mode removed, same-PC auto-join, pill renamed (the office asked)
+
+> still getting this [not-connected banner]. This device only button should be not connected, when
+> successfull sign in the green connected. i should be able to login online, clear the login
+> through local
+
+Three changes, all in service of one rule - editing takes an online sign-in, nothing else:
+
+- The connection pill offline label is Not connected now, not This device only (StatusPill in
+  src/components/editor.tsx). Online is still the green Connected.
+- The passwordless local preview mode is gone: localMode removed from src/pages/Admin.tsx
+  (canEdit = state.authed), the Continue in local preview mode link removed from LoginGate,
+  and the unused onLocal/onSignOut prop thread deleted. The locked drawer already gates on
+  canEdit, so a signed-out admin gets the sign-in prompt. Mid-session disconnects still queue
+  into pending and sync back (that path is resilience, not a back door).
+- The sign-in card joins the server by itself: it pre-connects on open, every sign-in attempt
+  goes through cms.ensureOnline(), the address re-resolves fresh each time (baked file +
+  override + remembered same-PC office + live loopback probe in src/lib/remoteserver.ts), and
+  the last failure reason stays in cms state (connNote) for diagnosis.
+  Opening the public site on the office computer itself finds its server over loopback with
+  nothing typed - scripts/serve.mjs answers the private-network preflight for that.
+  Verified live: default-password sign-in, stale-generation auto sign-out, and re-sign-in.
+
+## 193. The last message reads first everywhere; new uploads top the drawer too (the office asked)
+
+> fix the last message: the last message should be the first that is on the sermon list. every new
+> sermon or new add another should be the first on the sermon list and should be the last message
+
+Two defects, one rule - whatever the office added last is the latest message, and it reads first:
+
+- Same-date ties buried new uploads. A message dated today and the standing message derived from
+  the same Sunday both read 11:30, and the old date-only sort kept stored order - the new upload,
+  stored last, read last. sermonsNewestFirst (src/data/sermons.ts) now breaks ties towards the
+  later-stored entry. Every surface funnels through it (archive, home latest, watch-live last
+  message, detail pager), and the archive re-sort is stable so it keeps the fixed order.
+- The drawer kept unfinished uploads at the foot. Its sermon order (ListBlock, src/pages/Admin.tsx)
+  is now one date-descending sort with the same later-added tie-break, so a new Add another sits
+  at the top at once; rows not on the live site yet carry a gold Unpublished pill (new
+  admin__pill--gold in src/styles/admin.css). Display order only - nothing stored ever moves.
+  Verified live: added an upload (first in drawer, Unpublished), published it in the emulator,
+  and it topped the archive, the watch-live last message and the home latest. Preview test data
+  cleared afterwards; nothing published and no real state touched.
+
+> Superseded by note 194 below — the office wants the previous arrangement back.
+
+## 194. Back to the previous sermon arrangement; a published upload always reaches the top (the office asked)
+
+> i dont want this, what i want is the previous but there was an error with the arrangement on the
+> list that affected first new sermon and put it underneath. fix
+
+Note 193 is fully reverted — the drawer reads as notes 145/146 describe it, and the website reads
+exactly as it did before:
+
+- The drawer's sermon list (`order` in `ListBlock`, `src/pages/Admin.tsx`) is split again:
+  published messages newest-first by the date the site reads on top, uploads still being worked on
+  waiting at the foot in the order the office left them. The gold Unpublished pill is gone (row and
+  `admin__pill--gold` in `src/styles/admin.css` both removed). Display order only — nothing stored
+  ever moves, and every action still runs on the stored entry. Move up/down stays hidden on sermons.
+- The website is untouched again: `sermonsNewestFirst()` (`src/data/sermons.ts`) is back to a plain
+  date sort, so same-date ties keep stored order on the archive, home latest, watch-live last message
+  and detail pager, exactly as before.
+- The error is fixed in `isPublishedEntry` (`src/lib/cms.ts`): recognising a published entry by id,
+  or by whole-content match, missed the moment publishing mints ids on the way live — the draft in
+  hand can still carry a blank id while the live copy already has one, so a just-published upload
+  read as unpublished and stayed underneath at the foot. The content match now also compares with
+  the id aside, so the moment an upload's words equal what is live it joins the date order at the
+  top, in the same session, before any re-read.
+
+Verified read-only in the live preview (the preview is connected to the shared server with the
+office's own publish in flight, so nothing was added, published or cleared there): no console,
+perchance or syntax errors; the drawer sermon list renders with no Unpublished pills; rebuilt
+clean and stale chunks deleted. Nothing was published and the office draft was never written.
+
+## 195. The newly published sermon is the last message; lists follow publish date and time (the office asked)
+
+> the new publish should be the one on the last message and the sermon list should be arranged
+> accordingly to date and time of publish
+
+Each sermon now carries when it went live. Publishing stamps every sermon that is new with that
+exact moment (`publishedAt`, in `stampSermonPublishTimes` in `src/lib/cms.ts`), on all three ways
+a publish happens — one section, the whole draft, and the offline staged path — and the stamp goes
+on the draft and the payload together, so the upload joins the top in the same session. Sermons
+already live are never restamped, so fixing a typo never knocks anything off the top. The order
+everywhere (`sermonPublishTime` in `src/data/sermons.ts`: publish moment first, the preached date
+for anything stamped before this existed) now runs the drawer list, the archive and its featured
+spot, the home latest, the watch-live last message and the detail pager — whatever the office
+published last reads first. Unfinished uploads still wait at the foot of the drawer.
+
+Verified headlessly against the real code (esbuild bundle of `src/data/sermons.ts` run in isolation):
+legacy date order unchanged, a freshly stamped upload sorts above same-day messages, archive still
+19 entries with its top unchanged; live preview re-rendered with no console, perchance or syntax
+errors. Nothing was published and the office draft was never written — the connected preview holds
+the office's own in-flight publish, so no add/publish test was run there.
+
+## 196. Removed the leftover test uploads sitting on top of the sermon list (the office asked)
+
+> from overcoming the world clean the remaining sermon list at the top
+
+Three unpublished-looking rows sat above the real messages — `Test Last Message` (Test Speaker) and
+two untitled `New sermon` uploads, all with blank ids. They were not just local draft: all three
+were on the shared server, dated this month, so every list opened with them. All three are deleted
+and the removal is published: the drawer and the archive again open with the real messages
+(`Overcoming in Christ` first), 19 sermons total. The two blanks both pointed at the same video
+(`https://youtu.be/1F_nfBYYoco`), kept here so it can be filed again as a proper titled sermon.
+Verified live in the connected preview: published list 19 entries with none untitled, drawer and
+archive tops read the real messages, nothing else pending. The office's other pending edits were
+never touched.
+
+## 197. New code reaches every browser: versioned bundle URLs (the last-message fix needs this)
+
+> the new sermon should be on the last message after it is published. fix this
+
+The publish-time ordering (note 195) was verified in the code and the bundle, yet a newly
+published sermon still did not take the last message. The cause is staleness, not ordering: the
+page loads `src/bundle.js` and `src/bundle.css` under fixed names, so a browser holding a cached
+copy keeps publishing with the old code — which stamps nothing — and the sermon falls back to
+date order. From this build on, both URLs carry a content hash (`?v=…`, stamped by
+`src/tools/build.mjs` after every rebuild, idempotent), so an update is picked up on first load;
+the split chunks were already content-named. The prebuilt `site-deploy.zip` pages got the same
+hash on their bundle references when repacked. Anything published before this reaches a browser
+still follows date order — republishing it (or any new publish) stamps it and it takes the last
+message at once. Verified: rebuilt, the live preview re-rendered from the hashed URLs with no
+console, perchance or syntax errors. The generator itself still needs its normal save for any of
+this to reach the public page, and a self-hosted copy needs the fresh `site-deploy.zip`.
+
+## 198. A published sermon always outranks the standing Sunday message (the office asked)
+
+> it is still the same the last publish was the newsermon but it is not still on the last message
+
+The stamp was landing (the published upload carried `publishedAt`), but it still lost: messages
+without a stamp fall back to the preached date, and the standing message derived from this same
+Sunday reads 11:30 — later than a real publish at, say, early morning — so the new upload sorted
+underneath it. The order now ranks first and compares second (`sermonRank` in `src/data/sermons.ts`):
+anything with a publish moment always reads above anything without one, and publish moments
+compare among themselves. The drawer, archive, home latest, watch-live last message and pager all
+share it. Legacy order is untouched. Verified headlessly (a stamped upload tops the standing
+Sunday message, legacy order preserved, a second publish tops the first) and against the live
+shared data (the office's stamped upload reads as the latest message and first card). Note: that
+upload is still untitled, so it shows as `New sermon` until the office names it.
+## 199. Publish history cleared; code comments slimmed (the office asked)
+> make sure history is clean until new publish, make the codes clean and make the comments in all the code simple and not too much
+History: the Status tab's publish history was cleared (Clear history, double-pressed inside the arm window) — "Nothing has been published from this console yet". The next publish re-records from zero. Comments: every comment over four lines across sources, components, data, styles and tools condensed to one short line (SPEC pointers kept as `note N`). No code was changed. Verified: rebuilt with no orphans and no unresolved imports, live preview re-rendered with no console, perchance or syntax errors.
+## 200. Sign-in after sign-out kept failing (the office asked)
+> after my first sign in i can not sign in again — "not reachable", stuck Reconnecting
+Three traps in the join path: a dead-but-kept socket made every retry a no-op; sign-in failed fast on `offline` instead of joining; a hanging open never timed out. Fixed: user joins drop the dead socket, reset backoff and connect fresh (`retryNow`), a hanging open ends after 9s, stale attempts can't clobber a live one, no server means stand-alone (rejoining quietly later). Verified: three sign-out/in cycles in the preview, Connected throughout. Rebuilt, repacked.
+Deployed copies stand alone with no server to check the password (see DEPLOY.md), and nothing on the
+sign-in card could point one at the office server — so the card now has an Office server field
+whenever it is not connected: paste the address, Connect, then the password. (`retryNow`,
+override wrappers in cms.ts, `ServerConnect` in editor.tsx.)

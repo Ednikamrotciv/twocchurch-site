@@ -1,20 +1,5 @@
-/* ============================================================================
-   cms.ts — the content store behind #/admin.
-
-   How it works
-   ------------
-   * Every editable section (see cmsSchema.ts) starts life as a deep clone of
-     the data modules in src/data — that is the "defaults" snapshot.
-   * The church office edits a draft. Publishing sends ONLY the sections that
-     changed to the server (index.html, server-plugin), which keeps one UTF-16
-     blob per section. That keeps a publish inside the server's 50 ms CPU
-     budget no matter how big the rest of the site's content is.
-   * The rendered content is always { ...defaults, ...overrides }, and applying
-     it mutates the data modules in place, then bumps a version counter. App
-     re-mounts its tree off that counter, so the public site re-renders with the
-     new content without a reload.
-   * Everything degrades gracefully: no server -> cached overrides -> defaults.
-   ========================================================================== */
+/* cms.ts — the content store behind #/admin: draft editing, changed-only
+   publishes, live preview. Falls back: server, cached overrides, defaults. */
 
 import { useSyncExternalStore } from "react";
 import { SECTION_DEFS, buildDefaults, clone, getPath, photoSectionId, refreshDerived, sectionById, setPath, type Field, type SectionDef } from "./cmsSchema";
@@ -24,8 +9,9 @@ import { purgeExpiredSlides } from "../data/slides";
 import { purgeExpiredAnnouncements } from "../data/announcements";
 import { fmtDate } from "./store";
 import { fireToast } from "./hooks";
-import { createRemoteSocket, initServerUrl, serverUrl } from "./remoteserver";
-import { bakedFeedSpec, fetchLiveSeed, type FeedSpec } from "./livefeed";
+import { createRemoteSocket, initServerUrl, refreshServerUrl, serverOverride, serverUrl, setServerOverride } from "./remoteserver";
+import { applyBakedRecent } from "./recentstreams";
+import { bakedFeedSpec, feedIsNewer, peekSeed, siteFile, type FeedSeed, type FeedSpec } from "./livefeed";
 
 export type Snapshot = Record<string, any>;
 export type CmsStatus = "connecting" | "online" | "offline" | "local";
@@ -50,37 +36,27 @@ let applied: Snapshot = clone(defaults);
 let draft: Snapshot | null = null;
 let draftFromRev = 0;
 let dirty: Record<string, true> = {};
-/**
- * The draft left in localStorage by the last visit has been read (`startCms`).
- * Until it has, nothing may be written back over `DRAFT_KEY`: the drawer mounts
- * before `startCms` runs and makes itself a draft from the shipped words on its
- * first render, and writing *that* out would silently throw the office's own
- * unsaved changes away on every reload — the bug this flag exists to stop
- * (SPEC note 112).
- */
+/** True once the stored draft has been read; nothing writes DRAFT_KEY before that (note 112). */
 let draftLoaded = false;
 let history: { rev: number; at: number; by: string; overrides: Snapshot }[] = [];
 /** Overrides published while the server was unreachable, waiting to be sent. */
 let pending: Snapshot | null = null;
 
 let status: CmsStatus = "connecting";
+/* Why the server is not connected, in the office's own words for the sign-in
+   card ("last try: office server unreachable") — empty while connected. */
+let connNote = "";
 let rev = 0;
 let updatedAt = 0;
 let updatedBy = "";
 let log: LogEntry[] = [];
 
-/** Per-edit undo: the value a section had just before the office last touched
-    it, so a single misplaced keystroke can be taken back without throwing the
-    whole draft away. Consecutive edits to the same section within a moment are
-    coalesced (typing a word is one undo). */
+/** Last value per section, for one-step undo (edits within a moment coalesce). */
 let editUndos: { sectionId: string; prev: any; at: number }[] = [];
 const EDIT_COALESCE_MS = 1600;
 
 let authed = false;
-/* Who this tab signed in as: "main" for the office password, "sub" for a
-   sub-admin's own password, null when signed out. The server is the authority
-   (every privileged call re-checks there); this only decides what the drawer
-   shows — sub-admins never see the admin-management card. */
+/* This tab's role (main/sub/signed out). The server re-checks; this only shapes the drawer. */
 let myRole: "main" | "sub" | null = null;
 let myName = "";
 let socket: any = null;
@@ -101,6 +77,7 @@ function readState() {
   return {
     version,
     status,
+    connNote,
     rev,
     updatedAt,
     updatedBy,
@@ -168,18 +145,10 @@ export function setEditorName(name: string) {
 
 /* ------------------------------------------------------------------- apply */
 
-/**
- * A stored snapshot can predate a field a section has since gained (the office
- * saved before the site learned about, say, the sermon archive). Object
- * sections therefore take their missing keys from the shipped defaults, so the
- * console never shows a field as blank when it has a perfectly good default.
- */
+/** Old saves may miss newer fields; object sections fill the gaps from defaults. */
 function mergeSection(id: string, base: any, value: any) {
   const def = sectionById(id);
-  /* Sections whose entries are fixed by the code (one per line of page text):
-     a copy saved before the site gained a line must still show that line — in
-     the shipped order, keeping every value the office has typed. Buttons and
-     titles are fixed scenery, so a stored value for one of them is ignored. */
+  /* Fixed line lists keep shipped order and values; unknown stored keys are ignored. */
   if (def?.kind === "list" && def.fixed && def.idKey && Array.isArray(base) && Array.isArray(value)) {
     const key = def.idKey;
     const mine = new Map((value as any[]).map((item: any) => [String(item?.[key] ?? ""), item]));
@@ -241,23 +210,9 @@ function applyOverrides(over: Snapshot, keepDraft = true) {
   overrides = clone(over || {});
   if (!keepDraft) draft = null;
   applySnapshot(merge(overrides));
-  /* What is live can change underneath a draft: the local cache landing (the
-     admin shell mounts before startCms() restores it, so the editor opens with
-     a draft of the shipped words), the server answering, or a re-publish after
-     a reload emptied the preview server. Sections the office has actually
-     edited are `dirty` and stay exactly as they are; every other section
-     follows the content, so the drawer never reports a change nobody made — and
-     publishing can never put the shipped words back over the office's own. */
+  /* Live content can land under a draft; edited sections stay, the rest follow it. */
   if (keepDraft) rebaseDraft();
-  /* While the office is on #/admin the pages behind the drawer show the *draft*
-     — that is what "edit and watch it happen" means. So the draft goes back on
-     top of the content that has just landed. Without this, anything asynchronous
-     that changes what is live (the local cache, the server answering a moment
-     after the drawer opened, another editor publishing) left the office looking
-     at the *published* words while the drawer showed their own edits — the edit
-     was saved, and did nothing on the page. It is the shape of the *"my changes
-     don't take effect"* report (SPEC note 83). A publish keeps its own rule: it
-     is the one thing that makes the content itself the draft (`keepDraft`). */
+  /* On #/admin the pages show the draft, re-applied whenever live content lands (note 83). */
   if (keepDraft) showDraftIfEditing();
 }
 
@@ -271,11 +226,7 @@ export function getOverrides(): Snapshot {
   return clone(overrides);
 }
 
-/**
- * One section as the *published* site has it (shipped defaults plus whatever
- * has been published). While the office is on #/admin the rendered pages show
- * the draft, so this — not `applied` — is what "unsaved changes" compares to.
- */
+/** One section as published (defaults + overrides); "unsaved changes" compares to this. */
 function publishedSection(id: string): any {
   const value = overrides[id];
   if (value === undefined || value === null) return defaults[id];
@@ -294,11 +245,7 @@ export function pendingSections(): string[] {
 
 /* ---------------------------------------- what has not been published yet ---- */
 
-/**
- * One thing the office has changed, said in their own words. `what` names it the
- * way they met it (“Mission”, “Sunday Service”, “Hero headline”) and `detail`
- * says how it differs from the live site (“10:00 → 11:00”, “a new entry”).
- */
+/** One pending change, named the way the office met it. */
 export type PendingLine = { what: string; detail: string };
 
 export type PendingEdit = {
@@ -403,10 +350,7 @@ function objectPending(def: SectionDef, before: any, after: any): PendingLine[] 
   const out: PendingLine[] = [];
   for (const f of def.fields) {
     if (f.type === "static" || f.readonly) continue;
-    /* A nested list whose rows all carry ids (the testimony wall) says exactly
-       what left, the way a top-level list does — "The scan came back clear —
-       removed" instead of "7 entries changed". Anything less identifiable
-       keeps the counted summary below. */
+    /* Id-keyed nested rows name what left, like a top-level list. */
     if (f.type === "list") {
       const b = getPath(before, f.path);
       const a = getPath(after, f.path);
@@ -455,10 +399,7 @@ function listPending(def: SectionDef, before: any, after: any): PendingLine[] {
   const a: any[] = Array.isArray(after) ? after : [];
   const key = def.idKey || "";
   const idOf = (item: any) => (key && item && String(item[key] ?? "").trim() ? String(item[key]) : "");
-  /* Entries are matched by their id when every one of them has one — that is
-     what survives a reorder. An entry added a moment ago has no id yet (SPEC
-     note 114 keeps this honest: the office sees it matched by position, which is
-     the only thing that names it), so those two lists are walked by index. */
+  /* Matched by id when all have one (survives reorder); id-less rows walk by index (note 114). */
   const byId = !!key && b.concat(a).every((item) => !!idOf(item));
 
   if (byId) {
@@ -509,12 +450,7 @@ function listPending(def: SectionDef, before: any, after: any): PendingLine[] {
   return out;
 }
 
-/**
- * Everything the office has changed and not published, section by section, in
- * the drawer's own words — what the edit bar's “N unsaved changes” opens. The
- * count is `pendingSections()` itself, so the two can never disagree (the lines
- * only say *what*, they never decide *whether*).
- */
+/** All unpublished changes by section, for the "N unsaved changes" list. */
 export function pendingEdits(): PendingEdit[] {
   if (!draft) return [];
   const out: PendingEdit[] = [];
@@ -546,12 +482,7 @@ export function pendingEdits(): PendingEdit[] {
   return out;
 }
 
-/**
- * Put one section back the way the *live* site has it — the office's change to
- * that part alone is dropped, and the section follows published content again
- * (another editor's next publish reaches it too). Everything else, typed and
- * unsaved, stays exactly where it is. A step Undo can take back.
- */
+/** Drop one section's edits and follow published content again (undoable). */
 export function revertSection(sectionId: string): { ok: boolean; label?: string } {
   const def = sectionById(sectionId);
   if (!def) return { ok: false };
@@ -571,16 +502,7 @@ export function revertSection(sectionId: string): { ok: boolean; label?: string 
   return { ok: true, label: def.label };
 }
 
-/**
- * Throw away everything in a list section except its removals — entries that
- * were added never go anywhere, entries that were edited go back to the
- * published version — so that what is left is exactly what *Delete* in the
- * unsaved list publishes: the entries the office took off the site. A step
- * Undo can take the cleanup back. Real add/remove lists qualify (a fixed list
- * of page lines has nothing that can be taken off), and so does an object
- * section that names its deletable nested list (the testimony wall) — the
- * surgery runs on that list and leaves the rest of the section alone.
- */
+/** Keep only a list section's removals, so Delete publishes just what was taken off (undoable). */
 export function dropAddedAndRevertedEdits(sectionId: string): {
   ok: boolean;
   added: number;
@@ -675,12 +597,7 @@ export function dropAddedAndRevertedEdits(sectionId: string): {
   return { ok: true, added, reverted, removed };
 }
 
-/**
- * Publish one section straight away — what *Delete* in the unsaved list uses
- * so a removal leaves the live site at once instead of waiting for Publish.
- * Every other unsaved section stays exactly as it is. Offline it stages the
- * section the way Publish does, to be sent when the connection returns.
- */
+/** Publish one section now; the rest stay as they are. Works offline (staged). */
 export async function publishSection(sectionId: string, note: string): Promise<PublishResult> {
   const def = sectionById(sectionId);
   if (!def || !draft) return { ok: false, error: "nothing-to-do" };
@@ -689,6 +606,7 @@ export async function publishSection(sectionId: string, note: string): Promise<P
      same stroke, whichever section is being published. */
   dropLapsedSlides(true);
   migrateTestimonies();
+  if (sectionId === "sermons" && Array.isArray(draft[sectionId])) stampSermonPublishTimes(draft[sectionId]);
   const value = clone(draft[sectionId]);
   if (sameJSON(value, publishedSection(sectionId))) {
     delete dirty[sectionId];
@@ -731,13 +649,34 @@ export async function publishSection(sectionId: string, note: string): Promise<P
   return { ok: true };
 }
 
-/**
- * Whether a list entry is on the live site already — by its id, or, for an
- * entry that never had one (a sermon keeps a blank id until the page re-reads
- * it, so id alone would call a published upload new forever), by matching its
- * whole content. Used by the sermons list, which reads newest-first while
- * uploads still in progress wait at the foot (SPEC note 146).
- */
+function stampSermonPublishTimes(list: any[]): void {
+  const now = Date.now();
+  const cur = publishedSection("sermons");
+  const live: any[] = Array.isArray(cur) ? cur : [];
+  for (const item of list) {
+    if (!item || typeof item !== "object" || typeof item.publishedAt === "number") continue;
+    const id = String(item.id ?? "").trim();
+    if (id && live.some((p) => String(p?.id ?? "") === id)) continue;
+    if (live.some((p) => sameJSON(p, item))) continue;
+    let aside = false;
+    for (const p of live) {
+      if (!p || typeof p !== "object") continue;
+      const a = { ...p };
+      const b = { ...item };
+      delete a.id;
+      delete b.id;
+      delete a.publishedAt;
+      delete b.publishedAt;
+      if (sameJSON(a, b)) {
+        aside = true;
+        break;
+      }
+    }
+    if (!aside) item.publishedAt = now;
+  }
+}
+
+/** True when an entry is live: by id, or by content ignoring the id (note 146). */
 export function isPublishedEntry(sectionId: string, item: any): boolean {
   const def = sectionById(sectionId);
   const cur = publishedSection(sectionId);
@@ -745,7 +684,16 @@ export function isPublishedEntry(sectionId: string, item: any): boolean {
   const key = def.idKey || "";
   const id = key ? String(item[key] ?? "").trim() : "";
   if (id && cur.some((p) => String(p?.[key] ?? "") === id)) return true;
-  return cur.some((p) => sameJSON(p, item));
+  if (cur.some((p) => sameJSON(p, item))) return true;
+  if (!key) return false;
+  return cur.some((p) => {
+    if (!p || typeof p !== "object") return false;
+    const a = { ...p };
+    const b = { ...item };
+    delete a[key];
+    delete b[key];
+    return sameJSON(a, b);
+  });
 }
 
 /** Show the unpublished draft on the live site (this browser only). */
@@ -765,10 +713,7 @@ export function setPreview(on: boolean) {
 
 /* -------------------------------------------- editing in the drawer ---- */
 
-/**
- * While the office is on #/admin the pages show the *draft* — that is the whole
- * point of editing the site itself: type in the drawer, see the page change.
- */
+/** On #/admin the pages show the draft. */
 export function setAutoPreview(on: boolean) {
   if (autoPreview === on) return;
   autoPreview = on;
@@ -789,21 +734,7 @@ function applyDraftLive() {
 
 /* ------------------------------------------------------- live preview, paced */
 
-/**
- * Every keystroke used to re-bind all 53 sections and re-draw the page behind
- * the drawer. On a real page that is 40–150ms of work per character — and it
- * grows as the paragraph grows — so a sentence typed at speed left the panel
- * frozen between letters: the office's *"it hangs while making changes"*.
- *
- * The drawer reads the **draft**, so its fields update on the spot; only the
- * page behind them needs the applied snapshot, and a page a fifth of a second
- * behind the cursor is still a live preview. So applying is paced: it waits for
- * a pause in the typing (`PREVIEW_MS`), and never lets the page fall further
- * behind than `PREVIEW_MAX_MS` while a long paragraph is being typed. Anything
- * that ends the burst — undo, discard, publishing, leaving #/admin, the content
- * changing underneath — drops or flushes what is still waiting (see
- * `applyOverrides`, `undoEdit`).
- */
+/** Applying is paced: instant in the drawer, the page behind follows within a beat. */
 const PREVIEW_MS = 160;
 const PREVIEW_MAX_MS = 600;
 let previewTimer = 0;
@@ -836,13 +767,7 @@ function dropLivePreview() {
   previewTimer = 0;
 }
 
-/**
- * Put the office's draft back on the page. Called wherever the *draft* becomes
- * the thing the pages should be showing — the drawer opening, the stored draft
- * arriving from localStorage a moment after it, the content changing underneath
- * it (`applyOverrides`) — so that what the office is editing is always what they
- * are looking at, from the first frame of the session (SPEC note 83).
- */
+/** Put the draft back on the page (note 83). */
 function showDraftIfEditing() {
   if (!autoPreview || !draft) return;
   applyDraftLive();
@@ -894,9 +819,12 @@ async function applySeedOnce() {
   if (seedApplied) return;
   seedApplied = true;
   try {
-    const res = await fetch("seed.json", { cache: "no-store" });
+    const res = await fetch(siteFile("seed.json"), { cache: "no-store" });
     if (res.ok) {
       const seed = await res.json();
+      /* The baked recent-services list paints even when the words are not
+         newer — it is the office's channel read, not a publish. */
+      applyBakedRecent(seed);
       if (seed && seed.sections && typeof seed.sections === "object" && Object.keys(seed.sections).length) {
         rev = typeof seed.rev === "number" ? seed.rev : 0;
         applyOverrides(seed.sections);
@@ -907,12 +835,7 @@ async function applySeedOnce() {
   }
 }
 
-/* The live feed: the office's published words, read straight off the public
-   repo. Standalone copies (no socket anywhere) poll it a few minutes apart
-   and whenever the tab comes back, painting whatever is newer — the site goes
-   dynamic with no rebuild, no redeploy and no server. A live socket always
-   wins: while one is online the feed stays quiet. Anything fails and the
-   baked words stand; nothing here can publish, so there is nothing to abuse. */
+/* Live feed: published words polled from the public repo for standalone copies. */
 let feedSpec: FeedSpec | null | undefined;
 let feedSyncing = false;
 async function syncFromFeed() {
@@ -922,10 +845,15 @@ async function syncFromFeed() {
   try {
     if (feedSpec === undefined) feedSpec = await bakedFeedSpec();
     if (!feedSpec) return;
-    const seed = await fetchLiveSeed(feedSpec, rev);
+    const seed = await peekSeed(feedSpec, 15000);
     if (!seed) return;
-    rev = seed.rev;
-    applyOverrides(seed.sections as Snapshot);
+    /* The baked services paint on every feed read — even when the words are
+       not newer, the list may be (a Sunday uploads with no publish). */
+    applyBakedRecent(seed);
+    if (!feedIsNewer(seed, rev)) return;
+    const live = seed as FeedSeed;
+    rev = live.rev;
+    applyOverrides(live.sections as Snapshot);
     writeJSON(CACHE_KEY, { rev, overrides });
   } catch {
     /* the feed stays a best effort */
@@ -952,12 +880,7 @@ export async function startCms() {
      server this copy was pointed at (deploy config or admin console). */
   await initServerUrl().catch(() => {});
 
-  /* 1. A draft and an undo history left behind by the admin survive a reload.
-     This comes FIRST, before anything is applied or persisted: the drawer has
-     already mounted and made itself a draft of the shipped words, and applying
-     the cache below rebases and *writes* a draft — which, done before this
-     read, is exactly how the office's own unsaved changes used to be lost on
-     every reload (SPEC note 112). */
+  /* Read the stored draft first: applying the cache below writes a draft, which would bury it. */
   const storedDraft = readJSON<{ rev: number; content: Snapshot; dirty?: Record<string, true> } | null>(DRAFT_KEY, null);
   if (storedDraft?.content) {
     draft = normalizeDraft(storedDraft.content);
@@ -972,9 +895,7 @@ export async function startCms() {
      re-check on the half minute so the row clears by itself. Only notifies when
      something actually lapsed. */
   window.setInterval(() => dropLapsedSlides(true), 30000);
-  // 2. Instant paint from the baked snapshot (or the shipped defaults). Any
-  //    section the office has edited is `dirty` and is kept exactly as they
-  //    left it. The live server, when there is one, syncs over this below.
+  // Paint instantly; edited sections stay as left; the server syncs over below.
   await applySeedOnce();
   const cached = readJSON<{ rev?: number; overrides?: Snapshot } | null>(CACHE_KEY, null);
   if (cached?.overrides) {
@@ -983,26 +904,22 @@ export async function startCms() {
   }
   history = readJSON<any[]>(HISTORY_KEY, []) || [];
   pending = readJSON<Snapshot | null>(PENDING_KEY, null);
-  /* The drawer mounts before this runs (see the cache above), so the office is
-     already looking at the pages — with a draft of the shipped words, made from
-     whatever was live at that instant. Their own stored draft has just arrived:
-     put it on the page, or their edits sit in the drawer doing nothing until
-     they touch a field (SPEC note 83). */
+  /* The drawer mounts first, so the stored draft arriving late is put on the page (note 83). */
   showDraftIfEditing();
   notify();
 
   if (!socketFactory()) {
     status = "local";
     localOnly = true;
+    connNote = "no office address found for this copy";
     notify();
     /* No socket anywhere: the live feed keeps this copy fresh instead. */
     startFeed();
+    /* A late-arriving server address is joined with no reload. */
+    watchForServer();
     return;
   }
-  /* A publish nudge (SSE) can be missed while a tab sleeps — so a tab that
-     comes back re-reads the server. This is what makes an already-open
-     visitor page pick up a publish without a reload. Throttled: at most one
-     re-read per few seconds, and never while a sync is already running. */
+  /* A tab coming back re-reads the server (missed nudges); throttled, never mid-sync. */
   let lastFocusSync = 0;
   let focusSyncing = false;
   const refocus = () => {
@@ -1023,8 +940,56 @@ export async function startCms() {
   connect();
 }
 
+/* Drop a dead socket so the next attempt starts fresh (a kept one blocks retries). */
+function dropSocket() {
+  const sock = socket;
+  socket = null;
+  try {
+    (sock?.close as any)?.call(sock);
+  } catch {}
+}
+
+/* A user-initiated join: fresh backoff, no waiting out the timer, no dead socket. */
+export async function retryNow() {
+  reconnectAttempt = 0;
+  if (reconnectTimer) {
+    window.clearTimeout(reconnectTimer);
+    reconnectTimer = 0;
+  }
+  if (socket && status !== "online") dropSocket();
+  /* An address that arrived since boot (console override, deploy file, office started late). */
+  if (!socketFactory()) {
+    try {
+      await refreshServerUrl();
+    } catch {}
+  }
+  if (!socket && socketFactory()) connect();
+  else notify();
+}
+
+/* An open that never settles must still end (the raw-socket path already has one). */
+function openTimeout(ms: number): Promise<void> {
+  return new Promise<void>((_, reject) => {
+    window.setTimeout(() => reject(new Error("open timeout")), ms);
+  });
+}
+
 function connect() {
-  if (socket) return;
+  if (socket) {
+    /* A live connection is kept; a dead one is dropped so this attempt is real. */
+    if (status === "online") return;
+    dropSocket();
+  }
+  /* No server anywhere: stand alone (and join one quietly if it appears later). */
+  if (!socketFactory()) {
+    status = "local";
+    localOnly = true;
+    connNote = "no office address found for this copy";
+    notify();
+    startFeed();
+    watchForServer();
+    return;
+  }
   status = "connecting";
   notify();
   let sock: any;
@@ -1033,6 +998,7 @@ function connect() {
   } catch (err) {
     console.warn("cms: could not create socket", err);
     status = "offline";
+    connNote = String((err as any)?.message || err || "could not open the server").slice(0, 120);
     notify();
     scheduleReconnect();
     return;
@@ -1040,12 +1006,18 @@ function connect() {
   socket = sock;
   if ("binaryType" in sock) sock.binaryType = "arraybuffer";
 
-  const opened = sock.opened instanceof Promise ? sock.opened : waitForOpen(sock);
+  const opened = Promise.race([
+    sock.opened instanceof Promise ? sock.opened : waitForOpen(sock),
+    openTimeout(REQUEST_TIMEOUT),
+  ]);
 
   opened
     .then(async () => {
+      /* A dropped socket's late open changes nothing. */
+      if (socket !== sock) return;
       reconnectAttempt = 0;
       status = "online";
+      connNote = "";
       notify();
       sock.addEventListener?.("close", onClose);
       sock.addEventListener?.("message", onMessage);
@@ -1064,12 +1036,127 @@ function connect() {
       await resumePlannedPublish();
     })
     .catch((err: any) => {
-      if (socket === sock) socket = null;
+      /* A dropped attempt's late failure changes nothing. */
+      if (socket !== sock) return;
+      socket = null;
       status = "offline";
+      connNote = String(err?.message || err || "unreachable").slice(0, 120);
       notify();
       scheduleReconnect();
       console.warn("cms: server unavailable", err?.message || err);
     });
+}
+
+/* A standalone copy joins a server that appears after boot, quietly. */
+
+/* The server bumps this on every main-password change; older sessions sign out. */
+const PWGEN_KEY = "wom.cms.pwgen";
+
+/* Which account this browser's saved session belongs to ("main" or "sub"): a
+   main-password change ends main sessions but leaves sub-admins signed in. */
+const PWROLE_KEY = "wom.cms.pwrole";
+
+function knownPwgen(): number | null {
+  try {
+    const raw = localStorage.getItem(PWGEN_KEY);
+    if (raw === null) return null;
+    const n = Number(raw);
+    return Number.isFinite(n) ? n : null;
+  } catch {
+    return null;
+  }
+}
+
+function savedPwRole(): string {
+  try {
+    return localStorage.getItem(PWROLE_KEY) || "";
+  } catch {
+    return "";
+  }
+}
+
+/* This sign-in just proved itself against the server: remember which password
+   generation (and which account) it belongs to. Never clears — proving beats
+   guessing. */
+function recordPwgen(pw: unknown, role: string) {
+  if (typeof pw !== "number" || !Number.isFinite(pw)) return;
+  try {
+    localStorage.setItem(PWGEN_KEY, String(pw));
+    if (role === "main" || role === "sub") localStorage.setItem(PWROLE_KEY, role);
+  } catch {}
+}
+
+/* Returns false when this tab's session was just cleared. */
+function noteServerPwgen(pw: unknown): boolean {
+  if (typeof pw !== "number" || !Number.isFinite(pw)) return true;
+  const known = knownPwgen();
+  if (known === null || known === pw) {
+    if (known === null) recordPwgen(pw, savedPwRole() || "main");
+    return true;
+  }
+  const hasSession = authed || !!sessionPassword();
+  if (hasSession && savedPwRole() !== "sub") {
+    clearSession();
+    myRole = null;
+    myName = "";
+    recordPwgen(pw, "");
+    notify();
+    return false;
+  }
+  recordPwgen(pw, savedPwRole() || "main");
+  return true;
+}
+
+/* This browser's office-server address (typed on the sign-in card); "" when unset. */
+export function officeServerOverride(): string {
+  return serverOverride();
+}
+/* Point this copy at the office server ("" clears it); signing in joins it. */
+export function setOfficeServerOverride(url: string) {
+  setServerOverride(url);
+}
+/* Join the shared server on demand (bounded wait); a sign-in always tries live first. */
+export async function ensureOnline(timeoutMs = 20000): Promise<boolean> {
+  if (socket && status === "online") return true;
+  await retryNow();
+  if (!socket) return false;
+  const deadline = Date.now() + Math.max(1000, timeoutMs);
+  while (Date.now() < deadline) {
+    if (socket && status === "online") return true;
+    /* No server anywhere: joining later is watchForServer's job, not this wait's. */
+    if (status === "local" && !socketFactory()) return false;
+    if (!socket && !reconnectTimer && socketFactory()) connect();
+    await new Promise((r) => setTimeout(r, 250));
+  }
+  return !!(socket && status === "online");
+}
+let watchingForServer = false;
+function watchForServer() {
+  if (watchingForServer) return;
+  watchingForServer = true;
+  let checking = false;
+  const check = async () => {
+    if (!localOnly || socket || checking) return;
+    checking = true;
+    try {
+      /* Fresh resolution every check (not the boot cache): this is what lets
+         an open tab join a server that appeared later with no reload. */
+      await refreshServerUrl().catch(() => {});
+      if (!localOnly || socket) return;
+      if (socketFactory()) {
+        localOnly = false;
+        notify();
+        connect();
+      }
+    } finally {
+      checking = false;
+    }
+  };
+  window.setInterval(() => check().catch(() => {}), 60_000);
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "visible") check().catch(() => {});
+  });
+  window.addEventListener("online", () => check().catch(() => {}));
 }
 
 function waitForOpen(sock: any) {
@@ -1104,11 +1191,13 @@ function onClose(event: any) {
     // perchance.org-only restriction: embedding elsewhere is permanent.
     status = "local";
     localOnly = true;
+    connNote = "this page is embedded where the server is blocked";
     notify();
     startFeed();
     return;
   }
   status = "offline";
+  connNote = "connection lost — retrying";
   notify();
   startFeed();
   scheduleReconnect();
@@ -1127,6 +1216,8 @@ async function syncFromServer() {
   const raw = await socket.rpc.getContent("");
   const res = JSON.parse(raw);
   if (!res?.ok) return;
+  /* A changed office password signs this tab's old session out by itself. */
+  noteServerPwgen(res.pwgen);
   let server: Snapshot = {};
   try {
     server = res.sections ? JSON.parse(res.sections) : {};
@@ -1141,10 +1232,7 @@ async function syncFromServer() {
   updatedBy = res.by || "";
   log = Array.isArray(res.log) ? res.log : [];
   if (differs) {
-    /* The website has just been saved (this is the first time we are talking to
-       its permanent server, which knows nothing yet): keep the content the
-       office had already published and send it over, rather than letting the
-       site quietly fall back to the shipped words. */
+    /* First contact with a fresh permanent server: carry over what was published. */
     if (!Object.keys(server).length && Object.keys(overrides).length && !pending && !plannedPublish()) {
       pending = clone(overrides);
       writeJSON(PENDING_KEY, pending);
@@ -1176,6 +1264,9 @@ function clearSession() {
   try {
     sessionStorage.removeItem(SESSION_KEY);
   } catch {}
+  try {
+    localStorage.removeItem(PWROLE_KEY);
+  } catch {}
   authed = false;
 }
 
@@ -1186,12 +1277,9 @@ export async function login(
   silent = false,
   want?: "main" | "sub"
 ): Promise<{ ok: boolean; error?: string; role?: "main" | "sub" | "invite"; name?: string; needCode?: boolean; q?: string }> {
-  if (!socket || status !== "online") return { ok: false, error: "offline" };
+  if ((!socket || status !== "online") && !(await ensureOnline())) return { ok: false, error: "offline" };
   try {
-    /* The box pointed here travels along: on a tie (one text, two accounts)
-       the sub-admin box opens the sub and the main box opens main — anywhere
-       else each box opens whichever account matches. Older servers read the
-       password raw and check main first, which the main box still does. */
+    /* On a tie the sub box opens sub, the main box main; elsewhere either matching box opens. */
     const res = JSON.parse(await socket.rpc.login(JSON.stringify({ password, want: want === "sub" ? "sub" : "main" })));
     if (res?.ok) {
       /* A one-time invite code names its invitation but signs nobody in — the
@@ -1207,6 +1295,7 @@ export async function login(
       try {
         sessionStorage.setItem(SESSION_KEY, password);
       } catch {}
+      recordPwgen((res as any).pwgen, myRole);
       notify();
       await flushPending();
       return { ok: true, role: myRole, name: myName };
@@ -1228,7 +1317,7 @@ export function logout() {
 /** Second step of a two-factor sign-in. `password` is only kept for the tab's
     session, so a reload can ask the server for step one again. */
 export async function login2fa(code: string, password: string): Promise<{ ok: boolean; error?: string }> {
-  if (!socket || status !== "online") return { ok: false, error: "offline" };
+  if ((!socket || status !== "online") && !(await ensureOnline())) return { ok: false, error: "offline" };
   try {
     const res = JSON.parse(await socket.rpc.login2fa(JSON.stringify({ code })));
     if (res?.ok) {
@@ -1238,6 +1327,7 @@ export async function login2fa(code: string, password: string): Promise<{ ok: bo
       try {
         sessionStorage.setItem(SESSION_KEY, password);
       } catch {}
+      recordPwgen((res as any).pwgen, "main");
       notify();
       await flushPending();
       return { ok: true };
@@ -1278,7 +1368,7 @@ export function validSubName(name: string): boolean {
 }
 
 async function adminRpc(method: string, payload?: any): Promise<any> {
-  if (!socket || status !== "online") return { ok: false, error: "offline" };
+  if ((!socket || status !== "online") && !(await ensureOnline())) return { ok: false, error: "offline" };
   try {
     return JSON.parse(await socket.rpc[method](payload === undefined ? "" : JSON.stringify(payload)));
   } catch (err: any) {
@@ -1302,7 +1392,7 @@ export async function listAdmins(): Promise<{ ok: boolean; error?: string; subs?
     pass on. The code itself is never stored anywhere — show it once. */
 export async function createInvite(name: string): Promise<{ ok: boolean; code?: string; error?: string }> {
   if (!validSubName(name)) return { ok: false, error: "bad-name" };
-  if (!socket || status !== "online") return { ok: false, error: "offline" };
+  if ((!socket || status !== "online") && !(await ensureOnline())) return { ok: false, error: "offline" };
   const code = genInviteCode();
   try {
     const codeHash = await sha256HexText(code);
@@ -1344,11 +1434,7 @@ export async function setMainOff(off: boolean): Promise<{ ok: boolean; off?: boo
   return { ok: false, error: res?.err || res?.error || "denied" };
 }
 
-/** Main admin only: change the office password. Only while two-factor is on —
-    the signed-in session plus the security answer (or a current app code) are
-    the proof. The new password is hashed here — only the hash leaves the
-    browser — and this tab's saved session follows it, so a reload signs
-    straight in. */
+/** Main admin only: change the office password (two-factor on; only the hash leaves). */
 export async function setMainPassword(password: string, proof: string): Promise<{ ok: boolean; error?: string }> {
   if (password.length < 8 || password.length > 128) return { ok: false, error: "bad-password" };
   if (!proof || !proof.trim()) return { ok: false, error: "bad-proof" };
@@ -1358,6 +1444,8 @@ export async function setMainPassword(password: string, proof: string): Promise<
     if (res?.ok) {
       try {
         sessionStorage.setItem(SESSION_KEY, password);
+        if (typeof res.pwgen === "number" && Number.isFinite(res.pwgen)) localStorage.setItem(PWGEN_KEY, String(res.pwgen));
+        localStorage.setItem(PWROLE_KEY, "main");
       } catch {}
       return { ok: true };
     }
@@ -1371,7 +1459,7 @@ export async function setMainPassword(password: string, proof: string): Promise<
     this the code is dead and the password signs in like the main admin's,
     typed into the sub-admin sign-in whenever they visit. */
 export async function redeemInvite(code: string, password: string): Promise<{ ok: boolean; error?: string; name?: string }> {
-  if (!socket || status !== "online") return { ok: false, error: "offline" };
+  if ((!socket || status !== "online") && !(await ensureOnline())) return { ok: false, error: "offline" };
   if (password.length < 8 || password.length > 128) return { ok: false, error: "bad-password" };
   try {
     const res = JSON.parse(await socket.rpc.setSubPassword(JSON.stringify({ code: normalizeInviteCode(code), password })));
@@ -1383,6 +1471,7 @@ export async function redeemInvite(code: string, password: string): Promise<{ ok
       try {
         sessionStorage.setItem(SESSION_KEY, password);
       } catch {}
+      recordPwgen((res as any).pwgen, "sub");
       notify();
       await flushPending();
       return { ok: true, name: myName };
@@ -1463,10 +1552,7 @@ export async function totpDisable(code: string): Promise<{ ok: boolean; error?: 
   return { ok: false, error: res?.err || res?.error || "denied" };
 }
 
-/** Main admin only: one-click switch-off from the header toggle. The session
-    is the proof — same trust as a password change — and the cleared state is
-    saved the same way: TOTP = null + writeMeta on the server, like
-    MAIN_HASH + writeMeta for a new password. */
+/** Main admin only: switch two-factor off from the header toggle. */
 export async function totpOffNow(): Promise<{ ok: boolean; error?: string }> {
   const res = await adminRpc("totpOffNow");
   if (res?.ok) {
@@ -1509,11 +1595,7 @@ export function getDraft(): Snapshot {
   return draft;
 }
 
-/**
- * The wall was briefly a bare list of its own; it now lives with its filters
- * in one section. An old save still shaped that way is folded into the new
- * shape on first touch — marked changed, so publishing carries it over.
- */
+/** Old wall-shaped saves are folded into the section on first touch. */
 function migrateTestimonies() {
   if (!draft || !Array.isArray(draft.testimonies)) return;
   const items = draft.testimonies;
@@ -1525,14 +1607,7 @@ function migrateTestimonies() {
   persistDraft();
 }
 
-/**
- * Lapsed announcement slides and notices clear out of the office's draft — and
- * so out of the drawer and, on the next publish, off the live site for good.
- * Throttled: the drawer reads the draft on every keystroke. Applied content is
- * cleaned where it lands (each section `bind`), and the site itself never
- * shows a lapsed entry (`visibleSlides`, `liveAnnouncements`), so this is only
- * the drawer's own clearing.
- */
+/** Lapsed slides and notices clear out of the draft (throttled; the site never shows them anyway). */
 let lastSlidePurge = 0;
 function dropLapsedSlides(force = false): boolean {
   const now = Date.now();
@@ -1775,11 +1850,7 @@ async function sendPatch(
   return { ok: true, rev: lastRev, sent };
 }
 
-/**
- * Put the draft on the live site. `content` is only passed by
- * `finishPlannedPublish` — the publish that was waiting for the website itself
- * to be saved, whose content had to travel across that save.
- */
+/** Put the draft live. `content` is only for the publish that waited on a save. */
 export async function publish(note: string, content?: Snapshot): Promise<PublishResult> {
   if (!content && draft) {
     dropLapsedSlides(true);
@@ -1787,6 +1858,8 @@ export async function publish(note: string, content?: Snapshot): Promise<Publish
   }
   if (content && Array.isArray(content.slides)) content.slides = purgeExpiredSlides(content.slides);
   if (content && Array.isArray(content.announcements)) content.announcements = purgeExpiredAnnouncements(content.announcements);
+  if (draft && Array.isArray(draft.sermons)) stampSermonPublishTimes(draft.sermons);
+  if (content && Array.isArray(content.sermons)) stampSermonPublishTimes(content.sermons);
   const snapshot = content || draft || applied;
   const { sections, changed } = buildPatch(snapshot);
 
@@ -1860,7 +1933,7 @@ export async function publish(note: string, content?: Snapshot): Promise<Publish
 }
 
 export async function clearLog(): Promise<{ ok: boolean; error?: string }> {
-  if (!socket || status !== "online") return { ok: false, error: "offline" };
+  if ((!socket || status !== "online") && !(await ensureOnline())) return { ok: false, error: "offline" };
   try {
     const res = JSON.parse(await socket.rpc.clearLog(""));
     if (!res?.ok) return { ok: false, error: res?.err || "failed" };
@@ -1884,17 +1957,7 @@ function pick(snap: Snapshot, ids: string[]): Snapshot {
 
 /* ------------------------------------------------- saving the website itself */
 
-/**
- * While the generator itself is unsaved, it does not exist on its own address
- * yet and everything published from #/admin goes to a preview server that
- * forgets it on the next reload. So Publish does both jobs: it asks the editor
- * — the tab that hosts this preview — to save the website, and finishes the
- * publish as soon as the saved (permanent) server is the one we are talking to.
- *
- * The platform listens for exactly this message from the frame that hosts a
- * preview (`saveKeyboardShortcut`), runs its own "am I allowed to save this?"
- * check, and reloads the preview when it is done.
- */
+/** While unsaved, publishes go to a preview server; Publish also asks the editor to save. */
 export function websiteIsUnsaved(): boolean {
   return (window as any).generatorIsUnsaved === true;
 }
@@ -1910,12 +1973,7 @@ export function requestWebsiteSave(): boolean {
   }
 }
 
-/**
- * Remember the publish the office asked for, to finish it once the site is
- * saved. The content itself travels with the plan: the save swaps the preview
- * server for the site's permanent one, and this is the only copy of what the
- * office was looking at when they pressed Publish.
- */
+/** Hold a publish until the site is saved; the content travels with the plan. */
 export function planPublishAfterSave(note: string) {
   writeJSON(AFTER_SAVE_KEY, {
     note: String(note || "").slice(0, 300),
@@ -1934,11 +1992,7 @@ export function clearPlannedPublish() {
   } catch {}
 }
 
-/**
- * Finish a publish that was waiting for the editor to save the website. Safe to
- * call at any time: it does nothing unless there is a plan, the website has
- * been saved since, and the plan is still fresh.
- */
+/** Finish a publish that waited on a save; no-op unless a fresh plan exists. */
 export async function finishPlannedPublish(): Promise<PublishResult | null> {
   const plan = plannedPublish();
   if (!plan) return null;
@@ -2020,7 +2074,7 @@ export async function flushPending(): Promise<boolean> {
 export async function undoLastPublish(): Promise<PublishResult> {
   const entry = history[0];
   if (!entry) return { ok: false, error: "nothing-to-undo" };
-  if (!socket || status !== "online") return { ok: false, error: "offline" };
+  if ((!socket || status !== "online") && !(await ensureOnline())) return { ok: false, error: "offline" };
 
   const ids: string[] = [];
   const seen: Record<string, true> = {};

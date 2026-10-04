@@ -456,13 +456,7 @@
 
 /* --------------------------------------------------------------- split */
 
-/* The welcome band is the announcement's stage (SPEC note 121): the office's
-   slide runs the full length of the page, with no frame around it, and the
-   welcome copy sits underneath it.
-
-   The grid belongs to the element that holds the two halves. `<Section>` wraps
-   its children in `.container`, so the rule goes there — on the section itself
-   (whose only child is the container) the two columns never applied. */
+/* The welcome band is the announcement's stage (note 121): slide full-length, copy under. */
 .split {
   position: relative;
   overflow: hidden;
@@ -511,12 +505,7 @@
   aspect-ratio: 4 / 3;
 }
 
-/* Every slide is cut to one frame — 1600×1200, 4:3 (`src/lib/slideFrame.ts`) —
-   so the stage is the same shape whatever the office uploads and the slide runs
-   the full length of the page wherever there is room for it. The frame is
-   1.3333 wide per unit of height against the page's 100, so `min()` always
-   picks the width: the rule is left here as the one place to hold a slide back
-   if the frame is ever set to something taller than it is wide. */
+/* Every slide is one frame — 1600×1200, 4:3 (slideFrame.ts). */
 .split .aslides {
   width: min(100%, calc(110vw * var(--slide-aspect, 1.3333)));
   margin-inline: auto;
@@ -4582,16 +4571,7 @@
   margin-top: 1.4rem;
 }
 
-/* The screen while nobody is on air, and the screen while a service has
-   started but the stream has not opened — the live player's place, holding
-   either state instead of a dead player (src/pages/WatchLive.tsx). Both are the
-   same box with the same faded still under them; the waiting one carries the
-   ticking clock (SPEC note 133). The `::before` is what keeps the screen the
-   shape of the player: a grid item with nothing but a 16:9 top padding, sharing
-   the state's own cell. The state therefore sits exactly where the player
-   would, and on a phone — where its copy wraps and its buttons stack — the
-   screen grows to hold it instead of clipping the buttons (which an
-   `aspect-ratio` box did: `overflow: hidden` cut them off below ~560px). */
+/* Off-air and waiting screens: same box, same faded still; waiting carries the clock (note 133). */
 .live-ended,
 .live-wait {
   position: relative;
@@ -4687,11 +4667,7 @@
 
 /* ---- the ticking clock on the waiting screen ---------------------------- */
 
-/* Built, not drawn: a case set behind the dial in Z, sixty marks and four
-   numerals on the dial, three hands on top of it and a glass cover floating
-   above them, all inside a stage that sways on two axes and nudges itself on
-   every second. The hands are turned inline from the visitor's own device
-   clock (src/components/liveclock.tsx). */
+/* The clock, built not drawn (liveclock.tsx): case, dial, hands, glass; nudged every second. */
 .live-wait__body {
   gap: 0.9rem;
 }
@@ -5299,17 +5275,7 @@
 
 
 /* ======================================================= announcement slides */
-/* The home page's welcome box, as a slider of designed announcement slides. The
-   office's pictures are composed into posters (see src/components/slides.tsx)
-   and **the colours are the picture's own**: src/lib/palette.ts samples the
-   upload on a canvas, works out its strongest colour together with its dark
-   ground and its paper, and hands them over as the --poster-* variables below —
-   so nothing in this block names a colour of its own, and a red flyer and a
-   blue one come out as two different posters. Every pair was checked against
-   WCAG contrast in that module, and every design lets the picture fill the
-   slide: only the treatment laid over it changes from one design to the next.
-   Text is sized in container units (`cqw`, with a rem fallback in front of
-   each) so one design fits the box at any size. */
+/* Welcome slider: posters in the picture's own colours (palette.ts), sized in cqw. */
 
 .aslides {
   position: relative;
@@ -5629,12 +5595,7 @@
 .aslide--arch .aslide__photo--under {
   filter: brightness(0.5) saturate(0.88);
 }
-/* The arch is the frame's own shape — equal parts of the slide's width and
-   height, so it is landscape and exactly as wide-per-tall as the picture inside
-   it. The picture is *whole* in this design too (SPEC note 122): a portrait
-   arch, as this was, showed the middle third of the office's photograph and cut
-   the rest away. It sits between the top edge and the words, which start at
-   47%. */
+/* The arch: frame-shaped; the picture stays whole (note 122). */
 .aslide--arch .aslide__arch {
   position: absolute;
   left: 50%;

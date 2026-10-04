@@ -1,12 +1,4 @@
-/* ============================================================================
-   editor.tsx — the office's editing controls (moved out of the old console).
-
-   These are the widgets themselves: one control per field type, the photo
-   uploader, the sign-in card, the publish + tools dialogs, the live-stream
-   archive panel and the site overview. The console shell that used to arrange
-   them is gone — src/pages/Admin.tsx now paints the real pages and puts these
-   controls in a drawer beside them and in small popovers on the page itself.
-   ========================================================================== */
+/* editor.tsx — the office's editing widgets: field controls, uploads, sign-in, publish dialogs. */
 
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import QRCode from "qrcode-generator";
@@ -29,7 +21,6 @@ import {
 import { PageHead } from "../components/layout";
 import { SearchBox, eventDate } from "../components/blocks";
 import { fireToast, useNow } from "../lib/hooks";
-import { normalizeServerUrl, serverOverride, serverUrl, setServerOverride } from "../lib/remoteserver";
 import { readLiveStatus } from "../lib/livestatus";
 import { SITE, SERVICES, img } from "../data/site";
 import { recentLimit } from "../data/live";
@@ -64,6 +55,7 @@ import {
   sectionIsHidden,
 } from "../lib/cmsSchema";
 import * as cms from "../lib/cms";
+import { serverUrl } from "../lib/remoteserver";
 
 /* -------------------------------------------------------------- status pill */
 
@@ -75,7 +67,7 @@ export function StatusPill({ state }: { state: ReturnType<typeof cms.useCms> }) 
       ? "Connecting…"
       : state.status === "offline"
       ? "Reconnecting…"
-      : "This device only";
+      : "Not connected";
   const tone = state.status === "online" ? "emerald" : state.status === "connecting" ? "sky" : "crimson";
   return (
     <span className={"admin__pill admin__pill--" + tone} title={"Sharing your content with every visitor: " + label}>
@@ -130,13 +122,28 @@ function SubSignIn({
   );
 }
 
+/* Office-server address field removed: this copy joins its server automatically
+   (baked server.json, or same-machine probe). No manual address on the sign-in card. */
+function ServerConnect() {
+  return null;
+}
+
 /* ---------------------------------------------------------------- login gate */
 
-export function LoginGate({ onLocal, onExit, onDone }: { onLocal: () => void; onExit?: () => void; onDone?: () => void }) {
+export function LoginGate({ onExit, onDone }: { onExit?: () => void; onDone?: () => void }) {
   const state = cms.useCms();
   const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+
+  /* Join the server in the background the moment the card opens, so it is
+     usually already connected by the time the password is typed. */
+  useEffect(() => {
+    if (state.status === "local" || state.status === "offline") {
+      cms.ensureOnline().catch(() => {});
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   /* Sub-admin signup: a one-time invite code from the main admin, spent to
      create the sub-admin's own password — afterwards the code is dead and the
      password signs in like the main admin's. */
@@ -180,7 +187,7 @@ export function LoginGate({ onLocal, onExit, onDone }: { onLocal: () => void; on
     }
     setError(
       res.error === "offline"
-        ? "The content server is not reachable from this page yet. Wait a moment, or continue in local preview mode below."
+        ? "The content server is not reachable from this page yet. Try again in a moment."
         : res.error === "rate"
         ? "Too many attempts from this connection. Please wait ten minutes and try again."
         : "That password was not recognised."
@@ -302,10 +309,7 @@ export function LoginGate({ onLocal, onExit, onDone }: { onLocal: () => void; on
     setError("");
     const res = await cms.login(pw, false, "sub");
     setBusy(false);
-    /* The box opens whichever account matches — on a tie (the same text for
-       both) the sub-admin box opens the sub. The office password lands here
-       only with no sub by that text: straight in, or via the authenticator
-       step while two-factor is on. */
+    /* On a tie the sub box opens sub; the office password enters straight in otherwise. */
     if (res.ok && res.needCode) {
       setPassword(pw);
       setNeedCode(true);
@@ -345,8 +349,6 @@ export function LoginGate({ onLocal, onExit, onDone }: { onLocal: () => void; on
     e.preventDefault();
     await doSubLogin(subPw);
   };
-
-  const localOnly = state.status === "local" || state.status === "offline";
 
   return (
     <div className="admin__gate admin__gate--modal">
@@ -489,7 +491,7 @@ export function LoginGate({ onLocal, onExit, onDone }: { onLocal: () => void; on
         ) : (
           <>
             <form onSubmit={submit}>
-              <Field label="Admin password" error={error} hint="Issued to you by whoever set up this site's office tools. It is not the same as any email password.">
+              <Field label="Admin password" error={error}>
                 <Input
                   type="password"
                   autoComplete="current-password"
@@ -526,73 +528,7 @@ export function LoginGate({ onLocal, onExit, onDone }: { onLocal: () => void; on
             </p>
           </>
         )}
-        {localOnly && (
-          <Notice tone="crimson">
-            <b>The shared server is not connected.</b> You can still edit and preview here, but changes will only apply to this browser
-            until the server is reachable.{" "}
-            <button type="button" className="admin__linkbtn" onClick={onLocal}>
-              Continue in local preview mode
-            </button>
-          </Notice>
-        )}
-        <OfficeServerLink />
       </Card>
-    </div>
-  );
-}
-
-/* Point this copy at the office's own server (an always-on computer running
-   the site), so sign-in, publishing and uploads work here exactly like they
-   do locally — one shared store behind every copy of the site. Empty means
-   this copy stands alone. Takes effect on save (the page reloads). */
-function OfficeServerLink() {
-  const [draft, setDraft] = useState(() => serverOverride());
-  const current = serverUrl() || serverOverride();
-  const clean = normalizeServerUrl(draft);
-  return (
-    <div className="muted" style={{ marginTop: "1rem" }}>
-      <Field
-        label="Office server"
-        hint={
-          current
-            ? `This copy shares its content through ${current}.`
-            : "No shared server — this copy stands alone. Paste the office address to join it."
-        }
-      >
-        <Input
-          value={draft}
-          onChange={(e) => setDraft(e.target.value)}
-          placeholder="https://office.example.com"
-          inputMode="url"
-          autoComplete="url"
-          aria-label="Office server address"
-        />
-      </Field>
-      <div className="btn-row">
-        <Btn
-          size="sm"
-          disabled={!clean || clean === current}
-          onClick={() => {
-            setServerOverride(draft);
-            window.location.reload();
-          }}
-        >
-          Connect
-        </Btn>
-        {current && (
-          <Btn
-            size="sm"
-            variant="ghost"
-            onClick={() => {
-              setServerOverride("");
-              setDraft("");
-              window.location.reload();
-            }}
-          >
-            Disconnect
-          </Btn>
-        )}
-      </div>
     </div>
   );
 }
@@ -788,13 +724,7 @@ function ClearLogButton() {
   );
 }
 
-/* The foot of the live section: how many messages the *Previous sermons* band
-   lists, and the way to the messages themselves. The field is drawn by the
-   section — Admin.tsx passes it in as `children` — because it belongs to the
-   *Sermons* side of the site rather than to the stream; nothing else lives in
-   this card. The record of what happens when a service ends is the panel above
-   it (*Recent services*) and the site's own watcher
-   (`src/lib/recentstreams.ts`). */
+/* Foot of the live section: the Previous-sermons count and the way to the messages. */
 
 export function draftLive(): any {
   return cms.getDraft().live || {};
@@ -815,31 +745,7 @@ export function LiveEndingPanel({ onOpen, children }: { onOpen: (id: string) => 
 
 /* -------------------------------------- the livestream: start, stop, continue */
 
-/**
- * The office's broadcast controls: **Start**, **Continue** and **Stop**.
- *
- * The day, in the order it happens. Before a service the office presses
- * *Start* and the site says LIVE NOW everywhere — the header's pill, the home
- * page's hero and next-gathering card, the Watch live panel — with the player
- * open. If the stream drops (or they stop it for a moment) *Continue* puts the
- * same session back on air rather than beginning a new one; when the service
- * closes, *Stop* ends it and the finished service takes its place under
- * *Recent services* by itself.
- *
- * Two kinds of "on air" meet here — the office's switch (`LIVE.isLive`) and the
- * service clock (a scheduled gathering inside its own hours; the same rule as
- * `onAir` in src/lib/store.ts) — and the panel reports whichever is speaking,
- * so the office is never told the site is quiet while a gathering is being
- * broadcast. Stopping while the clock is on a gathering silences it for the
- * rest of its own hours (`LIVE.liveCut`), so the site cannot flick back to
- * "live" a minute after the office said the service was over (SPEC note 106).
- *
- * *Stop* is also pressed for the office: when the stream ends on its own, the
- * drawer's watcher does exactly what the button does and says so here instead
- * (`useAutoStopLive` in src/lib/autostop.ts, `liveEndedBy` in src/data/live.ts).
- * The buttons win again the moment the office touches them — *Start* and
- * *Continue* put the session back on air and hand the ending back to them.
- */
+/** Start / Continue / Stop for the broadcast; the panel reports whichever "on air" is speaking. */
 export function LiveControlPanel() {
   useCmsTick();
   const now = useNow(20000);
@@ -885,10 +791,7 @@ export function LiveControlPanel() {
   };
   const stop = () => {
     write({ isLive: false, liveCut: Date.now(), liveEndedBy: "office", liveCommandAt: Date.now() });
-    /* The service that has just ended goes into *Recent services* now: the
-       broadcast we were watching is seeded into the list (id and headline from
-       the live check) and every open page reads the channel again — see
-       `askForRecentServices` in src/lib/recentstreams.ts. */
+    /* An ended service seeds Recent services now; every open page re-reads the channel. */
     const aired = readLiveStatus();
     askForRecentServices(aired.videoId ? { videoId: aired.videoId, title: aired.title } : undefined);
     fireToast("Stopped. The finished service is in Recent services, and the site is counting down to the next gathering.", "info");
@@ -979,24 +882,7 @@ export function LiveControlPanel() {
 
 /* ------------------------------- the services the site is carrying */
 
-/**
- * *Recent services* is the site's own memory of the broadcast: the finished
- * services, read from the church's channel (`src/lib/recentstreams.ts`) and
- * played on the Watch live page. Nobody types a service in, and a service takes
- * its place the moment its stream ends — *Stop* here pokes every open page, and
- * the service is written into the list in that same second, before YouTube has
- * published the recording (`askForRecentServices`).
- *
- * This panel is where the office reads that list and, if they want to, takes a
- * video off the site: a test stream, a service that should not be advertised.
- * Taking it off hides the video wherever the list appears and is published with
- * the rest of the live section, so it holds for every visitor — nothing is
- * deleted from the church's channel, and *Put it back* returns it.
- *
- * The office's own write-ups are not part of this list and are not edited here:
- * each message's YouTube link, Facebook link and uploaded video live in the
- * *Sermons* section (SPEC note 109).
- */
+/** Finished services, read from the church's channel; take-offs publish with the section (note 109). */
 export function RecentServicesPanel() {
   useCmsTick();
   const now = useNow(30000);
@@ -1125,16 +1011,7 @@ type ActivityRow = {
   past: boolean;
 };
 
-/**
- * The activity the office is most likely to be asked about — the one that is on
- * right now, or the next one if the day is clear — with a straight line to its
- * form. An activity is *on* when the clock is inside its own start + length, and
- * the day is counted from today on the office's own clock (which is what its
- * card on the site prints too, SPEC notes 84–85).
- *
- * The list itself is the *draft*, so an activity the office has just added or
- * moved is the one this panel offers before it is published.
- */
+/** The activity on now (or next), with a straight line to its form; draft-backed. */
 export function CurrentEventPanel({ onOpen }: { onOpen: (id: string, entryKey?: string) => void }) {
   useCmsTick();
   const now = useNow(30000);
@@ -1254,10 +1131,7 @@ export function CurrentEventPanel({ onOpen }: { onOpen: (id: string, entryKey?: 
 
 /* --------------------------------------------------------------- field types */
 
-/* Where an upload goes when no upload plugin exists (local runs, or a copy
-   pointed at the office server): the backend keeps the file itself (POST
-   /__upload, served back from data/uploads/). Same-origin locally, absolute
-   back at the office server so the address stays good everywhere. */
+/* Local/office-server uploads land in data/uploads/ (same-origin or absolute). */
 async function localHostFile(blob: Blob, filename: string): Promise<string> {
   const base = serverUrl();
   const res = await fetch(`${base}/__upload?name=${encodeURIComponent(filename)}`, {
@@ -1284,13 +1158,7 @@ function useLocalUploadHost(): boolean {
   }
 }
 
-/* Uploading a photo straight from the office's phone or computer. The picture
-   is shrunk in the browser first, then hosted by Perchance's upload service —
-   only the short address of the picture is stored with the content.
-
-   `frame: "slide"` re-cuts the picture to the announcement slide frame on the
-   way out (see src/lib/slideFrame.ts): one shape and one resolution for every
-   slide, and the whole of the office's picture inside it. */
+/* Phone/computer photos shrink first, then host; `frame: "slide"` re-cuts to the slide frame. */
 
 export function PhotoUpload({ onDone, frame }: { onDone: (url: string) => void; frame?: "slide" }) {
   const inputRef = useRef<HTMLInputElement | null>(null);
@@ -1357,10 +1225,7 @@ export function PhotoUpload({ onDone, frame }: { onDone: (url: string) => void; 
   );
 }
 
-/* Uploading a video for a message. The file goes to Perchance's upload service
-   and only its address is stored with the content. Videos are big, so a file
-   that is too large for permanent storage is retried as a temporary file for a
-   year — the office is told, and the message still plays on the site. */
+/* Message videos host remotely; oversized files retry as year-long temporary ones. */
 export function VideoUpload({ onDone }: { onDone: (url: string) => void }) {
   const inputRef = useRef<HTMLInputElement | null>(null);
   const [busy, setBusy] = useState(false);
@@ -1472,18 +1337,7 @@ function VideoField({
   );
 }
 
-/**
- * The photo control. One place for every picture on the site — a shared photo
- * (a page banner, a ministry photo) or a record's own (a branch, a person, a
- * message's cover):
- *
- *   • upload from the phone or computer (`PhotoUpload` -> the hosted URL),
- *   • paste the address of any photo,
- *   • or clear it back to the original.
- *
- * It says which picture is in use, and — for a record — what a visitor sees
- * when there is none, so an empty field is never a mystery.
- */
+/** One photo control for every picture: upload, paste an address, or clear. */
 function ImageField({
   def,
   value,
@@ -1531,11 +1385,7 @@ function ImageField({
     };
   }, [preview, forSlide]);
 
-  /* A pasted address is stored as the office pasted it — portrait, square, or
-     huge. Setting it in reads it back and lays the whole picture, pixel for
-     pixel, into the slide's landscape frame (1600×1200) on its own colours
-     poured full — no blur — then hosts the result, so the stored slide
-     picture is landscape with every pixel of the original untouched. */
+  /* Pasted addresses set into the slide frame (1600x1200) untouched, no blur. */
   const fitPasted = async () => {
     if (fitting || !custom) return;
     setFitError("");
@@ -1629,10 +1479,7 @@ function ImageField({
   );
 }
 
-/* Kind of grace, managed inside the testimony entry itself: the select assigns
-   one of the shared kinds, "New kind" adds one (name + colour) and assigns
-   it, and Remove deletes the selected kind — unless other entries still use
-   it, or it is the last one left. */
+/* Testimony kinds are managed inside the entry (add assigns; remove guards use). */
 function TestimonyKindField({
   value,
   onChange,
@@ -1969,16 +1816,7 @@ export function PublishModal({ open, onClose, state }: { open: boolean; onClose:
   const changed = open ? cms.pendingSections() : [];
   const unsaved = open && cms.websiteIsUnsaved();
 
-  /**
-   * Publishing only means something once the website itself exists on its own
-   * address: while it is unsaved, published content lives in a preview server
-   * that forgets everything on reload. So Publish saves the website first (the
-   * editor hosting this preview does it on our request) and finishes the
-   * publish as soon as we are talking to the saved, permanent server. When the
-   * editor reloads this preview, the send resumes on its own from the plan
-   * stored in `cms` — the loop below is for the case where the flag simply
-   * flips in place.
-   */
+  /** Publish saves the site first while unsaved, then finishes from the stored plan. */
   useEffect(() => {
     if (!saving) return;
     let tries = 0;
@@ -2131,7 +1969,7 @@ export function defaultNote(changed: string[]): string {
 
 /* ---------------------------------------------------------------- tools page */
 
-export function ToolsPage({ onSignOut }: { onSignOut?: () => void }) {
+export function ToolsPage() {
   const state = cms.useCms();
   const [busy, setBusy] = useState(false);
   useCmsTick();
@@ -2170,7 +2008,6 @@ export function ToolsPage({ onSignOut }: { onSignOut?: () => void }) {
             icon="lock"
             onClick={() => {
               cms.logout();
-              onSignOut?.();
               fireToast("Signed out — sign in again to keep editing.", "info");
             }}
           >
@@ -2185,10 +2022,7 @@ export function ToolsPage({ onSignOut }: { onSignOut?: () => void }) {
 
 /* -------------------------------------------------------- authenticator app */
 
-/* Main-admin two-factor: scan the secret into any authenticator app, prove it
-   with a live code, and set a security question only the office can answer —
-   that question is the way back in when the phone is lost, and it can be
-   refreshed any time from here. */
+/* Two-factor setup: scan, prove with a live code, set the way back in. */
 function Authenticator() {
   const [status, setStatus] = useState<{ enabled: boolean; hasQ: boolean; q: string } | null>(null);
   const [error, setError] = useState("");
@@ -2241,11 +2075,7 @@ function Authenticator() {
     setError("");
   };
 
-  /* The header switch: flip on to set up; flip off and it asks for the
-     security answer — Done is what actually switches it off. It only lights
-     once setup completes (Switch on); clicking it mid-setup cancels the
-     setup, and clicking it again while the proof form is open closes
-     the form. */
+  /* Header switch: on sets up; off asks the security answer; Done switches off. */
   const toggle = (next: boolean) => {
     setError("");
     if (settingUp) {
@@ -2534,12 +2364,7 @@ function Authenticator() {
   );
 }
 
-/* Main admin only: change the office password — and only while the
-   authenticator app is on. Opening the form first asks for the security
-   answer (or a current app code), and the change itself carries that proof, so
-   a passer-by at a signed-in drawer cannot swap the password. The new password
-   takes effect at once on every device (the old one stops working), and this
-   tab keeps working without signing in again. */
+/* Main admin only: password change needs the security answer or an app code. */
 function ChangePassword() {
   const [two, setTwo] = useState<{ on: boolean; q: string } | null>(null);
   const [checkFailed, setCheckFailed] = useState(false);

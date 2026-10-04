@@ -1,19 +1,5 @@
-/* ============================================================================
-   #/admin — the site itself, with the office's tools on.
-
-   https://perchance.org/<name>#/admin and every page under it (#/admin/sermons,
-   #/admin/sermons/<id>, #/admin/giving …) render the *real* pages — the same
-   components, the same header, the same footer. On top of them:
-
-     • the panel  every word, photo, time and detail lives in the panel that
-               slides in from the right — *Edit* is the office's job list,
-               *Update* the full list, *Status* the publishing state. The page
-               shows the draft live, so a change appears as they type. Nothing
-               on the page itself is clicked or underlined.
-
-   Nothing is public until Publish. Browsing the site from here stays in here:
-   every link is rewritten under #/admin (see src/lib/router.tsx).
-   ========================================================================== */
+/* #/admin renders the real pages with the office's panel on top (Edit jobs, Update all,
+   Status). Nothing is public until Publish; links stay under #/admin. */
 
 import React, { cloneElement, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactElement } from "react";
 import { navigate, useRoute } from "../lib/router";
@@ -40,7 +26,7 @@ import {
 } from "../components/editor";
 import * as cms from "../lib/cms";
 import { todayKey } from "../lib/store";
-import { sermonDate } from "../data/sermons";
+import { sermonPublishTime, sermonRank } from "../data/sermons";
 import { useAutoStopLive } from "../lib/autostop";
 import { SECTION_DEFS, clone, getPath, photoSectionId, sectionById, sectionIsEverythingHidden, sectionIsHidden, setPath, type SectionDef } from "../lib/cmsSchema";
 import { JOBS, HIT_GROUPS, searchEverything, type Hit, type Job } from "../lib/jobs";
@@ -53,6 +39,7 @@ import {
   clearAdminReturn,
   isPanelMode,
   readAdminReturn,
+  RETURN_KEY,
   type AdminReturn,
   type PanelMode,
   type PanelView,
@@ -60,25 +47,14 @@ import {
 
 /* ------------------------------------------------------------------- shell */
 
-/* Where the office's view state lives: the drawer has four tabs, and the *Edit*
-   tab drills from a job list into a single section. The mode values name what the
-   tab *is*, not what it is called on screen — "edit" is the office's job list
-   (labelled *Edit*) and "list" is every section (labelled *Update*); the labels
-   themselves changed in SPEC note 53. */
+/* Drawer view state (tab, section, open rows); labels renamed in note 53. */
 
-/* Leaving the admin to check the live site must not lose the office's place:
-   the drawer (open or not, which tab, which section) is written down on exit
-   and read back when they return — by hand or, after five minutes, by the
-   site itself (see SiteApp in src/App.tsx). sessionStorage, so it never leaks
-   into another tab or a later day. */
+/* The drawer place is saved on exit (sessionStorage) and restored on return. */
 /* The exact admin page the office was last on — a bare #/admin visit comes
    back here (while fresh) instead of the admin home. */
 const LAST_PAGE_KEY = "wom.cms.lastAdminPage";
 
-/* The drawer's open sections and open record survive the drawer unmounting
-   (closed, or the trip to the live site) so coming back lands on the exact
-   row being edited — e.g. a branch name. Untouched longer than the wait, they
-   are cleared and the drawer falls back to the options list. */
+/* Open sections/rows survive unmounting; long-untouched drawers fall back to the list. */
 const DRAWER_OPEN_KEY = "wom.cms.drawerOpenSections";
 const DRAWER_ENTRY_KEY = "wom.cms.drawerOpenEntry";
 const DRAWER_TOUCH_KEY = "wom.cms.drawerTouch";
@@ -186,18 +162,15 @@ export function Admin() {
   const [signInOpen, setSignInOpen] = useState(false);
   const [publishOpen, setPublishOpen] = useState(false);
   const [helpOpen, setHelpOpen] = useState(false);
-  const [localMode, setLocalMode] = useState(false);
   /* A search hit for another page navigates first; the route effect must then
      leave the drawer where the office asked for it. */
   const keepView = useRef(false);
 
-  const canEdit = state.authed || localMode;
+  /* Editing takes an online sign-in — there is no offline back door. */
+  const canEdit = state.authed;
   const changedIds = cms.pendingSections();
 
-  /* The stream ends, the site stops: this drawer watches the church's channel
-     and does what *Stop the livestream* does by itself (SPEC note 111). It is
-     mounted here rather than in the panel so it keeps watching whichever card
-     of the drawer the office happens to have open. */
+  /* Auto-stop watcher lives here so it runs whatever drawer card is open (note 111). */
   useAutoStopLive(canEdit);
 
   /* The pages show the draft while the office is here — that is the point. */
@@ -210,12 +183,7 @@ export function Admin() {
     };
   }, []);
 
-  /* The drawer keeps the office's place: closing it (or stepping to another
-     admin page) never sends them back to the options list — reopening lands
-     where they were. Only a drawer untouched for longer than the wait resets
-     to the landing. The touch covers navigation, section toggles, opened
-     records and keystrokes (the panel and the rows report in below, and edits
-     arrive through the delegated listener). */
+  /* The drawer reopens where it was. */
   useEffect(() => {
     touchDrawerActivity();
     try {
@@ -235,10 +203,7 @@ export function Admin() {
   }, []);
   const drawerStale = () => Date.now() - drawerActivityAt() > ADMIN_RETURN_MS;
 
-  /* A bare #/admin visit returns to the exact page they were last on (while
-     the memory is fresh) instead of the admin home. Declared before the
-     effect below, which records the visit — otherwise the recording of "/"
-     would wipe the memory before this reads it. */
+  /* A bare visit returns to the last page while the memory is fresh. */
   useEffect(() => {
     if (route.path !== "/") return;
     try {
@@ -299,11 +264,7 @@ export function Admin() {
     setPanelView({ kind: "section", sectionId, entryKey, title: sectionById(sectionId)?.label || sectionId });
   };
 
-  /* A job card opens that job's sections **where the office is standing**: the
-     *Edit* tab stays the active tab, and the card's sections are drawn in the
-     same panel with the same back link to the cards. (SPEC note 56 had a job
-     card switch the panel to the raw *Update* tab, which read as being thrown
-     out of the list you were clicking in — SPEC note 59.) */
+  /* A job card opens its sections where the office stands (notes 56, 59). */
   const openJob = (jobId: string) => {
     setPanelOpen(true);
     setPanelMode("edit");
@@ -327,11 +288,7 @@ export function Admin() {
     });
   };
 
-  /* The edit bar's “N unsaved changes” opens the drawer on the list of them. The
-     tab the office is standing on is kept (the *Edit* tab's cards are one back
-     link away), except from *Status* and *Tools*, which are different kinds of
-     pages — being sent there and shown the status or the tools again would look
-     like nothing happened. */
+  /* "N unsaved changes" opens their list, keeping the current tab (except Status/Tools). */
   const openUnsaved = () => {
     setPanelOpen(true);
     setPanelMode((m) => (m === "status" || m === "tools" ? "list" : m));
@@ -355,15 +312,7 @@ export function Admin() {
     setPanelOpen(true);
   };
 
-  /* The page behind the drawer. It has to re-draw when the applied content
-     changes (`state.version`) — but not remount, and not re-draw for every
-     drawer update: `resolvePath` hands back a fresh element on each of the
-     Admin shell's own renders, and `key={state.version}` threw the whole page
-     away and built it again on every preview, which is what made editing hang
-     (SPEC note 61). Memoised on the applied version, so typing re-renders the
-     drawer alone. The visitor's own clock is in here too: the office reads the
-     page they are looking at, so it has to move onto that clock the moment it
-     is found, exactly as the public site does (SPEC note 85). */
+  /* The page behind re-renders on applied changes only, never remounts (note 61); office clock too (note 85). */
   const visitorClock = useVisitorClock();
   const pageNode = useMemo(
     () => <ErrorBoundary>{cloneElement(resolved.element as ReactElement)}</ErrorBoundary>,
@@ -412,18 +361,12 @@ export function Admin() {
           onOpenJob={openJob}
           onHit={openHit}
           onHelp={() => setHelpOpen(true)}
-          onSignOut={() => setLocalMode(false)}
           onSignIn={() => setSignInOpen(true)}
         />
       )}
 
       <Modal open={signInOpen} onClose={() => setSignInOpen(false)}>
         <LoginGate
-          onLocal={() => {
-            setLocalMode(true);
-            setSignInOpen(false);
-            fireToast("Editing locally — changes stay on this device until the server is reachable.", "info");
-          }}
           onExit={exitToSite}
           onDone={() => setSignInOpen(false)}
         />
@@ -587,7 +530,6 @@ function PagePanel({
   onOpenJob,
   onHit,
   onHelp,
-  onSignOut,
   onSignIn,
 }: {
   mode: PanelMode;
@@ -601,7 +543,6 @@ function PagePanel({
   onOpenJob: (id: string) => void;
   onHit: (hit: Hit) => void;
   onHelp: () => void;
-  onSignOut: () => void;
   onSignIn: () => void;
 }) {
   useCmsTick();
@@ -794,7 +735,7 @@ function PagePanel({
         ) : mode === "status" ? (
           <Dashboard state={state} onOpen={onOpenSection} />
         ) : mode === "tools" ? (
-          <ToolsPage onSignOut={onSignOut} />
+          <ToolsPage />
         ) : (
           <>
             {searchBox}
@@ -927,16 +868,7 @@ function SearchResults({ query, hits, onHit }: { query: string; hits: Hit[]; onH
 
 /* ---------------------------------------------------- what is not published */
 
-/**
- * The list behind the edit bar's “N unsaved changes”: every part of the site the
- * office has touched since the last publish, each said in their own words
- * (“Service times: 10:00 → 11:00”), each one press away from the fields that
- * changed it, and each one droppable on its own (SPEC note 114).
- *
- * The count and the list both come from the CMS — `pendingEdits()` counts
- * `pendingSections()`, the same thing the edit bar shows — so the chip, this
- * heading and the sections on screen can never drift apart.
- */
+/** The unsaved-changes list, in the office's own words (note 114). */
 function UnsavedView({
   onBack,
   onOpen,
@@ -952,10 +884,7 @@ function UnsavedView({
 }) {
   const edits = useMemo(() => cms.pendingEdits(), [version, signature]);
 
-  /* Every row offers both: Delete takes the change off the site for real
-     (additions that never went live are dropped, edits go back, and whatever
-     was taken off is published straight away), while Put back only changes
-     your mind about the unsaved edit. */
+  /* Delete takes it off the site for real; Put back only drops the unsaved edit. */
   const putBack = (edit: cms.PendingEdit) => {
     const res = cms.revertSection(edit.sectionId);
     if (res.ok) fireToast(`Put back — ${edit.label} is the way the live site has it.`, "info");
@@ -1162,10 +1091,7 @@ function fixedText(value: string): string {
   return text || "—";
 }
 
-/* The prayer points and their categories share one card: the two lists the
-   office tends together, with one header instead of two. The sections
-   themselves are untouched (data, search and publishing never know), so this
-   is only ever a different way of drawing them. */
+/* Prayer points + categories share one card; the sections underneath are untouched. */
 function PrayerPairBlock({
   draft,
   dirty,
@@ -1254,10 +1180,7 @@ function SectionBlock({
 }) {
   const value = draft[def.id];
   const commit = (next: any) => cms.setSectionValue(def.id, next);
-  /* Always patch the *newest* draft, not the copy this render was given: an
-     async edit (uploading a video, then taking its cover picture) can land two
-     writes in a row without a render in between, and the second one would
-     otherwise be built from a copy that predates the first. */
+  /* Patch the newest draft: async edits can land twice between renders. */
   const patch = (mutate: (v: any) => void) => {
     const latest = cms.getDraft();
     const next = clone(latest && latest[def.id] !== undefined ? latest[def.id] : value);
@@ -1265,12 +1188,7 @@ function SectionBlock({
     commit(next);
   };
 
-  /* The live section's last field (*How many previous sermons to show*) is not
-     drawn with the rest of the form: it stands at the foot of the section, next
-     to *Open the sermon list*, because it belongs to the *Sermons* side of the
-     site rather than to the stream (see LiveEndingPanel in editor.tsx). It is
-     still declared on the section, so `pendingEdits`, the content clone and the
-     drawer's search all treat it like any other live field. */
+  /* Drawn at the section foot; Sermons-side, not stream-side (see LiveEndingPanel). */
   const pastField = def.id === "live" ? def.fields.find((f) => f.path === "pastLimit") : undefined;
   const formFields = pastField ? def.fields.filter((f) => f !== pastField) : def.fields;
 
@@ -1395,11 +1313,7 @@ function ListBlock({
     return () => window.clearTimeout(id);
   }, [focusKey, focusIndex]);
 
-  /* ...and it is laid open, not just pointed at. A hit asks for one entry to be
-     *opened* ("we found this for you"), and the panel inside a section — the
-     events section's *Edit this event* — asks for the same thing while the
-     block is already on screen and has no chance to remount, so the initial
-     state above (which only runs once) is not enough (SPEC note 106). */
+  /* A search hit opens the entry, not just scrolls to it (note 106). */
   useEffect(() => {
     if (focusIndex >= 0) setOpenItem(focusIndex);
   }, [focusKey, focusIndex]);
@@ -1421,12 +1335,7 @@ function ListBlock({
   const itemRef = (i: number) => (isFocus(i) ? focusRef : undefined);
   const itemClass = (i: number, base: string) => base + (isFocus(i) ? " is-focus" : "");
 
-  /* A copy made with Duplicate is given an id of its own — two entries can
-     never share one, or the page and the draft would confuse them (the id the
-     clone inherited is its own, but a *copy* must not keep it). A plain new
-     entry keeps an empty id until it is applied, when the section names it
-     after itself; an id-less entry is never
-     matched against another one — see `applyToList`. */
+  /* A Duplicate gets its own id; new entries stay id-less until applied (`applyToList`). */
   const withId = (item: any, list: any[], force = false) => {
     if (!def.idKey || !item) return item;
     if (!force && String(item[def.idKey] ?? "").trim()) return item;
@@ -1441,10 +1350,7 @@ function ListBlock({
     fireToast("Added — fill in the details, then publish.", "success");
   };
 
-  /* A country exists only because a branch names it, so *Add a country* opens a
-     one-line form for the name and then makes that country's first branch. The
-     grouping, the page's chips and its counts all follow from the list itself
-     (SPEC note 81). */
+  /* *Add a country* makes that country's first branch (note 81). */
   const createCountry = () => {
     const spec = def.tree;
     if (!spec?.makeCountry) return;
@@ -1460,10 +1366,7 @@ function ListBlock({
     fireToast(spec.countryToast || "Added — fill in the details, then publish.", "success");
   };
 
-  /* Deleting a branch deletes everything gathered under it — its sub-branches,
-     their sub-branches, and so on — so nothing orphaned is left on the site.
-     A gathering orphaned by a delete would otherwise stay on the Locations
-     page with nowhere it belongs. Anything without children deletes alone. */
+  /* Deleting a branch deletes everything gathered under it, so nothing orphans. */
   const descOf = (index: number): number[] => {
     const key = def.tree?.parentKey;
     if (!key || !def.idKey) return [];
@@ -1528,11 +1431,7 @@ function ListBlock({
     setOpenItem(target);
   };
 
-  /* A section whose entries can have children of their own — the branches: a
-     branch can carry sub-branches, and those can carry their own. `tree` on the
-     section says which field holds the parent's id and how a child and a
-     sibling are built, so the two buttons below appear on *every* branch and the
-     drawer indents a child under the entry it belongs to (SPEC note 78). */
+  /* Branches nest by `tree` (note 78); the drawer indents children. */
   const tree = def.tree;
   const parentKey = tree?.parentKey || "";
 
@@ -1593,10 +1492,7 @@ function ListBlock({
     fireToast(tree.siblingToast, "success");
   };
 
-  /* Fixed entries (one per line of page text): they are grouped into the
-     segments the visitor actually sees, in page order. Buttons and titles are
-     shown but locked — the rest is the office's to reword. A locked line
-     (`copyIsLocked`, the hero's CARE statement) is not listed at all. */
+  /* Fixed page-text lines group by page segment, in page order; locked lines hide. */
   if (def.fixed) {
     const pageId = def.id.replace(/^copy-/, "");
     const segments = copySegmentsOf(pageId)
@@ -1611,12 +1507,7 @@ function ListBlock({
         : { ...valueField, type: "text" as const, rows: undefined };
     const indexOf = (entryId: string) => list.findIndex((item: any) => String(item?.id ?? "") === entryId);
 
-    /* The panel opens on the lines with paragraphs in them — the church's own
-       wording, in the order a visitor meets it. The site's own buttons and
-       titles (which cannot be reworded anyway) and the small words around them
-       — labels, placeholders, tooltips, messages — wait in one closed group
-       below, so they are still reachable but never in the way. A line the
-       office has already reworded stays up top, where they left it. */
+    /* Paragraph lines first, in visitor order; buttons and small words wait below. */
     const isProse = (entry: any) =>
       !entry.role && (copyIsEdited(entry.id) || (!entry.id.startsWith("auto.") && copyIsParagraph(entry.id)));
 
@@ -1677,21 +1568,14 @@ function ListBlock({
   const groupOf = (item: any) => (def.groupBy ? String(getPath(item, def.groupBy) ?? "") : "");
   const startsGroup = (i: number) => !!def.groupBy && (i === 0 || groupOf(list[i]) !== groupOf(list[i - 1]));
 
-  /* The sermons read newest-first in the drawer, the way the site reads them —
-     but only with what is published: an upload still being worked on waits at
-     the foot until Publish, and takes the top the moment it goes live (SPEC
-     note 146). Everything stored stays exactly as the office left it; this is
-     display order only, and every action below still runs on the stored
-     index. Move up/down is hidden here — order comes from dates, so the
-     buttons would look like they do nothing. */
+  /* Drawer sermon order: published by publish time on top, unfinished at the foot. Display only. */
   const order = (() => {
     const idx = list.map((_, k) => k);
     if (def.id !== "sermons") return idx;
-    const live: number[] = [];
-    const fresh: number[] = [];
-    idx.forEach((k) => (cms.isPublishedEntry("sermons", list[k]) ? live : fresh).push(k));
-    live.sort((a, b) => sermonDate(list[b]).getTime() - sermonDate(list[a]).getTime());
-    return [...live, ...fresh];
+    const pub = idx.filter((k) => cms.isPublishedEntry("sermons", list[k]));
+    const unpub = idx.filter((k) => !cms.isPublishedEntry("sermons", list[k]));
+    pub.sort((a, b) => sermonRank(list[a]) - sermonRank(list[b]) || sermonPublishTime(list[b]) - sermonPublishTime(list[a]));
+    return [...pub, ...unpub];
   })();
 
   return (

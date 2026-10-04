@@ -1,38 +1,6 @@
-/* ============================================================================
-   Money, by country.
-
-   Two tables, both **generated** — do not hand-edit. The recipes are in
-   src/README.md; the decisions behind them are SPEC note 98.
-
-   * `COUNTRY_CURRENCY` — the currency a visitor's country uses, keyed by the
-     ISO 3166 alpha-2 code the geolocation service answers with ("NG" → "NGN").
-     Built from the `world-countries` dataset (restcountries data). 246
-     countries, 154 currencies.
-
-   Seven countries are pinned by hand, because the dataset lists more than one
-   currency for them and the first is not the one people spend: CK → NZD,
-   CU → CUP, EH → MAD, PA → USD, PS → ILS, SH → SHP, ZW → USD.
-   Recipe: fetch world-countries + the rate feed (src/README.md), rebuild both
-   tables in execute_js, then re-pin the seven.
-
-   * `TZ_COUNTRY` — the country a device time zone is in, transcribed 1:1 from
-     the IANA time zone database (`zone.tab`: one zone, one country, 418
-     zones). It answers the currency when the IP services cannot — the clock
-     knows where the visitor is even when their browser language does not
-     (SPEC note 98). Recipe: fetch
-     https://raw.githubusercontent.com/eggert/tz/main/zone.tab to
-     scratch/fx/zone.tab and rebuild this table from its data rows in
-     execute_js.
-
-   * `FALLBACK_RATES` — a snapshot of the exchange rates the live feed gave on
-     2026-09-23, as "1 US dollar buys this much" (USD itself is 1). It is used
-     only when the visitor's browser cannot reach the live feed — offline, a
-     content blocker, an outage — so the figures are still the right shape, only
-     as old as that date.
-
-   The live feed (and the whole money story) lives in src/lib/rates.ts and the
-   money section of src/lib/store.ts.
-   ========================================================================== */
+/* Money by country — GENERATED tables, do not hand-edit (recipes in README, note 98).
+   COUNTRY_CURRENCY, TZ_COUNTRY, FALLBACK_RATES (2026-09-23 snapshot).
+   Seven pinned by hand: CK→NZD CU→CUP EH→MAD PA→USD PS→ILS SH→SHP ZW→USD. */
 
 export const COUNTRY_CURRENCY: Record<string, string> = {
   AD: "EUR",

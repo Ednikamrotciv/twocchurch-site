@@ -1,50 +1,6 @@
-/* ============================================================================
-   The services we have streamed lately.
-
-   "Recent services" on the Watch live page is the site's short memory of the
-   broadcast: the services streamed most recently, playing right here — six of
-   them, or as many as the office asks for (Live stream → *How many recent
-   services to show*, read through `recentLimit()` in src/data/live.ts). Nobody
-   types the list in, and it is not a copy of the sermon archive — it is read
-   from the church's own YouTube channel, so the moment a service comes off air
-   it takes its place at the top and the oldest one drops off the end. Older
-   livestreams stay where they always were: on YouTube and Facebook, which is
-   what the section's line tells the visitor.
-
-   How the list is read (and why not with a plain fetch):
-
-   - YouTube sends no CORS headers, so the request goes through perchance's own
-     proxy, `superFetch` — the same door `src/lib/livestatus.ts` uses to ask
-     whether we are on air. No key, no account, nothing to renew.
-   - The channel's **RSS feed** (`/feeds/videos.xml?channel_id=…`) is the list
-     itself: every kind of upload, newest first, with an exact `<published>`
-     date and the video's own title. That matters more than it looks —
-     **YouTube's /videos tab does not carry a channel's live archives**, and a
-     church's Sunday services are exactly that, so a list built from /videos
-     alone misses the very services this section exists to show (the church's
-     own channel read: /videos began at a 3-week-old clip and then jumped
-     eleven months, while its Sundays sat on the /streams tab unread).
-   - The **channel's /videos tab** is read at the same time for the two things
-     the feed does not carry: YouTube's own "3 weeks ago" line (the feed's dates
-     are exact, but the grid's words are what is left when a service is older
-     than the feed's fifteen), and the videos beyond the feed's window. Where
-     the two disagree, the feed wins — thirty entries of depth behind a list
-     the office asks six of.
-   - **One message, however many times it was published.** A broken stream
-     leaves YouTube with two or three videos of the same service — the same
-     headline, minutes or hours apart — and a band of six would then show the
-     same Sunday twice. Uploads whose headlines match *and* whose dates are
-     nearest each other are one message, and the card is the service's own start
-     (the first of them) so the player opens it from the beginning (SPEC note
-     113).
-   - The office may paste a `@handle`, a channel id or any channel link, so the
-     handle is resolved to the channel id once, through the channel page, and
-     remembered — a channel id never changes.
-
-   Everything degrades quietly. A failed read leaves the last good list in
-   place, and a site whose channel has not been set yet simply has no list — the
-   page falls back to the newest messages it already holds.
-   ========================================================================== */
+/* Recent services: finished broadcasts read from the church's YouTube channel (feed first,
+   /videos tab for words and depth; same-headline near-date uploads fold to one, note 113).
+   Fails quietly; unset channel falls back to the newest messages. */
 
 import { useEffect, useRef, useState } from "react";
 import { LIVE } from "../data/live";
@@ -63,13 +19,7 @@ export type RecentService = {
   ago: string;
   /** The still shown before the visitor presses play. */
   thumb: string;
-  /**
-   * Set when the card was put in the list from a broadcast that had just ended
-   * (ms) rather than read off the channel — so the service is in *Recent
-   * services* the second the stream closes, before YouTube has published the
-   * recording. Dropped as soon as a read lists the video itself, and after
-   * `SEED_MAX_MS` either way.
-   */
+  /** Seeded from a just-ended broadcast (replaced by the real read; expires). */
   seeded?: number;
 };
 
@@ -109,10 +59,7 @@ function channelIdIn(value: string): string {
   return /(UC[\w-]{20,24})/.exec(String(value || ""))?.[1] || "";
 }
 
-/**
- * The channel's *page*, from the /live address the live check watches — the
- * parsing of what the office pasted lives in one place (`liveTarget`).
- */
+/** The channel page, from the /live address the live check watches. */
 function channelPageUrl(): string {
   const target = liveTarget();
   if (!target || target.kind !== "channel") return "";
@@ -160,10 +107,7 @@ function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
   });
 }
 
-/** A page of YouTube: the local dev server proxies it (same fix as livestatus),
-    else through perchance's proxy, else through a public CORS proxy so the
-    static deployments (which have neither) still read the channel. Null when
-    unreachable. */
+/** Fetch a YouTube page: local proxy, perchance proxy, else public CORS proxy. */
 async function fetchText(url: string): Promise<string | null> {
   const local = await fetchTextLocal(url);
   if (local) return local;
@@ -237,10 +181,7 @@ function trimChannel(title: string, channel: string): string {
   return cut.trim() || title;
 }
 
-/**
- * "2w ago" → "2 weeks ago". YouTube writes the short form in one page variant
- * and the long one in another, and a card reads better in words.
- */
+/** "2w ago" in words; YouTube's page variants disagree. */
 export function prettyAgo(text: string): string {
   /* The /streams tab says "Streamed 4 days ago" where /videos says "4 days
      ago"; one card reads the same as the next (SPEC note 113). */
@@ -256,10 +197,7 @@ export function prettyAgo(text: string): string {
   return `${n} ${unit}${n === 1 ? "" : "s"} ago`;
 }
 
-/**
- * The channel's /videos list: newest first, no Shorts, with YouTube's own
- * "how long ago" line for each one.
- */
+/** The /videos list: newest first, no Shorts, with YouTube's age line each. */
 export function parseVideosPage(html: string): { videoId: string; title: string; ago: string }[] {
   const out: { videoId: string; title: string; ago: string }[] = [];
   const text = String(html || "");
@@ -279,11 +217,7 @@ export function parseVideosPage(html: string): { videoId: string; title: string;
   return out.slice(0, KEEP);
 }
 
-/**
- * The channel's feed: exact dates, titles (and the channel's name) per video
- * id. This is the list of *everything* the channel has put up lately — live
- * archives included, which is what the /videos tab leaves out.
- */
+/** The channel feed: exact dates and titles per id (live archives included). */
 export function parseFeed(xml: string): { dates: Record<string, number>; titles: Record<string, string>; channel: string } {
   const dates: Record<string, number> = {};
   const titles: Record<string, string> = {};
@@ -317,11 +251,7 @@ function approxFromAgo(ago: string, now: number): number {
   return now - Number(m[1]) * (unit[m[2].toLowerCase()] || 0);
 }
 
-/**
- * When a service is, as well as we know it: the feed's exact date, else
- * YouTube's own "how long ago", else nothing (0). Everything the list does —
- * ordering, and deciding which uploads are the same message — asks this.
- */
+/** A service's moment as best known: feed date, else "how long ago", else 0. */
 function whenOf(item: RecentService, now: number): number {
   return Number(item.at) || approxFromAgo(item.ago, now);
 }
@@ -335,19 +265,7 @@ function titleKey(title: string): string {
     .trim();
 }
 
-/**
- * One message, however many times YouTube published it.
- *
- * A church streams a service and YouTube ends up with two or three videos of
- * it — the same headline, minutes or hours apart (a stream that drops, or a
- * re-upload) — so a list taken straight off the channel shows the same Sunday
- * twice. The office's rule: uploads whose headlines match **and whose dates are
- * nearest each other** are the one message, and the card is the service's own
- * start — the first of them — so the player opens it from the beginning
- * (SPEC note 113). Uploads with the same headline but dates further apart are
- * different services by the same name (a weekly "Sunday Service"), and uploads
- * with no date at all are never folded together.
- */
+/** Same-headline near-date uploads are one message; the card is its start (note 113). */
 export function collapseSameMessage(items: RecentService[], now = Date.now()): RecentService[] {
   const kept: RecentService[] = [];
   const lastAt = new Map<string, number>();
@@ -449,32 +367,44 @@ function saveRecentServices(next: RecentServices) {
   writeStore(RECENT_KEY, next);
 }
 
+/** Paint the baked list; a fresher live read always wins, seeds stay on top. */
+export function applyBakedRecent(seed: unknown) {
+  try {
+    const raw = (seed as { recent?: { items?: unknown; at?: unknown; channelId?: unknown } } | null)?.recent;
+    if (!raw || !Array.isArray(raw.items) || !raw.items.length) return;
+    const at = Number(raw.at) || 0;
+    const current = readRecentServices();
+    if (current.at && at && current.at >= at) return;
+    const fresh: RecentService[] = [];
+    for (const entry of raw.items) {
+      const it = entry as Partial<RecentService>;
+      const videoId = parseYoutubeId(String(it?.videoId || ""));
+      if (!videoId) continue;
+      fresh.push({
+        videoId,
+        title: String(it?.title || "Service"),
+        at: Number(it?.at) || 0,
+        ago: String(it?.ago || ""),
+        thumb: String(it?.thumb || `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`),
+      });
+      if (fresh.length >= KEEP) break;
+    }
+    if (!fresh.length) return;
+    const known = new Set(fresh.map((it) => it.videoId));
+    const seeds = current.items.filter((it) => it.seeded && !known.has(it.videoId));
+    saveRecentServices({ items: [...seeds, ...fresh].slice(0, KEEP), at: at || Date.now(), channelId: String(raw.channelId || "") });
+  } catch {
+    /* a bad bake never blanks a good list */
+  }
+}
+
 /* ---------------------------------------------------- "the service has ended" */
 
-/* A service that has just come off air has to be in the list *now* — that is
-   what the office asked for, and the band on the Watch live page is the first
-   thing a visitor looks at after a broadcast. Two things make that happen:
-
-   1. The office's *Stop* (or the live check flipping to "off") pokes every open
-      page with `askForRecentServices()`. The pages read the channel again at
-      once, and keep reading on the short cadence for a few minutes after, in
-      case YouTube has not published the recording yet.
-   2. The broadcast that was on air is written straight into the list as it
-      stands (`seedRecentService`), so the card is there in the same second the
-      stream ends rather than a minute later. The next real read replaces it
-      with YouTube's own title, date and still.
-
-   The hidden list is not consulted here: a service the office took off the site
-   must not come back through the seed either (see `hiddenReplays()` in
-   src/data/live.ts — the pages filter, as they do for every read). */
+/* A just-ended service lists now: open pages re-read, plus a same-second seed. Take-offs stay off. */
 
 const listeners = new Set<() => void>();
 
-/**
- * "Look at the channel again, now." Fired when a service starts or ends, so a
- * page that is already open does not wait out its ten-minute timer. The seed is
- * the broadcast that just ended, if we know which video it was.
- */
+/** Re-read the channel now (service started/ended); optional just-ended seed. */
 export function askForRecentServices(seed?: { videoId: string; title?: string } | string) {
   const videoId = parseYoutubeId(typeof seed === "string" ? seed : String(seed?.videoId || ""));
   const title = typeof seed === "string" ? "" : String(seed?.title || "");
@@ -505,11 +435,7 @@ export function seedRecentService(videoId: string, title = "") {
   saveRecentServices({ items: [item, ...current.items].slice(0, KEEP), at: current.at, channelId: current.channelId });
 }
 
-/**
- * A read's own list, with the services that ended too recently for YouTube to
- * have published them kept at the top (the read replaces a card the moment it
- * carries the video itself, so the real title, date and still take over).
- */
+/** A read's list, with too-fresh-to-publish endings kept on top. */
 function withSeeds(fresh: RecentService[]): RecentService[] {
   const known = new Set(fresh.map((it) => it.videoId));
   const seeds = readRecentServices().items.filter((it) => it.seeded && !known.has(it.videoId));
@@ -519,15 +445,7 @@ function withSeeds(fresh: RecentService[]): RecentService[] {
 
 /* --------------------------------------------------------------- the hook */
 
-/**
- * The last few services, kept fresh while the page is open.
- *
- * `soon` is the page's hint that a service is on the clock (so the list is
- * re-read every 90 seconds rather than every ten minutes), and `liveNow` is
- * whether the church is on air: the moment that flips back to false the list is
- * re-read at once, so the service that has just ended takes its place in
- * "Recent services" without the visitor doing anything.
- */
+/** Recent services, kept fresh while open; re-reads at once when air flips off. */
 export function useRecentServices({ soon = false, liveNow = false }: { soon?: boolean; liveNow?: boolean } = {}) {
   const [cache, setCache] = useState<RecentServices>(() => readRecentServices());
   const [checking, setChecking] = useState(false);

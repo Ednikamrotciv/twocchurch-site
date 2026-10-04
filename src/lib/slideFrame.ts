@@ -1,36 +1,4 @@
-/* ============================================================================
-   The slide frame.
-
-   Every announcement slide is cut to the *same* frame — **1600×1200, the house
-   4:3** — so the slide space on the home page is one shape and one resolution
-   whichever announcement is on it, and the office's poster is set into it
-   whole: **every pixel of the picture stays exactly as it was** — never
-   cropped, never repainted, no blur — centred on its own colours poured full
-   at the sides, like the portrait-flyer reference. A
-   picture that is *already* the frame's shape and size is left alone entirely
-   (the very bytes the office uploaded).
-
-   Two places use it, and between them every slide is in the frame whichever way
-   its picture arrived:
-     - **the upload** (`frameImageBlob`): what a picture becomes as it is put on
-       the site, so every new slide is the frame's shape and resolution from the
-       start (see `PhotoUpload` in src/components/editor.tsx, told to frame by
-       the slides section's `frame: "slide"`);
-     - **the display** (`framedImageUrl`): a picture that is already on the site
-       at some other shape — an address the office pasted, or a picture uploaded
-       before the frame existed — is cut in the browser as it is shown, and
-       remembered for the session, so the space is uniform even on the day the
-       frame arrives.
-
-   (A one-press *Fit the slides I have already posted* action, which used to
-   re-cut the posted pictures and re-upload them so the stored files themselves
-   were the frame, was built and then removed at the office's request — SPEC note
-   122b. The display path above is what keeps the space uniform without it.)
-
-   Nothing here ever throws at a caller: a picture that cannot be read or drawn
-   is handed back as it was, because an announcement must never go missing over
-   a re-cut.
-   ========================================================================== */
+/* Slide frame 1600x1200: posters set in whole (never cropped) on their own colours. Never throws. */
 
 import { loadPicture } from "./palette";
 
@@ -43,10 +11,7 @@ const FRAME_GROUND = "#08080c";
 /** JPEG quality for a re-cut picture: kept high so small text stays crisp. */
 export const SLIDE_FRAME_QUALITY = 0.92;
 
-/** How close a picture's shape has to be to the frame before it is left alone.
-    Wide enough for a finished landscape the office composed themselves (the
-    Clinical Concert landscape is ~2.8% off 4:3): near-landscape passes through
-    byte for byte, and the slide's cover fill takes up the sliver. */
+/** Near-frame shapes pass through untouched. */
 const SHAPE_TOLERANCE = 0.04;
 
 /** A picture that is bigger than this (in pixels) is re-cut even if its shape is right. */
@@ -73,12 +38,7 @@ function containBox(iw: number, ih: number, W: number, H: number) {
   return { x: (W - w) / 2, y: (H - h) / 2, w, h };
 }
 
-/**
- * The tones of the picture's edge, zone by zone down its height: the edge
- * slice of each zone squashed into one colour, so a side band can follow the
- * poster's own colours — gold above, white where the footer runs — with no
- * streaks and no banding.
- */
+/** Edge tones per height zone, for the side bands. */
 function avgStrip(pic: Picture, iw: number, ih: number, x: number, y0: number, y1: number): [number, number, number] {
   const cv = document.createElement("canvas");
   cv.width = 1;
@@ -161,13 +121,7 @@ function grainTile(): HTMLCanvasElement {
   return cv;
 }
 
-/**
- * One side band: the edge's zone tones as an upright gradient, breathed on
- * with grain and deepened toward the far edge — the reference's own look, a
- * rich golden ground darker at the rim. No blur, no feather, no lines: the
- * band is one continuous pour, and it meets the poster on the very columns
- * its tones were drawn from.
- */
+/** One side band: zone tones as a grainy upright gradient, deepened outward. */
 function paintBand(
   ctx: CanvasRenderingContext2D,
   tones: string[],
@@ -209,11 +163,7 @@ function paintBand(
   ctx.restore();
 }
 
-/**
- * The room a portrait picture leaves: the poster whole and crisp, resting on
- * its own colours — like the reference. Nothing cropped, nothing blurred,
- * nothing feathered, no lines: one ground, poured edge to edge behind it.
- */
+/** Portrait room: poster whole on its own colours, edge to edge. */
 function paintSideFill(
   ctx: CanvasRenderingContext2D,
   pic: Picture,
@@ -229,14 +179,7 @@ function paintSideFill(
   paintBand(ctx, sideStops(pic, iw, ih, Math.max(0, iw - Math.max(4, Math.round(iw * 0.02)))), grain, W - dx, dx, H, false);
 }
 
-/**
- * Set a picture into the frame: the whole of it, centred, every pixel of it
- * untouched — never cropped, never repainted, no blur. The room a portrait
- * picture leaves at the sides is poured full with the picture's own colours
- * (see `paintSideFill`), so a portrait flyer lands in the landscape frame
- * looking like the reference: the poster whole and clear on its own golden
- * ground.
- */
+/** Set a picture into the frame: whole, centred, untouched; sides poured with its own colours. */
 const EDGE_BLEND = 24;
 
 function blendedDraw(
@@ -317,15 +260,7 @@ function canvasBlob(canvas: HTMLCanvasElement, quality: number): Promise<Blob | 
   return new Promise((resolve) => canvas.toBlob(resolve, "image/jpeg", quality));
 }
 
-/**
- * Cut a picture the office is uploading to the frame. A picture that is
- * already the frame's landscape shape and size is handed back untouched —
- * byte for byte, nothing re-encoded. Anything else is set into the frame
- * whole (see `paintSlideFrame`): the entire picture centred and exactly as
- * it was, resting on a ground of its own colours at the sides — no blur.
- * Hands back the original on any
- * failure, so an upload is never lost to a re-cut that went wrong.
- */
+/** Cut an uploaded picture to the frame (frame-shaped ones pass through; original back on failure). */
 export async function frameImageBlob(source: Blob, quality: number = SLIDE_FRAME_QUALITY): Promise<Blob> {
   try {
     const bitmap = await createImageBitmap(source);
@@ -346,13 +281,7 @@ export async function frameImageBlob(source: Blob, quality: number = SLIDE_FRAME
   }
 }
 
-/**
- * Fetch a pasted picture address as a Blob, for fitting it to the slide frame
- * in the drawer. Reads through perchance's proxy first (a pasted address
- * rarely sends CORS headers, so a plain fetch is usually refused), then a
- * plain fetch for the cases the proxy cannot read. Null when the address
- * cannot be read or is not a picture — the caller keeps the original address.
- */
+/** Fetch a pasted picture address as a Blob (proxy first, then plain fetch). */
 export async function fetchPastedPicture(url: string): Promise<Blob | null> {
   const clean = String(url || "").trim();
   if (!clean) return null;
@@ -392,12 +321,7 @@ export async function fetchPastedPicture(url: string): Promise<Blob | null> {
   return null;
 }
 
-/**
- * Cut a pasted picture address to the frame, for the drawer's *Fit to the
- * slide* action. Null when the address cannot be read or is not a picture —
- * the field keeps the original address, which the display path still cuts as
- * it is shown (see `framedImageUrl`).
- */
+/** Cut a pasted picture address to the frame, for *Fit to the slide*. */
 export async function framePastedSlide(url: string, quality: number = SLIDE_FRAME_QUALITY): Promise<Blob | null> {
   const blob = await fetchPastedPicture(url);
   if (!blob) return null;
@@ -431,12 +355,7 @@ export function framedImageSync(url: string): string {
   return framed.get(clean) || clean;
 }
 
-/**
- * A picture in the frame, for a slide showing one that is not the frame's shape
- * — an address the office pasted, or a picture uploaded before the frame
- * existed. Cut once, then remembered for the session; a failure hands back the
- * original address, so a slide never goes missing.
- */
+/** A sited picture in the frame. Cut once per session; original back on failure. */
 export function framedImageUrl(url: string): Promise<string> {
   const clean = String(url || "").trim();
   if (!clean) return Promise.resolve("");
@@ -467,11 +386,7 @@ export function framedImageUrl(url: string): Promise<string> {
   return run;
 }
 
-/* A small handle for the browser console (and for future sessions):
-   `window.__slideFrame.fit(blob)` is what an upload does to a picture,
-   `window.__slideFrame.fitUrl(url)` what *Fit to the slide* does to a pasted
-   address, `window.__slideFrame.cut(url)` shows one that is already on the site
-   in the frame, and `window.__slideFrame.all()` everything cut so far. */
+/* Console handle: `__slideFrame.fit/fitUrl/cut/all()`. */
 try {
   (window as any).__slideFrame = {
     frame: SLIDE_FRAME,

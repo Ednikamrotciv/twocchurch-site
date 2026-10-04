@@ -5,12 +5,7 @@ export type Sermon = {
   speakerRole: string;
   /** Where this message lives: YouTube (default), Facebook, or an uploaded file. */
   platform?: "youtube" | "facebook" | "upload";
-  /**
-   * The YouTube video link, whole — what the drawer's *Video link* field shows
-   * the office (SPEC note 127). `parseYoutubeId` accepts this, a `youtu.be`
-   * share link, an embed/live link, or a bare video id, so nothing downstream
-   * has to care which one is stored.
-   */
+  /** The video link, whole (note 127) — any YouTube form parses downstream. */
   youtubeId: string;
   /** Used when platform is "facebook". */
   facebookUrl?: string;
@@ -26,27 +21,20 @@ export type Sermon = {
   tags: string[];
   weeksAgo: number;
   venue: string;
-  /**
-   * The exact day the message was preached, "YYYY-MM-DD". Set on every service
-   * that was filed from the live stream (see `broadcasts.ts`), so the archive
-   * keeps the right date forever. When present it wins over `weeksAgo`.
-   */
+  /** The exact day preached (YYYY-MM-DD); wins over `weeksAgo`. */
   date?: string;
   /** This message was one of our own live broadcasts, not a teaching upload. */
   fromLive?: boolean;
   /** Fingerprint of the broadcast that produced it, so it is never filed twice. */
   liveKey?: string;
+  publishedAt?: number;
 };
 
 import { registerPhotoCollection } from "./photos";
 import { posterFor, watchUrl, type VideoSource } from "../lib/embed";
 import { siteTimezone, zonedParts, zonedTimeToUtc } from "../lib/store";
 
-/* Note for future editors: the `youtubeId` links below point at publicly available
-   teaching messages used as demo content. Swap them for your own channel's uploads —
-   the player, thumbnails and durations all read from these fields. Each one is
-   stored the way the office saw it in the drawer: the whole watch link (SPEC
-   note 127), not a bare id — paste either, it makes no difference to the site. */
+/* Demo links: public teaching messages — swap for the church's own uploads. Whole links, not bare ids (note 127). */
 
 export const ytThumb = (id: string) => `https://i.ytimg.com/vi/${id}/hqdefault.jpg`;
 export const ytWatch = (id: string) => `https://www.youtube.com/watch?v=${id}`;
@@ -394,9 +382,19 @@ export function sermonDate(sermon: Sermon, now = new Date()): Date {
   return zonedTimeToUtc(today.year, today.month, today.day - today.weekday - (sermon?.weeksAgo || 0) * 7, 11, 30, tz);
 }
 
+export function sermonPublishTime(s: Sermon): number {
+  const t = (s as any)?.publishedAt;
+  return typeof t === "number" && isFinite(t) ? t : sermonDate(s).getTime();
+}
+
+export function sermonRank(s: Sermon): number {
+  const t = (s as any)?.publishedAt;
+  return typeof t === "number" && isFinite(t) ? 0 : 1;
+}
+
 /** Newest first, by the real date (so a filed broadcast lands at the top). */
 export const newestFirst = (a: Sermon, b: Sermon) =>
-  sermonDate(b).getTime() - sermonDate(a).getTime() || (a.weeksAgo || 0) - (b.weeksAgo || 0);
+  sermonRank(a) - sermonRank(b) || sermonPublishTime(b) - sermonPublishTime(a) || (a.weeksAgo || 0) - (b.weeksAgo || 0);
 
 export function sermonsNewestFirst(): Sermon[] {
   return [...SERMONS].sort(newestFirst);

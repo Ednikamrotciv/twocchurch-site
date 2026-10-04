@@ -1,33 +1,5 @@
-/* ============================================================================
-   The branches ("locate our family").
-
-   Branches live in three countries — **Nigeria, America and Canada** — and the
-   Locations page groups them by `country`, in the order each country appears
-   here (so the office can reorder the groups by reordering this list). Nigeria
-   leads because the church's **Global HQ** is there: Lagos, at Oke-Odo.
-
-   `isHq` marks the head office — the branch whose address and map the contact
-   page shows. It is on Lagos.
-
-   `isSub` marks a *sub-branch*: a gathering that sits under the branch it
-   belongs to, listed beneath that branch on the Locations page (in the gold-
-   ruled panel) and behind its *Sub-branches* button.
-
-   `parentId` names the one branch a sub-branch belongs to — that is what the
-   drawer's *Add a sub-branch* button sets, and the Locations page shows those
-   beneath the branch they belong to. A sub-branch without a `parentId` keeps
-   the country's own *Sub-branches* block instead.
-
-   **No branch ships with sub-branches today.** The office asked for Lagos — the
-   one branch that had any — to be empty like the rest (SPEC note 87), so Abuja,
-   Edo and Ogun are branches in their own right and every *Sub-branches* button
-   opens on its empty state. The machinery is untouched and is the office's to
-   use: *Add a sub-branch* on any branch in the drawer puts one back.
-
-   Everything here is editable from the admin console (Branches section) —
-   `isHq` marks the branch whose address and map are used on the contact page,
-   and the photos follow the shared photos in `photos.ts`.
-   ========================================================================== */
+/* Branches in Nigeria, America, Canada (groups in list order). HQ: Lagos Oke-Odo.
+   Sub-branches nest via parentId; none shipped (note 87). Editable in console. */
 
 import { img } from "./site";
 import { registerPhotoCollection } from "./photos";
@@ -57,17 +29,9 @@ export type Branch = {
    * Exactly one branch should carry it — Lagos, Oke-Odo.
    */
   isHq?: boolean;
-  /**
-   * A sub-branch: listed under the branch it belongs to (`parentId`) and, with
-   * it, behind that branch's *Sub-branches* button. No shipped branch carries it
-   * — see the note at the top of this file (SPEC note 87).
-   */
+  /** A sub-branch, under `parentId` (none shipped — note 87). */
   isSub?: boolean;
-  /**
-   * The branch this gathering was added under — set from #/admin when the
-   * office presses *Add a sub-branch* on a branch. It is what puts a
-   * sub-branch beneath its own branch on the Locations page.
-   */
+  /** The branch a sub-branch belongs to (set by *Add a sub-branch*). */
   parentId?: string;
   schedule: ServiceSlot[];
 };
@@ -275,26 +239,13 @@ export const BRANCHES: Branch[] = [
   },
 ];
 
-/**
- * The head-office branch — supplies the contact-page map and address.
- *
- * It is a **copy** of whichever branch carries `isHq` (Lagos, Oke-Odo), kept up
- * to date by `syncHq()`: pages hold on to this one object, so the office can
- * move the Global HQ from the drawer and the contact page follows.
- */
+/** The head-office branch (copy of the `isHq` one, kept by syncHq()). */
 export const HQ: Branch = { ...(BRANCHES.find((b) => b.isHq) ?? BRANCHES[0]) };
 
 /** The branch a visitor starts on, before they have saved one of their own. */
 export const DEFAULT_BRANCH_ID = HQ.id || BRANCHES[0]?.id || "";
 
-/**
- * The clock a branch's own service times are **written in** — its `timezone`,
- * or the church's own clock when the branch names none (or names one the
- * browser does not know, which would otherwise throw). 9:00 AM in Dallas is
- * 3:00 PM in Lagos, so every gathering's *instant* is worked out in the zone of
- * the city it happens in (SPEC note 84); the instant is then shown on the
- * reader's own clock (SPEC note 85), which is what `clockHere()` is for.
- */
+/** A branch's own zone for writing service times (notes 84/85). */
 export function branchZone(branch?: Branch): string {
   return zoneOr(branch?.timezone, churchTimezone());
 }
@@ -313,14 +264,7 @@ export function parentOf(branch: Branch | undefined): Branch | undefined {
   return id ? BRANCHES.find((b) => b.id === id) : undefined;
 }
 
-/**
- * The sub-branches that gather under a branch — what the drawer's *Add a
- * sub-branch* button creates, and what the *Sub-branches* button on a branch
- * card (and in its detail panel) lists (SPEC note 86). The test is the same one
- * the Locations page groups by: a gathering the office ticked *Sub-branch* and
- * pointed at this branch. A sub-branch whose parent was cleared keeps the
- * country's own block, so it is not one of these.
- */
+/** A branch's sub-branches, for its *Sub-branches* button (note 86). */
 export function subBranchesOf(branch: Branch | undefined): Branch[] {
   const id = branch?.id;
   if (!id) return [];
@@ -333,11 +277,7 @@ export const COUNTRIES: string[] = BRANCHES.reduce<string[]>(
   []
 );
 
-/**
- * Refill `COUNTRIES` from the current `BRANCHES`, in place, so a country the
- * office adds a branch in (the drawer's *Add a branch*) reaches the page's
- * country chips, its stats and the watch-live list without a reload.
- */
+/** Refill COUNTRIES from BRANCHES in place, so new countries reach the page. */
 export function syncCountries() {
   const next = BRANCHES.reduce<string[]>((out, b) => (out.includes(b.country) ? out : [...out, b.country]), []);
   COUNTRIES.length = 0;
@@ -346,11 +286,7 @@ export function syncCountries() {
 
 export type CountryGroup<T> = { country: string; flag: string; region: string; rows: T[] };
 
-/**
- * Group rows of `{ branch }` by the branch's country, keeping the country
- * order of `BRANCHES` (so the page never reshuffles itself when a search
- * narrows the list).
- */
+/** Group rows by country, keeping BRANCHES order. */
 export function groupByCountry<T extends { branch: Branch }>(rows: T[]): CountryGroup<T>[] {
   const order = new Map<string, number>();
   BRANCHES.forEach((b, i) => {

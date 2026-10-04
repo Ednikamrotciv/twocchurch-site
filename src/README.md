@@ -1150,8 +1150,10 @@ server that keeps the published content in `state` (perchance's durable per-gene
 - If a colleague publishes while you have a draft open, your untouched sections are rebased onto
   their change; only the sections you actually edited are kept (and re-published).
 - If the socket is down (or the page is embedded outside perchance.org, close code `4403`), the
-  editor keeps working in **local preview mode**: publish applies to this browser and caches to
-  `localStorage`, with a clear warning that other visitors are not updated.
+  editor cannot sign in: editing takes an online sign-in and there is no offline back door
+  (the old passwordless local preview mode was removed at the office's request). The sign-in
+  card says so and keeps retrying by itself. A publish that fails mid-session
+  still lands in this browser's pending queue and syncs when the server is back.
 
 ### The admin password
 

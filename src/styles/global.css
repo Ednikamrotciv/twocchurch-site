@@ -500,17 +500,7 @@ h2 em {
   border-color: var(--gold);
 }
 
-/* normalize.css (which the platform injects ahead of this sheet) ships
-   `button:not([disabled]) { color: inherit }` — specificity (0,1,1) — which
-   out-ranks a single-class `.btn…`/`.chip`/`.amount-btn…` colour, so real
-   <button>s silently inherited their ink (links kept theirs, so the two drifted
-   apart) and accent inks vanished — e.g. the gold chevron on the dark "to top"
-   bubble and the gold "tap for today's verse" overlay were dark-on-dark in the
-   light theme, and the active chip / selected amount were light-on-gold in the
-   dark theme. Re-stated here with matching specificity; this block sits *before*
-   the hero/page-head overrides and the `.section--light` remaps, so those still
-   win (the `--text`/`--muted` values below are themselves remapped by a
-   `.section--light` ancestor). */
+/* Beat normalize's button reset with matching specificity, so accent inks survive. */
 .btn:not([disabled]) {
   color: var(--gold-ink);
 }

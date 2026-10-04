@@ -1,31 +1,5 @@
-/* ============================================================================
-   The colours of a picture.
-
-   A slide is not a template with a picture dropped into it: it takes its
-   colours from the picture the office uploaded, so a red flyer and a blue one
-   read as two different posters rather than the same poster twice. This module
-   samples the picture on a canvas, works out its strongest colour together with
-   its dark ground and its paper, and hands back a palette that is *guaranteed*
-   to stay readable — every text/ground pair is checked against WCAG contrast
-   and nudged until it passes, so a very pale or a very dark picture still gets
-   words you can read on it.
-
-   Reading a picture's pixels needs the picture to be same-origin or to allow
-   CORS. The bundled photographs are same-origin and perchance's upload host
-   answers with `Access-Control-Allow-Origin`, so `crossOrigin = "anonymous"`
-   works for both; anything else falls back to `FALLBACK_PALETTE`, which is the
-   poster palette the designs shipped with — an unreadable picture still gets a
-   finished slide.
-
-   The same sampling answers two questions about the *composition*: which side
-   of the picture is quietest (`calm` — where a design may put its words without
-   covering the subject) and where the busiest part is (`focusX`/`focusY`, used
-   as the crop's `object-position` so the subject survives the crop).
-
-   The picture's *shape* is not read here: every slide is cut to the one frame
-   in `src/lib/slideFrame.ts` (SPEC note 122), so this module is about colour
-   alone.
-   ========================================================================== */
+/* Slide colours sampled from the office's picture (note 122).
+   Text/ground pairs are checked until readable; anything else gets FALLBACK_PALETTE. */
 
 export type CalmSide = "left" | "right" | "top" | "bottom";
 
@@ -298,11 +272,7 @@ function writeCache(): void {
 
 readCache();
 
-/**
- * Read a picture in. CORS-friendly (`crossOrigin`), so a picture that is not
- * off this site can still be sampled — and so `slideFrame.ts` can draw one into
- * the slide frame without tainting the canvas.
- */
+/** Read a picture in (CORS-friendly, so it can be sampled and drawn). */
 export function loadPicture(url: string): Promise<HTMLImageElement> {
   return new Promise((resolve, reject) => {
     const img = new Image();

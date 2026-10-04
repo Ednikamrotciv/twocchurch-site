@@ -1,62 +1,6 @@
-/* ============================================================================
-   Are we on air right now?
-
-   The Watch live page does not guess from the clock and the office does not
-   have to flip a switch: the page asks YouTube whether the church's channel
-   (or the stream link the office pasted) is broadcasting at this moment, and
-   the screen follows.
-
-   How the answer is found — and why it is not a plain fetch():
-
-   - YouTube sends no CORS headers, so a browser `fetch` of youtube.com is
-     refused ("Failed to fetch"). The request therefore goes through
-     perchance's own proxy, `superFetch` (main.pjs imports super-fetch-plugin),
-     which is the only door a static page has to that HTML.
-   - There is no public keyless "is this channel live" API, so we read the
-     channel's own /live page and look for the one marker YouTube prints only
-     while broadcasting: `"isLiveNow":true` (the player's microformat, printed
-     with the broadcast's start time). It is gone the moment the stream ends, so
-     the check flips back by itself, and a page that carries no marker at all
-     reads as "off". Two nearby flags are traps and are NOT used:
-     `"isLiveContent":true` (a finished stream keeps it forever), and
-     `"isLive":true` — that one also sits in the *view count* renderer of a
-     finished or scheduled broadcast, so reading it would leave a quiet week
-     looking like "we are live now" (found on the church's own channel, TWOC:
-     /@twocorg/live hands back its last stream with `"isLiveNow":false` beside
-     `"isLive":true`, and only `isLiveNow` tells the truth).
-   - The video id and headline of the running broadcast come out of the same
-     page (the canonical watch link and <meta name="title">), so the player can
-     open the stream the office never had to tell us about.
-
-   The answer is cached in localStorage (so a reload paints the last known
-   truth before the network answers) and re-checked on a timer: every 45s when
-   a service is on the clock, every 4 minutes otherwise. A failed check is
-   "unknown" — never "not live" — so a flaky proxy can only fall back to the
-   old behaviour, not fake an ended stream.
-
-   Two things were added on top of that answer:
-
-   - **It remembers that a broadcast *ended*.** When a check that follows a
-     "live" one comes back "off", the moment of that answer is kept on the
-     status (`endedAt`) along with the video that was on air, so the office's
-     drawer can do what it does on *Stop* by itself — `src/lib/autostop.ts`.
-     A broadcast that comes back clears it again.
-   - **Facebook is asked too, when the drawer asks for it.** Facebook serves a
-     browser that is not signed in no live information it can be trusted for —
-     a page's HTML is the same whether it is broadcasting or not — so this probe
-     can only ever *confirm* a broadcast (`facebookTarget` /
-     `parseFacebookLivePage`); it never says one has stopped, and it is only
-     made from the office's own drawer (`checkLiveStream({ facebook: true })`),
-     never from a visitor's page. In practice the stop follows YouTube, which is
-     also where *Recent services* comes from.
-
-   And one thing ties it to the rest of the site (SPEC note 133): **the answer
-   is the site's, not the page's.** It is kept here at module scope and read by
-   everything that shows a live state — through `onAir()` in src/lib/store.ts —
-   so a broadcast that starts off the schedule puts the whole site on air, and
-   one that ends takes *Live now* off in every place it was shown. There is one
-   poll for the page, not one per reader (see *the shared answer*, below).
-   ========================================================================== */
+/* On-air check: reads the channel's /live page for `isLiveNow` (never `isLiveContent`/`isLive`,
+   both traps, note 112) via superFetch (no CORS). Cached, re-checked on a timer; failures read
+   "unknown". Ended broadcasts are remembered for auto-stop; Facebook only ever confirms. */
 
 import { useEffect, useSyncExternalStore } from "react";
 import { LIVE } from "../data/live";
@@ -80,12 +24,7 @@ export type LiveStatus = {
   title: string;
   /** When the answer was fetched (ms). */
   checkedAt: number;
-  /**
-   * When a broadcast we had *seen* live stopped (ms) — 0 when this browser has
-   * not watched one end. The video id and headline above are kept with it, so
-   * the drawer can seed the finished service into *Recent services* and end the
-   * session the same way its *Stop* button does (`src/lib/autostop.ts`).
-   */
+  /** When a seen-live broadcast stopped (ms); video kept for seeding Recent services. */
   endedAt: number;
 };
 
@@ -103,19 +42,11 @@ const EMPTY: LiveStatus = { state: "unset", platform: "", videoId: "", title: ""
 
 /* --------------------------------------------------------------- the target */
 
-/**
- * Where to ask. The channel wins when the office has set one — a channel keeps
- * its /live address forever, so the check follows whichever broadcast is on
- * that day without anyone editing the site. Otherwise the stream link is
- * checked directly (the older way of doing it).
- */
+/** Where to ask: the channel when set (its /live follows every broadcast), else the link. */
 export function liveTarget(): { url: string; kind: "channel" | "video" } | null {
   const raw = String(LIVE.youtubeChannel || "").trim();
   if (raw) {
-    /* A channel id, a handle (@name or bare name), or any of the YouTube
-       channel link shapes. Each one becomes the channel's /live page, which
-       serves the running broadcast when there is one and the channel's own
-       Live tab when there is not. */
+    /* Handle, id or link — each becomes the channel's /live page. */
     const id = /(UC[\w-]{20,24})/.exec(raw);
     if (id) return { url: `https://www.youtube.com/channel/${id[1]}/live`, kind: "channel" };
     const at = /youtube\.com\/@([\w.-]+)/i.exec(raw) || /^@([\w.-]+)$/.exec(raw);
@@ -130,11 +61,7 @@ export function liveTarget(): { url: string; kind: "channel" | "video" } | null 
   return null;
 }
 
-/**
- * Where to ask Facebook. The office may have pasted the day's live video, or
- * the church's page; a page address is asked at its own /live tab, where a
- * broadcast the page is running appears. Empty when the office has not set one.
- */
+/** Where to ask Facebook (live video or page); empty when unset. */
 export function facebookTarget(): string {
   const raw = String(LIVE.facebookUrl || "").trim();
   if (!raw) return "";
@@ -162,25 +89,13 @@ function decodeEntities(value: string): string {
     .replace(/&gt;/g, ">");
 }
 
-/**
- * Read a YouTube page: was it readable at all, is it broadcasting, and which
- * video is it?
- *
- * `read` is what keeps a page we could not understand from passing as an
- * ending. YouTube answers with a consent wall, a bot check or a bare error
- * page now and then, and none of them carries any of YouTube's own scaffolding
- * — those must come back as "we did not get an answer", because an "off" answer
- * is what stops a site that is on air (`src/lib/autostop.ts`).
- */
+/** Read a YouTube page; unreadable pages return "no answer", never "off". */
 export function parseLivePage(html: string): { read: boolean; live: boolean; videoId: string; title: string } {
   const text = String(html || "");
   /* YouTube's own pages all carry the inlined page model — a consent wall or an
      error page carries none of it. */
   const read = /ytInitialData/.test(text) || /"videoDetails":\{/.test(text);
-  /* Only `isLiveNow` (and a player that has already produced a live manifest)
-     means *broadcasting right now*. `"isLive":true` is NOT a live marker — a
-     finished stream's page carries it in the view count renderer, which once
-     made the church's own channel read as on air (SPEC note 112). */
+  /* Only `isLiveNow` (or an existing live manifest) means broadcasting (note 112). */
   const live = read && (/"isLiveNow":true/.test(text) || /"hlsManifestUrl":"https?:\/\//.test(text));
   if (!live) return { read, live: false, videoId: "", title: "" };
   const canonical = /<link rel="canonical" href="https:\/\/www\.youtube\.com\/watch\?v=([\w-]{11})"/.exec(text);
@@ -196,13 +111,7 @@ export function parseLivePage(html: string): { read: boolean; live: boolean; vid
   };
 }
 
-/**
- * Read a Facebook page: is it broadcasting? Facebook shows a signed-out browser
- * nothing it can be trusted for — the same HTML comes back whether a page is
- * live or not — so this can only ever *confirm* a broadcast, and it takes two
- * markers to do it (a finished live video keeps "was live" marks of its own, and
- * a site must never be kept on air by one). No answer means "no answer".
- */
+/** Facebook can only confirm a broadcast (two markers); never trusts "off". */
 export function parseFacebookLivePage(html: string): { live: boolean; videoId: string; title: string } {
   const text = String(html || "");
   const marked =
@@ -234,11 +143,7 @@ function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
   });
 }
 
-/** The channel page's HTML: the local dev server proxies it (scripts/serve.mjs
-    /__yt — YouTube sends no CORS headers, so a plain fetch is refused and the
-    superFetch plugin only exists on the live site), else through perchance's
-    proxy, else through a public CORS proxy so static deployments (which have
-    neither) still read the channel. Null when unreachable. */
+/** Page HTML via local proxy, perchance proxy, else public CORS proxy. */
 async function fetchPage(url: string): Promise<string | null> {
   const local = await fetchPageLocal(url);
   if (local) return local;
@@ -338,12 +243,7 @@ export async function checkLiveStream(opts: { facebook?: boolean } = {}): Promis
   const checkedAt = Date.now();
   const next: LiveStatus = { state, platform: found?.platform || "", videoId: found?.videoId || "", title: found?.title || "", checkedAt, endedAt: 0 };
 
-  /* A broadcast we were watching has stopped: keep the moment, and the video it
-     was, so the drawer can end the session and seed *Recent services* with it
-     (`src/lib/autostop.ts`). The ending sticks until a broadcast comes back —
-     every later "off" answer carries the same moment, or the drawer would have
-     one answer to end a service and never see it again. Everything else is a
-     fresh answer. */
+  /* A watched broadcast's ending sticks until one comes back (autostop). */
   const before = readLiveStatus();
   if (state === "off" && (before.state === "live" || before.endedAt > 0)) {
     /* The moment it ended is the first answer that says it has; every answer
@@ -378,20 +278,7 @@ function saveLiveStatus(status: LiveStatus) {
   writeStore(LIVE_STATUS_KEY, status);
 }
 
-/* ------------------------------------------------------- the shared answer
-
-   The answer belongs to the *page*, not to the component that happens to ask
-   for it. Everything that shows a live state reads `onAir()` (`src/lib/store.ts`),
-   which asks `liveNow()` / `liveEndedAt()` below, so a per-component poll would
-   mean one channel page fetched several times for one answer — and several
-   timers free to disagree (the badge saying live while the panel says the
-   stream has ended).
-
-   So the answer is kept here at module scope and the polling is
-   reference-counted: the first component to ask starts it, the last one to
-   leave stops it, and the callers' own needs are merged (the short cadence if
-   *any* caller is expecting a service, Facebook if any caller wants it).
-   ========================================================================== */
+/* One shared, reference-counted poll; every live state reads it via `onAir()`. */
 
 export type LiveSnapshot = { status: LiveStatus; checking: boolean };
 
@@ -443,11 +330,7 @@ export function liveNow(): boolean {
   return snapshot.status.state === "live";
 }
 
-/**
- * The moment the broadcast this browser *watched* ended (0 when none has) —
- * the stream's way of stopping the site, as `LIVE.liveCut` is the office's
- * (see `onAir` in src/lib/store.ts).
- */
+/** The watched broadcast's ending (0 when none): the stream's way to stop the site. */
 export function liveEndedAt(): number {
   return Number(snapshot.status.endedAt) || 0;
 }
@@ -544,13 +427,7 @@ function stopPolling() {
   publish({ checking: false });
 }
 
-/**
- * Read the live answer while a component is on screen. `soon` is the caller's
- * hint that a broadcast is expected (a service is on the clock) — the only time
- * the check runs on the short cadence; `facebook` is the office's drawer asking
- * as well as YouTube (the one place that probe is worth its fetch). Returns the
- * unsubscribe, so it is used as an effect body.
- */
+/** Live answer while mounted; short cadence when a broadcast is expected. */
 export function watchLiveStream(opts: { soon?: boolean; facebook?: boolean } = {}) {
   const watcher: Watcher = { soon: !!opts.soon, facebook: !!opts.facebook };
   const first = watchers.size === 0;
@@ -568,11 +445,7 @@ export function watchLiveStream(opts: { soon?: boolean; facebook?: boolean } = {
 
 /* --------------------------------------------------------------- the hook */
 
-/**
- * The live status, kept fresh while the component is on screen. Every caller
- * shares one poll (see *the shared answer* above), so the hook is safe to mount
- * wherever a live state is shown.
- */
+/** Live status, shared by every caller through the one poll. */
 export function useLiveStream(soon = false, watchFacebook = false) {
   const { status, checking } = useLiveStatus();
   useEffect(() => watchLiveStream({ soon, facebook: watchFacebook }), [soon, watchFacebook]);

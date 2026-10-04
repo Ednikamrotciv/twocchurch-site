@@ -64,13 +64,7 @@ import type { Testimony } from "../lib/store";
 
 /* ------------------------------------------------------------------ dates for events */
 
-/**
- * Where an activity's clock time falls. The activities are stored as
- * "so many days from today", so the *instant* is counted on the church's own
- * clock and the time of day is written at the branch hosting it — 6:30 PM in
- * Dallas is 6:30 PM in Dallas (SPEC note 84). What the visitor *reads* is then
- * that instant on their own clock (`clockAt`, SPEC note 85).
- */
+/** An activity's clock time: instant on the church clock, time of day at the host branch (notes 84/85). */
 export function eventZone(e: ChurchEvent): string {
   return zoneOr(BRANCHES.find((b) => b.id === e.branchId)?.timezone, churchTimezone());
 }
@@ -119,11 +113,7 @@ export function AnnouncementBanner() {
   const version = useCmsVersion();
   const live = useMemo(() => {
     const snoozedSet = new Set(liveEntries(snoozed).map((s) => s.id));
-    /* A snooze names the exact entry AND its headline: the ids of notices
-       the office adds in the drawer are made up from the headline on every
-       apply, so an edited (or re-posted) notice must not dodge a snooze — and
-       the exact headline a visitor cancelled stays snoozed even if the office
-       rewords around it. */
+    /* A snooze names entry and headline, so an edited notice stays snoozed. */
     return liveAnnouncements()
       .filter((a) => !snoozedSet.has(a.id) && !snoozedSet.has(titleKey(a)))
       .slice(0, 3);
@@ -350,27 +340,16 @@ export function platformOpenLabel(platform?: VideoPlatform): string {
   return ct("live.card.openYoutube");
 }
 
-/**
- * A message the visitor can play *without leaving the site*: the player sits
- * on the card, and a button per platform switches where it comes from
- * (YouTube, Facebook, or a video file the office uploaded).
- */
+/** A message the visitor can play without leaving the site. */
 export function SermonWatch({ sermon, className = "" }: { sermon: Sermon; className?: string }) {
-  /* Keyed on the *values*, not the object: the CMS applies edits by mutating the
-     record in place (`syncObject` in src/lib/cmsSchema.ts), so a sermon keeps
-     its identity when the office adds a Facebook link or swaps the platform —
-     and a memo keyed on the object would go on offering the old sources. */
+  /* Keyed on the values, not the object: the CMS mutates records in place. */
   const options = useMemo(
     () => sermonSources(sermon),
     [sermon.youtubeId, sermon.facebookUrl, sermon.uploadUrl, sermon.poster, sermon.platform]
   );
   const preferred = options.find((o) => o.platform === sermon.platform)?.platform || options[0]?.platform;
   const [chosen, setChosen] = useState<VideoPlatform | undefined>(preferred);
-  /* The office changes where a message plays from while the card is already on
-     screen — the *Live stream* section of the drawer edits exactly this, the
-     last message and the previous sermons — so the card follows the office's
-     own choice instead of keeping the pick it mounted with. A visitor's pick
-     still stands: it does not change `preferred`, so this never overrules it. */
+  /* The card follows the office's platform choice; a visitor's pick still stands. */
   useEffect(() => {
     setChosen(preferred);
   }, [preferred]);
@@ -425,20 +404,13 @@ export function SermonWatch({ sermon, className = "" }: { sermon: Sermon; classN
 
 /* ------------------------------------------------------ ways-to-watch cards */
 
-/** Which platform this card is a door to, if any. An explicit `platform` wins;
-    otherwise the card's own icon decides, so a card the office adds in the
-    drawer (Title "YouTube", the YouTube icon) reads the same way. */
+/** Which platform this card is a door to, if any. */
 function watchCardPlatform(w: WatchOption): VideoPlatform | "" {
   if (w.platform === "youtube" || w.platform === "facebook") return w.platform;
   return w.icon === "youtube" || w.icon === "facebook" ? (w.icon as VideoPlatform) : "";
 }
 
-/**
- * Where "watch on the platform" links should go: the address the office set for
- * the stream, else the channel, else the site's own socials entry — empty when
- * we have nothing to point at. Used by the ways-to-watch cards and by the
- * "older livestreams" buttons under Recent services.
- */
+/** Where "watch on the platform" links go: the stream, else the channel, else socials. */
 export function platformWatchLinks(): Record<VideoPlatform, string> {
   const social = (icon: string) => SITE.socials.find((s) => s.icon === icon)?.url || "";
   return {
@@ -451,16 +423,7 @@ export function platformWatchLinks(): Record<VideoPlatform, string> {
   };
 }
 
-/**
- * The "Ways to watch" row — one component for both pages that show it (the
- * Watch live page and the sermon archive), so the two can never drift apart.
- * The list itself is `LIVE.watchOptions`; it is fixed content now — the office
- * no longer edits it in the drawer (SPEC note 110). A card that is a platform's
- * door carries the
- * "Open YouTube" / "Open Facebook" button, pointing at whatever address we have
- * for that platform (see `platformWatchLinks`). Leave all of them empty and the
- * card is words only, like the others.
- */
+/** The "Ways to watch" row, shared by Watch live and the sermon archive (note 110). */
 export function WatchCards() {
   const links = platformWatchLinks();
   return (
@@ -468,9 +431,7 @@ export function WatchCards() {
       {LIVE.watchOptions.map((w, i) => {
         const platform = watchCardPlatform(w);
         const href = platform ? links[platform] : "";
-        /* A door card names the door it opens (the office's own channel, stream
-           link or socials entry), and falls back to its stored words when the
-           address has no handle in it — see `platformDoorName`. */
+        /* A door card names the door it opens. */
         const named = platform
           ? platformDoorName(platform === "youtube" ? youtubeChannelUrl(LIVE.youtubeChannel) || href : href)
           : "";
@@ -498,12 +459,7 @@ export function WatchCards() {
 
 /* ------------------------------------------------------- recent streams card */
 
-/**
- * One card in "Recent services": the service as it was streamed, playing right
- * here on the card, with the day it was preached and a way out to YouTube for
- * anyone who would rather watch it there. The list itself comes from the
- * church's channel — see `src/lib/recentstreams.ts`.
- */
+/** One card in "Recent services", playing right here on the card. */
 export function RecentServiceCard({ item }: { item: RecentService }) {
   /* The feed's exact date when it reached this far, else YouTube's own words. */
   const when = item.at ? fmtDate(new Date(item.at), "long") : item.ago;
@@ -592,14 +548,7 @@ function var_play_size(layout: string) {
 
 /* ------------------------------------------------------------- branch map popup */
 
-/**
- * The popup behind every *Get directions* button — the card's, the branch
- * panel's and the detail panel's. The branch is shown in a **landscape
- * rectangle** (16/9, the map filling it) with the address, the next gathering
- * and the phone line under it, and the two things a visitor actually wants
- * next: turn-by-turn routing in their own maps app (a new tab, so the site is
- * never left) and the address on their clipboard.
- */
+/** The popup behind every *Get directions* button. */
 export function BranchMapPopup({ branch, onClose }: { branch: Branch; onClose: () => void }) {
   const now = useNow(30000);
   const zone = branchZone(branch);
@@ -664,21 +613,7 @@ export function BranchMapPopup({ branch, onClose }: { branch: Branch; onClose: (
 
 /* ----------------------------------------------------- a branch's sub-branches */
 
-/**
- * The gatherings that sit under one branch, listed in a popup of their own.
- *
- * The office asked for a way to **check the sub-branches of each branch** (SPEC
- * note 86). Note 80 had taken the sub-branch wording off the page as redundant,
- * which left the block of sub-branch cards under a branch unlabelled: a visitor
- * could see the gatherings but not that they belong to the branch above them, and
- * there was no way to ask what a given branch has under it. So every branch now
- * carries a **Sub-branches** button — with its count beside it when it has any —
- * and this is what it opens: each sub-branch with where it is, when it next
- * gathers (on the reader's own clock, like every other time on the site) and the
- * two things a visitor wants next, *View branch* (which turns the page to it) and
- * *Get directions*. A branch with nothing under it says so rather than going
- * quiet, since the button is on every branch.
- */
+/** The gatherings under one branch, in a popup of their own (note 86). */
 export function SubBranchesPopup({
   branch,
   onOpenBranch,
@@ -686,14 +621,13 @@ export function SubBranchesPopup({
 }: {
   /** The branch whose sub-branches are being checked. */
   branch: Branch;
-  /** Show this sub-branch on the page (a card selects it, the panel turns to it). */
+  /** Show this sub-branch on the page. */
   onOpenBranch?: (branch: Branch) => void;
   onClose: () => void;
 }) {
   const now = useNow(30000);
   const subs = subBranchesOf(branch);
-  /* A popup locks the body while it is open (see Modal), so the page cannot be
-     scrolled to the branch it hands over until the popup has actually gone. */
+  /* The popup locks the body, so wait until it is gone before scrolling. */
   const openBranch = (b: Branch) => {
     onClose();
     if (onOpenBranch) window.setTimeout(() => onOpenBranch(b), 60);

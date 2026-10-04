@@ -1,10 +1,4 @@
-/* ============================================================================
-   Video sources: YouTube and Facebook.
-
-   The church streams on both, so any video slot in the site (the live panel,
-   a sermon) can point at either one. Everything here is pure string work so
-   the same helpers serve the site, the CMS preview and the share links.
-   ========================================================================== */
+/* Video sources: YouTube and Facebook. Pure string work for site, preview and share links. */
 
 export type VideoPlatform = "youtube" | "facebook" | "upload";
 
@@ -16,10 +10,7 @@ export const VIDEO_PLATFORM_LABELS: Record<VideoPlatform, string> = {
   upload: "Uploaded video",
 };
 
-/* Perchance pages run with <meta name="referrer" content="no-referrer">, so no
-   Referer header is sent at all. YouTube answers an embed request without a
-   referrer with "Error 153" and never boots the player, so every <iframe> we
-   create for a player has to opt back in to sending one. */
+/* Perchance sends no Referer, which YouTube answers with Error 153 — so every player iframe opts back in. */
 export const EMBED_REFERRER_POLICY = "strict-origin-when-cross-origin";
 
 /** The file extensions a browser will play straight from a URL. */
@@ -68,13 +59,7 @@ export function youtubeThumb(id: string): string {
   return video ? `https://i.ytimg.com/vi/${video}/hqdefault.jpg` : "";
 }
 
-/**
- * The church's *channel* page, from whatever the office pasted into "YouTube
- * channel to watch for live" — a handle, a channel id, or any channel link.
- * (`liveTarget` in `src/lib/livestatus.ts` does the same parsing for the
- * channel's `/live` address, which is what the live check asks.) Empty when
- * there is nothing usable to point at.
- */
+/** The church's channel page, from whatever the office pasted (handle, id or link). */
 export function youtubeChannelUrl(input: string): string {
   const raw = String(input || "").trim();
   if (!raw) return "";
@@ -89,20 +74,7 @@ export function youtubeChannelUrl(input: string): string {
   return "";
 }
 
-/**
- * What to *call* the address a platform door opens — the handle in the link,
- * when the link has one: `https://www.youtube.com/@twocorg` → `@twocorg`,
- * `https://www.facebook.com/worldovercomers` → `/worldovercomers`.
- *
- * A ways-to-watch card that is a door to a platform should name the door it
- * opens, and the address the card links to is the office's own setting (the
- * channel, the stream link, or the socials entry — see `platformWatchLinks`),
- * so the two can never drift apart: the day the office points the site at a
- * different channel, the card renames itself with it (SPEC note 112). Empty
- * when the address is a video, a search, or anything else with no handle in
- * it — the card then keeps the words it stores, which is what a list the
- * office can no longer edit has to fall back on.
- */
+/** The handle in a platform link (`@twocorg`), for the ways-to-watch cards (note 112). */
 export function platformDoorName(url: string): string {
   const raw = String(url || "").trim();
   if (!raw) return "";

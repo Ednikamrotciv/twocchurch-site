@@ -3,18 +3,21 @@
   "version": "1.0.0",
   "private": true,
   "type": "module",
-  "description": "The World Overcomers' Ministries Inc. website. Static React bundle (src/bundle.js + src/bundle.css); no runtime dependencies.",
+  "description": "The World Overcomers' Ministries Inc. website. React + TypeScript, served by Vite.",
   "scripts": {
     "start": "node scripts/serve.mjs",
     "dev": "vite",
+    "dev:fresh": "vite --force",
     "serve": "node scripts/serve.mjs",
-    "vite": "vite",
-    "vite-build": "node node_modules/vite/bin/vite.js build",
-    "build": "node scripts/build-static.mjs",
+    "build": "vite build && node scripts/build-static.mjs",
     "prebuild": "node scripts/fix-perms.mjs",
-    "build:bundle": "node scripts/build.mjs",
     "bake-seed": "node scripts/bake-seed.mjs",
+    "bake-recent": "node scripts/bake-recent.mjs",
     "backup": "node scripts/backup-data.mjs backup",
+    "expose": "node scripts/expose.mjs",
+    "share-on": "node scripts/share.mjs on",
+    "share-off": "node scripts/share.mjs off",
+    "autostart": "node scripts/install-autostart.mjs",
     "restore": "node scripts/backup-data.mjs restore",
     "adopt": "node scripts/backup-data.mjs adopt",
     "set-server": "node scripts/set-server.mjs",
@@ -42,5 +45,8 @@
     "@types/react": "18.3.12",
     "@types/react-dom": "18.3.1",
     "@types/three": "0.170.0"
+  },
+  "allowScripts": {
+    "esbuild": true
   }
 }

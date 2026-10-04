@@ -1,37 +1,22 @@
-// `npm run vite` — run the site in VS Code with Vite instead of `npm run dev`.
-//
-// Same site, same admin backend, same content: this config only swaps the
-// *server*. Vite serves src/main.tsx directly (instant Hot Module Reload while
-// you edit), and the plugin below wires in the site's own publishing backend
-// (scripts/cms-local.mjs — the exact server code from index.html) plus the
-// local YouTube proxy, so Publish, sign-in, recent services and the live badge
-// all behave exactly like the Perchance preview.
-//
-// Run it:  npm install   (once — downloads react, vite, …)
-//          npm run vite  (opens http://localhost:5173/, admin at /admin)
+/* vite-cms-backend.mjs — the site's own publishing backend for `npm run dev`.
+   Same content code as the office server (scripts/serve.mjs): sign-in,
+   publishing, uploads, live updates, plus the local YouTube/geo proxies —
+   so dev behaves exactly like production. */
 
-import { readFile, stat, mkdir, writeFile, cp, unlink } from "node:fs/promises";
+import { readFile, stat, mkdir, writeFile, cp } from "node:fs/promises";
 import path from "node:path";
-import react from "@vitejs/plugin-react";
-import { createCmsHost, hashText } from "./scripts/cms-local.mjs";
-import { createGeoProxy } from "./scripts/geo-proxy.mjs";
+import { createCmsHost, hashText } from "./cms-local.mjs";
+import { guardAtBoot } from "./backup-data.mjs";
+import { createGeoProxy } from "./geo-proxy.mjs";
+import { MIME } from "./mime.mjs";
 
-const APP_TAG = '<script type="module" src="src/bundle.js"></script>';
-const CSS_TAG = '<link rel="stylesheet" href="src/bundle.css">';
+/* index.html points straight at the source entry — no prebuilt bundle involved. */
+const ENTRY_TAG = '<script type="module" src="/src/main.tsx"></script>';
+const SHIM_TAG = '<script src="/scripts/local-shim.js"></script>';
 
-const MIME = {
-  ".png": "image/png",
-  ".jpg": "image/jpeg",
-  ".jpeg": "image/jpeg",
-  ".webp": "image/webp",
-  ".gif": "image/gif",
-  ".svg": "image/svg+xml",
-  ".ico": "image/x-icon",
-};
-
-/* The admin backend for `vite dev`: the site's own publishing code running in
-   Node, byte for byte the same as `npm run dev` (see scripts/serve.mjs). */
-function cmsBackend() {
+/* The admin backend for `npm run dev`: the site's own publishing code running
+   in Node — the same backend scripts/serve.mjs runs in production. */
+export function cmsBackend() {
   const ROOT = process.cwd();
   const geoProxy = createGeoProxy();
   let cms = null;
@@ -42,30 +27,26 @@ function cmsBackend() {
     async configResolved(config) {
       const html = await readFile(path.join(ROOT, "index.html"), "utf8");
       siteVersion = "vite-" + hashText(html);
+      try {
+        await guardAtBoot(ROOT);
+      } catch {
+        /* same snapshot-and-recover as scripts/serve.mjs — never fatal */
+      }
       cms = await createCmsHost(ROOT);
       outDir = path.resolve(config.root || ROOT, (config.build && config.build.outDir) || "dist");
-      try {
-        await stat(path.join(ROOT, "src", "bundle.js"));
-        for (const stale of ["app.js", "app.css"]) {
-          try {
-            await unlink(path.join(ROOT, "src", stale));
-          } catch { /* already gone */ }
-        }
-      } catch { /* no bundle yet — nothing to clean */ }
     },
-    /* Perchance preview loads the prebuilt bundle; under Vite the entry is
-       the source itself (with HMR), plus the shim that connects it to the
-       backend below. The stale prebuilt stylesheet is dropped so styles also
-       hot-reload from src/styles/*.css. For `vite build` the same source is
-       the bundle entry — but the shim stays out (a static host has no
-       backend; baking it in would only point the page at missing endpoints). */
+    /* Dev only: the shim connects the page to this backend (sign-in, publish,
+       uploads). Production builds stay backend-free — deployed copies join the
+       office server through server.json instead. */
     transformIndexHtml(html, ctx) {
-      const entry = '<script type="module" src="/src/main.tsx"></script>';
-      const body = html.split(CSS_TAG).join("").split(APP_TAG).join(ctx && ctx.server ? '<script src="/scripts/local-shim.js"></script>\n  ' + entry : entry);
-      return body;
+      if (!ctx || !ctx.server) return undefined;
+      const src = String(html);
+      if (src.includes(SHIM_TAG)) return undefined;
+      if (src.includes(ENTRY_TAG)) return src.replace(ENTRY_TAG, SHIM_TAG + "\n    " + ENTRY_TAG);
+      return src + "\n" + SHIM_TAG + "\n";
     },
-    /* `vite build` extras: the string-URL files the bundle points at, plus a
-       snapshot of the published content (data/cms-state.bin) as seed.json so
+    /* `vite build` extras: the string-URL files the app points at (photos), plus
+       a snapshot of the published content (data/cms-state.bin) as seed.json so
        the static site opens on the office's words with no backend to ask. */
     async closeBundle() {
       if (process.env.VITE_WOM_SKIP_STATIC === "1") return;
@@ -324,22 +305,3 @@ function cmsBackend() {
   };
 }
 
-export default {
-  plugins: [react(), cmsBackend()],
-  server: { port: 5173 },
-  optimizeDeps: {
-    include: [
-      "react",
-      "react-dom",
-      "react-dom/client",
-      "framer-motion",
-      "three",
-      "@react-three/fiber",
-      "@react-three/drei/core/Sparkles",
-      "swiper",
-      "swiper/modules",
-      "qrcode-generator",
-      "zustand",
-    ],
-  },
-};

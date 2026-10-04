@@ -1,38 +1,6 @@
-/* ============================================================================
-   Every headline, lede and paragraph the visitor reads, in one place.
-
-   The admin console edits these in "Page text" sections. Values are plain
-   strings with three lightweight conventions so the office can style text
-   without touching code:
-
-     *emphasis*            -> <em>emphasis</em>
-     **strong**            -> <strong>strong</strong>
-     [label](/some-route)  -> a link (internal if it starts with "/")
-     a new line            -> <br>
-
-   {{tokens}} are filled in by the page (e.g. {{church}}, {{count}}).
-
-   Three kinds of line — button captions, page titles and the title of each
-   section — are marked with a `role` (or worked out from their id by
-   `inferRole`). The editor shows them but does not let them be reworded, so
-   the furniture of the site stays put; everything else is the office's.
-
-   A line marked `locked` is furniture as well, but of the quiet kind: it is
-   not listed in the editor at all, and no stored wording can ever replace it.
-   These are the lines the church asked to be taken out of the editor — the
-   hero's CARE statement, the nine paragraphs of the watch-live page, the
-   paragraph rows of every page-text section from *Sermons* down to *Site-wide*,
-   the whole of the home page's *The small words, buttons & titles* group, and
-   About's four remaining paragraphs. The sentences still greet every visitor;
-   they simply stopped being the office's to reword. Home's six paragraphs are
-   what is left of the office's own words on the front page. See SPEC notes
-   47-50 and 64. (The recovered `auto.*` lines cannot carry the flag — the file
-   they live in is generated — so they are named in LOCKED_AUTO below.)
-
-   The church NAME and the logo are deliberately not here: the name comes
-   from main.pjs and the logo is an asset, so neither can be edited from the
-   admin console.
-   ========================================================================== */
+/* Every headline and paragraph in one place, editable under Page text.
+   *em* **strong** [label](/route); {{tokens}} filled by pages.
+   Titles/buttons locked; `locked` lines unlisted (notes 47-50, 64). Name/logo not here (main.pjs/assets). */
 
 import { AUTO_ENTRIES } from "./autocopy";
 
@@ -1067,16 +1035,7 @@ export const COPY_PAGES: CopyPage[] = HAND_PAGES.map((page) => {
 
 /* ------------------------------------------------------------------ roles */
 
-/**
- * Three kinds of line belong to the site's furniture rather than its content,
- * so they are shown in the editor but not edited: the caption on a button, the
- * title of a page, and the title of a section. Everything else — every
- * paragraph, lede, description, card line, note and message — is the office's.
- *
- * The hand-written ids say what a line is (`home.sermons.title`,
- * `events.head.title`, `home.hero.cta1`); the recovered ones carry the role
- * their element gave them at collection time (see src/tools/auto-copy.mjs).
- */
+/** Button captions, page and section titles: shown but not reworded. */
 const BUTTON_LABEL = /\b(button|cta)\b/i;
 
 function inferRole(entry: CopyEntry): CopyRole | undefined {
@@ -1109,15 +1068,7 @@ export function copyRoleOf(id: string): CopyRole | undefined {
    the church's own fixed wording (see `home.hero.lede`). The guard below treats
    it exactly like a button caption — no stored wording can replace it. */
 
-/* The recovered small words the church asked to be taken out of the editor
-   (SPEC note 64) are locked from here rather than in `autocopy.ts`, because that
-   file is generated: the collector reads only `id`/`label`/`value`/`role` back
-   out of it (`readExisting` in `src/tools/auto-copy.mjs`), so a flag written
-   there would be dropped the next time the tool runs. These are the whole of the
-   home page's *The small words, buttons & titles* group — the site's own button
-   captions and section titles, and the labels the code builds itself (the live
-   pill, the countdown's *Next:* / *at* / *in* / *d* / *h* / *m*, the picture's
-   description, the newsletter and volunteering lines). */
+/* Recovered small words locked here — autocopy.ts is generated (note 64). */
 const LOCKED_AUTO = new Set<string>([
   "auto.home.caff7790d4063599",
   "auto.home.7af560c8a7a14349",
@@ -1178,11 +1129,7 @@ function segmentNameOf(key: string, first: CopyEntry): string {
   return name || key;
 }
 
-/**
- * The lines of a page, grouped into the segments the visitor actually sees
- * (the hero, the welcome section, the latest sermon …), in the order they
- * appear on the page. The recovered small words come last.
- */
+/** A page's lines, grouped as the visitor meets them. */
 export function copySegmentsOf(pageId: string): CopySegment[] {
   const page = COPY_PAGES.find((p) => p.id === pageId);
   if (!page) return [];
@@ -1241,13 +1188,7 @@ export function copyDefault(id: string): string {
   return Object.prototype.hasOwnProperty.call(DEFAULTS, id) ? DEFAULTS[id] : "";
 }
 
-/**
- * True when a line is prose — a paragraph, a lede, a description, a message —
- * rather than a label, a caption or a placeholder. The editor shows the prose
- * lines of a page first, and gives them a box tall enough to read them in. The
- * *shipped* wording decides, never what the office has typed, so a line can
- * never change shape (or move) under the cursor mid-sentence.
- */
+/** True when a line is prose: shown first, in a tall box. Decided by shipped wording. */
 export function copyIsParagraph(id: string): boolean {
   const shipped = copyDefault(id);
   if (shipped.indexOf("\n") !== -1) return true;

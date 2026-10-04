@@ -32,44 +32,13 @@ export const SITE = {
   givingEmail: "giving@worldovercomers.org",
   mediaEmail: "media@worldovercomers.org",
   address: "Overcomers' Cathedral, Oke-Odo Road, Agbado Oke-Odo, Alimosho, Lagos State, Nigeria",
-  /**
-   * The zone the church's own times are written in — Lagos, Nigeria. The head
-   * office is here, so the Sunday gathering, the office hours and the church's
-   * own day are all written in this zone.
-   *
-   * It is *not* what a visitor necessarily reads: where the visitor's own time
-   * zone can be worked out from their IP address, the site shows every time on
-   * **their** clock (`siteTimezone()` = the visitor's, falling back to this
-   * one). Set `visitorTime` to false below to keep everyone on the church's
-   * clock instead. A branch's service times are written in *that branch's* own
-   * zone — see `branchZone()` in `./branches`.
-   *
-   * Editable in the console (*Church profile → Time zone*), or from
-   * `churchTimezone` in main.pjs.
-   */
+  /** The church's own zone — Lagos. Visitors read on their own clock unless `visitorTime` is off. Editable in console or main.pjs. */
   timezone: pick("churchTimezone", DEFAULT_TIMEZONE),
-  /**
-   * Show each visitor the times in their own time zone, found from their IP
-   * address (SPEC note 85). Off, every reader gets the church's clock above —
-   * that is the switch to use if the church ever wants one clock for everybody.
-   */
+  /** Show each visitor times on their own clock (note 85). Off: everyone on the church clock. */
   visitorTime: true,
-  /**
-   * The currency the church's own figures are written in — the giving amounts,
-   * an event's cost, the allocation card. US dollars unless the office changes
-   * it: everything the office types is read as this currency, and a visitor is
-   * shown it in their own (see `visitorCurrency` below).
-   *
-   * Editable in the console (*Church profile → Currency*), or from
-   * `churchCurrency` in main.pjs.
-   */
+  /** The currency figures are written in (USD unless changed). Visitors read their own. Editable in console or main.pjs. */
   currency: pick("churchCurrency", DEFAULT_CURRENCY),
-  /**
-   * Show each visitor money in their own country's currency, found from their
-   * IP address and converted at the day's rate (SPEC note 98). Off, every
-   * reader gets the church's currency above — the figures exactly as the office
-   * typed them.
-   */
+  /** Show each visitor money in their own currency (note 98). Off: the church's currency as typed. */
   visitorCurrency: true,
   officeHours: [
     { day: 1, open: "09:00", close: "17:00" },
@@ -85,12 +54,7 @@ export const SITE = {
   ],
 };
 
-/* Hand the church's clock to the time helpers (src/lib/store.ts) straight
-   away, so even the module-level dates in the data files below are worked out
-   in Lagos time rather than the visitor's own — these are the *church's* dates
-   (when a notice was posted, what "today's" verse is), and the church writes
-   them in its own zone. What a visitor *reads* is then shown on their clock
-   (see `siteTimezone()`), unless the office turns that off. */
+/* Church clock to the time helpers at once, so module dates are Lagos dates. */
 setChurchTimezone(SITE.timezone);
 setVisitorTimeEnabled(SITE.visitorTime);
 setBaseCurrency(SITE.currency);

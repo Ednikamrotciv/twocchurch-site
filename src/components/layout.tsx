@@ -3,6 +3,7 @@ import { Link, navigate, useRoute } from "../lib/router";
 import { useHotkey, useMediaQuery, useScrollProgress, useTheme, useNow, useClickOutside, useBodyLock } from "../lib/hooks";
 import { nextService, onAir, countdownParts, to12h, DAY_SHORT, fmtDate, zoneYear, clockAt, churchTimezone } from "../lib/store";
 import { SITE, SERVICES, NAV, FOOTER_LINKS, LOGO_MARK } from "../data/site";
+import { siteFile } from "../lib/livefeed";
 import { BRANCHES, HQ } from "../data/branches";
 import { SERMONS, sermonDate, sermonThumb } from "../data/sermons";
 import { EVENTS, SEED_TESTIMONIES } from "../data/content";
@@ -148,7 +149,7 @@ export function Header() {
       <header className={"header" + (scrolled ? " header--scrolled" : "")}>
         <div className="container header__inner">
           <Link to="/" className="brand" aria-label={ct("auto.site.35ab10970eb7d78e", { "name": SITE.name })}>
-            <img className="brand__logo" src={LOGO_MARK} alt={SITE.name} />
+            <img className="brand__logo" src={siteFile(LOGO_MARK)} alt={SITE.name} />
           </Link>
 
           {isDesktop && (
@@ -345,7 +346,7 @@ export function Footer() {
       <div className="container">
         <div className="footer__top">
           <div className="footer__brand">
-            <img src={LOGO_MARK} alt={SITE.name} className="footer__logo" />
+            <img src={siteFile(LOGO_MARK)} alt={SITE.name} className="footer__logo" />
             <h3>{SITE.name}</h3>
             <p className="muted">{SITE.tagline}</p>
             <blockquote className="footer__verse">

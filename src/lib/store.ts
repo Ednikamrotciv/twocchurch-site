@@ -28,46 +28,9 @@ export const KEYS = {
 
 /* ---------------- time ---------------- */
 
-/* --------------------------------------------------------------- the clock
-
-   There are **two clocks**, and the difference between them is the whole point
-   of this section (SPEC notes 84 and 85).
-
-   1. **The church's own clock** — `churchTimezone()`. The church is
-      headquartered in Lagos, Nigeria, so this is `Africa/Lagos` unless the
-      church profile says otherwise. It is the clock everything the church
-      *writes down* is written in: the Sunday gathering is "09:00", the office
-      opens at "09:00", the daily verse belongs to the church's own date — and
-      it is the fallback whenever the visitor's own clock cannot be worked out.
-
-   2. **The visitor's own clock** — `visitorTimezone()`. Found from the
-      visitor's **IP address** when the site loads (src/lib/visitor.ts talks to
-      a geolocation service directly from the browser, so the service sees the
-      visitor's address and not perchance's proxy). Where we know it, every
-      time the visitor *reads* is shown in their own time: the header pill and
-      the countdowns say when a gathering happens for them, the schedule tables
-      read in their time, the office's open/closed line is still the office's
-      own (the office is in Lagos — that is a fact about Lagos, not about the
-      reader), but the clock times beside it are theirs.
-
-   `siteTimezone()` is the clock the site *shows in*: the visitor's own when we
-   know it, the church's otherwise. Everything that formats a time for a
-   visitor defaults to it, which is why most of the site needed no change at
-   all when the visitor clock arrived. The office can turn it off for everybody
-   (*Church profile → Show each visitor their own time zone*), which is what
-   puts everyone back on the church's clock.
-
-   Branch service times are the one thing that is written in a zone of its own:
-   a branch's schedule belongs to *that branch's* time zone (the `timezone` on
-   the branch in the console — America/Chicago for Dallas, Africa/Lagos for the
-   Nigerian branches), because 9:00 AM in Dallas is 3:00 PM in Lagos. That is
-   the zone the *instant* is computed in — `branchZone(branch)` — and the
-   instant is then shown on the reader's own clock (`clockHere`). A branch with
-   no time zone of its own follows the church's.
-
-   Time zones come from the platform's own `Intl` data — nothing here is
-   hard-coded to an offset, so daylight saving in Chicago or Toronto is handled
-   for us (see SPEC note 84). */
+/* Two clocks (notes 84, 85): the church's own (`churchTimezone`, default Africa/Lagos,
+   what the church writes down) and the visitor's (from IP; what times show in).
+   `siteTimezone()` picks; branches compute in their own zone, show in the reader's. */
 
 /** Home clock. Override with `churchTimezone` in main.pjs, or in the console. */
 export const DEFAULT_TIMEZONE = "Africa/Lagos";
@@ -94,10 +57,7 @@ export function isValidTimezone(tz: unknown): tz is string {
 
 let configuredZone = "";
 
-/**
- * The zone the church profile names (the console's *Church profile → Time
- * zone*). Called once at start-up and again whenever that profile changes.
- */
+/** The church profile's time zone; re-read when the profile changes. */
 export function setChurchTimezone(tz: unknown) {
   if (isValidTimezone(tz)) configuredZone = (tz as string).trim();
 }
@@ -110,14 +70,7 @@ export function churchTimezone(): string {
   return isValidTimezone(raw) ? (raw as string).trim() : DEFAULT_TIMEZONE;
 }
 
-/* ------------------------------------------------- the visitor's own clock
-
-   Where the visitor is, worked out from their IP address the moment the site
-   loads (see src/lib/visitor.ts — the lookup is a *direct* fetch from the
-   browser, so the geolocation service sees the visitor's own address). It is
-   kept in localStorage so a returning visitor paints in their own time on the
-   very first frame, and it is remembered with the place name so the site can
-   say which clock it is using. */
+/** Visitor clock from IP, cached with its place name (notes 84, 85). */
 
 export type VisitorClock = {
   /** The IANA zone, e.g. "America/Chicago". */
@@ -139,14 +92,7 @@ export type VisitorClock = {
 /** localStorage key. Also the key the React hook watches (src/lib/visitor.ts). */
 export const VISITOR_KEY = KEYS.visitor;
 
-/**
- * The shape of answer the lookup gives. Bumped when it starts carrying
- * something new, so a clock cached by an older version of the site is looked up
- * again rather than used as it is — the country and currency joined the time
- * zone afterwards (SPEC note 98), and v4 re-resolves every cached answer
- * through the time-zone country table, retiring answers the old browser
- * -language fallback had guessed wrong.
- */
+/** Lookup answer shape; bumped when it carries something new (note 98). */
 export const VISITOR_CLOCK_V = 4;
 
 export function normalizeVisitorClock(raw: any): VisitorClock | null {
@@ -205,11 +151,7 @@ export function visitorCurrency(): string {
   return visitorClock ? visitorClock.currency : "";
 }
 
-/**
- * Is the site allowed to show each visitor money in their own currency? The
- * office can turn this off (*Church profile → Show each visitor their own
- * currency*), which puts every reader back on the church's currency.
- */
+/** Visitor currency allowed? Off puts every reader on the church's currency. */
 let visitorMoneyOn = true;
 export function setVisitorCurrencyEnabled(on: unknown) {
   visitorMoneyOn = on !== false;
@@ -218,11 +160,7 @@ export function visitorCurrencyEnabled(): boolean {
   return visitorMoneyOn;
 }
 
-/**
- * Is the site allowed to show each visitor their own time? The office can turn
- * this off (*Church profile → Show each visitor their own time zone*), which
- * puts every reader back on the church's clock.
- */
+/** Visitor time allowed? Off puts every reader on the church's clock. */
 let visitorTimeOn = true;
 export function setVisitorTimeEnabled(on: unknown) {
   visitorTimeOn = on !== false;
@@ -231,10 +169,7 @@ export function visitorTimeEnabled(): boolean {
   return visitorTimeOn;
 }
 
-/**
- * The clock the site shows times in: the visitor's own when we know it and the
- * office has left it on, otherwise the church's.
- */
+/** The clock times show in: the visitor's when known and on, else the church's. */
 export function siteTimezone(): string {
   if (!visitorTimeOn) return churchTimezone();
   return visitorTimezone() || churchTimezone();
@@ -305,11 +240,7 @@ function zoneOffsetMs(date: Date, tz: string) {
   return asUtc - (date.getTime() - date.getMilliseconds());
 }
 
-/**
- * The instant at which the clock in `tz` reads this wall time. Month/day
- * overflow is fine (day 34 becomes the right date next month). Two passes so
- * a change of offset (daylight saving) lands on the right side of the change.
- */
+/** The instant a wall time reads in `tz` (day overflow fine; DST-safe). */
 export function zonedTimeToUtc(year: number, month: number, day: number, hour = 0, minute = 0, tz = churchTimezone()): Date {
   const zone = zoneOr(tz);
   const guess = Date.UTC(year, month - 1, day, hour, minute, 0, 0);
@@ -349,13 +280,7 @@ export function clockAt(input: string | Date | number, tz = siteTimezone()): Wal
   return { day: p.weekday, time: `${pad(p.hour)}:${pad(p.minute)}` };
 }
 
-/**
- * A **weekly** wall time — a schedule entry's day and "HH:MM" — read on the
- * visitor's own clock. `from` is the zone the time is *written* in (a branch's
- * own, or the church's): the gathering happens at that instant, and this is
- * what the reader's clock says at that moment. So the Dallas branch's Sunday
- * 09:00 reads "Sunday 3:00 PM" to a member sitting in Lagos.
- */
+/** A weekly day + "HH:MM" written in `from`, read on the visitor's clock. */
 export function clockHere(time: string, day: number, from = churchTimezone()): WallClock {
   const source = zoneOr(from);
   const to = siteTimezone();
@@ -435,11 +360,7 @@ export function fmtDuration(minutes: number) {
 
 export type ServiceSlot = { day: number; time: string; name: string; minutes: number };
 
-/**
- * When this gathering next happens — the wall-clock day and time read in `tz`.
- * Pass the *branch's* zone: a Lagos 07:00 service is 07:00 Lagos whether the
- * visitor is in Oke-Odo or Oklahoma (SPEC note 84).
- */
+/** When a gathering next happens; pass the branch's zone (note 84). */
 export function nextOccurrence(slot: ServiceSlot, now = new Date(), tz = churchTimezone()): Date {
   const zone = zoneOr(tz);
   const [h, m] = slot.time.split(":").map(Number);
@@ -458,19 +379,7 @@ export type NextServiceInfo = {
   endsAt: Date;
 };
 
-/**
- * The gathering the site should be talking about: the one the clock is inside
- * right now, or — if none is — the next one, with how long until it starts.
- *
- * One gathering is deliberately stepped over: one the office has **ended by
- * hand**. Pressing *Stop the livestream* while the clock is inside a service
- * means that service is over, even though its scheduled hours have not run out
- * yet. Reporting it as "on" would say live when the office said otherwise, and
- * reporting it as "next" would print a countdown of `0h 0m` for the rest of its
- * hours — so the clock steps past it and answers with the gathering after it
- * (`LIVE.liveCut` is the moment of the stop; only a gathering that began before
- * that moment is over — see SPEC note 106).
- */
+/** The gathering in progress, else the next one with its wait. Skips hand-ended ones (note 106). */
 export function nextService(schedule: ServiceSlot[], now = new Date(), tz = churchTimezone()): NextServiceInfo | null {
   if (!schedule?.length) return null;
   const zone = zoneOr(tz);
@@ -500,23 +409,7 @@ export function nextService(schedule: ServiceSlot[], now = new Date(), tz = chur
   return { slot: first.slot, at: first.at, endsAt: new Date(first.at.getTime() + (first.slot.minutes || 120) * 60000), msUntil: first.msUntil, isLive: false };
 }
 
-/**
- * The cut the *stream* puts on the clock, in the same shape as `LIVE.liveCut`
- * (the office's): a gathering that began before this moment is over.
- *
- * It is the moment a broadcast this browser was watching ended — `endedAt` in
- * `src/lib/livestatus.ts`, which is set the moment a "live" answer is followed
- * by "off" and left alone until a broadcast comes back. That is what lets the
- * whole site stop showing *Live now* the instant the stream ends, without
- * anybody editing content: `onAir()` honours it, and `nextService` steps over
- * the gathering it interrupted, so the page counts down to the *next* service
- * instead of printing `0h 0m` for the rest of its hours (SPEC notes 106, 133).
- *
- * The office's word beats it, exactly as it does in the drawer's own watcher: a
- * *Start* / *Continue* newer than the ending is a person saying they are
- * streaming again, and an ending from an older session (last Sunday's) is
- * behind the gathering the clock is on now, so neither can silence the site.
- */
+/** The stream's own cut: a gathering begun before a watched broadcast ended is over (notes 106, 133). */
 export function streamCut(): number {
   const endedAt = liveEndedAt();
   if (!endedAt) return 0;
@@ -525,36 +418,7 @@ export function streamCut(): number {
   return endedAt;
 }
 
-/**
- * Is the church on air *right now*? Three things can say so, and any one is
- * enough:
- *
- * - the **stream itself** — the live check found the church's channel
- *   broadcasting (`liveNow()` in src/lib/livestatus.ts). This is the one that
- *   works off the schedule: a special broadcast, or a service that moved, puts
- *   the whole site on air with nobody touching the site (SPEC note 133).
- * - the office's own **We are on air right now** switch (the drawer's *Live
- *   stream* section — `LIVE.isLive`, written by the *Start* / *Continue* /
- *   *Stop* buttons above it), and
- * - the **service clock**: a scheduled slot that is inside its own hours.
- *
- * The switch wins over the clock, because it is a person saying "we are
- * broadcasting": a gathering that moved at the last minute, or a special
- * broadcast, must be able to put the site on air without anyone editing the
- * schedule first.
- *
- * A *stop* is a person speaking too, and there are two of them, both read here:
- * a gathering the office ended by hand is stepped over by `nextService` (so
- * `info.isLive` is false for it), and a broadcast that ended on the channel is
- * `streamCut()` — the site cannot flick back to "live" a minute after the
- * stream went off air, and a *Continue* after that ending brings it back
- * (SPEC notes 106, 133).
- *
- * Everything that shows a live state reads this one function — the header's
- * service pill, the home page's hero line and next-gathering card, the Watch
- * live panel — so the site can never say "live" in one place and "starts in 5
- * hours" in another (SPEC note 83).
- */
+/** On air now? The stream, the office switch, or the service clock says so (notes 106, 133). */
 export function onAir(info?: NextServiceInfo | null): boolean {
   if (liveNow()) return true;
   if (!LIVE.isLive && !info?.isLive) return false;
@@ -691,14 +555,7 @@ function appleCalendar() {
   return /Macintosh/.test(ua) && !/Chrome|Chromium|CriOS|Edg\//.test(ua);
 }
 
-/**
- * Hand an event to the visitor's own calendar, already named. Where the device
- * has a Google Calendar (Android, and iOS with the app installed) the pre-filled
- * Google Calendar page opens — the phone's calendar app takes it from there —
- * and on an Apple device the .ics goes to Safari, which hands it to Calendar.
- * If the browser blocks that (an in-app browser, say) the .ics is downloaded
- * instead, exactly as it used to be.
- */
+/** Hand an event to the visitor's calendar (Google page, Apple .ics, else download). */
 export function addToCalendar(opts: { title: string; description?: string; location?: string; start: Date; minutes: number }, filename?: string) {
   const invite = calendarInvite(opts);
   const name = filename || invite.filename;
@@ -758,10 +615,7 @@ export function whatsappLink(text: string) {
   return `https://wa.me/?text=${encodeURIComponent(text)}`;
 }
 
-/**
- * Prepare a photo for upload: resize it to a sensible width and re-encode it
- * as JPEG. Falls back to the original file if the browser cannot decode it.
- */
+/** Shrink a photo for upload, re-encoded as JPEG (original if undecodable). */
 export async function compressImageBlob(file: File, maxWidth = 1600, quality = 0.82): Promise<Blob> {
   if (!file.type.startsWith("image/")) return file;
   try {
@@ -891,31 +745,7 @@ export type VisitPlan = {
 
 export type ReadingDay = { day: number; done: boolean; verse: string };
 
-/* ---------------- money ----------------
-
-   The money the church writes down — the giving amounts, an event's cost, the
-   allocation card — is written in **one** currency: `baseCurrency()`, from the
-   church profile (US dollars unless the office says otherwise). Every visitor
-   then *reads* it in their own: the currency of the country their IP address is
-   registered in, which is the same answer that gives them their clock
-   (src/lib/visitor.ts; `COUNTRY_CURRENCY` in src/data/currencies.ts).
-
-   So a $25 offering is read as naira in Lagos and as the dollars it was written
-   as in Texas — converting an amount into the currency it is already in is a
-   no-op, which is why the figures the office typed are exactly what a reader of
-   the church's own currency sees. Where we cannot name the visitor's currency,
-   or cannot convert into it, the site simply stays in the church's currency.
-
-   The rate comes from a free, keyless, CORS-open feed the visitor's own browser
-   fetches (src/lib/rates.ts) and is kept for half a day; if the feed cannot be
-   reached, a dated snapshot that travels with the site is used instead, so the
-   figures are still the right *shape*, only older. Converted amounts are rounded
-   to three significant figures before they are shown, so a rate never turns a
-   tidy $25 into "₦38,281.34".
-
-   The office can turn the whole thing off (*Church profile → Show each visitor
-   their own currency*), which puts every reader back on the church's currency.
-   See SPEC note 98. */
+/** Church money in, visitor money out: every amount shows in the reader's currency. */
 
 /** The currency the site's own figures are written in, unless the profile says otherwise. */
 export const DEFAULT_CURRENCY = "USD";
@@ -948,10 +778,7 @@ export function currencyOfCountry(country: unknown): string {
 
 let configuredCurrency = "";
 
-/**
- * The currency the church profile names (*Church profile → Currency*). Called
- * once at start-up and again whenever that profile changes.
- */
+/** The church profile's currency. */
 export function setBaseCurrency(code: unknown) {
   if (isValidCurrency(code)) configuredCurrency = code.trim().toUpperCase();
 }
@@ -964,10 +791,7 @@ export function baseCurrency(): string {
   return isValidCurrency(raw) ? raw.toUpperCase() : DEFAULT_CURRENCY;
 }
 
-/* ------------------------------------------------------------- the rates
-
-   "1 US dollar buys this much." The feed's own shape, normalized: uppercase
-   three-letter codes, a number each, and the day it was fetched. */
+/* Rates are "1 USD buys this much", uppercase codes with their fetch day. */
 
 export type FxRates = {
   base: string;
@@ -1037,11 +861,7 @@ export function convertMoney(amount: number, from: string, to: string): number |
   return (amount / rf) * rt;
 }
 
-/**
- * The currency the visitor should *read* amounts in: their own country's, when
- * we know it, the office has left the switch on and we can actually convert
- * into it — otherwise the church's own.
- */
+/** The currency amounts show in: the visitor's when known, on and convertible. */
 export function displayCurrency(): string {
   const base = baseCurrency();
   if (!visitorMoneyOn) return base;
@@ -1062,10 +882,7 @@ function roundNice(value: number): number {
   return Math.round(value / magnitude) * magnitude;
 }
 
-/**
- * An amount of money, written for a visitor: `amount` is in `currency` (the
- * church's own by default) and is shown in `displayCurrency()`.
- */
+/** An amount written in the church's currency, shown in the reader's. */
 export function fmtMoney(amount: number, currency = baseCurrency()) {
   const from = isValidCurrency(currency) ? currency.toUpperCase() : baseCurrency();
   const to = displayCurrency();
@@ -1085,12 +902,7 @@ export function fmtMoney(amount: number, currency = baseCurrency()) {
   }
 }
 
-/**
- * The dollar figures inside the church's own prose — an event's cost, "Where
- * every $100 goes" — said in the visitor's money. A "$" in the office's copy
- * always means the church's own currency, so a reader of that currency sees the
- * sentence exactly as the office typed it.
- */
+/** Dollar figures in the office's prose, said in the visitor's money (note 103). */
 export function moneyText(text: string): string {
   if (!text || !showingOwnCurrency()) return text;
   return text.replace(/\$\s?(\d[\d,]*(?:\.\d+)?)/g, (match, digits: string) => {
@@ -1099,13 +911,7 @@ export function moneyText(text: string): string {
   });
 }
 
-/**
- * The other thing the office's own prose can get wrong: a count of one. The
- * pages build their countdown and duration lines out of a number and a unit the
- * office can reword ("{{days}} days", "hours", "{{v0}} days"), so a line that
- * lands on one would read "1 days" — the phrase is put right as it is drawn,
- * the way moneyText() does for a "$" (SPEC note 103).
- */
+/** Counts of one read right ("1 day", not "1 days"; note 103). */
 export function tidyCount(text: string): string {
   return text.replace(/\b1 (days|hours|minutes|seconds|weeks|months|years)\b/g, (_match, unit: string) => `1 ${unit.slice(0, -1)}`);
 }

@@ -1,24 +1,5 @@
-/* ============================================================================
-   Announcement slides.
-
-   The home page's welcome box is a *slide space*: a picture the office uploads
-   is not printed as a plain photo — it is composed into a designed announcement
-   slide, poster-fashion, with the office's own words on it, and the space flips
-   between the slides the office has posted (arrows and dots, as on any
-   carousel). **Each upload gets a design of its own** — see `slideDesignOf`
-   and `slideDesigns`, which spread the slides across the design set and are
-   keyed on the picture itself, so replacing a picture re-designs that slide and
-   nothing else moves.
-
-   A slide is artwork, not chrome: the designs are drawn in the fixed *poster*
-   palette in `src/styles/pages.css` and deliberately do not follow the site's
-   light and dark themes — a printed poster looks the same in a bright room and
-   a dim one.
-
-   The office edits this list under *Events & notices → Announcement slides*
-   (see the `slides` section in src/lib/cmsSchema.ts). Nothing is on the site
-   until they publish, as with every other section.
-   ========================================================================== */
+/* Announcement slides: uploads composed into designed slides, each upload its own design.
+   Fixed poster palette (pages.css); edited under Events & notices. */
 
 export type SlideDesign = "plate" | "band" | "arch" | "rays" | "seal" | "split" | "numeral" | "ribbon";
 
@@ -131,11 +112,7 @@ function hash(text: string): number {
   return h >>> 0;
 }
 
-/**
- * The design a slide gets on its own: read off the picture (and, as a tiebreak,
- * the slide's own id), skipping the ones already taken — which is what makes
- * *every upload a different design*. A pinned `design` never goes through here.
- */
+/** A slide's own design: read off the picture (a pinned `design` skips this). */
 export function slideDesignOf(slide: AnnouncementSlide, taken: string[] = []): SlideDesign {
   const pool = SLIDE_DESIGN_IDS;
   const start = hash(`${slide.image || ""}|${slide.id || ""}`) % pool.length;
@@ -146,14 +123,7 @@ export function slideDesignOf(slide: AnnouncementSlide, taken: string[] = []): S
   return pool[start];
 }
 
-/**
- * Every slide's design, as an array lined up with the list it was given. Slots
- * are handed out in a *stable* order (by id, not by where the office has
- * dragged them), so reordering the list never re-designs the slides — only
- * adding one, removing one or replacing a picture does, and then only where it
- * must. Pinned designs keep their own slot, so the automatic ones work around
- * them.
- */
+/** Every slide's design, lined up with the list (stable order, so reorder never re-designs). */
 export function slideDesigns(slides: AnnouncementSlide[]): SlideDesign[] {
   const order = slides.map((slide, index) => ({ slide, index }));
   order.sort((a, b) => String(a.slide.id || a.slide.image || a.index).localeCompare(String(b.slide.id || b.slide.image || b.index)));

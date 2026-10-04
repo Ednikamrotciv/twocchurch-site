@@ -28,32 +28,14 @@ export function WatchLive() {
   /* The message playing above everything else. */
   const latest = replays[0];
 
-  /* ---- is the church on air right now? -------------------------------
-     Not a guess: the page asks YouTube about the church's channel (or the
-     stream link) every so often and follows the answer — see
-     src/lib/livestatus.ts. `justNow` tells the check to run on the short
-     cadence when a service is on the clock. The check itself is the page's
-     one poll (the site's, really — App.tsx mounts it), so this page and the
-     header are reading the same answer. */
+  /* Is the church on air? Asked of YouTube regularly (livestatus.ts); shared with the header. */
   const justNow = !!info && (onAir(info) || info.msUntil < 45 * 60 * 1000);
   const air = useLiveStream(justNow);
   const detectedId = air.state === "live" ? air.videoId : "";
-  /* Is there anywhere for the check to look — a channel, a stream link, or a
-     Facebook page? This is the promise the waiting screen makes: the office
-     has pointed the site at a broadcast, so one is coming. With nothing set at
-     all the panel falls back to the most recent message instead (below). */
+  /* Anywhere for the check to look — channel, stream link or Facebook page. */
   const configured = !!liveTarget() || !!facebookTarget();
 
-  /* ---- the two lists under the screen ---------------------------------
-     "Recent services" is the services we streamed most recently — six of them
-     unless the office has asked for another number in the console (Live
-     stream → *How many recent services to show*) — read from the church's own
-     channel (src/lib/recentstreams.ts): a service takes its place the moment
-     its stream ends, and the oldest one drops off the end. Nobody types it in.
-     "Previous sermons" is the opposite: the messages the office writes up and
-     uploads by hand (the Sermons section of the console), which is why they
-     carry notes and discussion questions. The broadcast never rolls into it
-     on its own. */
+  /* The two lists under the screen: recent services (read off the channel) and previous sermons (the office's write-ups). */
   const limit = recentLimit();
   const past = pastLimit();
   const recentStreams = useRecentServices({ soon: justNow, liveNow: air.state === "live" });
@@ -79,11 +61,7 @@ export function WatchLive() {
   const pastCards = replays.filter((s) => s.id !== latest?.id && !fallbackIds.has(s.id)).slice(0, past);
   const platformLinks = platformWatchLinks();
 
-  /* The still behind the waiting and the ended screens: the last broadcast we
-     know of — the one that has just ended, if this browser watched it end, else
-     the newest service on the church's channel — and the most recent message as
-     the last resort. It is dimmed exactly as the last message's own cover is,
-     so the screen is never a blank box (SPEC note 133). */
+  /* The still behind the waiting and ended screens (note 133). */
   const cover =
     (air.endedAt && air.videoId ? youtubeThumb(air.videoId) : "") ||
     recentStreams.items[0]?.thumb ||
@@ -108,17 +86,10 @@ export function WatchLive() {
       : { platform: "youtube", youtubeId: detectedId || LIVE.youtubeId };
   const youtubeLink = watchUrl({ platform: "youtube", youtubeId: detectedId || LIVE.youtubeId });
 
-  /* Where the live state comes from — and the office's switch is only one of
-     them. `onAir()` is the shared answer (the stream the check found, the
-     *We are on air right now* switch, or the service clock; SPEC notes 83,
-     133), so this page and the header can never disagree. `streaming` is the
-     narrower question the *screen* asks: the broadcast itself is running. */
+  /* The shared on-air answer (notes 83, 133); `streaming` is the narrower screen question. */
   const streaming = air.state === "live";
   const onAirNow = onAir(info);
-  /* What the panel calls the broadcast while it is on air. The stream's own
-     title when the check found one; else the gathering the clock has on, since
-     that is the one that is actually being broadcast (the office's switch alone
-     has no gathering to name); else the office's own *Headline while live*. */
+  /* What the panel calls the broadcast while on air. */
   const liveName = air.title || (info?.isLive ? info.slot.name : "") || LIVE.liveTitle || info?.slot.name || "";
   const streamCountdown = info ? countdownParts(info.msUntil) : null;
 
@@ -267,17 +238,10 @@ export function WatchLive() {
                   </div>
                 </div>
               ) : configured ? (
-                /* The service is on and the stream has not opened yet — the
-                   minutes between the gathering starting and the broadcast
-                   appearing: the last stream's own still, dimmed, under the
-                   ticking clock that says so (SPEC note 133). */
+                /* Service on, stream not open yet: last still under the ticking clock (note 133). */
                 <LiveWaiting cover={cover} />
               ) : latest ? (
-                /* On air, but the office has pointed the site at nothing at all
-                   — no channel, no stream link, no Facebook page. There is no
-                   broadcast to promise, so the screen does what it always did:
-                   it plays the most recent message and says so (the drawer warns
-                   the office about this state). */
+                /* On air but pointed at nothing: play the most recent message. */
                 <>
                   <VideoPlayer
                     source={sermonSource(latest)}

@@ -1,17 +1,4 @@
-/* ============================================================================
-   routes.tsx — the site's pages.
-
-   Shared by the public site and by #/admin (which paints the very same pages,
-   just with the office's tools on top), so a page can never look different in
-   the two places.
-
-   resolvePath() is deliberately forgiving. A visitor who arrives from a link
-   that no longer exists, an address they typed from memory ("/live", "/about-us",
-   "/sermons/2024/03/something") or a link someone shared should still land on
-   the page they meant, so before giving up we trim extra segments off the end
-   and then read the address the way a person would. Only an address that means
-   nothing at all reaches the 404 page.
-   ========================================================================== */
+/* routes.tsx — the site's pages, shared by the public site and #/admin. Forgiving addresses. */
 
 import React from "react";
 import { matchPath } from "./router";
@@ -53,10 +40,7 @@ export const ROUTES: { pattern: string; element: React.ReactNode }[] = [
   { pattern: "/library", element: <Library /> },
 ];
 
-/* The other names people use for these pages — the ones another church site,
-   an old bookmark, a poster or a guess would use. Keys are compared with the
-   punctuation stripped and in lower case, so "About Us", "about-us" and
-   "aboutus" are all the same key. */
+/* Aliases people use; compared lowercased, punctuation stripped. */
 const ALIASES: Record<string, string> = {
   home: "/", homepage: "/", index: "/", main: "/", start: "/", welcome: "/", landing: "/",
   about: "/about", aboutus: "/about", ourstory: "/about", whoweare: "/about", beliefs: "/about",
@@ -155,10 +139,7 @@ export function resolvePath(input: string): Resolved {
   const direct = matchRoute(path);
   if (direct) return { element: direct.element, to: path };
 
-  /* A longer address than any page we have: drop the extra bits off the end,
-     one at a time — "/sermons/2024/03/the-storm" is the sermon list, and
-     "/sermons/the-storm/notes" is the message itself. Segments that are just
-     numbers (a year, a month, a day) are never a page id. */
+  /* Trim extra end segments (years/months never name a page). */
   const parts = path.split("/").filter(Boolean);
   for (let i = parts.length - 1; i > 0; i--) {
     if (/^\d+$/.test(parts[i])) continue;

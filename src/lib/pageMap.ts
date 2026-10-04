@@ -1,19 +1,5 @@
-/* ============================================================================
-   pageMap.ts — "which page is the office looking at?"
-
-   The office edits the site while looking at it, so the panel beside the page
-   takes the page's name from here (the drawer header and the bar at the bottom)
-   and `sections` lists the blocks that page prints, in the order a visitor
-   meets them (section ids come from src/lib/cmsSchema.ts).
-
-   `sections` used to feed the *Everything on this page* card at the top of the
-   office's job list (the *Edit* tab); the office asked for that card out of the
-   panel (SPEC note 52), so nothing reads it today. The listing is kept because
-   it is the honest description of what each page is made of, and because putting
-   the card back is one block in EditHome. Every id it names is also in a
-   whole-site job (src/lib/jobs.ts) or the full list (the *Update* tab), so
-   nothing became unreachable.
-   ========================================================================== */
+/* pageMap.ts — which page the office is looking at: panel title + section ids per page.
+   `sections` is kept though the Edit card was removed (note 52). */
 
 import { matchPath } from "./router";
 

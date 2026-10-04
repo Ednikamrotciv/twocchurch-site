@@ -1,10 +1,4 @@
-/* ============================================================================
-   edit.css — the office's layer on top of the real pages (#/admin).
-
-   The site stays exactly the site: these rules only add the click targets, the
-   bottom bar, the drawer and the little editors that pop up over the page.
-   Everything is token-driven, so both themes come out right.
-   ========================================================================== */
+/* edit.css — the office's layer on #/admin: click targets, bar, drawer, pop-up editors. */
 
 :root {
   --editbar-h: 62px;
@@ -210,13 +204,7 @@ img.ed-photo.ed-active {
   overflow-y: auto;
   padding: 0.9rem 1rem 2rem;
   display: grid;
-  /* The drawer's rows are its content, so they must never be squeezed: in a grid
-     whose container is shorter than its content, `auto` rows shrink down to their
-     min-content size, and a section block is `overflow: hidden`, so its min-content
-     is nothing. On a short window every section card collapsed to a 15px sliver
-     with its own title clipped out — the office saw empty bars and no way to
-     update anything (SPEC note 60). `max-content` rows keep their natural height
-     and the body scrolls instead. */
+  /* Drawer rows must never squeeze: max-content rows (note 60). */
   grid-auto-rows: max-content;
   gap: 0.6rem;
   align-content: start;
@@ -498,11 +486,7 @@ hr.pblock__div {
   border-color: var(--line);
 }
 @media (max-width: 560px) {
-  /* A branch row on a phone has no room for a name, a city, a parent chip and a
-     labelled button on one line — and the name and the button are the two the
-     office must be able to read. So the row wraps: the name keeps the whole
-     width for itself, and the *Sub-branch* button sits under it, still saying
-     what it does — a bare “+” is not a button anyone can find (SPEC note 82). */
+  /* Branch rows wrap on phones: name on top, button under (note 82). */
   .plist--tree .pitem__top {
     flex-wrap: wrap;
   }
@@ -798,13 +782,7 @@ hr.pblock__div {
   max-width: none;
 }
 
-/* ============================================================================
-   The update centre — the friendly end of the drawer.
-
-   The panel opens on a job list written in the office's words, with a single
-   search box over everything they can change. There is one welcome note, one
-   "two ways to change anything" card, and a drill-down per job.
-   ========================================================================== */
+/* The update centre: job list in the office's words, search over all, drill-down per job. */
 
 .epanel {
   /* Wide enough for a branch row's three things — its name, the chip naming its

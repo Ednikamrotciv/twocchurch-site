@@ -38,10 +38,7 @@ export function useLocalState<T>(key: string, initial: T) {
     valueRef.current = value;
   }, [value]);
 
-  /* Another tab (or a remount after the store changed underneath us) must not
-     resurrect a choice this tab already made: the store wins over the value
-     this mount was born with, and a store that loses the key keeps this
-     tab's own newer write. */
+  /* Other tabs must not resurrect a choice this tab already made. */
   useEffect(() => {
     const onStorage = (e: StorageEvent) => {
       if (e.key !== key) return;
@@ -70,10 +67,7 @@ export function useLocalState<T>(key: string, initial: T) {
 
   const set = useCallback(
     (next: T | ((prev: T) => T)) => {
-      /* Read the store fresh instead of trusting the render's closure: two
-         taps in a row without a render in between (or a store changed by
-         another tab) must merge, never overwrite — a dismissal written first
-         must still be there after. */
+      /* Read the store fresh: back-to-back taps must merge, never overwrite. */
       let current: T;
       try {
         const raw = localStorage.getItem(key);

@@ -1,27 +1,6 @@
-/* ============================================================================
-   What is the church's dollar worth to this visitor?
-
-   The site's money is written in the church's own currency and read in the
-   visitor's, which is the currency of the country their IP address is in
-   (src/lib/visitor.ts). Turning one into the other needs a rate, and this
-   module is where it comes from (SPEC note 98).
-
-   The rate is fetched by the visitor's *own browser*, from a free, keyless,
-   CORS-open feed, kept in localStorage (`wom.fxRates`, key `KEYS.rates`) for
-   half a day, and re-checked quietly after that or when the tab wakes up. A
-   reader whose own currency is the church's gets nothing to convert, so we do
-   not ask for a rate at all (see `startRates`).
-
-   Nothing here is needed to *render* the site: the figures are in hand before
-   any rate is. If every feed is unreachable — offline, a content blocker, an
-   outage — the dated snapshot that ships with the site is used instead
-   (`FALLBACK_RATES` in src/data/currencies.ts), so the amounts are still the
-   right shape, only as old as that snapshot's date.
-
-   Two feeds are tried in turn, the second of which is a mirror of the first on
-   a different CDN; the third is an entirely separate provider, so one company's
-   outage cannot leave the site without rates while the browser is online.
-   ========================================================================== */
+/* Exchange rates: church currency to visitor currency (note 98).
+   Fetched in-browser from free keyless feeds, cached half a day;
+   falls back to the dated snapshot in data/currencies.ts. */
 
 import { useEffect } from "react";
 import { useLocalState, writeStore } from "./hooks";
@@ -158,12 +137,7 @@ function ratesNeeded(): boolean {
   return visitorCurrencyEnabled() && !!own && own !== baseCurrency();
 }
 
-/**
- * Start the lookup once per page load — but only when there is something to
- * convert: a reader whose own currency is the church's never needs a rate, and
- * is never made to wait for one. Called from the app's boot (src/App.tsx), and
- * again when the visitor's clock arrives, since until then we cannot know.
- */
+/** Start the lookup once per page load, only when there is something to convert. */
 export function startRates() {
   if (started || !ratesNeeded()) return;
   started = true;
@@ -171,11 +145,7 @@ export function startRates() {
   void refreshRates();
 }
 
-/**
- * The rates, wired to React: reading them re-renders the page when a fresh
- * fetch lands, so the money on it moves onto today's rate in one pass. Mount it
- * at the top of the tree (src/App.tsx).
- */
+/** The rates, wired to React: the page re-renders when a fresh fetch lands. */
 export function useRates(): FxRates {
   const [rates] = useLocalState<FxRates | null>(RATES_KEY, null);
   setRates(rates);

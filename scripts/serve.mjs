@@ -1,55 +1,39 @@
 import http from "node:http";
-import { readFile, stat, mkdir, writeFile, unlink } from "node:fs/promises";
-import { watch } from "node:fs";
+import { readFile, stat, mkdir, writeFile } from "node:fs/promises";
 import { gzipSync } from "node:zlib";
 import path from "node:path";
 import { createCmsHost, hashText } from "./cms-local.mjs";
 import { createGeoProxy } from "./geo-proxy.mjs";
 import { guardAtBoot } from "./backup-data.mjs";
+import { MIME } from "./mime.mjs";
 
 const ROOT = process.cwd();
 const PORT = Number(process.env.PORT || 5173);
-const APP_TAG = '<script type="module" src="src/bundle.js"></script>';
+const DIST = path.join(ROOT, "dist");
 const SHIM_TAG = '<script src="/scripts/local-shim.js"></script>';
-const RELOAD_TAG = '<script src="/scripts/local-reload.js"></script>';
-const INJECT = SHIM_TAG + "\n" + RELOAD_TAG + "\n" + APP_TAG;
+
+/* Served pages are the production build (`npm run build`). The shim connects
+   the local browser to this backend (sign-in, publish, uploads) — deployed
+   copies join the office server through server.json instead. */
+function withShim(html) {
+  const src = String(html);
+  if (src.includes(SHIM_TAG)) return src;
+  if (src.includes('<script type="module"')) return src.replace('<script type="module"', SHIM_TAG + "\n    " + '<script type="module"');
+  return src + "\n" + SHIM_TAG + "\n";
+}
 
 /* The running folder's fingerprint: any code change retires older browser
    drafts and older local publishes, so the extract you are running is the
    only state. */
-let SITE_VERSION = "dev";
+let SITE_VERSION = "dist";
 try {
-  const stamp = await readFile(path.join(ROOT, "index.html"), "utf8");
-  const js = await readFile(path.join(ROOT, "src", "bundle.js"), "utf8");
-  const css = await readFile(path.join(ROOT, "src", "bundle.css"), "utf8");
-  let seedHead = "";
-  try {
-    seedHead = (await readFile(path.join(ROOT, "data", "cms-state.bin"))).subarray(0, 4096).toString("latin1");
-  } catch { /* no seed ships — version ignores it */ }
-  SITE_VERSION = hashText(stamp + "#" + js.length + "#" + js.slice(0, 4096) + "#" + css.length + "#" + seedHead.length + "#" + seedHead);
-} catch { /* version stays a constant; nothing else changes */ }
-try {
-  await stat(path.join(ROOT, "src", "bundle.js"));
-  for (const stale of ["app.js", "app.css"]) {
-    try {
-      await unlink(path.join(ROOT, "src", stale));
-    } catch { /* already gone */ }
-  }
-} catch { /* no bundle yet — nothing to clean */ }
-console.log(`running ${ROOT}  [code ${SITE_VERSION}]`);
-
-/* Browsers listening here get a `reload` nudge after every rebuild, so the
-   page refreshes itself — no manual or hard refresh needed. */
-const reloadClients = new Set();
-function broadcastReload() {
-  for (const send of [...reloadClients]) {
-    try {
-      send("reload");
-    } catch {
-      reloadClients.delete(send);
-    }
-  }
+  const stamp = await readFile(path.join(DIST, "index.html"), "utf8");
+  SITE_VERSION = hashText(stamp.slice(0, 8192));
+} catch {
+  console.error("no dist/index.html — run `npm run build` first, then `npm start`.");
+  process.exit(1);
 }
+console.log(`serving ${DIST} + admin backend  [code ${SITE_VERSION}]`);
 
 const cms = await (async () => {
   /* Snapshot the published words first (a zip extract cannot touch the
@@ -64,72 +48,44 @@ const cms = await (async () => {
 })();
 const geoProxy = createGeoProxy();
 
-/* The browser runs the built bundle, not the sources — so saving anything
-   under src/ rebuilds it on the spot, exactly like the live preview. */
-let buildSite = null;
+/* The recent-services list stays fresh by itself: every 20 minutes the channel
+   is re-read and the bake in seed.json refreshed, and a changed list rides the
+   normal auto-deploy out to every copy (git + live feed), with no publish and
+   no command. A Sunday's service lands on the deployed sites on its own. */
 try {
-  ({ buildSite } = await import("./build-lib.mjs"));
-} catch {
-  console.log("auto-rebuild is off (esbuild not installed — run `npm install` to enable it)");
-}
-if (buildSite) {
-  let timer = 0;
-  let building = false;
-  let queued = false;
-  const run = async () => {
-    if (building) {
-      queued = true;
-      return;
-    }
-    building = true;
+  const [{ bakeRecent }, { notePublished }] = await Promise.all([import("./bake-recent.mjs"), import("./auto-push.mjs")]);
+  const refreshRecent = async () => {
     try {
-      const written = await buildSite();
-      console.log("rebuilt " + written.map((f) => `${f.path} (${f.bytes}b)`).join(", "));
-      broadcastReload();
+      const r = await bakeRecent(ROOT);
+      if (r && r.changed) {
+        console.log(`recent services refreshed (${r.count} services) — pushing to every copy`);
+        notePublished(ROOT);
+      }
     } catch (err) {
-      console.error("rebuild failed:", err?.message || err);
-    }
-    building = false;
-    if (queued) {
-      queued = false;
-      run();
+      console.warn("recent services refresh skipped:", err?.message || err);
     }
   };
-  try {
-    watch(path.join(ROOT, "src"), { recursive: true }, (_event, name) => {
-      const n = String(name || "").replace(/\\/g, "/");
-      if (/(^|\/)bundle\.(js|css)$/.test(n)) return;
-      if (!/\.(tsx|ts|jsx|js|mjs|css|json)$/.test(n)) return;
-      clearTimeout(timer);
-      timer = setTimeout(() => run(), 400);
-    });
-    console.log("watching src/ — saving a file rebuilds the site automatically");
-  } catch {
-    console.log("file watching is unavailable here — run `npm run build:bundle` by hand after edits");
-  }
+  setInterval(refreshRecent, 20 * 60 * 1000);
+  refreshRecent();
+} catch {
+  /* a bake that cannot load never stops the server */
 }
 
-const MIME = {
-  ".html": "text/html; charset=utf-8",
-  ".js": "text/javascript; charset=utf-8",
-  ".mjs": "text/javascript; charset=utf-8",
-  ".css": "text/css; charset=utf-8",
-  ".json": "application/json; charset=utf-8",
-  ".png": "image/png",
-  ".jpg": "image/jpeg",
-  ".jpeg": "image/jpeg",
-  ".webp": "image/webp",
-  ".gif": "image/gif",
-  ".svg": "image/svg+xml",
-  ".ico": "image/x-icon",
-  ".woff": "font/woff",
-  ".woff2": "font/woff2",
-  ".ttf": "font/ttf",
-  ".mp3": "audio/mpeg",
-  ".mp4": "video/mp4",
-  ".webm": "video/webm",
-  ".mov": "video/quicktime",
-};
+/* Attached sharing: with sharing on (auto-share.txt, see scripts/expose.mjs),
+   this machine joins every deployed copy to itself on every boot — tunnel,
+   registration and push, with no command. Runs beside the server, never ahead
+   of it: a failure here only logs, the site itself is unaffected. */
+try {
+  const { shareWanted, attachShare } = await import("./expose.mjs");
+  if (await shareWanted(ROOT)) {
+    attachShare().catch((err) => console.warn("auto-share skipped:", err?.message || err));
+  }
+} catch {
+  /* sharing unavailable — the site itself is unaffected */
+}
+
+/* Editing? Use `npm run dev` (Vite refreshes on every save).
+   This server serves the production build. */
 
 function sendSse(res, text) {
   for (const line of String(text).split("\n")) res.write("data: " + line + "\n");
@@ -184,6 +140,10 @@ const server = http.createServer(async (req, res) => {
     res.setHeader("Access-Control-Allow-Origin", "*");
     res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
     res.setHeader("Access-Control-Allow-Headers", "content-type");
+    /* A public page (the hosted site, opened on this same computer) may probe
+       and join this server over loopback: Chrome's private-network check
+       needs this header on the preflight and the answer. */
+    res.setHeader("Access-Control-Allow-Private-Network", "true");
     if (req.method === "OPTIONS") {
       res.writeHead(204);
       res.end();
@@ -197,21 +157,6 @@ const server = http.createServer(async (req, res) => {
       return;
     }
 
-    if (pathname === "/__local/reload" && req.method === "GET") {
-      res.writeHead(200, {
-        "content-type": "text/event-stream",
-        "cache-control": "no-cache",
-        connection: "keep-alive",
-      });
-      res.write(": listening\n\n");
-      const send = (text) => {
-        for (const line of String(text).split("\n")) res.write("data: " + line + "\n");
-        res.write("\n");
-      };
-      reloadClients.add(send);
-      req.on("close", () => reloadClients.delete(send));
-      return;
-    }
 
     if ((pathname === "/__geo" || pathname === "/__rates") && req.method === "GET") {
       if (pathname === "/__geo") await geoProxy.handleGeo(req, res);
@@ -368,18 +313,27 @@ const server = http.createServer(async (req, res) => {
 
     let rel = decodeURIComponent(pathname).replace(/^\/+/, "");
     if (!rel) rel = "index.html";
-    const file = path.normalize(path.join(ROOT, rel));
-    if (!file.startsWith(ROOT)) {
+    const roots = rel.startsWith("data/uploads/") ? [ROOT, DIST] : [DIST];
+    let file = path.normalize(path.join(roots[0], rel));
+    if (!file.startsWith(roots[0])) {
       res.writeHead(403);
       res.end("forbidden");
       return;
     }
-    const st = await stat(file).catch(() => null);
+    let st = await stat(file).catch(() => null);
+    if ((!st || !st.isFile()) && roots.length > 1) {
+      const alt = path.normalize(path.join(roots[1], rel));
+      const altSt = await stat(alt).catch(() => null);
+      if (altSt && altSt.isFile()) {
+        file = alt;
+        st = altSt;
+      }
+    }
     if ((!st || !st.isFile()) && !pathname.startsWith("/__cms/")) {
       /* Standalone nicety: unknown paths (e.g. /admin) serve the app so the
          router can resolve them — the hash stays the route on perchance.org. */
-      const shell = await readFile(path.join(ROOT, "index.html"), "utf8");
-      const body = Buffer.from(shell.split(APP_TAG).join(INJECT));
+      const shell = await readFile(path.join(DIST, "index.html"), "utf8");
+      const body = Buffer.from(withShim(shell));
       res.writeHead(200, {
         "content-type": "text/html; charset=utf-8",
         "content-length": body.length,
@@ -394,8 +348,8 @@ const server = http.createServer(async (req, res) => {
       return;
     }
     let body = await readFile(file);
-    if (path.basename(file) === "index.html" && body.includes(APP_TAG)) {
-      body = Buffer.from(body.toString("utf8").split(APP_TAG).join(INJECT));
+    if (path.basename(file) === "index.html") {
+      body = Buffer.from(withShim(body.toString("utf8")));
     }
     const mime = MIME[path.extname(file).toLowerCase()] || "application/octet-stream";
     if (path.basename(file) === "index.html") {

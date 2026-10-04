@@ -1,26 +1,4 @@
-/* ==========================================================================
-   Liquid glass — the material pass over the whole site (SPEC note 132)
-
-   Two halves:
-
-   1. A *shadier* page background. The flat --ink / cream body fill becomes a
-      fixed, layered aurora: warm light spilling in from the top-left, a cool
-      bloom at the far corner, and the whole canvas falling away to something
-      noticeably deeper at the bottom. Nothing behind a panel is ever flat any
-      more, which is what makes the glass below read as glass — a blur only
-      looks frosted when there is something underneath it to frost.
-
-   2. The glass itself. Panels are a translucent gradient fill with a 1px
-      refracting rim (a bright top-left edge tapering to a dim bottom-right
-      one), plus inset highlights for thickness and a soft, offset drop shadow
-      so they float. Small things (chips, pills, quiet buttons) get the same
-      edge treatment without the blur, so the material is consistent without
-      paying for a backdrop filter on every tag on the page.
-
-   Loaded last (see src/main.tsx) so it can restate the surface rules that
-   global/pages/admin/edit already declare. Everything it changes is a fill,
-   edge, or shadow — no layout, no type.
-   ========================================================================== */
+/* Liquid glass material pass (note 132): aurora page background + translucent panels. Fill/edge/shadow only. */
 
 :root {
   --glass-blur: 20px;

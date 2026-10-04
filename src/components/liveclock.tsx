@@ -3,41 +3,13 @@ import { useNow } from "../lib/hooks";
 import { playTick, startTicking, tickMuted, ticking } from "../lib/ticksound";
 import { ct } from "../data/copy";
 
-/* ============================================================================
-   The waiting clock (SPEC note 133).
-
-   The screen the Watch live page holds while the service is on and the stream
-   has not opened yet: the last broadcast's own still, faded, with a ticking
-   clock over it and the line that says so.
-
-   The clock is **built out of CSS 3D**, not drawn: a face with sixty marks, a
-   metal case set behind it in Z, hands on the face and a glass cover floating
-   over them, the whole thing swaying slowly on two axes and nudging itself on
-   every second the way a real escapement does. The hands are turned from the
-   visitor's own device clock — this is a clock, so the time it shows is the
-   time where the reader is sitting, and `getHours()` is exactly right here
-   (unlike every other time on the site, which is a church instant and goes
-   through `src/lib/store.ts`).
-
-   Its tick is synthesised rather than downloaded (src/lib/ticksound.ts), and
-   because no browser will start audio before a gesture the button under the
-   line turns it on — or the visitor's first touch anywhere on the page does.
-   ========================================================================== */
+/* The waiting clock (note 133): last still, faded, with a ticking CSS-3D clock over it.
+   Hands run on the visitor's device clock; tick synthesised (ticksound.ts), started on first touch. */
 
 /** The four numerals a clock face needs; the marks say the rest. */
 const NUMERALS = [12, 3, 6, 9];
 
-/**
- * The ticking, while this screen is on screen.
- *
- * The tick starts by itself — a clock that has to be switched on is not a
- * clock. What it cannot do is start *before* the visitor has touched the page:
- * no browser runs an audio context until then (and creating one early only
- * earns a console warning). So the sound is started the moment the page counts
- * as touched: straight away when the browser already says this page has been
- * activated, otherwise on the first pointer, key or touch anywhere on it.
- * There is no switch for it — it ticks, quietly, under the words.
- */
+/** The ticking, while this screen is on: started on the page's first touch. */
 function useTickSound() {
   const [running, setRunning] = useState(false);
 
@@ -124,12 +96,7 @@ function ClockFace({ now }: { now: Date }) {
   );
 }
 
-/**
- * The screen itself: the last broadcast's still, faded, under the ticking
- * clock and the line that says the service is on. `cover` is the still of the
- * last stream we know of (src/pages/WatchLive.tsx) — the same faded treatment
- * the ended state gives it, so the screen is never a blank box.
- */
+/** The screen itself: last still, faded, under the clock (`cover` from WatchLive). */
 export function LiveWaiting({ cover }: { cover?: string }) {
   const now = useNow(1000);
   useTickSound();

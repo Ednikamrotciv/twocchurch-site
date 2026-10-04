@@ -1,47 +1,5 @@
-/* ============================================================================
-   The announcement slide space.
-
-   The home page's welcome box shows the office's announcement pictures, one at
-   a time: swiper drives the stage (a creative glide, a rewind at the ends, a
-   slow self-advance) and framer-motion drives the entrance and the arrows.
-   A hold — hover, focus, or touch — freezes the advance.
-
-   A picture is not printed as a plain photograph: it is *composed* into a
-   designed slide, and — the point of the whole thing — **the slide takes its
-   colours from the picture**. `src/lib/palette.ts` samples the upload and hands
-   back a palette that is checked for contrast, so a red flyer, a blue flyer and
-   a black-and-white one each get their own poster in their own colours, with
-   words that stay readable on top. The same read decides which side of the
-   picture is quiet (where the words may sit without covering the subject) and
-   where it is busiest (so the artwork keeps that part).
-
-   The space itself is one shape for every announcement: **the slide frame**
-   (1600×1200, the house 4:3 — see `src/lib/slideFrame.ts`). A poster the office
-   uploads is re-cut to that frame rather than cropped into it, and a picture
-   already on the site at some other shape is cut as it is shown, so the space
-   is the same size and the same resolution whichever announcement is on it and
-   the whole of every picture is on show.
-
-   Eight designs live here (see `SLIDE_DESIGNS` in src/data/slides.ts) and the
-   picture fills the slide in every one of them. Which design a slide gets is
-   decided by the picture itself (`slideDesigns`), so every upload is designed
-   differently and no design ever changes behind the office's back.
-
-   Layout is in container units (`cqw`, with a rem fallback before each one), so
-   one set of designs fits the box at any size — and the box itself is the
-   frame's own shape (`--slide-aspect` is `SLIDE_FRAME.aspect` for every slide),
-   full-bleed on the band's own stage, so the space never jumps shape as the
-   slides turn.
-
-   Visiting any page with `?slides=all` in the address (e.g. `#/?slides=all`)
-   lays every design out in a grid instead — the office's preview of the set,
-   and the harness these designs were drawn and checked in.
-
-   The moving stage itself is 3D (see ./slides3d.tsx): one textured cuboid in
-   a slow, seamless spin — gradual enough to read the depth — with the
-   flat swiper stage below kept as the fallback for reduced motion, missing
-   WebGL, or a stage that throws.
-   ========================================================================== */
+/* Announcement slides: office pictures composed into designed slides, colours sampled from each one (note 122).
+   One frame for all; 3D stage with a flat fallback. */
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Swiper from "swiper";
@@ -71,11 +29,7 @@ const TEXT_SELECTOR = ".aslide__headline, .aslide__line, .aslide__action, .aslid
 
 /* ---------------------------------------------------------------------- colours */
 
-/**
- * The picture's colours, read once per address and remembered. Until the read
- * lands (and forever, if the picture cannot be read) the designs use the poster
- * palette they shipped with, so a slide is never half-dressed.
- */
+/** The picture's colours, read once per address (poster palette until it lands). */
 function useSlidePalette(url: string): SlidePalette {
   const [palette, setPalette] = useState(() => paletteFor(url));
   useEffect(() => {
@@ -96,13 +50,7 @@ function useSlidePalette(url: string): SlidePalette {
   return palette;
 }
 
-/**
- * The picture as the slide shows it: in the frame. A picture that is already
- * the frame's shape is used as it is; one that is not (an address the office
- * pasted, or a picture uploaded before the frame existed) is cut in the browser
- * and swapped in when it is ready — the original stays on screen until then, so
- * a slide is never empty while it waits.
- */
+/** The picture as the slide shows it: in the frame (cut in-browser when needed). */
 function useSlideFrame(url: string): string {
   const [src, setSrc] = useState(() => framedImageSync(url));
   useEffect(() => {
@@ -216,11 +164,7 @@ export function AnnouncementSlide({
     []
   );
 
-  /* A poster's words must never run off the edge of the poster. Every size in
-     the designs is a share of the box's width (see pages.css), so when the
-     office writes more than the design's share of the picture can hold, the
-     whole block of words is scaled down together until it fits — but never
-     past FIT_FLOOR, so it cannot shrink into illegibility. */
+  /* Poster words never run off the poster: the block scales to fit (never past FIT_FLOOR). */
   const rootRef = useRef<HTMLDivElement>(null);
   const fitWords = useCallback(() => {
     const el = rootRef.current;
@@ -255,11 +199,7 @@ export function AnnouncementSlide({
     fitWords();
   }, [fitWords, design, headline, line, cta, link, photo, index, total, spotlight]);
 
-  /* The box's *shape* is the picture's own (see `--slide-aspect`), so it can
-     change after the first fit — when the picture's proportions are read, when
-     the space moves to a slide with a differently-shaped upload, or simply when
-     the window is resized. Measure again whenever the slide's own box changes,
-     or the words keep a fit that was right for a box that is no longer there. */
+  /* The box shape can change after the first fit — measure again when it does. */
   useEffect(() => {
     const el = rootRef.current;
     if (!el || typeof ResizeObserver === "undefined") return;

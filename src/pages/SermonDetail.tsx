@@ -28,11 +28,7 @@ export function SermonDetail() {
   const { saved, watched, notes, toggleSaved, markWatched, setNote } = useLibrary();
   const [tab, setTab] = useState<"notes" | "discussion" | "transcript">("notes");
 
-  /* The whole archive, newest first: the pager and the cards at the foot of the
-     page walk every message, rather than one series. Twenty items, so the sort
-     is done on each render — a CMS edit to a message's date then shows up at
-     once (the drawer mutates the record in place, so a memo keyed on the
-     object would go stale). */
+  /* The whole archive, newest first — walked by the pager and the foot cards. */
   const ordered = sermonsNewestFirst();
   const idx = sermon ? ordered.findIndex((s) => s.id === sermon.id) : -1;
   const prev = idx >= 0 ? ordered[idx + 1] : undefined;

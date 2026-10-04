@@ -1,14 +1,5 @@
-/* Build script for the World Overcomers website.
-   Run it from the perchance agent workspace (execute_js) like this:
-
-     globalThis.fs = fs;                       // the workspace filesystem
-     const src = await fs.readTextFile("src/tools/build.mjs");
-     const mod = await import(URL.createObjectURL(new Blob([src], { type: "text/javascript" })));
-     return await mod.build();                 // writes src/bundle.js + src/bundle.css
-
-   It bundles src/main.tsx (React + TypeScript) with esbuild-wasm, pulling React and
-   ReactDOM from esm.sh at build time so the shipped src/bundle.js has no runtime
-   dependencies. Never edit src/bundle.js by hand. */
+/* Build: bundles src/main.tsx with esbuild-wasm (writes bundle.js + bundle.css).
+   Run from the agent workspace (see README). Never edit bundle.js by hand. */
 
 import * as esbuildNamespace from "https://esm.sh/esbuild-wasm@0.21.5?bundle";
 
@@ -30,15 +21,7 @@ const BARE = {
      only (no swiper/react wrapper). */
   "swiper": "/swiper@14.3.0?bundle",
   "swiper/modules": "/swiper@14.3.0/modules?bundle",
-  /* The 3D slide stage (src/components/slides3d.tsx): React Three Fiber renders
-     the carousel and drei's Html carries each designed slide as a face, so the
-     eight DOM designs are reused untouched. Deep drei imports keep the heavy
-     extras (mediapipe, hls, troika…) out of the bundle. The externals route
-     every copy of react, react-dom, fiber and three through one shared module
-     each (see the framer-motion note above). three@0.170.0 satisfies both
-     peers (fiber wants >=0.133, drei wants >=0.137), pinned to the exact file
-     the fiber bundle imports, so every copy of three in the graph is one
-     module, not two. */
+  /* 3D stage: deep drei imports + one shared copy each of react/three (three@0.170.0). */
   "three": "/three@0.170.0/es2022/three.mjs",
   "@react-three/fiber": "/@react-three/fiber@8.18.0?bundle&external=react,react-dom&deps=three@0.170.0",
   "@react-three/drei/web/Html": "/@react-three/drei@9.122.0/web/Html?bundle&external=react,react-dom,@react-three/fiber,three&deps=three@0.170.0,@react-three/fiber@8.18.0",
@@ -202,6 +185,20 @@ export async function build(options = {}) {
     await fs.writeFile(file.path, file.contents);
     written.push({ path: file.path, bytes: file.contents.length });
   }
+  try {
+    const js = await fs.readFile("src/bundle.js");
+    const css = await fs.readTextFile("src/bundle.css");
+    let h = 0x811c9dc5;
+    for (let i = 0; i < css.length; i++) h = Math.imul(h ^ css.charCodeAt(i), 2654435761);
+    for (let i = 0; i < js.length; i += 7) h = Math.imul(h ^ js[i], 2654435761);
+    const stamp = "?v=" + (h >>> 0).toString(36);
+    const html = await fs.readTextFile("index.html");
+    const next = html
+      .replace(/src\/bundle\.css(\?v=[A-Za-z0-9]+)?/g, "src/bundle.css" + stamp)
+      .replace(/src\/bundle\.js(\?v=[A-Za-z0-9]+)?/g, "src/bundle.js" + stamp);
+    if (next !== html) await fs.writeTextFile("index.html", next);
+    written.push({ path: "index.html", stamp });
+  } catch {}
   await esbuild.stop();
   return { written, unresolved: [...new Set(unresolved)] };
 }

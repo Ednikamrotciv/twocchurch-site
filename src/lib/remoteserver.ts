@@ -1,14 +1,6 @@
-/* ============================================================================
-   remoteserver.ts — talking to the office's own server from anywhere.
+/* remoteserver.ts — reaches the office server from anywhere (same backend everywhere). */
 
-   The content backend is the same everywhere (the server plugin on
-   perchance.org, the dev/office server locally). A deployed copy has no
-   backend of its own — unless the office points it at one: either baked in
-   at deploy time (cms-server.txt → dist/server.json, read below) or typed
-   into the admin console (kept in this browser only). Then sign-in,
-   publishing, uploads and live updates work on the deployed site exactly
-   like they do locally, against the one shared store.
-   ========================================================================== */
+import { siteFile } from "./livefeed";
 
 /** This browser's manual override (the admin console sets it). */
 const OVERRIDE_KEY = "wom.cms.server";
@@ -51,7 +43,7 @@ async function siteServer(): Promise<string> {
     return "";
   }
   try {
-    const res = await fetch(SITE_FILE, { cache: "no-store" });
+    const res = await fetch(siteFile(SITE_FILE), { cache: "no-store" });
     if (!res.ok) return "";
     const data = await res.json().catch(() => null);
     return normalizeServerUrl(data && (data.url || data.server));
@@ -69,15 +61,96 @@ export async function initServerUrl(): Promise<string> {
   return cached;
 }
 
+/* Re-resolve from scratch; boot's answer is cached, so this picks up late arrivals. */
+export async function refreshServerUrl(): Promise<string> {
+  loaded = false;
+  cached = "";
+  try {
+    await initServerUrl();
+    if (!cached) {
+      const local = rememberedLocalOffice();
+      if (local) cached = local;
+      else cached = (await probeLocalOffice().catch(() => "")) || "";
+    }
+    return cached;
+  } catch {
+    return cached || serverOverride();
+  }
+}
+
 /** The resolved office address, or "" when this copy stands alone. */
 export function serverUrl(): string {
   return cached || serverOverride();
 }
 
-/* A content socket over plain HTTPS to the office server: the same shape as
-   the local shim (scripts/local-shim.js) — an opened promise, an rpc proxy
-   and open/message/close events — so cms.ts treats it identically. CORS on
-   the server side makes the browser allow it (no cookies, no credentials). */
+/* ------------------------------------------------------------------ same PC */
+
+/** This browser's remembered same-machine office address (a validated probe
+    winner — re-checked quickly before it is trusted again). */
+const LOCAL_KEY = "wom.cms.localOffice";
+
+function rememberedLocalOffice(): string {
+  try {
+    return normalizeServerUrl(localStorage.getItem(LOCAL_KEY));
+  } catch {
+    return "";
+  }
+}
+
+function rememberLocalOffice(url: string) {
+  try {
+    if (url) localStorage.setItem(LOCAL_KEY, url);
+    else localStorage.removeItem(LOCAL_KEY);
+  } catch { /* a browser that stores nothing still reads the site */ }
+}
+
+/* The office server on its own computer: found with no address typed (loopback probe). */
+const LOCAL_CANDIDATES = ["http://127.0.0.1:5173", "http://localhost:5173"];
+
+async function probeCandidate(root: string, timeoutMs: number): Promise<boolean> {
+  const ctrl = typeof AbortController !== "undefined" ? new AbortController() : null;
+  const timer = ctrl ? setTimeout(() => ctrl.abort(), timeoutMs) : 0;
+  try {
+    const res = await fetch(root + "/__cms/getContent?conn=probe-" + Math.random().toString(36).slice(2), {
+      method: "POST",
+      headers: { "content-type": "text/plain;charset=utf-8" },
+      body: "",
+      signal: ctrl ? ctrl.signal : undefined,
+    });
+    if (!res.ok) return false;
+    const data = await res.json().catch(() => null);
+    return !!(data && data.ok === true);
+  } catch {
+    return false;
+  } finally {
+    if (timer) clearTimeout(timer as ReturnType<typeof setTimeout>);
+  }
+}
+
+/* Find the office server on this same machine (short budget, never throws).
+   The winner is remembered so later visits skip probing; a remembered address
+   that stops answering is forgotten at once. */
+export async function probeLocalOffice(timeoutMs = 2500): Promise<string> {
+  const known = rememberedLocalOffice();
+  if (known) {
+    try {
+      if (await probeCandidate(known, 2000)) return known;
+    } catch {}
+    rememberLocalOffice("");
+  }
+  try {
+    const hits = await Promise.all(LOCAL_CANDIDATES.map((c) => probeCandidate(c, timeoutMs)));
+    for (let i = 0; i < LOCAL_CANDIDATES.length; i++) {
+      if (hits[i]) {
+        rememberLocalOffice(LOCAL_CANDIDATES[i]);
+        return LOCAL_CANDIDATES[i];
+      }
+    }
+  } catch {}
+  return "";
+}
+
+/* HTTPS content socket shaped like the local shim, so cms.ts treats both alike. */
 export function createRemoteSocket(base: string): any {
   const root = String(base || "").replace(/\/+$/, "");
   const connId = "c" + Math.random().toString(36).slice(2) + Date.now().toString(36);

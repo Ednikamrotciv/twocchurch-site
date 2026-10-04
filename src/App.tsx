@@ -27,19 +27,11 @@ export function App() {
      onto the visitor's own clock in one pass (SPEC note 85). */
   const clock = useVisitorClock();
   useVisitorClockRefresh();
-  /* Today's exchange rates, fetched from the visitor's own browser. Reading
-     them here re-renders the whole site when they land, so every amount on the
-     page moves onto the new rate in one pass (SPEC note 98). */
+  /* Today's rates, from the visitor's browser (note 98). */
   useRates();
   useRatesRefresh();
 
-  /* Whether the church is broadcasting, asked once for the whole site (SPEC
-     note 133). Every live state reads the same answer — through `onAir()` in
-     src/lib/store.ts — so mounting the check here is what makes a stream that
-     starts (or ends) anywhere on the clock light *Live now* everywhere, in the
-     header's service pill, the hero and the Watch live panel at once. Reading
-     the status here also re-renders the whole site the moment the answer
-     changes, the way the visitor's clock does. */
+  /* Whether the church is broadcasting, asked once for the whole site (note 133). */
   const minute = useNow(60_000);
   /* The office's Weekly services card, read on the church's own clock. */
   const gathering = nextService(SERVICES, minute, churchTimezone());
@@ -86,11 +78,7 @@ export function App() {
 function SiteApp() {
   const { path } = useRoute();
   const { element, to } = resolvePath(path);
-  /* Every page is built once and cached (src/lib/routes.tsx hands back the very
-     same element each time), so React would skip re-rendering one when only
-     something *above* it changed — which is what the visitor's clock is. A
-     fresh element object of the same type in the same place carries that change
-     into the page without tearing it down (the page keeps its own state). */
+  /* Pages are cached, so a fresh element carries clock changes in without teardown. */
   const page = React.isValidElement(element) ? React.cloneElement(element as React.ReactElement) : element;
 
   // A forgiving address is rewritten to the page it really is, so the bar, a

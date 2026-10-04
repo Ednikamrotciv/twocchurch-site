@@ -1,45 +1,5 @@
-/* ============================================================================
-   Which clock is the visitor sitting in front of, and what money do they read?
-
-   Two things follow from the same answer — **where the visitor is**, worked out
-   from their **IP address** (SPEC notes 85 and 98):
-
-     * the times on the site, shown on the visitor's own clock, and
-     * the money, shown in the visitor's own country's currency (converted from
-       the church's, at the day's rate — src/lib/rates.ts).
-
-   This module is the only place that asks, and it hands both back together:
-   `{ tz, place, country, currency }`, kept in localStorage so a returning
-   visitor reads the site in their own time and their own money on the very
-   first frame.
-
-   Why the lookup is a *direct* fetch() and not superFetch:
-
-   - `superFetch` (super-fetch-plugin) sends the request from perchance's own
-     server. That is exactly what we must NOT do here: the geolocation service
-     would then see perchance's address and answer with *its* location, and
-     every visitor on earth would be told they were in the same city. The
-     browser's own `fetch` sends the request from the visitor's machine, so
-     the service sees the visitor's address — which is the whole point.
-   - Nothing else needs the proxy anyway: the services below are plain JSON
-     endpoints that send `Access-Control-Allow-Origin: *`, so a cross-origin
-     fetch is allowed.
-
-   Each service is asked for everything at once, and the country is turned into
-   a currency with the generated table in src/data/currencies.ts when the
-   service does not name one itself. If every IP service is unreachable — no
-   network, a blocker, a service outage — the visitor's *device* is asked
-   instead (its clock's country first, its language region second), and failing
-   even that the site stays on the church's clock and the church's currency,
-   which is where it was before any of this existed.
-
-   Nothing is sent anywhere but the address itself (which every request to any
-   server already reveals), nothing is stored on a server, and the office can
-   switch both halves off from the console (*Church profile → Show each visitor
-   their own time zone / their own currency*) — in which case every reader gets
-   the church's clock and the church's currency, and this lookup stops deciding
-   anything.
-   ========================================================================== */
+/* Visitor place from IP (direct fetch, so the service sees them; notes 85, 98): clock + currency,
+   cached for first-frame paint. Falls back to device, then the church's own. Switchable in console. */
 
 import { useEffect } from "react";
 import { useLocalState, writeStore } from "./hooks";
@@ -66,12 +26,7 @@ type Probe = { url: string; read: (json: any, text: string) => Answer };
 
 const str = (v: unknown) => (typeof v === "string" ? v.trim() : "");
 
-/**
- * The services to try, in order. Each is keyless, CORS-open and answers with an
- * IANA zone name; `read` pulls the zone, a place name and — where the service
- * knows it — the country and its currency out of whatever shape it replies in.
- * The first two answer with everything, which saves a lookup for the table.
- */
+/** Keyless CORS-open services, tried in order; first answer wins. */
 const PROBES: Probe[] = [
   {
     /* Asked first: generous keyless limits and rarely blocked, city included.
@@ -159,14 +114,7 @@ function deviceZone(): string {
   }
 }
 
-/**
- * The country the *device* is set to — first the region its clock lives in
- * ("Africa/Lagos" → "NG"), which follows the visitor even when their browser
- * language does not (an "en-US" browser in Lagos is still in Nigeria); then,
- * for a zone the table has never heard of, the region of the browser's own
- * language ("en-NG" → "NG"). A region-less language ("en") tells us nothing,
- * so the currency stays unknown rather than being guessed from the clock.
- */
+/** Device country: clock region first, then language region; region-less stays unknown. */
 function deviceCountry(tz: string): string {
   const fromZone = countryOfTimezone(tz);
   if (fromZone) return fromZone;
@@ -217,11 +165,7 @@ export async function findVisitorClock(): Promise<VisitorClock | null> {
   return deviceClock();
 }
 
-/**
- * Should we ask again? Yes when there is no answer to hand, when the one we have
- * is half a day old, or when it was found by an older version of the site and so
- * carries no country or currency (SPEC note 98).
- */
+/** Re-ask when missing, half a day old, or predating country/currency (note 98). */
 function isStale(clock: VisitorClock | null): boolean {
   if (!clock) return true;
   if (clock.v !== VISITOR_CLOCK_V) return true;
@@ -230,10 +174,7 @@ function isStale(clock: VisitorClock | null): boolean {
 
 let inFlight: Promise<VisitorClock | null> | null = null;
 
-/**
- * Look the visitor up now and remember the answer. Safe to call as often as you
- * like: while one lookup is running, further calls share it.
- */
+/** Look up now and remember; concurrent calls share the one lookup. */
 export function refreshVisitorClock(): Promise<VisitorClock | null> {
   if (inFlight) return inFlight;
   inFlight = findVisitorClock()
@@ -257,12 +198,7 @@ export function refreshVisitorClock(): Promise<VisitorClock | null> {
 
 let started = false;
 
-/**
- * Start the lookup once per page load, unless the clock we already have on this
- * device is still fresh. Called from the app's boot (src/App.tsx) — it never
- * blocks rendering: the site paints on the last known clock (or the church's)
- * and re-paints the moment the answer arrives.
- */
+/** Start one lookup per load (never blocks paint). */
 export function startVisitorClock() {
   if (started) return;
   started = true;
@@ -279,18 +215,10 @@ function readCached(): unknown {
   }
 }
 
-/**
- * The visitor's own clock, wired to React: reading it re-renders the page when
- * the answer arrives. Use it at the top of the tree (src/App.tsx) so one
- * re-render carries the whole site onto the new clock.
- */
+/** Visitor clock for React; mount at the top so one re-render carries the site. */
 export function useVisitorClock(): VisitorClock | null {
   const [clock] = useLocalState<VisitorClock | null>(VISITOR_KEY, null);
-  /* Hand it to the store *before* the children below render, so the pass that
-     the new value triggers is the pass that shows it — otherwise the first
-     re-render would still read the old zone and nothing would trigger another.
-     (The same value was already applied synchronously at module load, so this
-     is only ever keeping them in step.) */
+  /* Apply before children render, so that pass already shows it. */
   setVisitorClock(clock);
   return clock;
 }

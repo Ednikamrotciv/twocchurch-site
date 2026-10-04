@@ -1,23 +1,5 @@
-/* ============================================================================
-   Photos.
-
-   Every picture on the site comes from one of the bundled photos in
-   `src/assets/img/`. This module is the single place that says *where* each of
-   them is used, and lets the church office swap any of them from the admin
-   console — by uploading a photo from their phone or computer, picking a
-   different bundled photo, or pasting a link.
-
-   How a swap reaches the page:
-     * page banners, the home hero and anything else rendered through `img()`
-       resolve their photo at render time, so they follow immediately;
-     * records that hold a photo of their own (a branch, a ministry, a leader, an
-       event) are rewritten in place when the office changes the shared photo —
-       but only while they are still on the original one, so a branch that has
-       been given its own photo keeps it.
-
-   The logo is deliberately not here: it is part of the generator's identity
-   (see `LOGO` / `LOGO_MARK` in `site.ts`) and is not editable from the console.
-   ========================================================================== */
+/* Photos: every picture from bundled src/assets/img/, swappable from the console. Logo excluded (site.ts). */
+import { siteFile } from "../lib/livefeed";
 
 export type PhotoSlot = {
   /** The bundled file name, e.g. "hero" → src/assets/img/hero.jpg */
@@ -159,7 +141,9 @@ let overrides: Record<string, string> = {};
 
 /** The photo to show for a bundled name, following any replacement. */
 export function photoSrc(key: string): string {
-  return overrides[key] || bundledPhoto(key);
+  /* Stored values stay host-relative ("src/assets/…") so content moves between
+     hosts; the page URL is resolved here, so nested routes still load. */
+  return siteFile(overrides[key] || bundledPhoto(key));
 }
 
 /**
@@ -172,12 +156,7 @@ export function resolvePhoto(value: string): string {
   return key ? photoSrc(key) : value;
 }
 
-/**
- * The photo for something that carries one of its own — a branch, a ministry,
- * an event, a message — using a bundled photo when the office has left it
- * empty. Every card renders through this, so clearing a picture in the console
- * leaves a sensible photo on the page rather than a broken one.
- */
+/** A record's own photo, or a bundled one when empty — never a broken picture. */
 export function photoOr(value: string | undefined, fallbackKey: string): string {
   const raw = typeof value === "string" ? value.trim() : "";
   return raw ? resolvePhoto(raw) : photoSrc(fallbackKey);
@@ -189,11 +168,7 @@ export function readPhotos(): Record<string, string> {
 
 /* ------------------------------------------------------------- collections */
 
-/**
- * The data lists that carry photos of their own. Data modules register their
- * arrays here so a change to a shared photo can be pushed into the records
- * that are still using the original one.
- */
+/** Lists carrying their own photos, for pushing shared-photo changes into. */
 const collections: any[][] = [];
 
 export function registerPhotoCollection(list: any[] | undefined) {

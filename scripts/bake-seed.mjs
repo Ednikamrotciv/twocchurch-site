@@ -28,6 +28,15 @@ export async function bakeSeed(rootDir, outPath) {
   const rev = typeof res.rev === "number" ? res.rev : 0;
   await writeFile(target, JSON.stringify({ rev, sections }));
   console.log(`bake-seed: baked ${ids.length} sections into ${path.relative(rootDir, target)}`);
+  /* The recent-services list ships in the same file, so every copy paints the
+     same services as the preview (see bake-recent.mjs). Best effort — a missed
+     read keeps the previous bake. */
+  try {
+    const { bakeRecent } = await import("./bake-recent.mjs");
+    await bakeRecent(rootDir);
+  } catch (err) {
+    console.warn("recent services not re-baked:", err?.message || err);
+  }
   return { kept: false, count: ids.length };
 }
 

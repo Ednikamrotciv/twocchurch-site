@@ -1,13 +1,4 @@
-/* The live content feed: the office's published words, read straight off the
-   public repo — no rebuild, no redeploy, no server. The office publishes
-   locally as always; auto-push carries seed.json to GitHub; every deployed
-   copy polls the feed and paints whatever is newer than what it has.
-
-   Reads are public by design (it is the public site's own words, on hosts
-   built for cross-origin fetching). Writes still happen only on the office
-   computer, through git — nothing here can publish, so there is no secret to
-   steal and no password to bypass. Anything goes wrong (offline, private
-   repo, rate-limited) and the copy silently keeps its baked words. */
+/* Live content feed: published words read off the public repo. Writes happen only via git. */
 
 export type FeedSpec = { owner: string; repo: string; branch: string };
 
@@ -59,13 +50,11 @@ async function fetchJson(url: string, timeoutMs: number): Promise<unknown> {
   }
 }
 
-/** The feed's seed when it is newer than currentRev, else null. Never throws. */
-export async function fetchLiveSeed(spec: FeedSpec, currentRev: number, timeoutMs = 15000): Promise<FeedSeed | null> {
+/** The feed's seed, whatever its age — null when no mirror answers. Never throws. */
+export async function peekSeed(spec: FeedSpec, timeoutMs = 15000): Promise<unknown> {
   for (const url of feedSeedUrls(spec)) {
     try {
-      const seed = await fetchJson(url, timeoutMs);
-      if (feedIsNewer(seed, currentRev)) return seed as FeedSeed;
-      return null;
+      return await fetchJson(url, timeoutMs);
     } catch {
       /* mirror failed — try the next one */
     }
@@ -73,14 +62,54 @@ export async function fetchLiveSeed(spec: FeedSpec, currentRev: number, timeoutM
   return null;
 }
 
+/** The feed's seed when it is newer than currentRev, else null. Never throws. */
+export async function fetchLiveSeed(spec: FeedSpec, currentRev: number, timeoutMs = 15000): Promise<FeedSeed | null> {
+  const seed = await peekSeed(spec, timeoutMs);
+  if (feedIsNewer(seed, currentRev)) return seed as FeedSeed;
+  return null;
+}
+
 /** This copy's baked feed address (dist/feed.json), or null. Never throws. */
 export async function bakedFeedSpec(): Promise<FeedSpec | null> {
   try {
-    const res = await fetch("feed.json", { cache: "no-store" });
+    const res = await fetch(siteFile("feed.json"), { cache: "no-store" });
     if (!res.ok) return null;
     const data = await res.json().catch(() => null);
     return parseFeedSpec(data && (data.feed || data.spec));
   } catch {
     return null;
   }
+}
+
+/* The folder the site is served from, from the bundle's own script URL. */
+let base: string | null = null;
+export function siteBase(): string {
+  if (base !== null) return base;
+  base = "/";
+  try {
+    const scripts = document.getElementsByTagName("script");
+    for (let i = scripts.length - 1; i >= 0; i--) {
+      const src = (scripts[i] as HTMLScriptElement).src || "";
+      const m = /^(.*\/)src\/bundle\.js(\?.*)?$/.exec(src);
+      if (m) {
+        try {
+          const u = new URL(m[1], document.baseURI);
+          base = u.pathname.endsWith("/") ? u.pathname : u.pathname + "/";
+        } catch {
+          base = m[1];
+        }
+        break;
+      }
+    }
+  } catch {
+    base = "/";
+  }
+  return base;
+}
+
+/** A repo-relative file ("seed.json", "src/assets/img/hero.jpg") as a URL. */
+export function siteFile(rel: string): string {
+  const r = String(rel == null ? "" : rel);
+  if (/^(https?:|data:|blob:|mailto:|tel:)/i.test(r)) return r;
+  return siteBase() + r.replace(/^\/+/, "");
 }

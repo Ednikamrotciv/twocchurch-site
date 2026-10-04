@@ -1,25 +1,4 @@
-/* ============================================================================
-   jobs.ts — plain-language navigation for the office.
-
-   The site's content is stored as 53 "sections" with names that make sense to
-   whoever built the site (Verse pool, Headline numbers, Calendar filters …).
-   The office does not think in sections; they think in jobs — "change the
-   service times", "post a notice", "swap the home page photo".
-
-   JOBS is that translation: a short list of everyday jobs, each pointing at
-   the sections that hold the content. It is the front door of #/admin, and it
-   is deliberately exhaustive — **every section the drawer offers belongs to
-   exactly one job**, so the office can make any change there is by clicking
-   through these cards (the *Update* tab, the panel's other view, is the raw
-   list of the same sections, and prints the technical ones the jobs describe).
-   `sectionsWithoutJob()` below is the check for that promise, and the jobs are
-   the way in, so a job also carries the words and the photos of the part of
-   the site it looks after — a job is a *part of the site*, not only its items.
-
-   searchEverything() is the other door in: one box that finds the *words* on
-   the site, the items the office has added (a sermon, a branch, an event), the
-   photos and the sections themselves.
-   ========================================================================== */
+/* jobs.ts — everyday jobs pointing at their sections; every offered section belongs to one. */
 
 import { SECTION_DEFS, photoSectionId, sectionIsHidden, type SectionDef } from "./cmsSchema";
 import { COPY_PAGES, COPY_ROLE_LABELS, copyIsLocked, copyRoleOf } from "../data/copy";
@@ -35,16 +14,7 @@ export type Job = {
   sections: string[];
 };
 
-/* Every job the site has, in the order the office meets them — eleven of them.
-   A per-page job ("Everything on this page") built from src/lib/pageMap.ts stood
-   above these first and left at the office's request (SPEC note 52). The two
-   broad cards *The words on every page* and *Photos & banners* left too (SPEC
-   note 57), the content they carried was folded into the jobs that look after
-   that part of the site (SPEC note 58), and then the office asked for the two
-   cards back (SPEC note 62). They stand first again, with the content note 58
-   had folded into other jobs returned to them: a page's text is under *The words
-   on every page*, and a photo under *Photos & banners*, whichever page it appears
-   on. Nothing the drawer offers is reachable only by searching for it. */
+/* Eleven jobs in office order (notes 52, 57, 58, 62 shaped this list). */
 export const JOBS: Job[] = [
   {
     id: "words",
@@ -191,11 +161,7 @@ function snippet(value: string, q: string): string {
   return (from > 0 ? "…" : "") + cut + (from + 84 < text.length ? "…" : "");
 }
 
-/**
- * Find anything the office could change, by its own words. Matching is plain
- * case-insensitive substring work over the current draft, so it always finds
- * what is actually on the site right now — including unpublished edits.
- */
+/** Find anything changeable, by the office's own words (searches the live draft). */
 export function searchEverything(query: string, draft: Record<string, any>): Hit[] {
   const q = query.trim().toLowerCase();
   if (q.length < 2) return [];
@@ -300,16 +266,7 @@ function safeStringify(item: any): string {
   }
 }
 
-/**
- * Coverage guard for when jobs change: **every section the drawer offers must
- * belong to exactly one job in this list**, so the office can reach any change
- * by clicking through the *Edit* cards (SPEC notes 52 and 58 are what happens
- * when it stops being true). Sections the church asked to be left out of the
- * drawer altogether (`hidden`) are not offered anywhere, so they are skipped —
- * see SPEC note 51. Reports duplicates too, because a section listed twice
- * would be edited from two cards. Not wired into the build — call it from a
- * scratch script after editing JOBS.
- */
+/** Coverage guard: every offered section in exactly one job (notes 51, 52, 58). */
 export function sectionsWithoutJob(): string[] {
   const counts = new Map<string, number>();
   for (const job of JOBS) for (const id of job.sections) counts.set(id, (counts.get(id) || 0) + 1);

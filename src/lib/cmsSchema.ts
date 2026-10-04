@@ -1,16 +1,5 @@
-/* ============================================================================
-   Admin schema — the single place that describes what the church office can
-   edit from #/admin, and how a saved snapshot is written back onto the live
-   data modules.
-
-   Two rules matter:
-   1. Every section is JSON-cloneable plain data (that is what we ship to the
-      server and cache in localStorage).
-   2. `bind` must MUTATE the existing module export rather than replace it,
-      because pages hold on to those references. Arrays are emptied and
-      refilled in place; objects are Object.assigned. Items that carry an `id`
-      are matched by id so their identity survives an edit.
-   ========================================================================== */
+/* Admin schema: what the office can edit, and how saves write back to data modules.
+   Sections hold plain JSON; `bind` mutates module exports in place (pages keep references). */
 
 import { DAY_NAMES, churchTimezone, setBaseCurrency, setChurchTimezone, setVisitorCurrencyEnabled, setVisitorTimeEnabled, slugify, todayKey, zonedParts, zoneYear } from "./store";
 import {
@@ -78,18 +67,7 @@ function syncObject(target: any, source: any) {
   for (const key of Object.keys(source)) target[key] = source[key];
 }
 
-/**
- * Refill `target` in place from `incoming`, keeping item objects alive where ids match.
- *
- * Two rules have to hold for a list being edited (SPEC note 78):
- * - an entry with **no id yet** (one the office has only just added) is never
- *   matched against another id-less entry — several brand-new entries would
- *   otherwise all be written onto the same object, and the page behind the
- *   drawer would show one of them three times;
- * - each existing object is consumed by **one** incoming entry, so a draft that
- *   holds two entries with the same id (a duplicate, an id typed twice) cannot
- *   hollow out the live list.
- */
+/** Refill `target` in place, keeping objects alive where ids match (note 78: id-less entries never match each other). */
 export function applyToList<T extends any[]>(target: T, incoming: any, idKey?: string) {
   const list: any[] = Array.isArray(incoming) ? incoming : [];
   const next: any[] = [];
@@ -132,12 +110,7 @@ const PHOTO_BLURBS: Record<string, string> = {
   "Leadership photos": "The photos of the leadership team on the About page.",
 };
 
-/* Stable ids for the four photo sections (the server only accepts letters,
-   numbers and hyphens, up to 32 characters). The four are `everythingHidden`:
-   they are the raw list's clutter — a photo is changed from the *Photos &
-   banners* card on the *Edit* landing (SPEC note 62, which brought the card
-   back), so the *Update* tab leaves them out while the card still opens them.
-   See SPEC notes 51, 58 and 62. */
+/* Photo sections hide from the Update tab (notes 51, 58, 62); the Photos card still opens them. */
 const PHOTO_SECTION_IDS: Record<string, string> = {
   "Main photos": "photos-main",
   "Ministries & programmes": "photos-ministries",
@@ -217,33 +190,16 @@ export type Field = {
   itemMeta?: string | ((item: any) => string);
   makeNew?: () => any;
   addLabel?: string;
-  /**
-   * Cap on entries: a capped list is newest-first, so adding lands the new
-   * entry on top, and past the cap the oldest entry (by `createdAt`) is
-   * removed to make room. Only the testimony wall uses it.
-   */
+  /** Capped lists read newest-first; past the cap the oldest entry leaves. */
   maxItems?: number;
 
-  /**
-   * The bundled photo the site falls back to when this field is empty (a
-   * record that has no picture of its own). Only used to show the office what
-   * a visitor will actually see, and to word the empty option honestly.
-   */
+  /** Bundled fallback photo shown when the field is empty. */
   fallbackPhoto?: string;
 
-  /**
-   * Re-cut every picture uploaded here to one shape and one resolution before
-   * it is hosted — "slide" is the announcement slide frame (1600×1200, 4:3; see
-   * src/lib/slideFrame.ts), so the whole picture is shown inside the frame the
-   * home page has, whichever shape the office's flyer is. Only the slides
-   * section uses it.
-   */
+  /** Re-cut uploads to one shape before hosting (slides use the 1600x1200 frame). */
   frame?: "slide";
 
-  /**
-   * What the site shows instead when this photo is empty and there is no
-   * bundled fallback (e.g. a person's initials, a video's own still).
-   */
+  /** Stand-in shown with no photo and no fallback (initials, a video still). */
   emptyNote?: string;
 
 };
@@ -258,55 +214,23 @@ export type SectionDef = {
   idKey?: string;
   fields: Field[];
   itemLabel?: (item: any) => string;
-  /**
-   * The small print on an entry's own row. `list` is the section's entries as
-   * they stand (including the office's unpublished edits), so a row can count
-   * what hangs off it — a branch says how many sub-branches it has (SPEC note
-   * 86).
-   */
+  /** Small print on the row; `list` includes unpublished edits (note 86). */
   itemMeta?: (item: any, list: any[]) => string;
-  /**
-   * Group this section's entries under a heading taken from this field — the
-   * branches, by their country — so the drawer reads like the page does.
-   */
+  /** Group rows under a heading from this field (branches, by country). */
   groupBy?: string;
   makeNew?: () => any;
-  /**
-   * How the *Add* button at the foot of the list builds its entry, when that
-   * depends on what is already in the list (a branch starts from the last
-   * branch, so it lands in a country that exists). Falls back to `makeNew`.
-   */
+  /** Build the Add entry from the list (a branch starts from the last one). Falls back to `makeNew`. */
   makeNewFor?: (list: any[]) => any;
-  /**
-   * How the *Add* button at the foot of a list is worded (the branches offer
-   * *Add a branch*; every other list simply offers another entry).
-   */
+  /** Wording of the foot Add button. */
   addLabel?: string;
-  /**
-   * For an object section whose entries live in a nested list (the testimony
-   * wall): the path of that list. It puts the section's row in the unsaved
-   * list on the same footing as a real add/remove list — its own Delete that
-   * keeps only the removals and publishes them.
-   */
+  /** Path of the nested list, so an object section deletes like a real list. */
   deletableItems?: string;
-  /**
-   * A list whose entries can have children of their own. The branches are the
-   * one: every branch offers *Add a sub-branch* (a gathering under it) and
-   * *Add a branch* (another one beside it), and the drawer indents a child
-   * under the entry it belongs to. `parentKey` names the field that holds the
-   * parent's id — it is what the indent, the page's nesting and the *Sub-branch
-   * of* picker all read.
-   */
+  /** Child entries (branches only): `parentKey` holds the parent's id. */
   tree?: {
     parentKey: string;
     /** The button on every entry that adds a child. */
     childLabel: string;
-    /**
-     * The short label the same button wears on the entry's own row (the long
-     * one is on the opened entry and at the foot of the list) — every branch
-     * shows it, so a sub-branch is one press away wherever the office is
-     * standing (SPEC note 81).
-     */
+    /** Short label for the row button (note 81). */
     childShort: string;
     /** The button on every entry that adds another entry beside it. */
     siblingLabel: string;
@@ -315,12 +239,7 @@ export type SectionDef = {
     /** What the toast says after each of the two buttons. */
     childToast: string;
     siblingToast: string;
-    /**
-     * How the office adds a *country* of its own. A country exists because a
-     * branch names it, so `countryKey` says which field decides the grouping,
-     * and `makeCountry` builds the first branch of a country the office has
-     * just typed in the little form at the foot of the list (SPEC note 81).
-     */
+    /** How the office adds a country of its own (note 81). */
     countryKey?: string;
     countryLabel?: string;
     countryPlaceholder?: string;
@@ -329,26 +248,11 @@ export type SectionDef = {
   };
   read: () => any;
   bind: (value: any) => void;
-  /**
-   * The entries are fixed by the code (e.g. one per line of page text): the
-   * console hides Add, Duplicate, Delete and reorder for these sections.
-   */
+  /** Code-fixed entries: the console hides Add, Duplicate, Delete and reorder. */
   fixed?: boolean;
-  /**
-   * The church asked for the section to be left out of the editor (SPEC note
-   * 51): it is dropped from the full list (the *Update* tab), from its job and
-   * from the search box. Its content still loads and renders exactly as before —
-   * only the drawer stops listing it. Deleting the flag brings the section back.
-   */
+  /** Left out of the editor at the church's request (note 51); content still renders. */
   hidden?: boolean;
-  /**
-   * The section is left out of the full list (the *Update* tab) only, so the
-   * technical list is shorter — it is still reachable from the job that names it
-   * in the *Edit* tab. The flag keeps its old name; the tab labels changed in
-   * SPEC note 53. It is set on the four photo sections (SPEC note 58): the
-   * *Photos & banners* card carries them (SPEC note 62), so the office meets a
-   * photo under the card rather than in the raw list.
-   */
+  /** Update-tab only skip; still reachable from its Edit-tab job (notes 53, 58, 62). */
   everythingHidden?: boolean;
 };
 
@@ -395,10 +299,7 @@ const DAY_OPTIONS: { value: string; label: string }[] = DAY_NAMES.map((name, i) 
 
 /* ----------------------------------------------------------------- sections */
 
-/* A fresh branch, exactly as the drawer's *Add a branch* builds it. Every way of
-   adding a branch starts from here — the button at the foot of the list, the
-   *Add a branch* beside an existing one, and the *Add a sub-branch* under it —
-   so a new gathering always carries every field the page reads. */
+/* New branches start here, whichever button builds them. */
 const blankBranch = (): any => ({
   id: "",
   name: "",
@@ -452,20 +353,13 @@ const siblingBranchOf = (item: any): any => ({
   parentId: "",
 });
 
-/* The first branch of a country the office has just named in the drawer. It
-   carries the country and nothing else — a country exists only because a branch
-   names it, so this is what makes a new one appear in the list, on the page's
-   chips and in its counts (SPEC note 81). */
+/* A country exists because a branch names it (note 81). */
 const countryBranchOf = (country: string): any => ({
   ...blankBranch(),
   country: String(country || "").trim(),
 });
 
-/* Every list names an entry that arrives without an id after the entry
-   itself — "Grace Alone" becomes `grace-alone`, numbered apart (`-2`) when
-   the name is taken. An entry that already carries one keeps it, so renaming
-   never moves a page and every shared link keeps working. Runs inside each
-   section's `bind`, before the list is matched by id. */
+/* Id-less entries are named after themselves (`Grace Alone` → `grace-alone`); taken names number apart. */
 function mintIds(list: any, seeds: string[], fallback: string): any[] {
   if (!Array.isArray(list)) return list;
   const taken = new Set(list.map((item) => String(item?.id ?? "").trim()).filter(Boolean));
@@ -689,16 +583,7 @@ const CORE_SECTIONS: SectionDef[] = [
       { path: "pastorRole", label: "Pastor's title", type: "text" },
       { path: "languages", label: "Languages", type: "strings" },
       { path: "image", label: "Photo", type: "image", fallbackPhoto: "building2" },
-      /* *Global HQ* and *Sub-branch* are not fields any more (SPEC note 131, the
-         office asked): the two switches and the hints that explained them are out
-         of the form. Both flags still live on every record and are still what the
-         pages read — `isHq` decides which branch is the head office (`syncHq()`
-         below re-points `HQ` at it) and `isSub` decides which gatherings the
-         Locations page nests under a branch. They are simply set elsewhere now: a
-         sub-branch is the gathering *Add a sub-branch* builds, or any branch given
-         a parent by the *Sub-branch of* picker (`bind` keeps `isSub` in step with
-         `parentId`), and the head office is the one marked `isHq: true` in
-         `src/data/branches.ts`. */
+      /* No Global HQ / Sub-branch fields any more (note 131); `isHq`/`isSub` are set elsewhere. */
       {
         path: "parentId",
         label: "Sub-branch of",
@@ -710,15 +595,7 @@ const CORE_SECTIONS: SectionDef[] = [
       scheduleField(),
     ],
     itemLabel: (i) => i?.name || "New branch",
-    /* The row's aside is the city — and, when the branch has any, how many
-       sub-branches gather under it. The country is the heading above the row and
-       the parent is the chip beside it, so both were already said; the count is
-       not, and it is what lets the office *check a branch's sub-branches*
-       without opening anything (SPEC note 86). It counts the live list, so a
-       sub-branch added a moment ago is counted before it is published. A
-       gathering is a sub-branch when it names a parent — `parentId` is the truth
-       the count reads (the *Sub-branch* switch went in SPEC note 131, and `bind`
-       keeps `isSub` in step with it). */
+    /* Row aside: city plus live sub-branch count (`parentId` decides; note 86). */
     itemMeta: (i, list) => {
       const city = String(i?.city || "");
       const id = String(i?.id || "");
@@ -756,14 +633,7 @@ const CORE_SECTIONS: SectionDef[] = [
          HQ tick wherever the office puts it (SPEC notes 78–79). */
       syncCountries();
       syncHq();
-      /* A gathering *is* a sub-branch when it has a parent — that is what *Add a
-         sub-branch* gives it, and what the *Sub-branch of* picker changes when
-         the office re-files one. With the old *Sub-branch* switch gone (SPEC note
-         131) the flag is kept in step with `parentId` here, so the picker alone
-         is enough: choose a parent and the gathering nests under it on the
-         Locations page, choose *A branch in its own right* and it is a branch
-         again — and every reader of `isSub` (that nesting, the sub-branch counts)
-         stays right without a field to maintain. */
+      /* A gathering with a parent is a sub-branch; `bind` keeps `isSub` in step (note 131). */
       for (const branch of BRANCHES as any[]) branch.isSub = !!String(branch.parentId || "");
     },
   },
@@ -1160,24 +1030,10 @@ const CONTENT_SECTIONS: SectionDef[] = [
       { path: "recentLimit", label: "How many recent services to show", type: "number", min: 1, max: 24 },
       { path: "turnaroundHours", label: "Hours until a service is written up", type: "number", min: 1, max: 72 },
       { path: "liveTitle", label: "Headline while live", type: "text" },
-      /* *How many previous sermons to show* is the last field of the section but
-         not drawn with the others: Admin.tsx passes it to `LiveEndingPanel`, so
-         it stands at the foot of the section next to *Open the sermon list* —
-         it belongs to the *Sermons* side of the site, not to the stream. */
+      /* Drawn by Admin.tsx at the section foot; it belongs to Sermons, not the stream. */
       { path: "pastLimit", label: "How many previous sermons to show", type: "number", min: 1, max: 60 },
-      /* *We are on air right now* is not a field on this list any more: the
-         Start / Stop / Continue buttons at the top of this section own it (and
-         the two timestamps that go with it), so the office cannot set a live
-         state from one place and end it from another (SPEC note 106). The
-         value itself still lives in the content — `LIVE.isLive` — and is
-         written by those buttons. */
-      /* The *Ways to watch cards* list is not offered here any more (SPEC note
-         110): the church asked for it out of the live area of the drawer, so
-         this section is just the stream — the links, the channel, the three
-         numbers and the headline. The four cards themselves stay in the
-         content (`LIVE.watchOptions`) and are still drawn on both pages by
-         `WatchCards` (`/watch-live` and the sermon archive); they are fixed
-         now rather than something the office edits. */
+      /* On-air state lives on the Start/Stop buttons now, not on a field (note 106). */
+      /* Watch cards left the drawer (note 110); fixed content now, still drawn on both pages. */
     ],
     read: () => clone(LIVE),
     bind: (v) => Object.assign(LIVE, clone(v)),
@@ -1446,15 +1302,7 @@ const CONTENT_SECTIONS: SectionDef[] = [
 
 /* --------------------------------------------------------------- page text */
 
-/* The page-text sections the church asked to be taken out of the editor (SPEC
-   note 51): they are not offered anywhere in the drawer any more. Their lines
-   and their content still ship and still greet every visitor — Home page text
-   stays (the one page whose paragraphs are still the office's), and deleting an
-   id here brings a section back. About is back in the list as of SPEC note 67
-   (out in 65, back in 66, out again one request later); Watch live came back
-   out at the church's request (SPEC note 104), so the lines behind the
-   broadcast are no longer offered anywhere in the drawer — the page keeps
-   reading exactly as it does now. */
+/* Hidden page-text sections (note 51): still ship and render; the drawer skips them. */
 const HIDDEN_COPY_PAGES = new Set([
   "sermons",
   "sermon",
@@ -1506,11 +1354,7 @@ const copySections: SectionDef[] = COPY_PAGES.map((page) => ({
 
 export const SECTION_DEFS: SectionDef[] = [...CORE_SECTIONS, ...CONTENT_SECTIONS, ...copySections, ...photoSections];
 
-/**
- * True when the section is not offered in the editor at all (`hidden`) — the
- * drawer, the jobs and the search all step over it, while its content still
- * loads and renders. See `SectionDef.hidden` and SPEC note 51.
- */
+/** True when the drawer, jobs and search all skip the section (note 51). */
 export function sectionIsHidden(id: string): boolean {
   return !!sectionById(id)?.hidden;
 }

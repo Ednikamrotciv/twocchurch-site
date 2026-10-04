@@ -82,6 +82,11 @@ var ADMIN_HASH = "ef797c8118f02dfb649607dd5d3f8c7623048c9c063d532cc95c5ed7a898a6
 /* A changed main password is stored as a hash override in the meta blob (see
    writeMeta) — the shipped hash above stays as the fallback. Only the hash is
    ever stored, never the password itself. */
+
+/* How many times the main password has changed. Reported with every sign-in
+   and content answer so a browser holding the old password signs itself out
+   the moment it hears a newer number — no reload, no confusion. */
+var PWGEN = 0;
 var MAIN_HASH = "";
 
 /* ------------------------------------------------------------------- views */
@@ -417,7 +422,7 @@ function writeHeader() {
 }
 
 function writeMeta() {
-  var meta = JSON.stringify({ by: BY, log: LOG, logGen: LOG_GEN, subs: SUBS, invites: INVITES, totp: TOTP, mainOff: MAIN_OFF, mainHash: MAIN_HASH });
+  var meta = JSON.stringify({ by: BY, log: LOG, logGen: LOG_GEN, subs: SUBS, invites: INVITES, totp: TOTP, mainOff: MAIN_OFF, mainHash: MAIN_HASH, pwgen: PWGEN });
   META_CHARS = meta.length;
   writeString(meta, BASE_CHARS + SECTION_CHARS);
   /* The header carries META_CHARS: without this, an admin-only change (an
@@ -561,6 +566,7 @@ function loadState() {
     TOTP = cleanTotp(parsed.totp);
     MAIN_OFF = !!(parsed && parsed.mainOff);
     MAIN_HASH = typeof parsed.mainHash === "string" && /^[0-9a-f]{64}$/.test(parsed.mainHash) ? parsed.mainHash : "";
+    PWGEN = typeof parsed.pwgen === "number" && parsed.pwgen >= 0 ? Math.floor(parsed.pwgen) : 0;
   } catch (e) {
     BY = "";
     LOG = [];
@@ -569,6 +575,7 @@ function loadState() {
     TOTP = null;
     MAIN_OFF = false;
     MAIN_HASH = "";
+    PWGEN = 0;
   }
   SECTIONS = {};
   for (var i = 0; i < INDEX.length; i++) {
@@ -718,6 +725,7 @@ self.rpc = {
       sections: "{" + parts.join(",") + "}",
       log: LOG,
       admin: admins.has(info.conn.id),
+      pwgen: PWGEN,
     });
   },
 
@@ -770,12 +778,12 @@ self.rpc = {
       }
       admins.add(info.conn.id);
       adminIds.set(info.conn.id, { role: "main", name: "" });
-      return ok({ role: "main" });
+      return ok({ role: "main", pwgen: PWGEN });
     };
     var openSub = function () {
       admins.add(info.conn.id);
       adminIds.set(info.conn.id, { role: "sub", name: SUBS[subIdx].name });
-      return ok({ role: "sub", name: SUBS[subIdx].name });
+      return ok({ role: "sub", name: SUBS[subIdx].name, pwgen: PWGEN });
     };
     if (wantSub && subIdx >= 0) return openSub();
     if (mainMatch) return openMain();
@@ -834,7 +842,7 @@ self.rpc = {
     writeMeta();
     admins.add(info.conn.id);
     adminIds.set(info.conn.id, { role: "sub", name: name });
-    return ok({ role: "sub", name: name });
+    return ok({ role: "sub", name: name, pwgen: PWGEN });
   },
 
   /* Step two of a two-factor sign-in: the authenticator's 6-digit code, or one
@@ -869,7 +877,7 @@ self.rpc = {
       pending2fa.delete(info.conn.id);
       admins.add(info.conn.id);
       adminIds.set(info.conn.id, { role: "main", name: "" });
-      return ok({ role: "main" });
+      return ok({ role: "main", pwgen: PWGEN });
     };
     var cleaned = cleanCode(raw);
     if (cleaned && totpCheck(TOTP.secret, cleaned)) return done();
@@ -999,7 +1007,10 @@ self.rpc = {
   /* Change the main password. Takes the signed-in main admin — the session is
      the proof — and only while two-factor is on, plus the security answer (or
      a current app code) with every change. The new password is hashed by the
-     caller (SHA-256 hex); only the hash is ever stored. */
+     caller (SHA-256 hex); only the hash is ever stored. The old password stops
+     working everywhere at once: the generation bumps, every other main-admin
+     session is signed out on the spot, and a nudge tells their tabs to clear
+     themselves — sub-admins are untouched, their passwords did not change. */
   setMainPassword: function (info, raw) {
     if (!isMain(info.conn)) return fail("unauthorized");
     if (!TOTP) return fail("need-2fa");
@@ -1015,8 +1026,20 @@ self.rpc = {
     var proved = !!(cleaned && totpCheck(TOTP.secret, cleaned));
     if (!proved && !fallbackKind(payload.proof)) return fail("bad-code");
     MAIN_HASH = payload.hash;
+    PWGEN++;
+    adminIds.forEach(function (ident, id) {
+      if (id !== info.conn.id && ident && ident.role === "main") {
+        admins.delete(id);
+        adminIds.delete(id);
+      }
+    });
     writeMeta();
-    return ok({});
+    try {
+      pubsub.publish("content", JSON.stringify({ rev: REV, at: AT, by: BY }));
+    } catch (e) {
+      /* a missed nudge is harmless: clients refresh on next load */
+    }
+    return ok({ pwgen: PWGEN });
   },
 
   /* Any signed-in admin may ask whether the main password still works. */
@@ -1205,8 +1228,6 @@ self.rpc = {
 <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,400;0,500;0,600;0,700;1,400;1,600&family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
 <meta name="theme-color" content="#08080a">
 
-<link rel="stylesheet" href="src/bundle.css">
-
 <div id="root"></div>
 
 <noscript>
@@ -1238,4 +1259,4 @@ self.rpc = {
     document.body.appendChild(banner);
   }, 20000);
 </script>
-<script type="module" src="src/bundle.js"></script>
+<script type="module" src="/src/main.tsx"></script>

@@ -1,12 +1,14 @@
 # Office server address — one origin per line, the first one wins.
 # Lines starting with # are ignored. While every line here is a comment (or
 # the file is missing), deployed copies stand alone: each keeps working from
-# its baked words, and a browser can still point itself at a server from the
-# admin sign-in box under "Office server".
+# its baked words until the office server registers an address here.
 #
-# To join every deployed copy to the one office backend:
-#   1. On the always-on office computer, run the site (npm run serve, or
-#      double-click start.bat) and leave it running.
+# To join every deployed copy to the one office backend, just run the site on
+# the always-on office computer (npm start, or double-click start.bat) and
+# leave it running — sharing ships ON (auto-share.txt beside package.json),
+# so the start attaches this machine by itself. The notes below are only the
+# by-hand fallback:
+#   1. Run the site (npm run serve, or double-click start.bat).
 #   2. Expose it over HTTPS with a free tunnel, e.g.:
 #        cloudflared tunnel --url http://localhost:5173
 #      which prints an address like https://office-word-word.trycloudflare.com

@@ -47,15 +47,7 @@ export function Locations() {
     return hay.includes(q.trim().toLowerCase());
   });
 
-  /* One block per country — the country's own branches first, then its
-     sub-branches. A sub-branch that was added *under* a branch (the drawer's
-     Branches list puts *Add a sub-branch* on every branch) is shown in a block
-     of its own beneath that branch; a sub-branch whose parent was cleared keeps
-     the country's one *Sub-branches* block. **The shipped list has no
-     sub-branches at all** — the office asked for Lagos, the branch that had
-     them, to be empty like the rest (SPEC note 87) — so today every country
-     renders as one grid of plain cards, and both blocks below appear the moment
-     the office adds a sub-branch from the drawer. */
+  /* One block per country: its branches, then sub-branches under their parents (note 87). */
   const groups = useMemo(
     () =>
       groupByCountry(filtered).map((g) => {
@@ -73,12 +65,7 @@ export function Locations() {
 
   const selected = BRANCHES.find((b) => b.id === selectedId) || BRANCHES[0];
 
-  /* The rest of the family, for the panel beside the map. Without a location
-     that is the branch's own country — a sub-branch's fellow sub-branches, so
-     clicking one branch is never a dead end; a country with a single branch
-     (Canada) shows the rest of the family instead. Once the visitor shares
-     their location the list is every other branch, nearest first. A row is a
-     button: it switches the panel (and the map) to that branch. */
+  /* The rest of the family, for the panel beside the map. */
   const others = useMemo(() => {
     const rest = ranked.filter((r) => r.branch.id !== selected.id);
     if (coords) return rest.map((r) => ({ branch: r.branch, km: r.km }));
