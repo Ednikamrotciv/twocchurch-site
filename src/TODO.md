@@ -20,18 +20,18 @@
    background picture is the church's own event photo (`hero-faint.jpg`, slot *Home page background*,
    SPEC notes 119–120) — swap it there if a different photo should sit behind the headline. It is a
    *landscape* photo and is cropped to fill the hero, so on a phone only a vertical slice of it shows.
-3. **Confirm the real details**: church name/address/phone/email (`main.pjs` + `src/data/site.ts`),
+3. **Confirm the real details**: church name/address/phone/email (`src/data/site.ts`),
    branch addresses, coordinates, service times, pastor names, bank accounts, department emails
    (`src/data/branches.ts`, `src/data/site.ts`). **Confirm the currency too** — *Church profile →
-   Currency* (`churchCurrency` in `main.pjs`, in `src/data/site.ts`) is the currency every amount on
+   Currency* (in `src/data/site.ts`) is the currency every amount on
    the site is *written* in and visitors are shown in their own country's, converted (SPEC note 98);
    it ships as `USD`, which matches the giving amounts and the event costs as written. Change it and
    every figure the office types means that currency instead. **The head office is Lagos, at Oke-Odo** — the city
    string reads just `Lagos` (SPEC note 82) while its street address is *Overcomers' Cathedral,
    Oke-Odo Road, Agbado Oke-Odo, Alimosho, Lagos State*; it has been the head office since
    SPEC note 79 — its coordinates are approximate and should be verified (item 5), and **the
-   church phone/WhatsApp are still the Dallas numbers** (`main.pjs` `churchPhone`, `site.ts`
-   `whatsapp`, and Dallas's own `phone`) while the HQ is in Lagos: decide which line should be the
+   church phone/WhatsApp are still the Dallas numbers** (`site.ts`
+   `phone`/`whatsapp`, and Dallas's own `phone`) while the HQ is in Lagos: decide which line should be the
    reception number and set it in *Church profile* / the *Branches* section. **The published
    content follows the list order** — the site now shows Nigeria first (Lagos HQ, then the Nigerian
    sub-branches, then America and Canada), so if a list is reordered in `branches.ts` the office must
@@ -103,8 +103,7 @@
 - Online giving statements (export as CSV/PDF) — worth doing once there is a real processor behind
   the page; the local giving log an older version filled is now read-only (SPEC note 88).
 - Multi-language UI (the data files are already split from the components).
-- Event registration with capacity counts (needs a backend — `server-plugin` or `kv-plugin`
-  with a shared file via `upload-plugin` editable files).
+- Event registration with capacity counts (needs a backend endpoint on the office server).
 - Push reminders for services/events (Notification API is already requested for service
   reminders in `WatchLive.tsx`).
 - **Look over the glass pass on a real device.** The material is CSS only
@@ -226,7 +225,7 @@
   (Some of that layer's CSS survives, unused, in `src/styles/edit.css`.)
 - **Do not un-lock the church name or the logo.** The `site` section deliberately omits the name
   (its `read()`/`bind()` strip it) and there is no logo field: both would otherwise be overwritable
-  from the editor. The name is surfaced from `main.pjs` through `pick()` in `src/data/site.ts`.
+  from the editor. The name is surfaced from `src/data/site.ts` through `pick()`.
 - **A value the office has edited cannot be changed by editing the code alone.** Sections the office
   has touched are `dirty`, live in `wom.cms.draft`, and are never re-based onto the shipped data
   again — so a wording change made only in `src/data/*.ts` shows on a public visit (which reads the
@@ -256,13 +255,12 @@
   content**: the *Ways to watch cards* list left the drawer at the church's request (SPEC note 110),
   so the live section offers no *Add a card*, no *Title* and no *Line underneath* any more. The panel's
   *While you watch* list has four rows since SPEC note 69 — its *Prayer line* row was removed on
-  request and the remaining rows were renumbered `live.side.1…4`. Uploads go through
-  `root.uploadPlugin` with a
-  permanent-first, one-year-temporary-on-`file_too_big` fallback (see `VideoUpload` in
-  `src/components/editor.tsx`); a full-length service is still best kept on YouTube or Facebook.
+  request and the remaining rows were renumbered `live.side.1…4`. Uploads go to the office
+  server's `/__upload` (`localHostFile` in `src/components/editor.tsx`); a full-length service
+  is still best kept on YouTube or Facebook.
 - **Whether the church is on air is asked of YouTube, not guessed** (SPEC note 68).
   `src/lib/livestatus.ts` checks the channel in `LIVE.youtubeChannel` (or `LIVE.youtubeId` when no
-  channel is set) through `root.superFetch` — `main.pjs` imports *super-fetch-plugin*, because
+  channel is set) through the office server's `/__yt` proxy, because
   YouTube sends no CORS headers and a plain `fetch` is refused. The marker is `"isLiveNow":true` and
   nothing else — **never** `"isLiveContent":true` (a finished stream keeps it forever) and **never**
   `"isLive":true` (that also sits in the view-count renderer of a finished or scheduled broadcast:
@@ -449,8 +447,8 @@
   - **the visitor's own** — `visitorTimezone()`, found from their IP address when the page loads
     (`src/lib/visitor.ts`) and remembered in `localStorage`; this is the clock the site *shows*,
     because `siteTimezone()` returns it when it is known.
-  - **the church's** — `churchTimezone()`: the drawer's *Church profile → Time zone*, a
-    `churchTimezone` line in `main.pjs`, `DEFAULT_TIMEZONE` = `Africa/Lagos`. It is where the
+  - **the church's** — `churchTimezone()`: the drawer's *Church profile → Time zone*,
+    `DEFAULT_TIMEZONE` = `Africa/Lagos`. It is where the
     church's own times are *written*, and it is the fallback whenever the visitor's clock is unknown
     — or when the office switches it off (*Church profile → Show each visitor their own time zone*),
     which puts every reader back on the church's clock.
@@ -472,8 +470,8 @@
   back is the component (about twenty lines) plus those lines. If the church would rather have one
   clock for everybody, the switch is *Church profile → Show each visitor their own time zone*.
 
-  **The IP lookup must be a plain `fetch`, never `superFetch`** (`src/lib/visitor.ts`): the proxy
-  sends the request from perchance's server, so the geolocation service would answer with perchance's
+  **The IP lookup must be a plain `fetch`, never a server proxy** (`src/lib/visitor.ts`): the proxy
+  sends the request from the server's address, so the geolocation service would answer with the server's
   location and every visitor on earth would be told the same city. Also remember that a page element
   is cached in `src/lib/routes.tsx`, so React skips re-rendering a page when only a clock above it
   changed — that is what `SiteApp`'s `cloneElement` (and the drawer's memo dependency) is for.
@@ -531,27 +529,15 @@
   card keeps the tab the office is standing in — `openJob()` sets `PanelMode` `"edit"`, `openHit()`
   keeps the current mode when it is `"edit"` and uses `"list"` otherwise (SPEC note 59) — so only the
   Status tab's own `openSection()` jumps deliberately switch to the raw *Update* list.
-- **Publish saves the website itself while the generator is unsaved** (`requestWebsiteSave` /
-  `planPublishAfterSave` / `resumePlannedPublish` in `src/lib/cms.ts`, the save-first branch of
-  `PublishModal` in `src/components/editor.tsx`). The model: the preview iframe cannot save the
-  generator, so it posts `{type:"saveKeyboardShortcut"}` to `window.parent` with targetOrigin `"*"`
-  — the editor page's own listener (`appExtras.js`) accepts that from the preview frame and calls
-  its `saveGenerator()`, guarded by the editor's ownership/login check. A **plan** (the note plus a
-  full content snapshot, key `wom.cms.publishAfterSave`) is written *first* so it rides across the
-  reload the save triggers, and `resumePlannedPublish()` — called at the end of `connect()` — finishes
-  the publish on the permanent server once the reloaded page rejoins. If no save happens within
-  ~14 s the dialog says so and asks for the editor's own Save/Ctrl+S (the plan still finishes the
-  publish whenever the save does land). Two things to remember before touching this: `generatorIsUnsaved`
-  is read by the server plugin **per `createServerSocket()` call** (so flipping it switches production
-  vs the QuickJS emulator), and the emulator forgets everything on reload — which is exactly why the
-  snapshot lives in `localStorage`, not in the socket. Only the platform can save a generator, so
-  this works solely while the page is embedded (`window.parent !== window`). See SPEC note 44.
-- The admin's publish path is CPU-budget-sensitive (the server runtime is an interpreter with a
-  50 ms handler budget). Keep the per-section blob model: send only changed sections, store
+- **Publish flow helpers** (`requestWebsiteSave` / `planPublishAfterSave` / `resumePlannedPublish`
+  in `src/lib/cms.ts`, the save-first branch of `PublishModal` in `src/components/editor.tsx`).
+  These are inert in standalone runs (`window.generatorIsUnsaved` is never set, and the page is
+  not iframed in an editor) — they only ever trigger inside a host editor. Leave them alone.
+- The admin's publish path keeps the per-section blob model: send only changed sections, store
   UTF-16 blobs, and never add a whole-site per-character loop to a handler.
 
-- **Always rebuild** after touching anything under `src/*.ts(x)` or `src/styles/*.css`
-  (`src/tools/build.mjs`), then `page_refresh` the preview. See `README.md` §1.
+- **Vite refreshes** after touching anything under `src/*.ts(x)` or `src/styles/*.css`
+  (`npm run dev`). See `README.md` §1.
 - **A section's list is refilled *in place* (`applyToList`), so never memoise a page's view of it on
   something that doesn't change.** The rows a page builds must be recomputed when the draft is
   applied — `Locations.tsx` ticks on the CMS version for exactly this reason (SPEC note 78). Matching

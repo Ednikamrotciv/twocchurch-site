@@ -331,7 +331,7 @@ const server = http.createServer(async (req, res) => {
     }
     if ((!st || !st.isFile()) && !pathname.startsWith("/__cms/")) {
       /* Standalone nicety: unknown paths (e.g. /admin) serve the app so the
-         router can resolve them — the hash stays the route on perchance.org. */
+         router can resolve them. */
       const shell = await readFile(path.join(DIST, "index.html"), "utf8");
       const body = Buffer.from(withShim(shell));
       res.writeHead(200, {

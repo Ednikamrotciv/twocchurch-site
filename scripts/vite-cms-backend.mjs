@@ -194,9 +194,8 @@ export function cmsBackend() {
             return;
           }
 
-          /* Local file uploads: the Perchance upload service only exists on the
-             live site, so local runs keep the office's photos and videos on
-             their own disk (data/uploads/). */
+          /* File uploads: the office's photos and videos are kept on their own
+             disk (data/uploads/). */
           if (pathname === "/__upload" && req.method === "POST") {
             const ctype = String(req.headers["content-type"] || "").split(";")[0].trim().toLowerCase();
             if (!ctype.startsWith("image/") && !ctype.startsWith("video/")) {
@@ -250,8 +249,8 @@ export function cmsBackend() {
             return;
           }
 
-          /* Local YouTube proxy (YouTube sends no CORS headers; the
-             superFetch plugin only exists on the live site). */
+          /* Same-origin YouTube proxy (YouTube sends no CORS headers, so the
+             browser cannot read it directly). */
           if (pathname === "/__yt" && req.method === "GET") {
             const target = url.searchParams.get("url") || "";
             let host = "";

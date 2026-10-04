@@ -4,7 +4,7 @@ export type RouteState = {
   path: string;
   query: URLSearchParams;
   hash: string;
-  /** Under /admin (or #/admin on perchance.org): the site with tools on. */
+  /** Under /admin: the site with tools on. */
   editing: boolean;
   /** The address said "admin" somewhere other than the front ("…/ministries/admin"). */
   movedAdmin: boolean;
@@ -13,13 +13,9 @@ export type RouteState = {
 /** Every admin URL lives under this prefix; the site's own routes follow it. */
 export const ADMIN_PREFIX = "/admin";
 
-/* Clean paths off perchance.org; hash route inside its frame. */
+/* Clean path routing, everywhere. */
 export function isPathMode(): boolean {
-  try {
-    return typeof window !== "undefined" && !(window as any).generatorName;
-  } catch {
-    return true;
-  }
+  return true;
 }
 
 const listeners = new Set<() => void>();
@@ -35,21 +31,9 @@ if (typeof window !== "undefined" && isPathMode()) {
 let current: RouteState = readLocation();
 
 function readLocation(): RouteState {
-  let raw: string;
-  if (isPathMode()) {
-    raw = (window.location.pathname || "") + (window.location.search || "");
-  } else {
-    raw = window.location.hash || "";
-    if (raw.startsWith("#")) raw = raw.slice(1);
-    /* Off perchance.org the real path routes; on it, the hash does. */
-    if (!raw && !(window as any).generatorName) {
-      const pn = window.location.pathname || "";
-      if (pn && pn !== "/") raw = pn + (window.location.search || "");
-    }
-  }
-  // The perchance editor appends non-path hashes (e.g. "#edit"); anything that
-  // is not an app route is treated as the home page.
-  if (!raw.startsWith("/")) raw = "/";
+  const raw: string = (window.location.pathname || "") + (window.location.search || "");
+  // Anything that is not an app route is treated as the home page.
+  if (!raw.startsWith("/")) return { path: "/", query: new URLSearchParams(""), hash: raw, editing: false, movedAdmin: false };
   const qIndex = raw.indexOf("?");
   let path = qIndex === -1 ? raw : raw.slice(0, qIndex);
   const search = qIndex === -1 ? "" : raw.slice(qIndex + 1);
@@ -191,8 +175,6 @@ export function Link({ to, query, children, onClick, ...rest }: LinkProps) {
 }
 
 export function absoluteLink(to: string): string {
-  const name = (window as any).generatorName || "";
-  if (name) return `https://perchance.org/${name}` + buildUrl(to, undefined, { absolute: true });
   // Share links always point at the public site, never at the office's view —
   // and at the domain root, which is where the deployed site lives.
   return window.location.origin + buildUrl(to, undefined, { absolute: true });

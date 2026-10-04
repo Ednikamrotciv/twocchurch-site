@@ -19,7 +19,7 @@ function hashText(text) {
 }
 
 export { hashText };
-/* Surgically forget the publish log inside a server-plugin state image while
+/* Surgically forget the publish log inside a content-server state image while
    keeping every published section, the revision and the admin roster. True
    when the image was valid (even when there was no history to forget). */
 function clearPublishLog(state, scriptSrc) {
@@ -55,9 +55,11 @@ function clearPublishLog(state, scriptSrc) {
 }
 
 export async function createCmsHost(rootDir) {
-  const html = await readFile(path.join(rootDir, "index.html"), "utf8");
-  const m = html.match(/<script type="text\/x-server-plugin">([\s\S]*?)<\/script>/);
-  if (!m) throw new Error("cms-local: no x-server-plugin block found in index.html");
+  /* The site's own content server (sign-in, publishing, uploads, live
+     updates): one plain code file, run here in Node for `npm run dev` and
+     `npm start` alike. */
+  const scriptSrc = await readFile(path.join(rootDir, "scripts", "cms-server.js"), "utf8");
+  if (!scriptSrc.trim()) throw new Error("cms-local: scripts/cms-server.js is empty");
 
   const dataDir = path.join(rootDir, "data");
   await mkdir(dataDir, { recursive: true });
@@ -66,7 +68,7 @@ export async function createCmsHost(rootDir) {
      the publish history is cleared while every published section is kept, so
      nothing old can override the new code yet no content is lost.
      Same-version restarts keep everything. */
-  const scriptHash = hashText(m[1]);
+  const scriptHash = hashText(scriptSrc);
   const versionPath = path.join(dataDir, "cms-version.txt");
   let prevHash = "";
   try {
@@ -85,7 +87,7 @@ export async function createCmsHost(rootDir) {
     console.log("cms backend: fresh state (data/cms-state.bin will be created on first publish)");
   }
   if (prevHash && prevHash !== scriptHash) {
-    if (clearPublishLog(state, m[1])) {
+    if (clearPublishLog(state, scriptSrc)) {
       console.log("cms backend: new code version — publish history cleared, content kept");
       saveSoon();
     } else {
@@ -169,7 +171,7 @@ export async function createCmsHost(rootDir) {
   const selfObj = {};
   const sandbox = { state, pubsub, self: selfObj, console };
   vm.createContext(sandbox);
-  vm.runInContext(m[1], sandbox, { filename: "server-plugin.js" });
+  vm.runInContext(scriptSrc, sandbox, { filename: "cms-server.js" });
   const rpc = selfObj.rpc || {};
   console.log(`cms backend: running the site's own server code (${Object.keys(rpc).length} rpc methods)`);
 

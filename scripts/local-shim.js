@@ -22,11 +22,7 @@
     }
   } catch (e) {}
   if (typeof window === "undefined") return;
-  if (window.createServerSocket) return;
-  try {
-    if (window.root && typeof window.root.createServerSocket === "function") return;
-  } catch (e) {}
-  window.createServerSocket = function () {
+  if (window.createServerSocket) return;  window.createServerSocket = function () {
     var connId = "c" + Math.random().toString(36).slice(2) + Date.now().toString(36);
     var listeners = {};
     var openedOnce = false;

@@ -246,11 +246,9 @@ export function Admin() {
     try {
       sessionStorage.setItem(RETURN_KEY, JSON.stringify({ path: route.path, mode: panelMode, view: panelView, open: panelOpen, at: Date.now() }));
     } catch {}
-    /* The visitor's website, in a new tab like the icon says: the public page
-       on perchance.org, or the server root on a standalone host. If the popup
+    /* The visitor's website, in a new tab like the icon says. If the popup
        is blocked, fall back to going there in this tab. */
-    const name = (window as any).generatorName || "";
-    const url = name ? `https://perchance.org/${name}#/` : window.location.origin + "/";
+    const url = window.location.origin + "/";
     let opened: Window | null = null;
     try {
       opened = window.open(url, "_blank", "noopener");

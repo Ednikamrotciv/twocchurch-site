@@ -799,11 +799,9 @@ export function setPhotoValue(slotKey: string, value: string) {
 /* ------------------------------------------------------------------ socket */
 
 function socketFactory(): (() => any) | null {
-  // Plugins imported in main.pjs live on the pjs root list, which is exposed as
-  // `window.root` (the bare name only exists inside inline classic scripts).
+  /* Local runs: the dev/production server injects its own same-origin socket
+     (scripts/local-shim.js) — sign-in, publishing, uploads, live updates. */
   const w = window as any;
-  const r = w.root;
-  if (r && typeof r.createServerSocket === "function") return () => r.createServerSocket();
   if (typeof w.createServerSocket === "function") return () => w.createServerSocket();
   /* A deployed copy pointed at the office server (baked in at deploy time or
      typed into the admin console): the same shared store, over plain HTTPS. */
@@ -876,7 +874,7 @@ function startFeed() {
 export async function startCms() {
   if (starting) return;
   starting = true;
-  /* Which shared store, if any: the platform's, the local one, or the office
+  /* Which shared store, if any: the local backend, or the office
      server this copy was pointed at (deploy config or admin console). */
   await initServerUrl().catch(() => {});
 
@@ -1188,7 +1186,7 @@ function onClose(event: any) {
   socket = null;
   authed = false;
   if (event?.code === 4403) {
-    // perchance.org-only restriction: embedding elsewhere is permanent.
+    // embedding blocked elsewhere is permanent: stay local.
     status = "local";
     localOnly = true;
     connNote = "this page is embedded where the server is blocked";
@@ -1742,7 +1740,7 @@ export function changedSections(a: Snapshot, b: Snapshot): string[] {
 
 export function exportSnapshot(): string {
   return JSON.stringify(
-    { generator: (window as any).generatorName || "", exportedAt: Date.now(), rev, content: draft || applied },
+    { site: "world-overcomers", exportedAt: Date.now(), rev, content: draft || applied },
     null,
     2
   );

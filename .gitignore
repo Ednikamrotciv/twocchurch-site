@@ -13,6 +13,3 @@ scratch/
 Thumbs.db
 server.json
 feed.json
-src/bundle.js
-src/bundle.css
-src/chunks/

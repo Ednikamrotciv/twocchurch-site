@@ -6,7 +6,7 @@ import { createCmsHost } from "./cms-local.mjs";
    the preview, with no scraping and no proxy on the visitor's browser.
 
    Why: the Watch live page used to read the church's YouTube channel live from
-   each visitor's browser (perchance's proxy in the preview, a public CORS
+   each visitor's browser (the office server's /__yt proxy in dev, a public CORS
    proxy on static hosts). The public proxy is flaky and often blocked, so a
    deployed copy fell back to sermon cards while the preview showed real
    services — same site, different lists. Now the office reads the channel once

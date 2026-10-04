@@ -32,11 +32,11 @@ export const SITE = {
   givingEmail: "giving@worldovercomers.org",
   mediaEmail: "media@worldovercomers.org",
   address: "Overcomers' Cathedral, Oke-Odo Road, Agbado Oke-Odo, Alimosho, Lagos State, Nigeria",
-  /** The church's own zone — Lagos. Visitors read on their own clock unless `visitorTime` is off. Editable in console or main.pjs. */
+  /** The church's own zone — Lagos. Visitors read on their own clock unless `visitorTime` is off. Editable in console. */
   timezone: pick("churchTimezone", DEFAULT_TIMEZONE),
   /** Show each visitor times on their own clock (note 85). Off: everyone on the church clock. */
   visitorTime: true,
-  /** The currency figures are written in (USD unless changed). Visitors read their own. Editable in console or main.pjs. */
+  /** The currency figures are written in (USD unless changed). Visitors read their own. Editable in console. */
   currency: pick("churchCurrency", DEFAULT_CURRENCY),
   /** Show each visitor money in their own currency (note 98). Off: the church's currency as typed. */
   visitorCurrency: true,

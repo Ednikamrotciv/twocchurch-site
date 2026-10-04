@@ -7,6 +7,7 @@ import { LIVE } from "../data/live";
 import { parseYoutubeId } from "./embed";
 import { liveTarget } from "./livestatus";
 import { readStore, writeStore } from "./hooks";
+import { serverUrl } from "./remoteserver";
 
 export type RecentService = {
   /** The YouTube video the service was published as. */
@@ -107,27 +108,17 @@ function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
   });
 }
 
-/** Fetch a YouTube page: local proxy, perchance proxy, else public CORS proxy. */
+/** Fetch a YouTube page: same-origin / office-server proxy, else public CORS proxy. */
 async function fetchText(url: string): Promise<string | null> {
   const local = await fetchTextLocal(url);
   if (local) return local;
-  const proxy = (window as any).root?.superFetch;
-  if (typeof proxy === "function") {
-    try {
-      const res = await withTimeout(proxy(url) as Promise<Response>, TIMEOUT_MS);
-      if (res && res.ok !== false) {
-        const text = await res.text();
-        if (typeof text === "string" && text.length > 0) return text;
-      }
-    } catch (err) {
-      /* fall through to the public proxy */
-    }
-  }
+  const office = await fetchTextOffice(url);
+  if (office) return office;
   return fetchTextRemote(url);
 }
 
-/* Last resort for hosts with no same-origin proxy: a free public CORS proxy.
-   Only reached when both local and perchance doors are absent, and a miss
+/* Last resort for hosts with no proxy: a free public CORS proxy.
+   Only reached when no office door is open, and a miss
    degrades exactly as before (the last good list stands). */
 async function fetchTextRemote(url: string): Promise<string | null> {
   try {
@@ -150,6 +141,21 @@ async function fetchTextLocal(url: string): Promise<string | null> {
     const host = window.location?.hostname || "";
     if (host !== "localhost" && host !== "127.0.0.1" && host !== "") return null;
     const res = await withTimeout(fetch(`/__yt?url=${encodeURIComponent(url)}`, { cache: "no-store" }), TIMEOUT_MS);
+    if (!res || !res.ok) return null;
+    const text = await res.text();
+    return typeof text === "string" && text.length > 0 ? text : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Office-server YouTube read for deployed copies joined to it. Skipped when
+    this copy stands alone (the public proxy above covers that). */
+async function fetchTextOffice(url: string): Promise<string | null> {
+  try {
+    const base = serverUrl();
+    if (!base) return null;
+    const res = await withTimeout(fetch(`${base}/__yt?url=${encodeURIComponent(url)}`, { cache: "no-store" }), TIMEOUT_MS);
     if (!res || !res.ok) return null;
     const text = await res.text();
     return typeof text === "string" && text.length > 0 ? text : null;

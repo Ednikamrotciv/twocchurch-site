@@ -298,25 +298,15 @@ export async function fetchPastedPicture(url: string): Promise<Blob | null> {
     return null;
   }
   if (!/^https?:\/\//i.test(clean)) return null;
-  const attempts: (() => Promise<Response>)[] = [];
   try {
-    const proxy = (window as any)?.root?.superFetch;
-    if (typeof proxy === "function") attempts.push(() => proxy(clean));
+    const res = await fetch(clean);
+    if (!res || (res as Response).ok === false) return null;
+    const type = String((res as Response).headers?.get?.("content-type") || "");
+    if (type && !/^image\//i.test(type.split(";")[0].trim())) return null;
+    const blob = await (res as Response).blob();
+    if (blob && blob.size > 0 && (!blob.type || /^image\//i.test(blob.type))) return blob;
   } catch {
-    /* no window (a worker, a test): plain fetch below */
-  }
-  attempts.push(() => fetch(clean));
-  for (const run of attempts) {
-    try {
-      const res = await run();
-      if (!res || (res as Response).ok === false) continue;
-      const type = String((res as Response).headers?.get?.("content-type") || "");
-      if (type && !/^image\//i.test(type.split(";")[0].trim())) continue;
-      const blob = await (res as Response).blob();
-      if (blob && blob.size > 0 && (!blob.type || /^image\//i.test(blob.type))) return blob;
-    } catch {
-      /* try the next way of reading it */
-    }
+    /* unreadable there — the office can upload the picture instead */
   }
   return null;
 }

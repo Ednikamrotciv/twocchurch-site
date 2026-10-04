@@ -34,14 +34,9 @@ export function setServerOverride(url: string) {
   } catch { /* a browser that stores nothing still reads the site */ }
 }
 
-/* The deploy's own address, once — missing on local runs and on perchance.org
-   (where the platform socket rules and no file is shipped). */
+/* The deploy's own address, once — missing on local runs (where the page
+   talks to its own backend directly). */
 async function siteServer(): Promise<string> {
-  try {
-    if ((window as any).generatorName) return "";
-  } catch {
-    return "";
-  }
   try {
     const res = await fetch(siteFile(SITE_FILE), { cache: "no-store" });
     if (!res.ok) return "";

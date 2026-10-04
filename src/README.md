@@ -3,20 +3,19 @@
 A complete, responsive church website built with **React 18 + TypeScript**, styled after the
 church seal (gold on near-black, crimson and sky accents, serif display type).
 
-Everything lives in this `src/` tree. `main.pjs` holds only `$meta` + a few church-wide
-strings, and `index.html` is a thin shell that loads `src/bundle.js` and `src/bundle.css`.
+Everything lives in this `src/` tree. `src/data/site.ts` holds the church-wide
+strings (name, tagline, phone, email, timezone, currency), and `index.html` is a thin shell that loads `src/main.tsx`.
 
 ---
 
 ## 1. How it is built
 
-The generator ships a **pre-built bundle**, so visitors download one small JS file and one CSS
-file and nothing else — no CDN, no runtime transpiling. React and ReactDOM are compiled *into* `src/bundle.js` at build
-time (fetched from esm.sh by the build script).
+React 18 + TypeScript, bundled by **Vite** (`npm run dev` for editing with instant refresh,
+`npm run build` for the production `dist/`). No CDN, no runtime transpiling.
 
-- Source of truth: **`src/**/*.tsx`** (never edit the built files by hand)
-- Build output: **`src/bundle.js`** + **`src/bundle.css`** (both generated, both shipped)
-- Build script: **`src/tools/build.mjs`** (esbuild-wasm)
+- Source of truth: **`src/**/*.tsx`**
+- Dev: **`npm run dev`** (Vite + the publishing backend as middleware)
+- Production: **`npm run build`** → `dist/` (served by `npm start`, or uploaded to any static host)
 - Copy collector: **`src/tools/auto-copy.mjs`** (see *Every text, not just the headlines* below)
 
 ### Every text, not just the headlines
@@ -30,15 +29,9 @@ expression position (the fallback in `name || "Friend"`, a caption inside `{read
 template literals whose holes are plain values, and the display-valued properties of the little record
 lists behind breadcrumbs, tabs and the command palette — gives each a content-addressed key
 (`auto.<page>.<hash>`) and rewrites the source to `{ct("…")}` or, for a template, to
-`ct("…", { name: value })` with the wording stored as `{{name}}` tokens. Run it after adding new literal
-text to a component or a page, then rebuild:
-
-```js
-globalThis.fs = fs;
-const src = await fs.readTextFile("src/tools/auto-copy.mjs");
-const mod = await import(URL.createObjectURL(new Blob([src], { type: "text/javascript" })));
-return await mod.run();              // { dryRun: true } to see what it would take
-```
+`ct("…", { name: value })` with the wording stored as `{{name}}` tokens. `src/tools/auto-copy.mjs`
+collects newly added literal text into `src/data/autocopy.ts` (run it from a workspace with file
+access, then rebuild with `npm run build`).
 
 It is idempotent: already-collected strings keep their key and their default value, so re-running it
 only picks up what is actually new. The key is a hash of the file, the words and the occurrence, so
@@ -64,34 +57,17 @@ comes from either the copy layer or a record the office fills in from the drawer
 
 ### Rebuilding after any change under `src/*.tsx`, `src/*.ts` or `src/styles/*.css`
 
-Run this from the perchance agent workspace (`execute_js`), then `page_refresh`:
-
-```js
-globalThis.fs = fs;                                  // the workspace filesystem
-const src = await fs.readTextFile("src/tools/build.mjs");
-const mod = await import(URL.createObjectURL(new Blob([src], { type: "text/javascript" })));
-return await mod.build();                            // writes src/bundle.js + src/bundle.css
-```
-
-Notes:
-
-- esbuild-wasm compiles the whole graph in ~5–20 s; it runs in the same renderer process as the
-  preview page, so the page can feel unresponsive while it works. Run the build on its own (do
-  not mix it with page operations in one call).
-- esbuild does **not** type-check — it only transpiles. Type errors therefore do not break the
-  build, but missing exports/imports do (the build errors out with a file + line).
-- The build resolves `react`, `react/jsx-runtime`, `react-dom`, `react-dom/client` and
-  `framer-motion` to pinned esm.sh URLs (see `BARE` in the build script); anything else must be a
-  relative path inside `src/`. Framer Motion's entry pins `react`/`react-dom` as externals so the
-  bundle keeps exactly one React — a second copy would break hooks at runtime.
+Save and Vite refreshes the browser by itself (`npm run dev`). For production, `npm run build`
+writes `dist/` (see `DEPLOY.md`). Type-check with `npm run typecheck` (`tsc --noEmit`) — the
+bundler only transpiles, so type errors do not break the build but missing exports/imports do.
 
 ---
 
-## 2. Editing content (no build needed for `main.pjs`)
+## 2. Editing content
 
 | What | Where |
 | --- | --- |
-| Church name, tagline, phone, email, address, socials | `main.pjs` (surfaced through `window`) **and** `src/data/site.ts` |
+| Church name, tagline, phone, email, address, socials | `src/data/site.ts` (also editable in the console under Church profile) |
 | Values, beliefs, timeline, leadership, ministries, FAQs, giving funds, departments | `src/data/site.ts` |
 | Branches — country (Nigeria / America / Canada, in list order), the `isHq` head office (Lagos — its address is the one on Oke-Odo Road; set in the data since SPEC note 131), who a sub-branch belongs to (`parentId`, which is what makes it a sub-branch — the `isSub` flag is derived from it — and is read by `subBranchesOf`), city, address, coordinates, service schedule, pastor | `src/data/branches.ts` |
 | Sermons (YouTube video link, speaker, date, scripture, summary, points, questions, venue — the drawer's form is thirteen fields since SPEC note 128) | `src/data/sermons.ts` |
@@ -106,12 +82,12 @@ Notes:
 | Colours, type, spacing (design tokens) | `src/styles/global.css` (`:root`, `[data-theme="light"]`) — the glass material and the page gradient are the `--glass-*` tokens in `src/styles/glass.css` (§3a) |
 
 The church office can also edit **all** of the above from the built-in editor at
-`#/admin` — see the section at the end of this file. Both routes write to the same data: the
+`/admin` — see the section at the end of this file. Both routes write to the same data: the
 editor stores *overrides* per section, and the shipped `src/data/*.ts` files remain the fallback
-(and the source of truth for a fresh generator).
+(and the source of truth for a fresh checkout).
 
-`main.pjs` values win over the defaults in `src/data/site.ts` (see the small `pick()` helper at
-the top of that file), so the church can rename itself without touching TypeScript.
+The office's published values win over the defaults in `src/data/site.ts`, so the church can
+rename itself from the console without touching TypeScript.
 
 **Sermon videos:** the 19 messages currently point at publicly available teaching videos
 (Desiring God, In Touch, Tony Evans…) used as demo content, with real titles, speakers and
@@ -178,9 +154,8 @@ service is on and the stream has not opened yet the frame holds a third state in
 we will be live here shortly, please bear with us* (`src/components/liveclock.tsx`,
 `src/lib/ticksound.ts`). It is only skipped for a site with no channel, no stream link and no Facebook
 page, where the panel plays the most recent message as before. The check goes through
-perchance's `superFetch` proxy (`main.pjs` imports *super-fetch-plugin* — YouTube sends no CORS
-headers, so a plain `fetch` is refused) every **45s** when a service is on the clock or a stream is
-running, and every **3 minutes** otherwise; hidden tabs are skipped and re-checked the moment they
+the office server's `/__yt` proxy — YouTube sends no CORS headers, so a plain `fetch` is refused —
+every **45s** when a service is on the clock or a stream is running, and every **3 minutes** otherwise; hidden tabs are skipped and re-checked the moment they
 come back. A failed check is *unknown*, never *not live*, so a flaky proxy can only fall back to the
 old behaviour — the office's own on-air state (the *Live stream* section's **Start** / **Continue** /
 **Stop** buttons, which write `LIVE.isLive`) and, when there is nothing to check at all, the service
@@ -194,7 +169,7 @@ so the site goes back to counting down to the next one rather than flicking to l
 (SPEC note 106).
 
 **And when the stream ends, the drawer stops with it** (`src/lib/autostop.ts`, SPEC note 111): while
-the office is on `#/admin` the live check is watched from the shell of the page, and when a broadcast
+the office is on `/admin` the live check is watched from the shell of the page, and when a broadcast
 it had *seen* live comes back ended it writes what **Stop the livestream** writes — `isLive` off,
 `liveCut` stamped with the moment the stream ended, `liveEndedBy: "channel"` — and seeds the finished
 service into *Recent services*, so nobody has to be at the desk when a service closes. It counts only
@@ -288,10 +263,9 @@ The two levels work together:
 
 Under the hood: `img(name)` is `photoSrc(name)`, the editor stores only the *address* of a photo
 (so a published revision stays a few KB), and uploaded photos are shrunk in the browser
-(`compressImageBlob`, 1600 px wide JPEG) and hosted by Perchance's upload service via
-`uploadPlugin` (imported in `main.pjs`). **The logo is not in `PHOTO_SLOTS`** — it is part of the
-generator's identity (`LOGO` / `LOGO_MARK`) and is deliberately not editable, along with the
-church name.
+(`compressImageBlob`, 1600 px wide JPEG) and kept on the office server (`data/uploads/`).
+**The logo is not in `PHOTO_SLOTS`** — it is part of the site's identity (`LOGO` / `LOGO_MARK`)
+and is deliberately not editable, along with the church name.
 
 **Events** are stored as `offsetDays` from today, so the calendar never goes stale. The section in the
 drawer opens on **Happening now** (SPEC note 106) — the activity the site is carrying, the one on
@@ -333,18 +307,18 @@ src/
   main.tsx                entry — mounts <App/>, imports the stylesheets
   App.tsx                 picks the site or the admin shell, error boundary, scroll restoration
   lib/
-    router.tsx            ~140-line hash router (Link, navigate, matchPath, absoluteLink);
+    router.tsx            ~140-line path router (Link, navigate, matchPath, absoluteLink);
                           reads `/admin` as the office's word wherever it appears in the address
-                          ("#/admin/ministries" and "#/ministries/admin" are the same page) and
+                          ("/admin/ministries" and "/ministries/admin" are the same page) and
                           settles the URL on the tidy spelling as it goes
     routes.tsx            the route table (ROUTES, resolvePath) — shared by the public site and
-                          #/admin; resolvePath() is forgiving, so a mistyped or outdated address
+                          /admin; resolvePath() is forgiving, so a mistyped or outdated address
                           ("/live", "/about-us", "/sermons/2024/03/x") lands on the page it meant
                           and the address bar is rewritten to the real one
     pageMap.ts            route → the page's name (drawn in the drawer header) and the ordered
                           section ids that page prints (kept for reference — SPEC note 52)
     jobs.ts               the office's job list (JOBS) + searchEverything() — the friendly way
-                          around #/admin: everyday jobs, and one search box over the words,
+                          around /admin: everyday jobs, and one search box over the words,
                           the records, the photos and the sections
     hooks.ts              useLocalState (reactive localStorage bus), theme, toasts, hotkeys,
                           scroll progress (`useReveal` still drives Stat's count-up trigger)
@@ -358,7 +332,7 @@ src/
                           maths, geo/distance, ICS + text download, image compression,
                           clipboard/share, record types
     visitor.ts            where the visitor is: asks an IP-geolocation service (a *plain* fetch —
-                          never superFetch, which would answer with perchance's location) for the
+                          never a server proxy, which would answer with the server's location) for the
                           zone, country and currency, caches them, and re-renders the site onto that
                           clock and that money (SPEC notes 85, 98)
     rates.ts              today's exchange rates, fetched by the visitor's own browser, cached for
@@ -367,7 +341,7 @@ src/
                           library (saved/watched/notes), giving log, visit plan, reading plan
     embed.ts              YouTube / Facebook / uploaded-video sources: ids, embeds, stills
     livestatus.ts         "are we on air?" — asks YouTube (and, from the drawer only, Facebook)
-                          about the church's channel through superFetch (markers, cadence, cache,
+                          about the church's channel through the office-server proxy (markers, cadence, cache,
                           and the moment a broadcast we watched ended) so the live screen follows
                           the real broadcast (SPEC notes 68, 111); one ref-counted poll shared by
                           the whole site through `onAir()` in `store.ts` (SPEC note 133)
@@ -445,7 +419,6 @@ src/
                           Library, NotFound, Admin (the editing shell laid over any page)
   styles/                 global.css (tokens + primitives), pages.css (page/section styles),
                           admin.css (field controls), edit.css (bar, drawer, the jobs/search/gate)
-  tools/build.mjs         the build (see above)
   tools/auto-copy.mjs     finds the remaining hard-coded words, records their role (button /
                           page title / section title) and turns them into copy entries
   assets/
@@ -506,7 +479,7 @@ them apart:
 1. **The church's own clock** — `churchTimezone()` in `src/lib/store.ts`. The head office is in
    Lagos, so a time the church writes down (the Sunday gathering, the office hours, the day today's
    verse belongs to) is written in `Africa/Lagos`. Set it in the drawer (*Church profile → Time
-   zone*) or from `main.pjs` (`churchTimezone`); an unknown zone name never throws — it falls back.
+   zone*); an unknown zone name never throws — it falls back.
 2. **A branch's own clock** — `branchZone(branch)`, the branch's `timezone` field (editable under
    *Service times & branches*), or the church's when it names none. 9:00 AM in Dallas *is* 3:00 PM
    in Lagos, so the *instant* of a gathering is worked out in the zone of the city it happens in.
@@ -526,8 +499,8 @@ The office can switch the whole thing off — *Church profile → **Show each vi
 zone*** (`SITE.visitorTime`, `setVisitorTimeEnabled()`) — which puts every reader back on the
 church's clock; that is the switch to use if the church ever wants one clock for everybody.
 
-The lookup is a **plain `fetch`**, never `superFetch`: the proxy sends the request from perchance's
-server, so the service would answer with perchance's *own* location and every visitor would be told
+The lookup is a **plain `fetch`**, never a server proxy: the proxy sends the request from the
+server's address, so the service would answer with the *server's own* location and every visitor would be told
 the same city. Four keyless, CORS-open services are tried in turn (`ipapi.co/json`, `get.geojs.io`,
 `ipinfo.io`, `ipapi.co/timezone`) and the answer carries the country and its currency as well as the
 zone; if none answers, the visitor's *device* is used instead — its time zone, and the region of its
@@ -552,8 +525,8 @@ started at 7:00 AM his time).
 ### The money — written in the church's currency, read in the visitor's
 
 The same answer that gives a visitor their clock gives them their **money** (SPEC note 98). The site's
-figures are written in one currency — `baseCurrency()`, from *Church profile → Currency* (or
-`churchCurrency` in `main.pjs`), US dollars by default — and every visitor reads them in their own:
+figures are written in one currency — `baseCurrency()`, from *Church profile → Currency*,
+US dollars by default — and every visitor reads them in their own:
 `displayCurrency()` returns the currency of the country their IP is in when the office's switch is on
 and a rate exists for it, and the church's own otherwise. `fmtMoney(amount, currency)` names the
 currency the *amount* is in (defaulting to the church's) and prints it in `displayCurrency()`;
@@ -625,15 +598,15 @@ made. If the section is reset, its `dirty` flag (in `wom.cms.draft`) is set, and
 never re-based onto the shipped list again — clear that flag by hand if the section should stay a
 follower.
 
-### Routes (hash-based, so every page is shareable)
+### Routes (clean addresses, so every page is shareable)
 
-`#/` · `#/about` · `#/locations` · `#/sermons` · `#/sermons/:id` · `#/watch-live` · `#/events` ·
-`#/testimonies` · `#/giving` (aliases `#/give`, `#/donate`) · `#/prayer` · `#/contact` · `#/visit` ·
-`#/devotional` · `#/ministries` · `#/library` · anything else → 404 page.
+/ · /about · /locations · /sermons · /sermons/:id · /watch-live · /events ·
+/testimonies · /giving (aliases /give, /donate) · /prayer · /contact · /visit ·
+/devotional · /ministries · /library · anything else → 404 page.
 
-The perchance editor's own `#edit` hash is ignored by the router (it falls back to home). The
-giving page's three panels are addressable too: `#/giving?tab=funds` and `#/giving?tab=other` open
-*Where it goes* and *Account details* (`#/giving` alone is *Steps*, the wizard, and anything unknown
+Old `#/…` bookmarks still open: they become the same clean address on load. The
+giving page's three panels are addressable too: `/giving?tab=funds` and `/giving?tab=other` open
+*Where it goes* and *Account details* (`/giving` alone is *Steps*, the wizard, and anything unknown
 falls back to it). Home's giving band uses this, and so does the *Give now* button at the top of the
 giving page — it opens *Account details*.
 
@@ -645,7 +618,7 @@ in `localStorage` under `wom.*` keys and can be wiped from **My library → Clea
 Forms that need to actually reach the church open the visitor's own mail client (or WhatsApp)
 with the content pre-filled; nothing is transmitted without them sending it.
 
-Two small lookups leave the visitor's browser by themselves (never through perchance's proxy, and
+Two small lookups leave the visitor's browser by themselves (never through a server proxy, and
 neither is stored on a server): the IP-geolocation service that answers *where is this visitor* —
 which their time zone and their currency both come from, and which is cached in `wom.visitorClock` —
 and the public exchange-rate feed the money is converted with, cached in `wom.fxRates`. Both send
@@ -760,29 +733,23 @@ nothing but the request itself, the same address every request to any server alr
 
 ## 5. Known constraints
 
-- The site runs inside the perchance preview iframe; deep links use the hash so they work on the
-  top-level `perchance.org/<name>` URL (see `absoluteLink()`).
 - Photos are AI-generated stock imagery for the template; swap `src/assets/img/*` for real
   photography (keep the same filenames or update `img()` in `src/data/site.ts`).
 - The map embeds come from `openstreetmap.org` (no API key needed). Swap in a Google Maps embed
   in `src/lib/store.ts → mapEmbedUrl()` if the church prefers one.
 - YouTube thumbnails/players hotlink to `i.ytimg.com` / `youtube.com`, which is normal for
-  sermon archives. The perchance page sets `<meta name="referrer" content="no-referrer">`, and
-  YouTube refuses to boot a player that arrives with no referrer (`Error 153`), so every player
-  `<iframe>` sets `referrerPolicy={EMBED_REFERRER_POLICY}` (`src/lib/embed.ts`). Keep that attribute
+  sermon archives. Some privacy setups send no referrer, and YouTube refuses to boot a player
+  that arrives with none (`Error 153`), so every player `<iframe>` sets
+  `referrerPolicy={EMBED_REFERRER_POLICY}` (`src/lib/embed.ts`). Keep that attribute
   on any new embed you add (the map iframe under it opts in the same way).
 
 ---
 
-## Editing the site — the office's view (`#/admin`)
+## Editing the site — the office's view (`/admin`)
 
-Visitors read `https://perchance.org/<generator-name>`; the office opens
-**`https://perchance.org/<generator-name>#/admin`**. (It must be the hash route — the platform owns
-everything after the generator name.)
-
-**#/admin is not a separate console — it *is* the website.** Every page under the prefix
-(`#/admin`, `#/admin/sermons`, `#/admin/sermons/<id>`, `#/admin/giving`, …) renders the same page
-components as the public site, through `src/lib/routes.tsx`. The page itself is left exactly as the
+The office opens **`/admin`** on the site. **/admin is not a separate console — it *is* the website.**
+Every page under the prefix (`/admin`, `/admin/sermons`, `/admin/sermons/<id>`, `/admin/giving`, …)
+renders the same page components as the public site, through `src/lib/routes.tsx`. The page itself is left exactly as the
 visitor sees it — nothing is underlined, outlined or clickable — and every change is made from the
 panel that slides in from the right:
 
@@ -850,13 +817,13 @@ panel that slides in from the right:
   `revertSection()` in `src/lib/cms.ts`, SPEC notes 114 and 137). The count it opens with *is* the pill's count
   — both come from `pendingSections()`, so they can never disagree.
 
-Browsing from #/admin stays in #/admin: `buildUrl` in `src/lib/router.tsx` prefixes every internal
+Browsing from /admin stays in /admin: `buildUrl` in `src/lib/router.tsx` prefixes every internal
 link while the route is under `/admin`, and `absoluteLink()` (share links, QR codes) deliberately
 does not. Links that must leave — "Open the live site" — pass `{ plain: true }`. Leaving that way
 writes the drawer's place (page, tab, section, open or not) to
 `sessionStorage["wom.cms.exitReturn"]`, so coming back reopens it exactly there; if the office has
 not come back within five minutes the public site takes them back itself (`readAdminReturn()` /
-`ADMIN_RETURN_MS` in `src/pages/Admin.tsx`, timer in `SiteApp`, SPEC note 152). A bare `#/admin`
+`ADMIN_RETURN_MS` in `src/pages/Admin.tsx`, timer in `SiteApp`, SPEC note 152). A bare `/admin`
 visit returns to the exact page last open there, while the memory is fresh (SPEC note 154).
 
 ### How it works
@@ -880,7 +847,7 @@ is why `startCms()` reads the **stored draft first** and `persistDraft()` refuse
 until it has (`draftLoaded`): the drawer mounts first and makes itself a draft of the shipped words,
 so applying the cache before reading the stored draft wrote that draft over the office's own — a
 reload silently threw away everything they had not published yet (SPEC note 112). Without
-it, opening `#/admin` directly in a browser would open a draft of the *shipped* words, report a
+it, opening `/admin` directly in a browser would open a draft of the *shipped* words, report a
 change nobody made, and publish those shipped words over the office's own. The same pass must then
 **put the draft back on the page** (`showDraftIfEditing()`, at the end of `applyOverrides` and of
 `startCms`): the drawer mounts before the stored draft is read, so without it a reload leaves the
@@ -1041,7 +1008,7 @@ existing line.
 anything with a `btn` class / a direct child of `<h1>`–`<h6>` / a `label` or `title` attribute on a
 button-ish element). `copyIsFixed(id)` is the single question the rest of the code asks.
 
-**Seven things are deliberately locked:** the **church name** (it comes from `main.pjs` and the `site`
+**Seven things are deliberately locked:** the **church name** (it comes from `src/data/site.ts` and the `site`
 section neither reads nor writes it), the **logo** (no field at all — the artwork in
 `src/assets/logo-mark.png`), the site's **buttons, page titles and section titles**, which are part
 of the design rather than its content, and the lines the church asked to be taken out of the editor
@@ -1125,32 +1092,30 @@ Every picture on the site is the office's to change, and all of them reach the p
   (`fallbackPhoto`) plus `emptyNote` for the cases where the site shows something other than a
   picture (a person's initials, a video's own still), so the drawer can say what a visitor sees.
 - **The one control** (`ImageField`, `type: "image"`) offers exactly two ways to set a picture:
-  upload from the device (`PhotoUpload` → `compressImageBlob` → `upload-plugin`, stored as the
-  hosted URL), or paste the address of any photo. The caption above them says which picture is in
+  upload from the device (`PhotoUpload` → `compressImageBlob` → the office server's `/__upload`,
+  stored as the hosted URL), or paste the address of any photo. The caption above them says which picture is in
   use — no dropdown of names and no strip of ours, and the pasted-address box stays empty while a
   photo of ours is in use, so the raw bundled path is never shown. *Use the original photo* clears
   the field. The logo is deliberately not editable.
 
 ### How storing and sharing works
 
-`index.html` holds a `<script type="text/x-server-plugin">` block: a small, **public** content
-server that keeps the published content in `state` (perchance's durable per-generator storage).
+`scripts/cms-server.js` is the content server: sign-in, publishing, uploads, live updates. It runs
+inside Node (`npm run dev` via `scripts/vite-cms-backend.mjs`, production via `npm start` /
+`scripts/serve.mjs`), keeping the published content in `data/cms-state.bin`.
 
 - The office edits a **draft** (kept in `localStorage` so a reload loses nothing) and presses
   **Publish**. Only the sections that actually changed are sent.
-- The server stores **one blob per section** as UTF-16 code units. That is a deliberate
-  performance decision: handlers get 50 ms of CPU and the runtime is an interpreter, so a
-  per-character encode of the whole site (~47 KB) would blow the budget. Per-section blobs keep
-  every publish to a few KB; measured worst case (all 19 sections at once) is comfortably inside
-  it. `JSON.parse` is native and cheap, so the index/meta stay JSON.
-- After a publish the server nudges every connected visitor over pub/sub; clients re-fetch and
-  re-render — no reload needed for anyone, admin or visitor.
+- The server stores **one blob per section** as UTF-16 code units, so every publish stays a few
+  KB; `JSON.parse` is native and cheap, so the index/meta stay JSON.
+- After a publish the server nudges every connected visitor over server-sent events; clients
+  re-fetch and re-render — no reload needed for anyone, admin or visitor.
 - The site renders **`{ ...defaults, ...overrides }`**: sections nobody has edited are the
   shipped code. `getContent` therefore only ever transfers what the office has actually changed.
 - If a colleague publishes while you have a draft open, your untouched sections are rebased onto
   their change; only the sections you actually edited are kept (and re-published).
-- If the socket is down (or the page is embedded outside perchance.org, close code `4403`), the
-  editor cannot sign in: editing takes an online sign-in and there is no offline back door
+- If the office server is unreachable, the editor cannot sign in: editing takes an online
+  sign-in and there is no offline back door
   (the old passwordless local preview mode was removed at the office's request). The sign-in
   card says so and keeps retrying by itself. A publish that fails mid-session
   still lands in this browser's pending queue and syncs when the server is back.
@@ -1159,29 +1124,24 @@ server that keeps the published content in `state` (perchance's durable per-gene
 
 - Set to the **temporary password `12345678`** at the user's request (Aug 2026) so the office can
   get in immediately; rotate it to a machine-generated 40-hex-char secret before going public.
-- Only its **SHA-256 hash** lives in the generator source (`ADMIN_HASH` in `index.html`);
+- Only its **SHA-256 hash** lives in the shipped source (`ADMIN_HASH` in `scripts/cms-server.js`);
   the plaintext appears nowhere in the code.
-- The password is sent over the socket, hashed server-side (synchronous pure-JS SHA-256 in the
-  server block) and compared. Failed attempts are rate-limited per connection and per
-  `conn.net` group.
+- The password is sent over HTTPS, hashed server-side (synchronous pure-JS SHA-256 in the
+  server file) and compared. Failed attempts are rate-limited per connection and per
+  network group.
 - The unlocked state is kept in `sessionStorage` for that browser tab, so a reload does not
   force a re-type; the server still re-checks it on every privileged call, and only ever trusts
   a connection id it has authenticated itself.
-- **To change the password:** pick a new secret, compute its SHA-256 hex outside the
-  generator, and replace `ADMIN_HASH`. In the agent workspace:
+- **To change the password:** pick a new secret, compute its SHA-256 hex, and replace
+  `ADMIN_HASH` in `scripts/cms-server.js`:
 
-```js
-// execute_js — change the admin password
-const password = "..." /* the new password (a machine-generated secret is best) */;
-const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(password));
-const hex = [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, "0")).join("");
-const html = await fs.readTextFile("index.html");
-await fs.writeTextFile(
-  "index.html",
-  html.replace(/var ADMIN_HASH = "[0-9a-f]{64}";/, 'var ADMIN_HASH = "' + hex + '";')
-);
-// then give `password` to the office and tell nobody else
+```sh
+node -e 'console.log(require("node:crypto").createHash("sha256").update("THE-NEW-PASSWORD","utf8").digest("hex"))'
 ```
+
+then give the password to the office and tell nobody else. (Changing the server file bumps its
+version stamp, which clears the publish *history* on next boot while keeping every published
+section — so rotate it before content piles up, or re-publish once afterwards.)
 
 Because the hash is public, a human-chosen password can be recovered offline by anyone who reads
 the source — the current `12345678` is intentionally **temporary**; prefer a machine-generated
@@ -1201,8 +1161,8 @@ secret (40 hex chars is fine) for the real thing.
   invite. Records live in the server's meta blob (`subs`/`invites`, hashes only, caps 20/20);
   every privileged call re-checks the connection server-side, and the roster RPC never sends
   hashes out.
-- Sub-admin password hashes are **not** in the generator source (unlike `ADMIN_HASH`), so they
-  can only be attacked online, behind the same per-connection / per-`net` rate limits as login.
+- Sub-admin password hashes are **not** in the shipped source (unlike `ADMIN_HASH`), so they
+  can only be attacked online, behind the same per-connection / per-network rate limits as login.
 
 ### Main-admin two-factor (SPEC notes 165, 170)
 
@@ -1229,14 +1189,14 @@ secret (40 hex chars is fine) for the real thing.
   refuses every change that would leave no way in (deleting the last sub-admin or revoking
   the last invite while the main sign-in is off, were it ever switched off via the kept
   `setMainOff` RPC — e.g. a signed-in sub-admin restoring an already-retired state).
-- Server side (`index.html`): pure-JS SHA-1/HMAC/TOTP with a ±1 step window, secret + answer
+- Server side (`scripts/cms-server.js`): pure-JS SHA-1/HMAC/TOTP with a ±1 step window, secret + answer
   hash in the meta blob, `login` returning the question with `needCode`, plus `login2fa` /
   `totpSetup` / `totpDisable` / `setSecurityQA` RPCs behind the same rate limits as login
   (5 tries per connection, 40 per network per 10 minutes — so the answer must still be
   something only the office knows). The secret is made by the office browser
   (`crypto.getRandomValues`) and only stored after a live code checks out, so a bad scan can
   never lock anyone out. Old spare codes, where present, are still honoured — but no new
-  ones are made (their generator also had an off-by-one that printed "undefined" into codes).
+  ones are made.
 
 ### Other tools
 
@@ -1257,16 +1217,9 @@ way in; its *Tools* button opens the same modal):
   `.pending()` (what has not been published, the drawer list's own data), `.revert(id)`,
   `.planned()`, `.finishPlanned()`.
 
-### Unsaved generators
+### Copies without the office server
 
-While the generator is **unsaved** the platform runs a temporary local server that forgets
-everything on reload, and the site has no public address yet — the Publish dialog says so when it is
-opened. **Press Publish and it is handled for you:** `cms.requestWebsiteSave()` asks the
-perchance editor tab that hosts this preview to save the generator (the editor does its own
-ownership check), the plan — the note plus a full snapshot of the content, in
-`wom.cms.publishAfterSave` — rides across the reload that follows, and
-`resumePlannedPublish()` finishes the publish on the permanent server. If the save does not
-happen within about 14 seconds the dialog says so plainly and asks for the editor's own Save
-(Ctrl+S); the waiting publish finishes by itself afterwards. See SPEC note 44. Only the platform
-can save a generator, so nothing here works unless the page is embedded in the editor
-(`window.parent !== window`) and the browser is allowed to save it.
+A deployed copy with no office address (blank `cms-server.txt`, no console override) stands alone:
+it reads its baked words plus the live feed, and the admin console's sign-in card says plainly
+that editing needs the office connection. Drafts and the pending queue still work in the browser,
+and sync when a server is joined. See `DEPLOY.md`.

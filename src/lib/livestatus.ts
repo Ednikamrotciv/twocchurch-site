@@ -1,11 +1,12 @@
 /* On-air check: reads the channel's /live page for `isLiveNow` (never `isLiveContent`/`isLive`,
-   both traps, note 112) via superFetch (no CORS). Cached, re-checked on a timer; failures read
+   both traps, note 112) via the office-server proxy (no CORS). Cached, re-checked on a timer; failures read
    "unknown". Ended broadcasts are remembered for auto-stop; Facebook only ever confirms. */
 
 import { useEffect, useSyncExternalStore } from "react";
 import { LIVE } from "../data/live";
 import { parseYoutubeId } from "./embed";
 import { readStore, writeStore } from "./hooks";
+import { serverUrl } from "./remoteserver";
 
 export type LiveState = "live" | "off" | "unset" | "unknown";
 
@@ -143,27 +144,17 @@ function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
   });
 }
 
-/** Page HTML via local proxy, perchance proxy, else public CORS proxy. */
+/** Page HTML via a same-origin / office-server proxy, else public CORS proxy. */
 async function fetchPage(url: string): Promise<string | null> {
   const local = await fetchPageLocal(url);
   if (local) return local;
-  const proxy = (window as any).root?.superFetch;
-  if (typeof proxy === "function") {
-    try {
-      const res = await withTimeout(proxy(url) as Promise<Response>, CHECK_TIMEOUT_MS);
-      if (res && res.ok !== false) {
-        const text = await res.text();
-        if (typeof text === "string" && text.length > 0) return text;
-      }
-    } catch (err) {
-      /* fall through to the public proxy */
-    }
-  }
+  const office = await fetchPageOffice(url);
+  if (office) return office;
   return fetchPageRemote(url);
 }
 
-/* Last resort for hosts with no same-origin proxy: a free public CORS proxy.
-   Only reached when both local and perchance doors are absent, and a miss
+/* Last resort for hosts with no proxy: a free public CORS proxy.
+   Only reached when no office door is open, and a miss
    degrades exactly as before (unknown, quiet). */
 async function fetchPageRemote(url: string): Promise<string | null> {
   try {
@@ -186,6 +177,24 @@ async function fetchPageLocal(url: string): Promise<string | null> {
     const host = window.location?.hostname || "";
     if (host !== "localhost" && host !== "127.0.0.1" && host !== "") return null;
     const res = await withTimeout(fetch(`/__yt?url=${encodeURIComponent(url)}`, { cache: "no-store" }), CHECK_TIMEOUT_MS);
+    if (!res || !res.ok) return null;
+    const text = await res.text();
+    return typeof text === "string" && text.length > 0 ? text : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Office-server YouTube read for deployed copies joined to it. Skipped when
+    this copy stands alone (the public proxy below covers that). */
+async function fetchPageOffice(url: string): Promise<string | null> {
+  try {
+    const base = serverUrl();
+    if (!base) return null;
+    const res = await withTimeout(
+      fetch(`${base}/__yt?url=${encodeURIComponent(url)}`, { cache: "no-store" }),
+      CHECK_TIMEOUT_MS
+    );
     if (!res || !res.ok) return null;
     const text = await res.text();
     return typeof text === "string" && text.length > 0 ? text : null;

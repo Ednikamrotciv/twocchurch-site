@@ -30,15 +30,14 @@ Details: `LOCALDEV.md`. Deploying: `DEPLOY.md`. Content/feature guide:
 
 ## Layout
 
-- `index.html` — entry shell (`/src/main.tsx` + Perchance server block)
-- `main.pjs` — site config + Perchance plugin imports
+- `index.html` — entry shell (`/src/main.tsx` + page `<title>`)
 - `src/` — the app (pages, components, data, styles, CMS client)
+- `scripts/cms-server.js` — the content server (sign-in, publishing, uploads)
 - `scripts/serve.mjs` — office/production server (serves `dist/`)
 - `scripts/vite-cms-backend.mjs` — same backend as Vite middleware for dev
 - `scripts/build-static.mjs` — `vite build` post-step (bakes `dist/`)
 - `data/cms-state.bin` — the published content (created on first publish)
 - `seed.json` — baked snapshot shipped to static hosts
 
-Generated, never committed: `node_modules/`, `dist/`, `src/bundle.js`,
-`src/chunks/`, `server.json`, `feed.json`. (`src/README.md`, `src/SPEC.md`
+Generated, never committed: `node_modules/`, `dist/`, `server.json`, `feed.json`. (`src/README.md`, `src/SPEC.md`
 and `src/TODO.md` are the long-form feature docs and history.)

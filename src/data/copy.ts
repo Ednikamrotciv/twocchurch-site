@@ -1,6 +1,6 @@
 /* Every headline and paragraph in one place, editable under Page text.
    *em* **strong** [label](/route); {{tokens}} filled by pages.
-   Titles/buttons locked; `locked` lines unlisted (notes 47-50, 64). Name/logo not here (main.pjs/assets). */
+   Titles/buttons locked; `locked` lines unlisted (notes 47-50, 64). Name/logo not here (site.ts/assets). */
 
 import { AUTO_ENTRIES } from "./autocopy";
 

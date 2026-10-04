@@ -1131,9 +1131,20 @@ export function CurrentEventPanel({ onOpen }: { onOpen: (id: string, entryKey?: 
 
 /* --------------------------------------------------------------- field types */
 
-/* Local/office-server uploads land in data/uploads/ (same-origin or absolute). */
+/* Office-server uploads land in data/uploads/ (same-origin or absolute). */
+function isLocalHost(): boolean {
+  try {
+    const host = window.location?.hostname || "";
+    return host === "localhost" || host === "127.0.0.1" || host === "";
+  } catch {
+    return false;
+  }
+}
+
 async function localHostFile(blob: Blob, filename: string): Promise<string> {
   const base = serverUrl();
+  if (!base && !isLocalHost())
+    throw new Error("Uploads need the office server connection — connect it in the admin console, or paste a link instead.");
   const res = await fetch(`${base}/__upload?name=${encodeURIComponent(filename)}`, {
     method: "POST",
     headers: { "content-type": blob.type || "application/octet-stream" },
@@ -1144,18 +1155,6 @@ async function localHostFile(blob: Blob, filename: string): Promise<string> {
   if (!data || typeof data.url !== "string" || !data.url)
     throw new Error("The file could not be saved. Try again, or paste a link instead.");
   return base ? base + data.url : data.url;
-}
-
-/** True where the backend keeps uploads itself: local runs, or a copy pointed
-   at the office server (no plugin to wait for either way). */
-function useLocalUploadHost(): boolean {
-  if (typeof (window as any).root?.uploadPlugin === "function" && !serverUrl()) return false;
-  try {
-    const host = window.location?.hostname || "";
-    return host === "localhost" || host === "127.0.0.1" || host === "" || serverUrl() !== "";
-  } catch {
-    return false;
-  }
 }
 
 /* Phone/computer photos shrink first, then host; `frame: "slide"` re-cuts to the slide frame. */
@@ -1173,25 +1172,8 @@ export function PhotoUpload({ onDone, frame }: { onDone: (url: string) => void; 
       /* A slide keeps its own resolution: the re-cut sets the size, so the
          picture goes in at full size and comes out 1600×1200. */
       const blob = forSlide ? await frameImageBlob(file) : await compressImageBlob(file, 1600, 0.82);
-      if (useLocalUploadHost()) {
-        const url = await localHostFile(blob, file.name || "photo.jpg");
-        onDone(url);
-        fireToast(
-          forSlide ? "Picture fitted to the slide — publish to put it on the site." : "Photo ready — publish to put it on the site.",
-          "success"
-        );
-        return;
-      }
-      const plugin = (window as any).root?.uploadPlugin;
-      if (typeof plugin !== "function") throw new Error("The upload service is still loading — try again in a moment.");
-      const res = await plugin(blob);
-      if (res && res.error === "over_daily_allowance")
-        throw new Error("Today's photo allowance is used up. Try again tomorrow, or paste a link to a photo instead.");
-      if (res && res.error === "file_too_big") throw new Error("That photo is too large. Try a smaller one (photos are shrunk automatically, so this is unusual).");
-      if (res && res.error === "invalid_filetype") throw new Error("That file is not a photo. Use a JPG, PNG or WebP image.");
-      if (res && res.error) throw new Error("The photo could not be uploaded (" + res.error + ").");
-      if (!res || !res.url) throw new Error("The photo could not be uploaded. Please try again.");
-      onDone(res.url);
+      const url = await localHostFile(blob, file.name || "photo.jpg");
+      onDone(url);
       fireToast(
         forSlide ? "Picture fitted to the slide — publish to put it on the site." : "Photo ready — publish to put it on the site.",
         "success"
@@ -1225,51 +1207,19 @@ export function PhotoUpload({ onDone, frame }: { onDone: (url: string) => void; 
   );
 }
 
-/* Message videos host remotely; oversized files retry as year-long temporary ones. */
+/* Message videos are kept on the office server (data/uploads/). */
 export function VideoUpload({ onDone }: { onDone: (url: string) => void }) {
   const inputRef = useRef<HTMLInputElement | null>(null);
   const [busy, setBusy] = useState(false);
-  const [note, setNote] = useState("");
   const [error, setError] = useState("");
 
   const upload = async (file: File) => {
     setError("");
-    setNote("");
     setBusy(true);
     try {
-      if (useLocalUploadHost()) {
-        const url = await localHostFile(file, file.name || "video.mp4");
-        onDone(url);
-        fireToast("Video ready — publish to put it on the site.", "success");
-        return;
-      }
-      const plugin = (window as any).root?.uploadPlugin;
-      if (typeof plugin !== "function") throw new Error("The upload service is still loading — try again in a moment.");
-      let res = await plugin(file);
-      let temporaryUntil = 0;
-      if (res && res.error === "file_too_big") {
-        /* A full service is bigger than permanent files may be, so ask for a
-           temporary file (a long expiry allows a much larger upload). */
-        const until = Date.now() + 1000 * 60 * 60 * 24 * 365;
-        res = await plugin(file, { expires: until });
-        temporaryUntil = until;
-      }
-      if (res && res.error === "over_daily_allowance")
-        throw new Error("Today's upload allowance is used up. Try again tomorrow, or paste a YouTube or Facebook link instead.");
-      if (res && res.error === "file_too_big")
-        throw new Error("That video is too large to upload. For a full service, paste a YouTube or Facebook link instead.");
-      if (res && res.error === "invalid_filetype")
-        throw new Error("That file is not a video the browser can play. Use an MP4 or WebM file, or a YouTube / Facebook link.");
-      if (res && res.error) throw new Error("The video could not be uploaded (" + res.error + ").");
-      if (!res || !res.url) throw new Error("The video could not be uploaded. Please try again.");
-      onDone(res.url);
-      if (temporaryUntil) {
-        const date = fmtDate(temporaryUntil);
-        setNote(`This one is a big file, so it is hosted until ${date}. For the long term, put it on YouTube or Facebook and paste that link.`);
-        fireToast("Video ready — it plays on the site from now, and it is kept until " + date + ".", "success");
-      } else {
-        fireToast("Video ready — publish to put it on the site.", "success");
-      }
+      const url = await localHostFile(file, file.name || "video.mp4");
+      onDone(url);
+      fireToast("Video ready — publish to put it on the site.", "success");
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -1294,7 +1244,6 @@ export function VideoUpload({ onDone }: { onDone: (url: string) => void }) {
       <Btn size="sm" icon="play" disabled={busy} onClick={() => inputRef.current && inputRef.current.click()}>
         {busy ? "Uploading your video… this can take a while" : "Upload a video"}
       </Btn>
-      {note && <p className="admin__upload-note">{note}</p>}
       {error && <p className="admin__upload-error">{error}</p>}
     </div>
   );
@@ -1393,17 +1342,7 @@ function ImageField({
     try {
       const framed = await framePastedSlide(text);
       if (!framed) throw new Error("That address could not be read as a picture. Check the link, or upload the picture instead.");
-      if (useLocalUploadHost()) {
-        onChange(await localHostFile(framed, "slide.jpg"));
-        fireToast("Picture set into the slide — publish to put it on the site.", "success");
-        return;
-      }
-      const plugin = (window as any).root?.uploadPlugin;
-      if (typeof plugin !== "function") throw new Error("The upload service is still loading — try again in a moment.");
-      const res = await plugin(framed);
-      if (res && res.error) throw new Error("The fitted picture could not be uploaded. Please try again.");
-      if (!res || !res.url) throw new Error("The fitted picture could not be uploaded. Please try again.");
-      onChange(res.url);
+      onChange(await localHostFile(framed, "slide.jpg"));
       fireToast("Picture set into the slide — publish to put it on the site.", "success");
     } catch (err) {
       setFitError(err instanceof Error ? err.message : String(err));
