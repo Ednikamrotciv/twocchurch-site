@@ -2800,3 +2800,49 @@ input, select, textarea { font-size: 1rem !important; }
     padding: 0.5rem 0.9rem !important;
   }
 }
+
+/* ==========================================================================
+   HEADER FIT + VERSE EMPHASIS
+   - Big desktop logo must never push search / theme toggle off-screen.
+   - 1 John 5:4 ("For whatsoever is born of God...") bigger + bold everywhere.
+   ========================================================================== */
+.header__inner { min-width: 0 !important; flex-wrap: nowrap !important; }
+.brand { min-width: 0 !important; }
+.header__nav { min-width: 0 !important; }
+.header__actions { flex: none !important; }
+.search-trigger { flex: none !important; max-width: 100% !important; }
+.header__actions .icon-btn { display: inline-flex !important; }
+
+@media (min-width: 1081px) and (max-width: 1300px) {
+  .brand__logo { height: clamp(72px, 7vw, 96px) !important; max-width: min(300px, 30vw) !important; }
+  .header__inner { min-height: 112px !important; gap: 1rem !important; }
+  .nav-link { font-size: 0.98rem !important; padding: 0.55rem 0.7rem !important; }
+  .search-trigger span { display: none !important; }
+  .search-trigger { padding: 0.55rem 0.7rem !important; }
+}
+
+@media (min-width: 1301px) {
+  .brand__logo { height: clamp(96px, 8.5vw, 140px) !important; }
+  .header__inner { min-height: 150px !important; }
+}
+
+/* 1 John 5:4 — hero strip, footer and verse-of-the-day card */
+.hero__verse {
+  font-size: 1.1rem !important;
+  font-weight: 700 !important;
+  white-space: normal !important;
+  text-align: center !important;
+  line-height: 1.55 !important;
+  padding: 0.8rem 1.2rem !important;
+}
+.hero__verse span { display: inline !important; white-space: normal !important; }
+.footer__verse { font-size: 1.25rem !important; font-weight: 700 !important; line-height: 1.6 !important; }
+.footer__verse cite { font-size: 1rem !important; font-weight: 700 !important; }
+.verse-card__text { font-size: 1.35rem !important; font-weight: 700 !important; line-height: 1.6 !important; }
+.verse-card__ref { font-weight: 700 !important; }
+
+@media (max-width: 640px) {
+  .hero__verse { font-size: 0.95rem !important; padding: 0.6rem 1rem !important; }
+  .footer__verse { font-size: 1.1rem !important; }
+  .verse-card__text { font-size: 1.15rem !important; }
+}
