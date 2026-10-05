@@ -15,7 +15,7 @@ React 18 + TypeScript, bundled by **Vite** (`npm run dev` for editing with insta
 
 - Source of truth: **`src/**/*.tsx`**
 - Dev: **`npm run dev`** (Vite + the publishing backend as middleware)
-- Production: **`npm run build`** → `dist/`
+- Production: **`npm run build`** → `dist/` (served by `npm start`, or uploaded to any static host)
 - Copy collector: **`src/tools/auto-copy.mjs`** (see *Every text, not just the headlines* below)
 
 ### Every text, not just the headlines
@@ -57,8 +57,8 @@ comes from either the copy layer or a record the office fills in from the drawer
 
 ### Rebuilding after any change under `src/*.tsx`, `src/*.ts` or `src/styles/*.css`
 
-Save and Vite refreshes the browser by itself (`npm run dev`). `npm run build`
-writes `dist/`. Type-check with `npm run typecheck` (`tsc --noEmit`) — the
+Save and Vite refreshes the browser by itself (`npm run dev`). For production, `npm run build`
+writes `dist/` (see `DEPLOY.md`). Type-check with `npm run typecheck` (`tsc --noEmit`) — the
 bundler only transpiles, so type errors do not break the build but missing exports/imports do.
 
 ---
@@ -154,7 +154,7 @@ service is on and the stream has not opened yet the frame holds a third state in
 we will be live here shortly, please bear with us* (`src/components/liveclock.tsx`,
 `src/lib/ticksound.ts`). It is only skipped for a site with no channel, no stream link and no Facebook
 page, where the panel plays the most recent message as before. The check goes through
-the dev backend's `/__yt` proxy — YouTube sends no CORS headers, so a plain `fetch` is refused —
+the office server's `/__yt` proxy — YouTube sends no CORS headers, so a plain `fetch` is refused —
 every **45s** when a service is on the clock or a stream is running, and every **3 minutes** otherwise; hidden tabs are skipped and re-checked the moment they
 come back. A failed check is *unknown*, never *not live*, so a flaky proxy can only fall back to the
 old behaviour — the office's own on-air state (the *Live stream* section's **Start** / **Continue** /
@@ -263,7 +263,7 @@ The two levels work together:
 
 Under the hood: `img(name)` is `photoSrc(name)`, the editor stores only the *address* of a photo
 (so a published revision stays a few KB), and uploaded photos are shrunk in the browser
-(`compressImageBlob`, 1600 px wide JPEG) and kept in `data/uploads/`.
+(`compressImageBlob`, 1600 px wide JPEG) and kept on the office server (`data/uploads/`).
 **The logo is not in `PHOTO_SLOTS`** — it is part of the site's identity (`LOGO` / `LOGO_MARK`)
 and is deliberately not editable, along with the church name.
 
@@ -1092,7 +1092,7 @@ Every picture on the site is the office's to change, and all of them reach the p
   (`fallbackPhoto`) plus `emptyNote` for the cases where the site shows something other than a
   picture (a person's initials, a video's own still), so the drawer can say what a visitor sees.
 - **The one control** (`ImageField`, `type: "image"`) offers exactly two ways to set a picture:
-  upload from the device (`PhotoUpload` → `compressImageBlob` → the dev backend's `/__upload`,
+  upload from the device (`PhotoUpload` → `compressImageBlob` → the office server's `/__upload`,
   stored as the hosted URL), or paste the address of any photo. The caption above them says which picture is in
   use — no dropdown of names and no strip of ours, and the pasted-address box stays empty while a
   photo of ours is in use, so the raw bundled path is never shown. *Use the original photo* clears
@@ -1101,7 +1101,8 @@ Every picture on the site is the office's to change, and all of them reach the p
 ### How storing and sharing works
 
 `scripts/cms-server.js` is the content server: sign-in, publishing, uploads, live updates. It runs
-inside Node (`npm run dev` via `scripts/vite-cms-backend.mjs`), keeping the published content in `data/cms-state.bin`.
+inside Node (`npm run dev` via `scripts/vite-cms-backend.mjs`, production via `npm start` /
+`scripts/serve.mjs`), keeping the published content in `data/cms-state.bin`.
 
 - The office edits a **draft** (kept in `localStorage` so a reload loses nothing) and presses
   **Publish**. Only the sections that actually changed are sent.
@@ -1113,7 +1114,7 @@ inside Node (`npm run dev` via `scripts/vite-cms-backend.mjs`), keeping the publ
   shipped code. `getContent` therefore only ever transfers what the office has actually changed.
 - If a colleague publishes while you have a draft open, your untouched sections are rebased onto
   their change; only the sections you actually edited are kept (and re-published).
-- If the backend is unreachable, the editor cannot sign in: editing takes an online
+- If the office server is unreachable, the editor cannot sign in: editing takes an online
   sign-in and there is no offline back door
   (the old passwordless local preview mode was removed at the office's request). The sign-in
   card says so and keeps retrying by itself. A publish that fails mid-session
@@ -1215,3 +1216,10 @@ way in; its *Tools* button opens the same modal):
   `.state()`, `.overrides()`, `.applied()`, `.sync()`, `.unsaved()`, `.draft()`, `.set(id, value)`,
   `.pending()` (what has not been published, the drawer list's own data), `.revert(id)`,
   `.planned()`, `.finishPlanned()`.
+
+### Copies without the office server
+
+A deployed copy with no office address (blank `cms-server.txt`, no console override) stands alone:
+it reads its baked words plus the live feed, and the admin console's sign-in card says plainly
+that editing needs the office connection. Drafts and the pending queue still work in the browser,
+and sync when a server is joined. See `DEPLOY.md`.

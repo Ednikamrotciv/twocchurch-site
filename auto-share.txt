@@ -1,0 +1,12 @@
+# Share this machine with every deployed copy — ON while this file exists.
+#
+# With it here, every server start (npm start, start.bat, autostart at login)
+# attaches this machine by itself: the secure tunnel opens, the address
+# registers and pushes, and deployed copies join it after the next redeploy —
+# no command needed. Served reads are the public site content; changing
+# anything still needs the admin password (rate-limited), and the tunnel is
+# always HTTPS.
+#
+# Turn off on this machine: `npm run share-off` (writes no-auto-share.txt,
+# which wins and is never overwritten by a zip). Back on: `npm run share-on`.
+on

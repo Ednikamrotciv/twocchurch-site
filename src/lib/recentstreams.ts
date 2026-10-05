@@ -134,7 +134,7 @@ async function fetchTextRemote(url: string): Promise<string | null> {
   }
 }
 
-/** Same-origin YouTube read for local runs (the dev backend's /__yt). Only
+/** Same-origin YouTube read for local runs (`scripts/serve.mjs` /__yt). Only
     attempted on a local host, so the live site never pays for the detour. */
 async function fetchTextLocal(url: string): Promise<string | null> {
   try {

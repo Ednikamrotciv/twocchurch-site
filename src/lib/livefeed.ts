@@ -4,7 +4,7 @@ export type FeedSpec = { owner: string; repo: string; branch: string };
 
 const SPEC_RE = /^\s*([A-Za-z0-9_.-]+)\/([A-Za-z0-9_.-]+)@([A-Za-z0-9_.\/-]+)\s*$/;
 
-/** "owner/repo@branch" feed address into parts, or null. */
+/** "owner/repo@branch" (the publish-feed.txt line) into parts, or null. */
 export function parseFeedSpec(spec: unknown): FeedSpec | null {
   const m = SPEC_RE.exec(String(spec == null ? "" : spec));
   if (!m) return null;

@@ -6481,7 +6481,7 @@ Three changes, all in service of one rule - editing takes an online sign-in, not
   override + remembered same-PC office + live loopback probe in src/lib/remoteserver.ts), and
   the last failure reason stays in cms state (connNote) for diagnosis.
   Opening the public site on the office computer itself finds its server over loopback with
-  nothing typed - the backend answers the private-network preflight for that.
+  nothing typed - scripts/serve.mjs answers the private-network preflight for that.
   Verified live: default-password sign-in, stale-generation auto sign-out, and re-sign-in.
 
 ## 193. The last message reads first everywhere; new uploads top the drawer too (the office asked)
@@ -6606,7 +6606,7 @@ History: the Status tab's publish history was cleared (Clear history, double-pre
 ## 200. Sign-in after sign-out kept failing (the office asked)
 > after my first sign in i can not sign in again — "not reachable", stuck Reconnecting
 Three traps in the join path: a dead-but-kept socket made every retry a no-op; sign-in failed fast on `offline` instead of joining; a hanging open never timed out. Fixed: user joins drop the dead socket, reset backoff and connect fresh (`retryNow`), a hanging open ends after 9s, stale attempts can't clobber a live one, no server means stand-alone (rejoining quietly later). Verified: three sign-out/in cycles in the preview, Connected throughout. Rebuilt, repacked.
-Deployed copies stand alone with no server to check the password, and nothing on the
+Deployed copies stand alone with no server to check the password (see DEPLOY.md), and nothing on the
 sign-in card could point one at the office server — so the card now has an Office server field
 whenever it is not connected: paste the address, Connect, then the password. (`retryNow`,
 override wrappers in cms.ts, `ServerConnect` in editor.tsx.)

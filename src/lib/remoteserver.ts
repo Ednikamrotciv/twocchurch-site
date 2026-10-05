@@ -4,7 +4,7 @@ import { siteFile } from "./livefeed";
 
 /** This browser's manual override (the admin console sets it). */
 const OVERRIDE_KEY = "wom.cms.server";
-/** The shared-backend address, if one was ever written to server.json (absent in local runs). */
+/** The deploy-time address, written by scripts/build-static.mjs. */
 const SITE_FILE = "server.json";
 
 let cached = "";

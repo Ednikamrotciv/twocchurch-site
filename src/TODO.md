@@ -103,7 +103,7 @@
 - Online giving statements (export as CSV/PDF) — worth doing once there is a real processor behind
   the page; the local giving log an older version filled is now read-only (SPEC note 88).
 - Multi-language UI (the data files are already split from the components).
-- Event registration with capacity counts (needs a new endpoint on the local backend).
+- Event registration with capacity counts (needs a backend endpoint on the office server).
 - Push reminders for services/events (Notification API is already requested for service
   reminders in `WatchLive.tsx`).
 - **Look over the glass pass on a real device.** The material is CSS only
@@ -127,6 +127,13 @@
   permanent `will-change` on a card/card wrapper without checking the popups that open from it.
   (Portalling `Modal` to `<body>` would also fix it, but importing `createPortal` from `react-dom`
   pulls a *second* copy of react-dom into the bundle — `app.js` went 669 KB → 805 KB — so don't.)
+
+- **The workspace can lose files if the browser evicts this tab's local storage** (happens in
+  incognito/private windows, or under storage pressure): the platform rebuilds `src/` and files can
+  come back empty or missing. Two defences: (1) **save the generator in the editor** — the saved
+  copy lives on the server and is never affected; (2) if a file does go missing, its bytes can often
+  still be fetched from the preview (`await fetch("src/lib/x.ts", {cache:"force-cache"})`) and
+  written back.
 - **Photos** live in `src/data/photos.ts` (the *Photos & covers* group in the drawer). Add a picture to
   `src/assets/img/`, add a slot to `PHOTO_SLOTS` with its friendly name and where it appears, and it
   turns up in the drawer; `img("name")` resolves it. Uploaded photos are only ever referenced by
@@ -248,12 +255,12 @@
   content**: the *Ways to watch cards* list left the drawer at the church's request (SPEC note 110),
   so the live section offers no *Add a card*, no *Title* and no *Line underneath* any more. The panel's
   *While you watch* list has four rows since SPEC note 69 — its *Prayer line* row was removed on
-  request and the remaining rows were renumbered `live.side.1…4`. Uploads go to the dev
-  backend's `/__upload` (`localHostFile` in `src/components/editor.tsx`); a full-length service
+  request and the remaining rows were renumbered `live.side.1…4`. Uploads go to the office
+  server's `/__upload` (`localHostFile` in `src/components/editor.tsx`); a full-length service
   is still best kept on YouTube or Facebook.
 - **Whether the church is on air is asked of YouTube, not guessed** (SPEC note 68).
   `src/lib/livestatus.ts` checks the channel in `LIVE.youtubeChannel` (or `LIVE.youtubeId` when no
-  channel is set) through the dev backend's `/__yt` proxy, because
+  channel is set) through the office server's `/__yt` proxy, because
   YouTube sends no CORS headers and a plain `fetch` is refused. The marker is `"isLiveNow":true` and
   nothing else — **never** `"isLiveContent":true` (a finished stream keeps it forever) and **never**
   `"isLive":true` (that also sits in the view-count renderer of a finished or scheduled broadcast:
@@ -353,8 +360,9 @@
   (`src/pages/Admin.tsx` + `src/components/editor.tsx`, per-route page names in `src/lib/pageMap.ts`,
   the office's job list + site-wide search in `src/lib/jobs.ts`,
   schema in `src/lib/cmsSchema.ts`, content server in `index.html`, client in `src/lib/cms.ts`).
-  The admin password's SHA-256 is `ADMIN_HASH` in `scripts/cms-server.js`; rotate it with the recipe in
-  `README.md`. Published content is stored locally in `data/cms-state.bin` (the shipped content in `src/data/` is the
+  The admin password's SHA-256 is `ADMIN_HASH` in `index.html`; rotate it with the recipe in
+  `README.md`. Published content is stored per-generator on the server side, so **renaming the
+  generator makes the published content start over** (the shipped content in `src/data/` is the
   fallback). The office no longer signs its edits — the *Signing your edits* field left the Status
   tab at the church's request (SPEC note 54), so `cms.setEditorName()` has no caller and publishes
   record an empty `by`; the log renders that without a dangling "by". The setter is still exported,
@@ -523,8 +531,8 @@
   Status tab's own `openSection()` jumps deliberately switch to the raw *Update* list.
 - **Publish flow helpers** (`requestWebsiteSave` / `planPublishAfterSave` / `resumePlannedPublish`
   in `src/lib/cms.ts`, the save-first branch of `PublishModal` in `src/components/editor.tsx`).
-  These only trigger when the page runs iframed inside a host editor — in local runs they are
-  inert. Leave them alone.
+  These are inert in standalone runs (`window.generatorIsUnsaved` is never set, and the page is
+  not iframed in an editor) — they only ever trigger inside a host editor. Leave them alone.
 - The admin's publish path keeps the per-section blob model: send only changed sections, store
   UTF-16 blobs, and never add a whole-site per-character loop to a handler.
 
@@ -562,5 +570,8 @@
   only downloads when the browser blocks the tab. Pass it the record's own title — the title is what
   makes the reminder useful — and do not put a `to=` on that button: the tap is meant to leave the
   visitor where they are (the Watch Live one used to download an empty file *and* jump to /events).
+- Never edit `src/bundle.js` / `src/bundle.css` directly — they are build output.
 - `localStorage` keys are prefixed `wom.`; the “Clear my data” button in My Library removes them
   (plus `wom.amenMap`, `wom.prayedMap`, `wom.memorised`, `wom.reminders`).
+- Renaming the generator changes the origin, which orphans visitors' saved data — pick the name
+  before sharing widely.

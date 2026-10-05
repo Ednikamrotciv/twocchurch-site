@@ -3,9 +3,13 @@ dist/
 data-backups/
 bin/
 data/.last-seen
+deploy-hook.txt
+no-auto-share.txt
 scratch/
 .tool-output/
 .http-cache/
 *.log
 .DS_Store
 Thumbs.db
+server.json
+feed.json
