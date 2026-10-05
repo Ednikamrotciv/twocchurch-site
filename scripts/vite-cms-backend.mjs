@@ -1,7 +1,6 @@
-/* vite-cms-backend.mjs — the site's own publishing backend for `npm run dev`.
-   Same content code as the office server (scripts/serve.mjs): sign-in,
-   publishing, uploads, live updates, plus the local YouTube/geo proxies —
-   so dev behaves exactly like production. */
+/* vite-cms-backend.mjs — the site's own publishing backend for `npm run dev`:
+   sign-in, publishing, uploads, live updates, plus the local YouTube/geo
+   proxies. */
 
 import { readFile, stat, mkdir, writeFile, cp } from "node:fs/promises";
 import path from "node:path";
@@ -15,7 +14,7 @@ const ENTRY_TAG = '<script type="module" src="/src/main.tsx"></script>';
 const SHIM_TAG = '<script src="/scripts/local-shim.js"></script>';
 
 /* The admin backend for `npm run dev`: the site's own publishing code running
-   in Node — the same backend scripts/serve.mjs runs in production. */
+   in Node. */
 export function cmsBackend() {
   const ROOT = process.cwd();
   const geoProxy = createGeoProxy();
@@ -30,7 +29,7 @@ export function cmsBackend() {
       try {
         await guardAtBoot(ROOT);
       } catch {
-        /* same snapshot-and-recover as scripts/serve.mjs — never fatal */
+        /* same snapshot-and-recover as a production server — never fatal */
       }
       cms = await createCmsHost(ROOT);
       outDir = path.resolve(config.root || ROOT, (config.build && config.build.outDir) || "dist");
@@ -83,7 +82,7 @@ export function cmsBackend() {
           const url = new URL(req.url || "/", "http://localhost");
           const pathname = url.pathname;
 
-          /* Same open door as scripts/serve.mjs: this backend also serves
+          /* Same open door a shared backend offers: this backend also serves
              deployed copies pointed at it (see src/lib/remoteserver.ts). */
           res.setHeader("Access-Control-Allow-Origin", "*");
           res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");

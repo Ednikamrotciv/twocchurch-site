@@ -3,7 +3,6 @@ import { readFile, writeFile, mkdir } from "node:fs/promises";
 import path from "node:path";
 import { createHash } from "node:crypto";
 import { recordSeen } from "./backup-data.mjs";
-import { notePublished } from "./auto-push.mjs";
 
 const STATE_SIZE = 8 * 1024 * 1024;
 
@@ -56,8 +55,7 @@ function clearPublishLog(state, scriptSrc) {
 
 export async function createCmsHost(rootDir) {
   /* The site's own content server (sign-in, publishing, uploads, live
-     updates): one plain code file, run here in Node for `npm run dev` and
-     `npm start` alike. */
+     updates): one plain code file, run here in Node for `npm run dev`. */
   const scriptSrc = await readFile(path.join(rootDir, "scripts", "cms-server.js"), "utf8");
   if (!scriptSrc.trim()) throw new Error("cms-local: scripts/cms-server.js is empty");
 
@@ -116,11 +114,6 @@ export async function createCmsHost(rootDir) {
           const sum = createHash("sha256").update(state).digest("hex").slice(0, 16);
           await recordSeen(rootDir, sum);
         } catch { /* fingerprinting never breaks a save */ }
-        /* The new words deploy themselves a couple of minutes later
-           (see auto-push.mjs) — never blocks or breaks the save. */
-        try {
-          notePublished(rootDir);
-        } catch { /* auto-deploy never breaks a save */ }
       } catch (err) {
         console.error("cms backend: could not save state:", err?.message || err);
       }

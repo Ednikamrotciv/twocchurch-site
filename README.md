@@ -1,7 +1,6 @@
 # World Overcomers Website
 
-React + TypeScript (Vite). Same content, same admin console — this layout just
-runs and deploys the standard way.
+React + TypeScript (Vite).
 
 ## Run it
 
@@ -10,34 +9,40 @@ npm install
 npm run dev      # → http://localhost:5173/  (admin: /admin)
 ```
 
-Details: `LOCALDEV.md`. Deploying: `DEPLOY.md`. Content/feature guide:
-`src/README.md`.
+Edits apply in the browser the moment you save (Vite HMR). Sign-in, Publish,
+uploads and recent services all work in dev — it runs the site's own backend,
+so what you see is what you get.
+
+If dev ever shows a stale or blank page, run once:
+
+```sh
+npm run dev:fresh
+```
+
+then `npm run dev` again. (It clears Vite's dependency cache.)
+
+Content you publish is stored in `data/cms-state.bin` (created on first
+publish — keep that file to keep your content); photo/video uploads land in
+`data/uploads/`.
 
 ## Scripts
 
-| Command              | What it does                                              |
-| -------------------- | --------------------------------------------------------- |
-| `npm run dev`        | Edit locally (HMR + admin backend)                        |
-| `npm run dev:fresh`  | Same, after clearing Vite's cache (run once if stale)    |
-| `npm run build`      | Production build → `dist/` (+ baked content, route pages) |
-| `npm start`          | Serve `dist/` + the shared backend (office PC / Render)  |
-| `npm run typecheck`  | `tsc --noEmit`                                            |
-| `npm run bake-seed`  | Re-bake `seed.json` from `data/cms-state.bin`            |
-| `npm run backup`     | Snapshot content now (`data-backups/`)                    |
-| `npm run restore`    | Restore a snapshot by hand                                |
-| `npm run set-server` | Point deploys at the office server (`cms-server.txt`)     |
-| `npm run expose`     | Open this machine over a secure tunnel (foreground)       |
+| Command           | What it does                                           |
+| ----------------- | ------------------------------------------------------ |
+| `npm run dev`     | Edit locally (HMR + admin backend)                     |
+| `npm run dev:fresh` | Same, after clearing Vite's cache (run once if stale) |
+| `npm run build`   | Production build → `dist/`                             |
+| `npm run typecheck` | `tsc --noEmit`                                       |
 
 ## Layout
 
 - `index.html` — entry shell (`/src/main.tsx` + page `<title>`)
 - `src/` — the app (pages, components, data, styles, CMS client)
 - `scripts/cms-server.js` — the content server (sign-in, publishing, uploads)
-- `scripts/serve.mjs` — office/production server (serves `dist/`)
 - `scripts/vite-cms-backend.mjs` — same backend as Vite middleware for dev
-- `scripts/build-static.mjs` — `vite build` post-step (bakes `dist/`)
+- `scripts/cms-local.mjs` — runs the content server in Node for dev
 - `data/cms-state.bin` — the published content (created on first publish)
-- `seed.json` — baked snapshot shipped to static hosts
+- `seed.json` — content snapshot the app falls back to
 
-Generated, never committed: `node_modules/`, `dist/`, `server.json`, `feed.json`. (`src/README.md`, `src/SPEC.md`
+Generated, never committed: `node_modules/`, `dist/`. (`src/README.md`, `src/SPEC.md`
 and `src/TODO.md` are the long-form feature docs and history.)

@@ -19,16 +19,5 @@ npm run dev:fresh
 
 then `npm run dev` again. (It clears Vite's dependency cache.)
 
-## The always-on office computer (and Render)
-
-Editing away from your own computer needs one shared backend behind every copy
-(see `DEPLOY.md`, "The office server"):
-
-```sh
-npm run build   # → dist/
-npm start       # serves dist/ + the backend (or double-click start.bat)
-```
-
-Leave that running on the always-on machine. Content is stored in
-`data/cms-state.bin` (created on first publish — keep that file to keep your
+Content is stored in `data/cms-state.bin` (created on first publish — keep that file to keep your
 content); photo/video uploads land in `data/uploads/`.
