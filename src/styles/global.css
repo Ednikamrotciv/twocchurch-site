@@ -2641,3 +2641,135 @@ h2 em {
     max-width: 100%;
   }
 }
+
+
+/* ==========================================================================
+   READABILITY BOOST — larger base type + larger logos (desktop + mobile)
+   Appended to make body copy naturally readable and the brand mark prominent.
+   Uses slightly larger rem root + targeted bumps for nav, buttons, meta text.
+   ========================================================================== */
+
+html {
+  font-size: 19px;
+}
+
+body {
+  font-size: 1.12rem;
+  line-height: 1.7;
+}
+
+h1 { font-size: clamp(2.6rem, 5.6vw, 4.4rem); }
+h2 { font-size: clamp(2.05rem, 3.8vw, 3rem); }
+h3 { font-size: clamp(1.35rem, 2.2vw, 1.65rem); }
+h4 { font-size: 1.15rem; }
+
+.lede { font-size: 1.25rem; line-height: 1.75; }
+
+/* eyebrows / kickers — were 0.72rem (~13px), now clearly legible */
+.eyebrow { font-size: 0.85rem; letter-spacing: 0.2em; }
+.rule em { font-size: 0.82rem; }
+
+/* header chrome */
+.topbar { font-size: 0.9rem; }
+.topbar__inner { min-height: 42px; }
+.service-pill { padding: 0.28rem 0.95rem; font-size: 0.95rem; }
+
+.header__inner { min-height: 96px; gap: 1.5rem; }
+
+.brand__logo {
+  height: clamp(56px, 5.5vw, 84px);
+  max-width: min(300px, 58vw);
+  object-fit: contain;
+}
+
+.header__nav { gap: 0.3rem; }
+.nav-link { font-size: 1.02rem; padding: 0.65rem 0.85rem; }
+.search-trigger { font-size: 0.95rem; padding: 0.55rem 1rem; }
+.search-trigger kbd, .kbd { font-size: 0.78rem; }
+
+/* mobile dropdown menu links */
+.menu-pop { width: min(300px, calc(100vw - 2rem)); }
+.menu-pop__link { font-size: 1.1rem; padding: 0.62rem 0.8rem; }
+
+/* buttons / chips / tags — small variants were 0.7–0.83rem */
+.btn { font-size: 1.02rem; }
+.btn--sm { font-size: 0.95rem; padding: 0.6rem 1.1rem; }
+.btn--lg { font-size: 1.1rem; }
+.chip { font-size: 0.95rem; padding: 0.5rem 1rem; }
+.chip__count { font-size: 0.82rem; }
+.tag { font-size: 0.85rem; }
+.breadcrumbs { font-size: 0.9rem; }
+.tab { font-size: 0.95rem; }
+.footer__link, .footer__contact p, .footer__contact a { font-size: 1rem; }
+.footer h4 { font-size: 0.85rem; letter-spacing: 0.14em; }
+.footer__logo { height: 84px; max-width: min(280px, 70vw); object-fit: contain; }
+.palette__text em, .field__hint, .field__error { font-size: 0.9rem; }
+
+/* ---------- mobile ---------- */
+@media (max-width: 1080px) {
+  .brand__logo { height: clamp(56px, 9vw, 68px); }
+  .header__inner { min-height: 88px; }
+}
+
+@media (max-width: 640px) {
+  html { font-size: 17px; }
+  body { font-size: 1.06rem; line-height: 1.7; }
+  .container { padding-inline: 18px; }
+  .header__inner { min-height: 84px; gap: 0.9rem; }
+  .brand__logo { height: 60px; max-width: min(220px, 62vw); }
+  .footer__logo { height: 72px; }
+  h1 { font-size: clamp(2.2rem, 10vw, 2.9rem); }
+  h2 { font-size: clamp(1.75rem, 7.5vw, 2.2rem); }
+  .lede { font-size: 1.1rem; }
+  .btn { font-size: 1.02rem; padding: 0.85rem 1.4rem; }
+  .menu-pop__link { font-size: 1.08rem; }
+  .service-pill { font-size: 0.9rem; max-width: calc(100vw - 2rem); overflow: hidden; text-overflow: ellipsis; }
+}
+
+/* ==========================================================================
+   DEFAULT PAGES VISIBILITY — no zoom needed (desktop + mobile)
+   Floors the many 0.8–0.92rem card/row/desc styles in pages.css to >= ~1rem,
+   and enlarges hero + section copy which is the first thing visitors read.
+   ========================================================================== */
+
+.hero__lede { font-size: 1.25rem !important; line-height: 1.7 !important; }
+.hero__meta { font-size: 1rem !important; }
+.section-head p, .section-sub { font-size: 1.12rem !important; line-height: 1.7 !important; }
+
+.quick-tile p, .sermon-card__summary, .event-row__desc, .testimony-card__body,
+.recent-card__body em, .branch-card__facts, .branch-panel__facts,
+.event-card__facts, .event-feature__facts, .contact-card p, .contact-facts,
+.faq-help p, .newsletter__text p, .reading-list li, .times-list li,
+.map-popup__facts, .subbranch-pop__facts, .live-panel__where,
+.testimony-card__who b, .giving-log__list li, .bank-card dl, .bank-card span,
+.alloc-list__head, .give-summary span, .dept-table__row, .serve-table__row,
+.schedule-table__row, .step, .counter > span, .location-stats,
+.prayer-stats, .testimony-stats, .nearby-row, .stat-card .muted {
+  font-size: 1rem !important;
+  line-height: 1.65 !important;
+}
+
+.quick-tile__go, .sermon-card__sub, .branch-country__meta, .branch-card__name,
+.event-row__body em, .fund-btn em, .method-btn em, .visit-pass__grid span,
+.branch-choose__item em, .service-choose__item em, .live-now,
+.platform-pick__hint, .prayer-form__foot .muted, .link-row {
+  font-size: 0.95rem !important;
+  line-height: 1.6 !important;
+}
+
+.hero__title, .page-hero__title { letter-spacing: -0.01em; }
+.card h3, .recent-card__body h3, .event-row__body b, .testimony-full p {
+  font-size: 1.15rem !important;
+  line-height: 1.6 !important;
+}
+.testimony-full p { font-size: 1.12rem !important; }
+
+/* inputs stay large enough to avoid iOS auto-zoom on focus */
+input, select, textarea { font-size: 1rem !important; }
+
+@media (max-width: 640px) {
+  html { font-size: 18px; }
+  body { font-size: 1.12rem; }
+  .hero__lede { font-size: 1.18rem !important; }
+  .section-head p, .section-sub { font-size: 1.08rem !important; }
+}
