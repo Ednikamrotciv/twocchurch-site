@@ -168,7 +168,7 @@ export function Header() {
               <span>{ct("auto.site.9dee2234b6f68d65")}</span>
             </button>
             <IconBtn name={theme === "dark" ? "sun" : "moon"} label={theme === "dark" ? ct("auto.site.b39edfa424d8f1e5") : ct("auto.site.a67a178a3a37f22b")} onClick={toggle} />
-            {!isDesktop && (
+            {(
               <div className="menu-wrap" ref={menuRef}>
                 <IconBtn name={open ? "close" : "menu"} label={open ? ct("auto.site.009d947d494f4334") : ct("auto.site.c3277c798e3051c0")} onClick={() => setOpen((v) => !v)} className="header__menu" />
                 {open && <MenuDropdown path={path} />}

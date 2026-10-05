@@ -2846,3 +2846,47 @@ input, select, textarea { font-size: 1rem !important; }
   .footer__verse { font-size: 1.1rem !important; }
   .verse-card__text { font-size: 1.15rem !important; }
 }
+
+/* ==========================================================================
+   STICKY CHROME + HEADER FIT
+   - Top bar, header and notice strips stay pinned while scrolling.
+   - Nav scrolls internally if tight, so search + theme can never be pushed
+     off-screen no matter how wide the logo/nav get.
+   ========================================================================== */
+:root { --tb-h: 41px; }
+
+.topbar { position: sticky !important; top: 0 !important; z-index: 120 !important; }
+.topbar__inner { min-height: 40px !important; overflow-x: auto !important; scrollbar-width: none !important; }
+.topbar__inner::-webkit-scrollbar { display: none !important; }
+.topbar__item, .topbar__right, .service-pill { flex: none !important; }
+
+.header { top: var(--tb-h) !important; z-index: 110 !important; }
+.header__inner { overflow: hidden !important; }
+.header__nav { overflow-x: auto !important; scrollbar-width: none !important; }
+.header__nav::-webkit-scrollbar { display: none !important; }
+.nav-link { flex: none !important; }
+.header__actions { flex: none !important; }
+
+.notices { position: sticky !important; z-index: 105 !important; top: calc(var(--tb-h) + 150px) !important; }
+
+@media (min-width: 1081px) and (max-width: 1400px) {
+  .brand__logo { height: clamp(64px, 6vw, 88px) !important; max-width: min(280px, 26vw) !important; }
+  .header__inner { min-height: 104px !important; gap: 0.9rem !important; }
+  .nav-link { font-size: 0.92rem !important; padding: 0.5rem 0.65rem !important; }
+  .search-trigger span { display: none !important; }
+  .search-trigger { padding: 0.55rem 0.7rem !important; }
+  .notices { top: calc(var(--tb-h) + 104px) !important; }
+}
+
+@media (min-width: 1401px) {
+  .brand__logo { height: clamp(96px, 8.5vw, 140px) !important; }
+  .header__inner { min-height: 150px !important; }
+}
+
+@media (max-width: 1080px) and (min-width: 641px) {
+  .notices { top: calc(var(--tb-h) + 108px) !important; }
+}
+
+@media (max-width: 640px) {
+  .notices { top: calc(var(--tb-h) + 100px) !important; }
+}
