@@ -11,7 +11,7 @@
     "serve": "node scripts/serve.mjs",
     "build": "vite build && node scripts/build-static.mjs",
     "predev": "node scripts/check-install.mjs",
-    "prebuild": "node scripts/check-install.mjs",
+    "prebuild": "node scripts/check-install.mjs && node scripts/fix-perms.mjs",
     "fix-perms": "node scripts/fix-perms.mjs",
     "verify": "node scripts/check-install.mjs",
     "bake-seed": "node scripts/bake-seed.mjs",
