@@ -68,15 +68,18 @@ export function useLibrary() {
   const [saved, setSaved] = useLocalState<string[]>(KEYS.saved, []);
   const [watched, setWatched] = useLocalState<string[]>(KEYS.watched, []);
   const [notes, setNotes] = useLocalState<Record<string, string>>(KEYS.notes, {});
+  const [serviceNotes, setServiceNotes] = useLocalState<Record<string, string>>(KEYS.serviceNotes, {});
   return {
     saved,
     watched,
     notes,
+    serviceNotes,
     isSaved: (id: string) => saved.includes(id),
     isWatched: (id: string) => watched.includes(id),
     toggleSaved: (id: string) => setSaved((l) => (l.includes(id) ? l.filter((x) => x !== id) : [...l, id])),
     markWatched: (id: string) => setWatched((l) => (l.includes(id) ? l : [...l, id])),
     setNote: (id: string, text: string) => setNotes((n) => ({ ...n, [id]: text })),
+    setServiceNote: (key: string, text: string) => setServiceNotes((n) => ({ ...n, [key]: text })),
   };
 }
 

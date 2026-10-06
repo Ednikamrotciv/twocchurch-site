@@ -6688,3 +6688,15 @@ The three trailing stat cards are gone — reading-plan days, answered prayers l
 ## 222. Stray brace in App.tsx broke `npm run dev` (the office asked)
 
 `npm run dev` failed at esbuild's dependency scan: `Unexpected "}" src/App.tsx:131` — a leftover extra closing brace after the LangAsk language-popup component (it predates recent edits; the scan stops at the first error so nothing else could even load). Removed the one brace; all 65 source files re-parsed clean with a TSX parser. Repacked.
+
+## 223. Service notepad + note save/download buttons (the office asked)
+
+Sermon notes gained a bottom-left *Save to library* button beside the character count and download (notes already persist on keystroke; the button confirms it with a toast). Every note in the library's notes tab carries its own download button now, and service notes live there too. The *Service notes* arrow on Watch live opens a real notepad — the same pad as a sermon's, keyed per gathering (serviceNoteKey: occurrence date on the church clock + slot name, so each service opens fresh), with save-to-library and download, plus a link to the week's message. Storage is the visitor's own device (wom.serviceNotes, cleared by the library reset like everything else); the existing saved/watched/notes stat cards already count total saved notes, so no new card was needed. Repacked.
+
+## 224. Fourth library card: service notes (the office asked)
+
+The stats row is four again — saved sermons, watched, sermons with notes, plus service notes (count of service-notepad entries with text in them), in the same gold-card style. New hand-written copy line library.stats.serviceNotes ("service notes"), so the office can reword it and it translates like the rest. Grid now runs 2-across on phones, 4-across above that (the old 6-column wide rule belonged to the six-card row). Repacked.
+
+## 225. Force every word through the IP language (the office asked)
+
+Only the granted exceptions stay English now — the church's name, street addresses, person names, numbers/currency codes and anything that leaves the site (emails, calendar files, downloads). Everything else converts, including the lines that used to resist: multi-line copy (its newlines broke batch alignment, so whole paragraphs never translated — they ride masked now), lines holding an email or link (the address/link hides under a token while the prose around it converts, then is restored byte-identical), over-long office texts (split into token-safe pieces, translated, rejoined), and batch-mangled lines (each gets one solo retry). Display gaps closed too: video-player titles, search-result titles, country names/chips, spoken languages, category labels, costs, durations, distances, number formats/dates (visitor locale), result counts (no more raw English plural "s"), visit party/accessibility labels, department rows, serving values, scripture accordion, prayer texts, "Anonymous" seed names, watch-live platform joins and sermon card titles/durations. Verified: all files parse, repacked.

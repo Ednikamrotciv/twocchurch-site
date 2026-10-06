@@ -1,6 +1,6 @@
 import { fireToast } from "./hooks";
 import { ct } from "../data/copy";
-import { currentLang } from "./i18n";
+import { currentLang, tx } from "./i18n";
 import { LIVE } from "../data/live";
 import { liveEndedAt, liveNow } from "./livestatus";
 import { COUNTRY_CURRENCY, FALLBACK_RATES } from "../data/currencies";
@@ -14,6 +14,8 @@ export const KEYS = {
   saved: "wom.savedSermons",
   watched: "wom.watchedSermons",
   notes: "wom.sermonNotes",
+  /** The watch-live service notepad, keyed per gathering (note 223). */
+  serviceNotes: "wom.serviceNotes",
   giving: "wom.givingLog",
   newsletter: "wom.newsletter",
   reading: "wom.readingPlan",
@@ -360,8 +362,7 @@ export function relativeTime(input: string | Date | number) {
   return fmtDate(d, "medium");
 }
 
-export function parseDuration(text: string): number {
-  const parts = text.split(":").map(Number);
+export function parseDuration(text: string): number {  const parts = text.split(":").map(Number);
   if (parts.length === 3) return parts[0] * 60 + parts[1];
   if (parts.length === 2) return parts[0];
   return 0;
@@ -371,9 +372,30 @@ export function fmtDuration(minutes: number) {
   if (minutes >= 60) {
     const h = Math.floor(minutes / 60);
     const m = minutes % 60;
-    return m ? `${h} hr ${m} min` : `${h} hr`;
+    /* Durations read in the visitor's language too ("2 hr" → "2 h"), everywhere
+       they are drawn — the office reads English, so its screens are untouched
+       in practice (note 225). */
+    return tx(m ? `${h} hr ${m} min` : `${h} hr`);
   }
-  return `${minutes} min`;
+  return tx(`${minutes} min`);
+}
+
+/* ---------------- service notepad keys ---------------- */
+
+/** Storage key for one gathering's notepad: the occurrence date + slot name,
+    so each service opens a fresh pad (note 223). */
+export function serviceNoteKey(at: Date, slotName: string) {
+  const d = at instanceof Date ? at : new Date(at);
+  const name = String(slotName || "Service").trim().slice(0, 48) || "Service";
+  /* Dated on the church's own clock, so the pad is the same one whatever the
+     visitor's clock reads (their notes live on their own device regardless). */
+  return `service:${todayKey(d, churchTimezone())}:${name}`;
+}
+
+/** Split a notepad key back into its date ("YYYY-MM-DD") and gathering name. */
+export function parseServiceNoteKey(key: string): { date: string; name: string } | null {
+  const m = /^service:(\d{4}-\d{2}-\d{2}):(.+)$/.exec(String(key || ""));
+  return m ? { date: m[1], name: m[2] } : null;
 }
 
 /* ---------------- service times ---------------- */
@@ -470,9 +492,9 @@ export function haversineKm(a: { lat: number; lng: number }, b: { lat: number; l
 }
 
 export function fmtDistance(km: number) {
-  if (km < 1) return `${Math.round(km * 1000)} m away`;
-  if (km < 1000) return `${km.toFixed(km < 10 ? 1 : 0)} km away`;
-  return `${Math.round(km).toLocaleString()} km away`;
+  if (km < 1) return tx(`${Math.round(km * 1000)} m away`);
+  if (km < 1000) return tx(`${km.toFixed(km < 10 ? 1 : 0)} km away`);
+  return tx(`${Math.round(km).toLocaleString(siteLocale())} km away`);
 }
 
 export function directionsUrl(opts: { lat: number; lng: number; address?: string }) {
@@ -912,7 +934,7 @@ export function fmtMoney(amount: number, currency = baseCurrency()) {
     if (converted !== null) value = roundNice(converted);
   }
   try {
-    return new Intl.NumberFormat(undefined, {
+    return new Intl.NumberFormat(siteLocale(), {
       style: "currency",
       currency: to,
       maximumFractionDigits: Number.isInteger(value) ? 0 : 2,

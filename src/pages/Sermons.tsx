@@ -6,7 +6,7 @@ import { img } from "../data/site";
 import { Badge, Btn, Card, Empty, Eyebrow, Icon, Reveal, Rich, Section, SectionHeading } from "../components/ui";
 import { PageHead } from "../components/layout";
 import { SearchBox, SermonCard, VideoPlayer, WatchCards } from "../components/blocks";
-import { fmtDate, fmtDuration, zonedParts } from "../lib/store";
+import { fmtDate, fmtDuration, zonedParts, tidyCount } from "../lib/store";
 import { NewsletterForm } from "../components/blocks";
 
 export function Sermons() {
@@ -62,7 +62,7 @@ export function Sermons() {
       />
 
       <Section className="sermon-featured">
-        <SectionHeading eyebrow={ct("sermons.featured.eyebrow")} title={tx(featured.title)} lede={`${featured.speaker} · ${fmtDate(sermonDate(featured), "long")}${featured.durationText ? ` · ${featured.durationText}` : ""}`} />
+        <SectionHeading eyebrow={ct("sermons.featured.eyebrow")} title={tx(featured.title)} lede={`${featured.speaker} · ${fmtDate(sermonDate(featured), "long")}${featured.durationText ? ` · ${tx(featured.durationText)}` : ""}`} />
         <div className="sermon-featured__grid">
           <VideoPlayer source={sermonSource(featured)} title={tx(featured.title)} compact />
           <Card className="sermon-featured__side">
@@ -126,7 +126,7 @@ export function Sermons() {
         </div>
 
         <p className="result-count">
-          {results.length} {ct("auto.sermons.c2cabd3ebae30857")}{results.length === 1 ? "" : "s"} {ct("auto.sermons.8b5b9d2954fd00d8")}
+          {tidyCount(ct("sermons.results", { n: results.length }))}
         </p>
 
         {results.length === 0 ? (

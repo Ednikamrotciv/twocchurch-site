@@ -6,7 +6,7 @@ import { ct } from "../data/copy";
 import { SITE, img } from "../data/site";
 import { BRANCHES, branchZone } from "../data/branches";
 import { useLocalState, fireToast, useNow } from "../lib/hooks";
-import { KEYS, mailto, whatsappLink, copyText, pickForDay, fmtDate, relativeTime, nextService, to12h, DAY_NAMES, clockHere } from "../lib/store";
+import { KEYS, mailto, whatsappLink, copyText, pickForDay, fmtDate, relativeTime, nextService, to12h, DAY_NAMES, clockHere, siteLocale } from "../lib/store";
 import { usePrayerRequests, useWall } from "../lib/collections";
 import { Badge, Btn, Card, Checkbox, Chip, Empty, Field, Icon, Input, Monogram, Notice, Reveal, Rich, Section, SectionHeading, Select, Tabs, Textarea, Accordion } from "../components/ui";
 import { PageHead } from "../components/layout";
@@ -51,7 +51,7 @@ export function Prayer() {
         }
       >
         <div className="prayer-stats">
-          <span><b>{wall.total.toLocaleString()}</b> {ct("auto.prayer.2871539c60ae82d5")}</span>
+          <span><b>{wall.total.toLocaleString(siteLocale())}</b> {ct("auto.prayer.2871539c60ae82d5")}</span>
           <span><b>{requests.length}</b> {ct("auto.prayer.98bb69dbc3310382")}</span>
           <span><b>{ct("auto.prayer.9801c95f8df5b296")}</b> {ct("auto.prayer.d0255996ef4f4357")}</span>
         </div>
@@ -96,7 +96,7 @@ export function Prayer() {
                         <div className="wall-item__head">
                           <Monogram name={w.name} size={36} tone={w.mine ? "gold" : "ink"} />
                           <span>
-                            <b>{w.name}</b>
+                            <b>{w.name === "Anonymous" ? ct("auto.prayer.1f4ccbbee72e3aaf") : w.name}</b>
                             <em>{relativeTime(w.createdAt)} · {categoryLabel(w.category)}</em>
                           </span>
                           {w.mine && <Badge accent="gold">{ct("auto.prayer.8df3c3f1d86ab270")}</Badge>}
@@ -141,7 +141,7 @@ export function Prayer() {
                             <Badge accent="gold">{categoryLabel(r.category)}</Badge>
                             <span className="muted">{fmtDate(r.createdAt, "medium")}</span>
                           </div>
-                          <p>{r.text}</p>
+                          <p>{tx(r.text)}</p>
                           <div className="request-item__foot">
                             <button type="button" className={"pray-btn" + (r.iPrayed ? " pray-btn--on" : "")} onClick={() => markPrayed(r.id)}>
                               <Icon name="prayer" size={15} /> {r.iPrayed ? ct("auto.prayer.87b18cf9e4dfe9c0") : ct("auto.prayer.739d12e78f1cd056")} <b>{r.prayed}</b>
@@ -227,7 +227,7 @@ export function Prayer() {
       <Section tone="raised">
         <SectionHeading center eyebrow={ct("prayer.scriptures.eyebrow")} title={ct("prayer.scriptures.title")} lede={ct("prayer.scriptures.lede")} />
         <Accordion
-          items={SCRIPTURES.slice(0, 10).map((s) => ({ q: `${s.ref} — ${s.theme}`, a: <span>“{s.text}”</span> }))}
+          items={SCRIPTURES.slice(0, 10).map((s) => ({ q: `${s.ref} — ${tx(s.theme)}`, a: <span>“{tx(s.text)}”</span> }))}
           defaultOpen={0}
         />
       </Section>

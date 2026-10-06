@@ -166,8 +166,8 @@ export function Ministries() {
                   <li key={v.title}>
                     <Icon name={v.icon} size={16} />
                     <span>
-                      <b>{v.title}</b>
-                      <em>{v.text}</em>
+                      <b>{tx(v.title)}</b>
+                      <em>{tx(v.text)}</em>
                     </span>
                   </li>
                 ))}

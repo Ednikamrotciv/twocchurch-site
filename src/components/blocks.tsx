@@ -245,6 +245,9 @@ export function VideoPlayer({
 }) {
   const [playing, setPlaying] = useState(!!autoPlay);
   const [failed, setFailed] = useState(false);
+  /* Titles arrive in English (sermon names, stream names) — they read in the
+     visitor's language like every other line (note 225). */
+  const shown = tx(title);
   const src = embedSrc(source, true);
   const file = fileSrc(source);
   const still = poster && !failed ? poster : posterFor(source);
@@ -287,7 +290,7 @@ export function VideoPlayer({
         <iframe
           className="player__frame"
           src={src}
-          title={title}
+          title={shown}
           referrerPolicy={EMBED_REFERRER_POLICY}
           allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; fullscreen"
           allowFullScreen
@@ -300,7 +303,7 @@ export function VideoPlayer({
             setPlaying(true);
             onPlay?.();
           }}
-          aria-label={ct("auto.site.c358a9fa66e1e8e3", { "title": title })}
+          aria-label={ct("auto.site.c358a9fa66e1e8e3", { "title": shown })}
         >
           {still ? (
             <img src={still} alt="" loading="lazy" onError={() => setFailed(true)} />
@@ -313,7 +316,7 @@ export function VideoPlayer({
           <span className="player__play">
             <Icon name="play" size={26} />
           </span>
-          <span className="player__label">{title}</span>
+          <span className="player__label">{shown}</span>
           <span className={"player__source player__source--" + platform}>
             <Icon name={platform === "upload" ? "play" : platform} size={13} /> {platformLabel(platform)}
           </span>
@@ -378,10 +381,10 @@ export function SermonWatch({ sermon, className = "" }: { sermon: Sermon; classN
       <div className="vcard__body">
         <span className="vcard__meta">
           <Icon name="calendar" size={13} /> {fmtDate(sermonDate(sermon), "short")} · {sermon.speaker}
-          {sermon.durationText ? ` · ${sermon.durationText}` : ""}
+          {sermon.durationText ? ` · ${tx(sermon.durationText)}` : ""}
         </span>
         <h3 className="vcard__title">
-          <Link to={`/sermons/${sermon.id}`}>{sermon.title}</Link>
+          <Link to={`/sermons/${sermon.id}`}>{tx(sermon.title)}</Link>
         </h3>
         {options.length > 1 && (
           <div className="vcard__pick" role="group" aria-label={ct("live.card.pickLabel")}>
@@ -452,8 +455,8 @@ export function WatchCards() {
               <span className="watch-card__icon">
                 <Icon name={w.icon} size={22} />
               </span>
-              <h3>{w.label}</h3>
-              <p>{named || w.value}</p>
+              <h3>{tx(w.label)}</h3>
+              <p>{named || tx(w.value)}</p>
               {platform && href && (
                 <Btn size="sm" variant="ghost" href={href} iconRight="external">
                   {ct("auto.live.db942c55e9ec899c")}
@@ -734,7 +737,7 @@ export function BranchCard({
     <Card className={"branch-card" + (active ? " branch-card--active" : "")} pad={false}>
       <div className="branch-card__media">
         <img src={photoOr(branch.image, "building2")} alt="" loading="lazy" />
-        <span className="branch-card__flag">{branchFlag(branch)} {branch.country}</span>
+        <span className="branch-card__flag">{branchFlag(branch)} {tx(branch.country)}</span>
         {branch.isHq && <span className="hq-tag">{ct("auto.site.dfdd25368f930047")}</span>}
         {typeof distanceKm === "number" && <span className="distance-tag"><Icon name="pin" size={12} /> {fmtDistance(distanceKm)}</span>}
       </div>
@@ -824,8 +827,8 @@ export function EventCard({ event, layout = "grid" }: { event: ChurchEvent; layo
         <p className="muted">{tx(event.description)}</p>
         <ul className="event-card__facts">
           <li><Icon name="pin" size={14} /> {event.location}</li>
-          {branch && <li><Icon name="map" size={14} /> {branch.city}, {branch.country}</li>}
-          <li><Icon name="ticket" size={14} /> {moneyText(event.cost)}</li>
+          {branch && <li><Icon name="map" size={14} /> {branch.city}, {tx(branch.country)}</li>}
+          <li><Icon name="ticket" size={14} /> {tx(moneyText(event.cost))}</li>
         </ul>
         <div className="event-card__actions">
           <Btn
@@ -861,7 +864,7 @@ export function TestimonyCard({ testimony, onOpen, onAmen }: { testimony: Testim
         <div className="testimony-card__who">
           {testimony.photo ? <img src={testimony.photo} alt="" className="testimony-card__photo" /> : <Monogram name={testimony.name} letters={testimony.monogram} size={38} />}
           <span>
-            <b>{testimony.name}</b>
+            <b>{testimony.name === "Anonymous" ? ct("auto.testimonies.7baab97d05cbcf14") : testimony.name}</b>
             <em>
               {testimony.city} · {fmtDate(testimony.createdAt, "short")}
             </em>
@@ -884,7 +887,7 @@ export function catAccent(cat: string) {
 
 export function categoryLabel(id: string) {
   const custom = TESTIMONY_CATEGORIES.find((c) => c.id === id)?.label;
-  if (custom) return custom;
+  if (custom) return tx(custom);
   const map: Record<string, string> = {
     salvation: ct("auto.site.ca6cefd92ca5bc80"),
     healing: ct("auto.site.1f13967e561170d7"),
@@ -1057,7 +1060,7 @@ export function BranchPanel({
           <li><Icon name="clock" size={15} /> {branch.schedule.map((s) => { const c = clockHere(s.time, s.day, zone); return `${tx(DAY_NAMES[c.day]).slice(0, 3)} ${to12h(c.time)}`; }).join(" · ")}</li>
           <li><Icon name="phone" size={15} /> <a href={`tel:${branch.phone.replace(/[^\d+]/g, "")}`}>{branch.phone}</a></li>
           <li><Icon name="mail" size={15} /> <a href={`mailto:${branch.email}`}>{branch.email}</a></li>
-          <li><Icon name="globe" size={15} /> {branch.languages.join(", ")}</li>
+          <li><Icon name="globe" size={15} /> {branch.languages.map((l) => tx(l)).join(", ")}</li>
         </ul>
         <div className="branch-panel__actions">
           <Btn onClick={() => setMapOpen(true)} icon="compass" size="sm">
@@ -1075,7 +1078,7 @@ export function BranchPanel({
       {others && others.length > 0 && (
         <div className="branch-panel__side">
           <h4>
-            {withDistance ? ct("auto.site.98dcbc0075b397e9") : sameCountry ? <>{ct("auto.site.8401f4e754b56bce")}{branch.country}</> : ct("auto.site.511e8faecd3a0bd7")}
+            {withDistance ? ct("auto.site.98dcbc0075b397e9") : sameCountry ? <>{ct("auto.site.8401f4e754b56bce")}{tx(branch.country)}</> : ct("auto.site.511e8faecd3a0bd7")}
           </h4>
           <div className="branch-panel__list">
             {others.slice(0, 4).map((o) => {
@@ -1083,7 +1086,7 @@ export function BranchPanel({
                 typeof o.km === "number"
                   ? fmtDistance(o.km)
                   : o.branch.country !== branch.country
-                    ? o.branch.country
+                    ? tx(o.branch.country)
                     : "";
               return (
                 <button type="button" key={o.branch.id} className="nearby-row nearby-row--link" onClick={() => onSelect?.(o.branch)}>

@@ -4,7 +4,7 @@ import { useRoute, Link } from "../lib/router";
 import { TESTIMONY_CATEGORIES } from "../data/content";
 import { SITE, img } from "../data/site";
 import { useLocalState, fireToast } from "../lib/hooks";
-import { KEYS, compressImage, mailto, fmtDate, uid } from "../lib/store";
+import { KEYS, compressImage, mailto, fmtDate, uid, siteLocale } from "../lib/store";
 import { useTestimonies } from "../lib/collections";
 import { Badge, Btn, Card, Checkbox, Chip, Empty, Field, Icon, Input, Modal, Notice, Reveal, Rich, Section, SectionHeading, Select, ShareRow, Textarea, Monogram } from "../components/ui";
 import { ct } from "../data/copy";
@@ -55,7 +55,7 @@ export function Testimonies() {
       <PageHead
         eyebrow={ct("testimonies.head.eyebrow")}
         title={<Rich text={ct("testimonies.head.title")} />}
-        lede={ct("testimonies.head.lede", { count: all.length, amens: totalAmens.toLocaleString() })}
+        lede={ct("testimonies.head.lede", { count: all.length, amens: totalAmens.toLocaleString(siteLocale()) })}
         image={img("worshipband")}
         crumbs={[{ label: ct("auto.testimonies.97608bdbefee81ea"), to: "/" }, { label: ct("auto.testimonies.02391ef47eadc21d") }]}
         actions={
@@ -76,7 +76,7 @@ export function Testimonies() {
             <p className="muted">{ct("testimonies.stat1.text")}</p>
           </Card>
           <Card className="stat-card">
-            <span className="stat-card__value">{totalAmens.toLocaleString()}</span>
+            <span className="stat-card__value">{totalAmens.toLocaleString(siteLocale())}</span>
             <span className="stat-card__label">{ct("testimonies.stat2.label")}</span>
             <p className="muted">{ct("testimonies.stat2.text")}</p>
           </Card>

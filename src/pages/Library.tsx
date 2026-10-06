@@ -4,8 +4,8 @@ import { Link } from "../lib/router";
 import { SERMONS, sermonDate } from "../data/sermons";
 import { READING_PLAN } from "../data/content";
 import { useLibrary, useReadingPlan, useGivingLog, usePrayerRequests, useTestimonies, useWall, useVisitPlan } from "../lib/collections";
-import { KEYS, fmtDate, fmtMoney, fmtDuration, parseDuration } from "../lib/store";
-import { Badge, Btn, Card, Empty, Icon, Modal, Notice, Reveal, Rich, Section, SectionHeading, Tabs } from "../components/ui";
+import { KEYS, fmtDate, fmtMoney, fmtDuration, parseDuration, downloadText, parseServiceNoteKey, siteLocale } from "../lib/store";
+import { Badge, Btn, Card, Empty, Icon, IconBtn, Modal, Notice, Reveal, Rich, Section, SectionHeading, Tabs } from "../components/ui";
 import { ct } from "../data/copy";
 import { PageHead } from "../components/layout";
 import { SermonCard } from "../components/blocks";
@@ -25,6 +25,10 @@ export function Library() {
   const savedSermons = SERMONS.filter((s) => lib.saved.includes(s.id));
   const watchedSermons = SERMONS.filter((s) => lib.watched.includes(s.id));
   const noteEntries = SERMONS.filter((s) => (lib.notes[s.id] || "").trim().length > 0);
+  /* Service-notepad entries with real text in them, newest first. */
+  const serviceEntries = Object.entries(lib.serviceNotes)
+    .filter(([k, v]) => (v || "").trim().length > 0 && parseServiceNoteKey(k))
+    .sort(([a], [b]) => (a < b ? 1 : -1));
   const watchedMinutes = watchedSermons.reduce((n, s) => n + parseDuration(s.durationText), 0);
 
   const resetAll = () => {
@@ -69,6 +73,10 @@ export function Library() {
           <Card className="stat-card">
             <span className="stat-card__value">{noteEntries.length}</span>
             <span className="stat-card__label">{ct("auto.library.cdff37ff9b62c03e")}</span>
+          </Card>
+          <Card className="stat-card">
+            <span className="stat-card__value">{serviceEntries.length}</span>
+            <span className="stat-card__label">{ct("library.stats.serviceNotes")}</span>
           </Card>
         </div>
 
@@ -136,14 +144,44 @@ export function Library() {
                             {s.speaker} · {fmtDate(sermonDate(s), "medium")}
                           </p>
                         </div>
-                        <Btn size="sm" variant="ghost" to={`/sermons/${s.id}`} iconRight="arrowRight">
-                          {ct("auto.library.eabbe11199a48a90")}</Btn>
+                        <div className="btn-row">
+                          <IconBtn name="download" label={tx("Download")} onClick={() => downloadText(`${s.id}-my-notes.txt`, lib.notes[s.id])} />
+                          <Btn size="sm" variant="ghost" to={`/sermons/${s.id}`} iconRight="arrowRight">
+                            {ct("auto.library.eabbe11199a48a90")}</Btn>
+                        </div>
                       </div>
                       <p className="notes-list__body">{tx(lib.notes[s.id])}</p>
                     </Card>
                   </li>
                 ))}
               </ul>
+            )}
+            {serviceEntries.length > 0 && (
+              <>
+                <h3 className="mt-4">{tx("Service notes")}</h3>
+                <ul className="notes-list">
+                  {serviceEntries.map(([key, text]) => {
+                    const meta = parseServiceNoteKey(key)!;
+                    const [y, m, d] = meta.date.split("-").map(Number);
+                    return (
+                      <li key={key}>
+                        <Card>
+                          <div className="notes-list__head">
+                            <div>
+                              <h3>{tx(meta.name)}</h3>
+                              <p className="muted">{fmtDate(new Date(y, m - 1, d), "medium")}</p>
+                            </div>
+                            <div className="btn-row">
+                              <IconBtn name="download" label={tx("Download")} onClick={() => downloadText(`${meta.date}-${meta.name.replace(/[^a-z0-9]+/gi, "-")}.txt`, text)} />
+                            </div>
+                          </div>
+                          <p className="notes-list__body">{tx(text)}</p>
+                        </Card>
+                      </li>
+                    );
+                  })}
+                </ul>
+              </>
             )}
           </div>
         )}
@@ -189,7 +227,7 @@ export function Library() {
 
               <Card>
                 <h3>{ct("auto.library.cc9677737e0e43aa")}</h3>
-                <p className="muted">{ct("auto.library.afe76bf88264cd39")}<b>{wall.mine.length + Object.keys(wall.all).length ? wall.all.filter((w) => wall.iPrayed(w.id)).length : 0}</b> {ct("auto.library.7cd7388a7ab5cce3")}<b>{wall.total.toLocaleString()}</b> {ct("auto.library.3afa8cb2a9302bc3")}</p>
+                <p className="muted">{ct("auto.library.afe76bf88264cd39")}<b>{wall.mine.length + Object.keys(wall.all).length ? wall.all.filter((w) => wall.iPrayed(w.id)).length : 0}</b> {ct("auto.library.7cd7388a7ab5cce3")}<b>{wall.total.toLocaleString(siteLocale())}</b> {ct("auto.library.3afa8cb2a9302bc3")}</p>
                 <Btn size="sm" variant="ghost" to="/prayer" block iconRight="arrowRight">
                   {ct("auto.library.984b761cecb2a3c5")}</Btn>
               </Card>

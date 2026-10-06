@@ -22,6 +22,16 @@ export function Visit() {
   const [done, setDone] = useState(false);
 
   const branch = BRANCHES.find((b) => b.id === branchId) || BRANCHES[0];
+  /* Accessibility options, labeled once and reused by the form and the pass. */
+  const accessOpts = [
+    { value: "none", label: ct("auto.visit.34bf9843bbbb81e2") },
+    { value: "wheelchair", label: ct("auto.visit.3633ee5ac1f80013") },
+    { value: "hearing", label: ct("auto.visit.e0dbda8f8e1c8db6") },
+    { value: "sensory", label: ct("auto.visit.b67dbffc020e17cd") },
+    { value: "front", label: ct("auto.visit.fc2e42341bf52cbd") },
+    { value: "back", label: ct("auto.visit.8b2daf6c75dafbf5") },
+  ];
+  const accessLabel = (v: string) => accessOpts.find((o) => o.value === v)?.label || v;
   /* The visit happens at the branch, so the gathering's *instant* is worked out
      on the branch's own clock; what the visitor reads is that instant on theirs
      (SPEC notes 84/85). */
@@ -126,7 +136,7 @@ export function Visit() {
                 </div>
                 <div>
                   <dt>{ct("auto.visit.42a57a44819fdb95")}</dt>
-                  <dd>{service.name}</dd>
+                  <dd>{tx(service.name)}</dd>
                   <span>
                     {fmtDate(when, "long")} · {to12h(clockAt(when).time)}
                   </span>
@@ -134,10 +144,10 @@ export function Visit() {
                 <div>
                   <dt>{ct("auto.visit.1a5a8eba72b2ef1b")}</dt>
                   <dd>
-                    {party.adults} {ct("auto.visit.8f8ddadfa081cd1e")}{party.adults === 1 ? "" : "s"}
-                    {party.kids ? `, ${party.kids} child${party.kids === 1 ? "" : "ren"}` : ""}
+                    {tx(`${party.adults} adult${party.adults === 1 ? "" : "s"}`)}
+                    {party.kids ? `, ${tx(`${party.kids} child${party.kids === 1 ? "" : "ren"}`)}` : ""}
                   </dd>
-                  <span>{party.accessibility !== "none" ? party.accessibility : ct("auto.visit.6131b9078dd282f6")}</span>
+                  <span>{party.accessibility !== "none" ? accessLabel(party.accessibility) : ct("auto.visit.6131b9078dd282f6")}</span>
                 </div>
                 <div>
                   <dt>{ct("auto.visit.215836ee73aa7d6f")}</dt>
@@ -238,14 +248,7 @@ export function Visit() {
                         <Select
                           value={party.accessibility}
                           onChange={(e) => setParty((p) => ({ ...p, accessibility: e.target.value }))}
-                          options={[
-                            { value: "none", label: ct("auto.visit.34bf9843bbbb81e2") },
-                            { value: "wheelchair", label: ct("auto.visit.3633ee5ac1f80013") },
-                            { value: "hearing", label: ct("auto.visit.e0dbda8f8e1c8db6") },
-                            { value: "sensory", label: ct("auto.visit.b67dbffc020e17cd") },
-                            { value: "front", label: ct("auto.visit.fc2e42341bf52cbd") },
-                            { value: "back", label: ct("auto.visit.8b2daf6c75dafbf5") },
-                          ]}
+                          options={accessOpts}
                         />
                       </Field>
                     </div>

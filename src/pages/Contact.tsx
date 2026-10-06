@@ -246,9 +246,9 @@ export function Contact() {
           </div>
           {DEPARTMENTS.map((d) => (
             <div className="dept-table__row" key={d.name}>
-              <span className="dept-table__name">{d.name}</span>
-              <span>{d.desc}</span>
-              <span className="muted">{d.hours}</span>
+              <span className="dept-table__name">{tx(d.name)}</span>
+              <span>{tx(d.desc)}</span>
+              <span className="muted">{tx(d.hours)}</span>
               <span className="dept-table__actions">
                 <IconBtn name="mail" label={ct("auto.contact.fd6dac31fd551738", { "name": d.name })} href={`mailto:${d.email}`} />
                 <IconBtn name="copy" label={ct("auto.contact.0c5a63cf473333c6")} onClick={() => copyText(d.email, ct("auto.contact.78089400b46c9451"))} />

@@ -287,6 +287,7 @@ const HAND_PAGES: CopyPage[] = [
       { id: "sermons.archive.eyebrow", label: "Archive — eyebrow", value: "The archive" },
       { id: "sermons.archive.title", label: "Archive — headline", value: "Browse every message" },
       { id: "sermons.search", label: "Search placeholder", value: "Search sermons, speakers, scriptures…" },
+      { id: "sermons.results", label: "Result count", value: "{{n}} messages found" },
       { id: "sermons.empty.title", label: "No results — headline", value: "No sermons match those filters" },
       {
         id: "sermons.empty.text",
@@ -930,6 +931,7 @@ const HAND_PAGES: CopyPage[] = [
           "Sermons you saved, notes you took, prayers you are tracking and the reading plan you are working through — all kept privately on this device.",
       },
       { id: "library.saved.empty", locked: true, label: "No saved sermons — text", value: "Tap the bookmark icon on any sermon to keep it here for later." },
+      { id: "library.stats.serviceNotes", label: "Service notes — stat card", value: "service notes" },
       { id: "library.notes.empty", locked: true, label: "No notes — text", value: "Open any sermon and write what God is saying to you — it saves automatically." },
       { id: "library.privacy", locked: true, label: "Privacy notice", value: "Everything on this page is stored in this browser only — no account, no server, no tracking. Clearing your browser data or tapping “Clear my data” will permanently remove it." },
       { id: "library.clear.title", label: "Clear data — heading", value: "Clear all your local data?" },

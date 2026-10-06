@@ -154,12 +154,16 @@ export function SermonDetail() {
                     onChange={(e) => setNote(sermon.id, e.target.value)}
                     placeholder={ct("sermon.notes.placeholder")}
                   />
-                  <p className="field__hint">
-                    {(notes[sermon.id] || "").length} {ct("auto.sermon.475e8e013b769d00")}</p>
-                  {(notes[sermon.id] || "").length > 0 && (
-                    <Btn size="sm" variant="quiet" icon="download" onClick={() => downloadText(`${sermon.id}-my-notes.txt`, notes[sermon.id])}>
-                      {ct("auto.sermon.9ab675167bb6107f")}</Btn>
-                  )}
+                  <div className="notes-actions">
+                    <Btn size="sm" variant="ghost" icon="bookmark" onClick={() => { setNote(sermon.id, notes[sermon.id] || ""); fireToast(tx("Saved to your library"), "success"); }}>
+                      {tx("Save to library")}</Btn>
+                    <span className="field__hint">
+                      {(notes[sermon.id] || "").length} {ct("auto.sermon.475e8e013b769d00")}</span>
+                    {(notes[sermon.id] || "").length > 0 && (
+                      <Btn size="sm" variant="quiet" icon="download" onClick={() => downloadText(`${sermon.id}-my-notes.txt`, notes[sermon.id])}>
+                        {ct("auto.sermon.9ab675167bb6107f")}</Btn>
+                    )}
+                  </div>
                 </div>
               )}
 

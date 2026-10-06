@@ -215,40 +215,46 @@ export function setProtectedValues(values: (string | undefined | null)[]): void 
   }
 }
 
-/** True when a line carries an email address of its own. */
-function hasEmail(text: string): boolean {
-  return /[\w.+-]+@[\w-]+(\.[\w-]+)+/.test(String(text || ""));
-}
-
-/** True when a line carries one of the office's kept values (name/address/email). */
+/** True when a line carries one of the office's kept values (name/addresses).
+    Emails and links ride masked (see tokenize), so they are stripped before
+    the check: a contact line still translates around its intact address, but a
+    kept name or street address holds the whole line in English (note 225). */
 function isProtected(text: string): boolean {
   const t = String(text || "");
   if (!t) return false;
-  if (hasEmail(t)) return true;
-  const low = t.toLowerCase();
+  const bare = t.replace(URL_RE, " ").replace(EMAIL_RE, " ");
+  const low = bare.toLowerCase();
   for (const k of keepers) {
     if (k.length >= 3 && low.includes(k.toLowerCase())) return true;
   }
   return false;
 }
 
-/** Worth sending: has letters, is not an address of its own, holds nothing kept. */
+/** Worth sending: has letters, is not a link of its own, holds nothing kept.
+    Long texts travel in pieces (see splitPieces) instead of staying English. */
 function worthTranslating(text: string): boolean {
   const t = String(text || "");
-  if (t.length < 2 || t.length > 1200) return false;
+  if (t.length < 2 || t.length > 8000) return false;
   if (/^(https?:|mailto:|tel:|data:|blob:|#)/i.test(t.trim())) return false;
-  /* The church's name, addresses and emails never convert — only prose does. */
+  /* The church's name and addresses never convert — only prose does. */
   if (isProtected(t)) return false;
   return /[A-Za-zÀ-ÿĀ-ž]/.test(t);
 }
 
-/** Hide {{placeholders}} from translation under hard tokens, restored after. */
+const EMAIL_RE = /[\w.+-]+@[\w-]+(\.[\w-]+)+/g;
+const URL_RE = /https?:\/\/[^\s<>"')]+/g;
+
+/** Hide {{placeholders}}, email addresses and links from translation under
+    hard tokens, restored after — the address survives while the prose around
+    it converts (note 225). Tokens hold no spaces or punctuation, so piece
+    splits can never cut one in half. */
 function tokenize(text: string): { masked: string; vars: string[] } {
   const vars: string[] = [];
-  const masked = String(text).replace(/\{\{\w+\}\}/g, (m) => {
+  const push = (m: string) => {
     vars.push(m);
     return `__WOM${vars.length - 1}__`;
-  });
+  };
+  const masked = String(text).replace(/\{\{\w+\}\}/g, push).replace(URL_RE, push).replace(EMAIL_RE, push);
   return { masked, vars };
 }
 
@@ -259,6 +265,36 @@ function restore(translated: string, vars: string[]): string | null {
     out = out.split(`__WOM${i}__`).join(vars[i]);
   }
   return out;
+}
+
+/** Split masked text into translatable pieces that never cut a token: tokens
+    hold no spaces or sentence punctuation, so sentence splits and space-backed
+    hard splits are both safe (note 225). */
+function splitPieces(masked: string, max = 1000): string[] {
+  if (masked.length <= 1200) return [masked];
+  const out: string[] = [];
+  let cur = "";
+  for (const s of masked.split(/(?<=[.!?]\s|\n)/)) {
+    if (cur && cur.length + s.length > max) {
+      out.push(cur);
+      cur = "";
+    }
+    cur += s;
+  }
+  if (cur) out.push(cur);
+  return out.flatMap((p) => {
+    if (p.length <= 1200) return [p];
+    const bits: string[] = [];
+    let rest = p;
+    while (rest.length > 1000) {
+      let cut = rest.lastIndexOf(" ", 1000);
+      if (cut < 400) cut = 1000;
+      bits.push(rest.slice(0, cut));
+      rest = rest.slice(cut).replace(/^\s+/, "");
+    }
+    if (rest) bits.push(rest);
+    return bits;
+  });
 }
 
 function cacheKey(l: string): string {
@@ -376,44 +412,89 @@ async function runFor(l: string, entries: [string, string][]): Promise<void> {
     return;
   }
   /* Small sequential batches, gently spaced — one failure never stops the rest. */
-  const batches: [string, string][][] = [];
-  let cur: [string, string][] = [];
-  let chars = 0;
+  type Unit = { id: string; source: string; vars: string[]; piece: string; idx: number; total: number };
+  const units: Unit[] = [];
   for (const [id, text] of missing) {
-    const { masked } = tokenize(text);
-    if (cur.length >= 25 || chars + masked.length > 1400) {
+    const { masked, vars } = tokenize(text);
+    /* Multi-line lines ride newline-masked (like the dynamic batches) so the
+       batch's line count survives them; long lines ride in pieces (note 225). */
+    const safe = masked.split("\n").join(NL_TOKEN);
+    splitPieces(safe).forEach((piece, idx, arr) =>
+      units.push({ id, source: text, vars, piece, idx, total: arr.length })
+    );
+  }
+  const batches: Unit[][] = [];
+  let cur: Unit[] = [];
+  let chars = 0;
+  for (const u of units) {
+    if (cur.length >= 25 || chars + u.piece.length > 1400) {
       batches.push(cur);
       cur = [];
       chars = 0;
     }
-    cur.push([id, text]);
-    chars += masked.length;
+    cur.push(u);
+    chars += u.piece.length;
   }
   if (cur.length) batches.push(cur);
+  /* Translated pieces per line, in order; a line applies once all its pieces
+     have landed, so a piece split across two batches still joins correctly. */
+  const got = new Map<string, { source: string; vars: string[]; parts: (string | null)[]; total: number }>();
+  const bank = (u: Unit, text: string | null) => {
+    let g = got.get(u.id);
+    if (!g) {
+      g = { source: u.source, vars: u.vars, parts: new Array(u.total).fill(null), total: u.total };
+      got.set(u.id, g);
+    }
+    if (text) g.parts[u.idx] = text;
+  };
+  const applyReady = () => {
+    let applied = 0;
+    for (const [id, g] of got) {
+      if (g.parts.some((p) => !p)) continue;
+      const joined = g.parts.join("").split(NL_TOKEN).join("\n");
+      const restored = restore(joined, g.vars);
+      got.delete(id);
+      if (!restored || restored === g.source) continue;
+      table[id] = { s: g.source, t: restored };
+      applied++;
+    }
+    if (applied) saveCache(l);
+    return applied;
+  };
   let lastBump = 0;
+  const maybeBump = () => {
+    const now = Date.now();
+    if (now - lastBump > 400) {
+      lastBump = now;
+      bump();
+    }
+  };
   for (const batch of batches) {
     if (token !== runToken || lang !== l) return;
-    const masked = batch.map(([, text]) => tokenize(text).masked);
-    const out = await translateLines(l, masked);
+    const out = await translateLines(l, batch.map((u) => u.piece));
     if (token !== runToken || lang !== l) return;
-    let applied = 0;
-    out.forEach((t, i) => {
-      if (!t) return;
-      const [id, source] = batch[i];
-      const { vars } = tokenize(source);
-      const restored = restore(t, vars);
-      if (!restored || restored === source) return;
-      table[id] = { s: source, t: restored };
-      applied++;
-    });
-    if (applied) {
-      saveCache(l);
-      const now = Date.now();
-      if (now - lastBump > 400) {
-        lastBump = now;
-        bump();
-      }
-    }
+    out.forEach((t, i) => bank(batch[i], t && t.trim() ? t : null));
+    if (applyReady()) maybeBump();
+    await new Promise((r) => window.setTimeout(r, 350));
+  }
+  /* One solo attempt each for whatever the batches mangled — a line alone
+     often survives where a batch does not (note 225). Bounded: thirty lines. */
+  const leftover = missing.filter(([id, text]) => {
+    const hit = table[id];
+    return !hit || hit.s !== text;
+  }).slice(0, 30);
+  for (const [id, text] of leftover) {
+    if (token !== runToken || lang !== l) return;
+    const { masked, vars } = tokenize(text);
+    const pieces = splitPieces(masked.split("\n").join(NL_TOKEN));
+    const out = await translateLines(l, pieces);
+    if (token !== runToken || lang !== l) return;
+    if (out.some((p) => !p || !p.trim())) continue;
+    const restored = restore(out.join("").split(NL_TOKEN).join("\n"), vars);
+    if (!restored || restored === text) continue;
+    table[id] = { s: text, t: restored };
+    saveCache(l);
+    maybeBump();
     await new Promise((r) => window.setTimeout(r, 350));
   }
   if (token === runToken && lang === l) bump();
@@ -430,19 +511,43 @@ async function runFor(l: string, entries: [string, string][]): Promise<void> {
 const dynPending = new Map<string, string>();
 let dynTimer = 0;
 
+/** Queue one string for the micro-batch; a queued line is asked once. */
+function queueDyn(id: string, source: string) {
+  if (dynPending.has(id)) return;
+  const hit = table[id];
+  if (hit && hit.s === source) return;
+  if (typeof navigator !== "undefined" && navigator.onLine === false) return;
+  dynPending.set(id, source);
+  if (!dynTimer && typeof window !== "undefined") {
+    dynTimer = window.setTimeout(() => void flushDyn(), 700);
+  }
+}
+
 export function tx(word: string): string {
   const w = String(word || "");
   if (lang === "en" || !worthTranslating(w)) return w;
-  const id = `w:${w}`;
-  const hit = table[id];
-  if (hit && hit.s === w) return hit.t;
-  if (!dynPending.has(id) && (typeof navigator === "undefined" || navigator.onLine !== false)) {
-    dynPending.set(id, w);
-    if (!dynTimer && typeof window !== "undefined") {
-      dynTimer = window.setTimeout(() => void flushDyn(), 700);
+  const { masked, vars } = tokenize(w);
+  if (masked === w) {
+    /* No placeholders, emails or links: today's path, byte-identical. */
+    const id = `w:${w}`;
+    const hit = table[id];
+    if (hit && hit.s === w) return hit.t;
+    queueDyn(id, w);
+    return w;
+  }
+  /* Masked text travels in pieces (long or token-carrying alike); each piece
+     is cached on its masked form and the join is unmasked once (note 225). */
+  let joined = "";
+  for (const piece of splitPieces(masked)) {
+    const pid = `w:${piece}`;
+    const hit = table[pid];
+    if (hit && hit.s === piece) joined += hit.t;
+    else {
+      queueDyn(pid, piece);
+      joined += piece;
     }
   }
-  return w;
+  return restore(joined, vars) ?? w;
 }
 
 /* Newlines ride masked (batches are newline-joined) and come back after. */

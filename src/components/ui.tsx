@@ -4,7 +4,7 @@ import { AnimatePresence, motion } from "framer-motion";
 import { EASE, SPRING_SNAPPY, SPRING_SOFT, fold, modalBackdrop, modalPanel, rise, toastCard } from "../lib/motion";
 import { Link } from "../lib/router";
 import { useClickOutside, useToasts, useReveal, useBodyLock } from "../lib/hooks";
-import { copyText, shareContent, whatsappLink, mailto } from "../lib/store";
+import { copyText, shareContent, whatsappLink, mailto, siteLocale } from "../lib/store";
 import { absoluteLink } from "../lib/router";
 import { ct } from "../data/copy";
 
@@ -393,7 +393,7 @@ export function Stat({ value, label, suffix = "", animate = true }: { value: num
   return (
     <div className="stat" ref={ref}>
       <div className="stat__value">
-        {shown.toLocaleString()}
+        {shown.toLocaleString(siteLocale())}
         {suffix}
       </div>
       <div className="stat__label">{tx(label)}</div>

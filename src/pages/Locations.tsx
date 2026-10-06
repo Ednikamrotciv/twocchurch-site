@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
+import { tx } from "../lib/i18n";
 import { useRoute, Link } from "../lib/router";
 import { BRANCHES, COUNTRIES, DEFAULT_BRANCH_ID, groupByCountry, type Branch } from "../data/branches";
 import { photoOr } from "../data/photos";
@@ -151,7 +152,7 @@ export function Locations() {
               {ct("auto.locations.e4309419b7c73058")}</Chip>
             {COUNTRIES.map((name) => (
               <Chip key={name} active={country === name} onClick={() => setCountry(name)}>
-                {name}
+                {tx(name)}
               </Chip>
             ))}
           </div>
@@ -176,7 +177,7 @@ export function Locations() {
               <div className="branch-country__head">
                 <span className="branch-country__flag" aria-hidden="true">{g.flag}</span>
                 <div>
-                  <h3 className="branch-country__name">{g.country}</h3>
+                  <h3 className="branch-country__name">{tx(g.country)}</h3>
                   <p className="branch-country__meta">
                     {g.region} · {g.rows.length} {g.rows.length === 1 ? ct("auto.locations.b3a8fe54e6549bad") : ct("auto.locations.5ab0a53c9474c20d")}
                   </p>

@@ -28,7 +28,7 @@ export function buildSearchIndex(): SearchResult[] {
 
   SERMONS.forEach((s) =>
     out.push({
-      title: s.title,
+      title: tx(s.title),
       sub: `${s.speaker} · ${s.durationText}`,
       to: `/sermons/${s.id}`,
       group: ct("auto.site.87cbe2336529b73a"),
@@ -36,8 +36,8 @@ export function buildSearchIndex(): SearchResult[] {
     })
   );
   BRANCHES.forEach((b) => out.push({ title: b.city, sub: `${b.name} · ${b.country} · ${b.pastor}`, to: `/locations?branch=${b.id}`, group: ct("auto.site.34338808974a0881"), icon: "pin" }));
-  EVENTS.forEach((e) => out.push({ title: e.title, sub: `${e.location} · ${to12h(clockAt(eventDate(e)).time)}`, to: `/events`, group: ct("auto.site.4e4aad3fa996c40e"), icon: "calendar" }));
-  SEED_TESTIMONIES.forEach((t) => out.push({ title: t.title, sub: `${t.name} · ${t.city}`, to: "/testimonies", group: ct("auto.site.ca64a95e0b990edf"), icon: "quote" }));
+  EVENTS.forEach((e) => out.push({ title: tx(e.title), sub: `${e.location} · ${to12h(clockAt(eventDate(e)).time)}`, to: `/events`, group: ct("auto.site.4e4aad3fa996c40e"), icon: "calendar" }));
+  SEED_TESTIMONIES.forEach((t) => out.push({ title: tx(t.title), sub: `${t.name} · ${t.city}`, to: "/testimonies", group: ct("auto.site.ca64a95e0b990edf"), icon: "quote" }));
   return out;
 }
 

@@ -3911,13 +3911,7 @@
 
 @media (min-width: 760px) {
   .library-stats {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-  }
-}
-
-@media (min-width: 1080px) {
-  .library-stats {
-    grid-template-columns: repeat(6, minmax(0, 1fr));
+    grid-template-columns: repeat(4, minmax(0, 1fr));
   }
 }
 
@@ -4248,6 +4242,18 @@
   margin-top: 1.6rem;
 }
 
+/* Save + count + download row under a notepad (sermon notes, service notes). */
+.notes-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+  margin-top: 0.7rem;
+}
+
+.notes-actions .field__hint {
+  margin: 0 0 0 auto;
+}
 .sermon-notes h3:first-child {
   margin-top: 0;
 }

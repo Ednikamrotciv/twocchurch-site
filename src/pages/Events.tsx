@@ -67,7 +67,7 @@ export function Events() {
                 <li><Icon name="calendar" size={16} /><span>{fmtDate(eventDate(featured), "long")}</span></li>
                 <li><Icon name="clock" size={16} /><span>{to12h(clockAt(eventDate(featured)).time)} · {tidyCount(`${Math.round(featured.durationMin / 60)} ${ct("auto.events.7c883d7420442e2d")}`)}</span></li>
                 <li><Icon name="pin" size={16} /><span>{featured.location}</span></li>
-                <li><Icon name="ticket" size={16} /><span>{moneyText(featured.cost)}</span></li>
+                <li><Icon name="ticket" size={16} /><span>{tx(moneyText(featured.cost))}</span></li>
               </ul>
               <Countdown target={eventDate(featured).getTime()} />
               <div className="btn-row">

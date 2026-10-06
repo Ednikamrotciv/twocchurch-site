@@ -7,11 +7,12 @@ import { ct } from "../data/copy";
 import { BRANCHES, DEFAULT_BRANCH_ID, HQ } from "../data/branches";
 import { sermonsNewestFirst, sermonSource, sermonThumb } from "../data/sermons";
 import { useLocalState, useNow, fireToast } from "../lib/hooks";
-import { KEYS, nextService, onAir, to12h, DAY_NAMES, countdownParts, addToCalendar, mailto, clockHere, tidyCount, churchTimezone, visitorPlace } from "../lib/store";
+import { KEYS, nextService, onAir, to12h, DAY_NAMES, countdownParts, addToCalendar, mailto, clockHere, tidyCount, churchTimezone, visitorPlace, fmtDate, downloadText, serviceNoteKey, type NextServiceInfo } from "../lib/store";
 import { isFacebookVideoUrl, parseYoutubeId, platformLabel, watchUrl, youtubeThumb, type VideoPlatform, type VideoSource } from "../lib/embed";
 import { useLiveStream, liveTarget, facebookTarget } from "../lib/livestatus";
+import { useLibrary } from "../lib/collections";
 import { useRecentServices } from "../lib/recentstreams";
-import { Badge, Btn, Icon, IconBtn, Notice, Reveal, Rich, Section, SectionHeading } from "../components/ui";
+import { Badge, Btn, Icon, IconBtn, Modal, Notice, Reveal, Rich, Section, SectionHeading, Textarea } from "../components/ui";
 import { PageHead } from "../components/layout";
 import { LiveWaiting } from "../components/liveclock";
 import { Countdown, RecentServiceCard, SermonWatch, VideoPlayer, WatchCards, platformWatchLinks } from "../components/blocks";
@@ -80,6 +81,8 @@ export function WatchLive() {
   }, [detectedId, LIVE.youtubeId, LIVE.facebookUrl]);
   const preferred: VideoPlatform = detectedId ? "youtube" : LIVE.provider === "facebook" ? "facebook" : "youtube";
   const [chosen, setChosen] = useState<VideoPlatform>(preferred);
+  /* The service notepad behind the *Service notes* arrow (note 223). */
+  const [notesOpen, setNotesOpen] = useState(false);
   const platform: VideoPlatform | null = available.includes(chosen) ? chosen : available[0] || null;
   const liveSource: VideoSource =
     platform === "facebook"
@@ -110,11 +113,13 @@ export function WatchLive() {
       icon: "book",
       title: ct("live.side.2.title"),
       text: ct("live.side.2.text"),
-      action: latest ? (
-        <Link className="icon-btn" to={`/sermons/${latest.id}`} aria-label={ct("auto.live.6af04181792b1ee8")}>
+      /* The arrow opens the service notepad — the same pad as a sermon's,
+         with its own save button (note 223). */
+      action: (
+        <button type="button" className="icon-btn" aria-label={ct("live.side.2.title")} onClick={() => setNotesOpen(true)}>
           <Icon name="arrowRight" size={18} />
-        </Link>
-      ) : null,
+        </button>
+      ),
     },
     {
       icon: "send",
@@ -319,7 +324,7 @@ export function WatchLive() {
             {available.length > 0 && (
               <p className="live-panel__where">
                 <Icon name={platform === "facebook" ? "facebook" : "youtube"} size={15} />
-                {ct("live.where.text", { platforms: available.map((p) => platformLabel(p)).join(" and ") })}
+                {ct("live.where.text", { platforms: tx(available.map((p) => platformLabel(p)).join(" and ")) })}
               </p>
             )}
           </div>
@@ -429,6 +434,53 @@ export function WatchLive() {
         <SectionHeading center eyebrow={ct("live.ways.eyebrow")} title={ct("live.ways.title")} />
         <WatchCards />
       </Section>
+
+      {notesOpen && <ServiceNotesModal info={info} messageId={latest?.id} onClose={() => setNotesOpen(false)} />}
     </>
   );
+}
+
+/* The notepad behind the *Service notes* arrow — the same pad a sermon has:
+   follow along with the outline, save it to the library, download it (note 223). */
+function ServiceNotesModal({ info, messageId, onClose }: { info: NextServiceInfo | null; messageId?: string; onClose: () => void }) {
+  const lib = useLibrary();
+  const key = info ? serviceNoteKey(info.at, info.slot.name) : serviceNoteKey(new Date(), "Service");
+  const text = lib.serviceNotes[key] || "";
+  const file = key.replace(/^service:/, "").replace(/:/g, "-") + ".txt";
+  return (
+    <Modal open onClose={onClose} title={ct("live.side.2.title")}>
+      {info && (
+        <p className="muted">
+          {tx(info.slot.name)} · {tx(DAY_NAMES[whenOf(info).day])} {to12h(whenOf(info).time)} · {fmtDate(info.at, "long")}
+        </p>
+      )}
+      <Textarea
+        rows={8}
+        value={text}
+        onChange={(e) => lib.setServiceNote(key, e.target.value)}
+        placeholder={ct("live.side.2.text")}
+      />
+      <div className="notes-actions">
+        <Btn size="sm" variant="ghost" icon="bookmark" onClick={() => { lib.setServiceNote(key, text); fireToast(tx("Saved to your library"), "success"); }}>
+          {tx("Save to library")}</Btn>
+        <span className="field__hint">
+          {text.length} {ct("auto.sermon.475e8e013b769d00")}</span>
+        {text.length > 0 && (
+          <Btn size="sm" variant="quiet" icon="download" onClick={() => downloadText(file, text)}>
+            {tx("Download")}</Btn>
+        )}
+      </div>
+      {messageId && (
+        <div className="btn-row mt-3">
+          <Btn to={`/sermons/${messageId}`} size="sm" variant="ghost" iconRight="arrowRight">
+            {ct("live.card.message")}</Btn>
+        </div>
+      )}
+    </Modal>
+  );
+}
+
+/** This gathering on the visitor's own clock (note 85). */
+function whenOf(info: NextServiceInfo) {
+  return clockHere(info.slot.time, info.slot.day, churchTimezone());
 }
