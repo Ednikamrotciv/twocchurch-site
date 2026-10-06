@@ -435,14 +435,14 @@ export function WatchLive() {
         <WatchCards />
       </Section>
 
-      {notesOpen && <ServiceNotesModal info={info} messageId={latest?.id} onClose={() => setNotesOpen(false)} />}
+      {notesOpen && <ServiceNotesModal info={info} onClose={() => setNotesOpen(false)} />}
     </>
   );
 }
 
 /* The notepad behind the *Service notes* arrow — the same pad a sermon has:
-   follow along with the outline, save it to the library, download it (note 223). */
-function ServiceNotesModal({ info, messageId, onClose }: { info: NextServiceInfo | null; messageId?: string; onClose: () => void }) {
+   follow along with the outline, save it to the library, download it (note 226). */
+function ServiceNotesModal({ info, onClose }: { info: NextServiceInfo | null; onClose: () => void }) {
   const lib = useLibrary();
   const key = info ? serviceNoteKey(info.at, info.slot.name) : serviceNoteKey(new Date(), "Service");
   const text = lib.serviceNotes[key] || "";
@@ -465,17 +465,14 @@ function ServiceNotesModal({ info, messageId, onClose }: { info: NextServiceInfo
           {tx("Save to library")}</Btn>
         <span className="field__hint">
           {text.length} {ct("auto.sermon.475e8e013b769d00")}</span>
-        {text.length > 0 && (
-          <Btn size="sm" variant="quiet" icon="download" onClick={() => downloadText(file, text)}>
-            {tx("Download")}</Btn>
-        )}
       </div>
-      {messageId && (
-        <div className="btn-row mt-3">
-          <Btn to={`/sermons/${messageId}`} size="sm" variant="ghost" iconRight="arrowRight">
-            {ct("live.card.message")}</Btn>
-        </div>
-      )}
+      <div className="btn-row mt-3">
+        <Btn size="sm" variant="ghost" icon="download" onClick={() => {
+          if (!text.trim()) { fireToast(tx("Write a note first"), "info"); return; }
+          downloadText(file, text);
+        }}>
+          {tx("Download note")}</Btn>
+      </div>
     </Modal>
   );
 }
