@@ -30,16 +30,25 @@ async function fetchJson(url) {
 
 const GEO_SOURCES = [
   {
-    url: "https://ipapi.co/json/",
-    read: (json) => ({ tz: nonEmpty(json?.timezone), place: nonEmpty(json?.city), country: nonEmpty(json?.country_code), currency: nonEmpty(json?.currency) }),
+    url: (ip) => (ip ? `https://ipwho.is/${encodeURIComponent(ip)}` : "https://ipwho.is/json/"),
+    read: (json) => ({
+      tz: nonEmpty(json?.timezone?.id || json?.timezone),
+      place: nonEmpty(json?.city),
+      country: nonEmpty(json?.country_code || json?.country),
+      currency: nonEmpty(json?.currency?.code || json?.currency),
+    }),
   },
   {
-    url: "https://get.geojs.io/v1/ip/geo.json",
+    url: (ip) => (ip ? `https://get.geojs.io/v1/ip/geo/${encodeURIComponent(ip)}.json` : "https://get.geojs.io/v1/ip/geo.json"),
     read: (json) => ({ tz: nonEmpty(json?.timezone), place: nonEmpty(json?.city), country: nonEmpty(json?.country_code), currency: "" }),
   },
   {
-    url: "https://ipinfo.io/json",
+    url: (ip) => (ip ? `https://ipinfo.io/${encodeURIComponent(ip)}/json` : "https://ipinfo.io/json"),
     read: (json) => ({ tz: nonEmpty(json?.timezone), place: nonEmpty(json?.city), country: nonEmpty(json?.country), currency: "" }),
+  },
+  {
+    url: (ip) => (ip ? `https://ipapi.co/${encodeURIComponent(ip)}/json/` : "https://ipapi.co/json/"),
+    read: (json) => ({ tz: nonEmpty(json?.timezone), place: nonEmpty(json?.city), country: nonEmpty(json?.country_code), currency: nonEmpty(json?.currency) }),
   },
 ];
 
@@ -71,17 +80,61 @@ function cleanRates(raw) {
 }
 
 export function createGeoProxy() {
-  let geoCache = null;
+  /* Per-visitor answers: one cache entry per IP (a single global entry would
+     hand the first visitor's place to everyone). Rates stay global. */
+  const geoCache = new Map();
   let ratesCache = null;
 
-  async function lookupGeo() {
-    if (geoCache && Date.now() - geoCache.at < GEO_TTL_MS) return geoCache.body;
+  /** The address the visitor arrived on (through proxies/CDNs when present). */
+  function clientIp(req) {
+    try {
+      const forwarded = req?.headers?.["x-forwarded-for"];
+      if (typeof forwarded === "string" && forwarded.trim()) {
+        const first = forwarded.split(",")[0].trim();
+        if (first) return cleanIp(first);
+      }
+      const real = req?.headers?.["x-real-ip"];
+      if (typeof real === "string" && real.trim()) return cleanIp(real);
+      const remote = req?.socket?.remoteAddress;
+      if (typeof remote === "string" && remote) return cleanIp(remote);
+    } catch { /* unknown — the server-IP lookup below covers it */ }
+    return "";
+  }
+
+  function cleanIp(raw) {
+    let ip = String(raw || "").trim();
+    if (ip.startsWith("[")) ip = ip.replace(/^\[|\]$/g, "");
+    const pct = ip.indexOf("%");
+    if (pct >= 0) ip = ip.slice(0, pct);
+    if (ip.toLowerCase().startsWith("::ffff:")) ip = ip.slice(7);
+    const colon = ip.lastIndexOf(":");
+    if (colon >= 0 && ip.indexOf(":") === colon && /^\d+\.\d+\.\d+\.\d+:\d+$/.test(ip)) ip = ip.slice(0, colon);
+    return ip;
+  }
+
+  /** Local/private addresses carry no public place — look those up by server. */
+  function isPrivateIp(ip) {
+    if (!ip) return true;
+    const low = ip.toLowerCase();
+    if (low === "localhost" || low === "::1" || low === "::ffff:127.0.0.1") return true;
+    if (/^127\./.test(ip) || /^10\./.test(ip) || /^192\.168\./.test(ip)) return true;
+    if (/^172\.(1[6-9]|2\d|3[01])\./.test(ip)) return true;
+    if (/^169\.254\./.test(ip)) return true;
+    if (/^(fc|fd)/i.test(low) || /^fe[89ab]/i.test(low)) return true;
+    return false;
+  }
+
+  async function lookupGeo(ip) {
+    const key = ip || "server";
+    const hit = geoCache.get(key);
+    if (hit && Date.now() - hit.at < GEO_TTL_MS) return hit.body;
     for (const source of GEO_SOURCES) {
       try {
-        const answer = source.read(await fetchJson(source.url));
+        const answer = source.read(await fetchJson(source.url(ip)));
         if (answer && validTimezone(answer.tz)) {
           const body = { tz: answer.tz, place: answer.place, country: answer.country, currency: answer.currency };
-          geoCache = { at: Date.now(), body };
+          geoCache.set(key, { at: Date.now(), body });
+          if (geoCache.size > 500) geoCache.delete(geoCache.keys().next().value);
           return body;
         }
       } catch { /* try the next source */ }
@@ -110,9 +163,12 @@ export function createGeoProxy() {
     res.end(text);
   }
 
-  async function handleGeo(_req, res) {
+  async function handleGeo(req, res) {
     try {
-      const body = await lookupGeo();
+      /* A VPN or office network arrives on its own public address — look that
+         address up, so the answer follows the visitor, VPN and all. */
+      const raw = clientIp(req);
+      const body = await lookupGeo(isPrivateIp(raw) ? "" : raw);
       if (!body) sendJson(res, 502, { error: "unreachable" });
       else sendJson(res, 200, body);
     } catch {

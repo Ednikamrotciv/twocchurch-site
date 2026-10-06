@@ -5,7 +5,6 @@ import React, { cloneElement, useEffect, useLayoutEffect, useMemo, useRef, useSt
 import { navigate, useRoute } from "../lib/router";
 import { resolvePath } from "../lib/routes";
 import { Header, Footer, ScrollTop, SkipLink } from "../components/layout";
-import { AnnouncementBanner } from "../components/blocks";
 import { Btn, Card, Icon, Input, Modal, Select, Toaster } from "../components/ui";
 import { ErrorBoundary } from "../components/ErrorBoundary";
 import {
@@ -321,7 +320,6 @@ export function Admin() {
     <div className="admin eshell">
       <SkipLink />
       <Header />
-      <AnnouncementBanner />
       <div className="epage" ref={pageRef}>
         <main id="main">{pageNode}</main>
       </div>

@@ -113,9 +113,18 @@ export function AnnouncementBanner() {
   const version = useCmsVersion();
   const live = useMemo(() => {
     const snoozedSet = new Set(liveEntries(snoozed).map((s) => s.id));
+    /* A published copy can share a headline with its seed (different ids, same
+       words) — show each headline once, first one wins, so strips never double. */
+    const seen = new Set<string>();
     /* A snooze names entry and headline, so an edited notice stays snoozed. */
     return liveAnnouncements()
       .filter((a) => !snoozedSet.has(a.id) && !snoozedSet.has(titleKey(a)))
+      .filter((a) => {
+        const key = titleKey(a) || `id:${a.id}`;
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      })
       .slice(0, 3);
   }, [snoozed, tick, version]);
   /* Wake up exactly when the nearest snooze runs out, so the cancelled notice

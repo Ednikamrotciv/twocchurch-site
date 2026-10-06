@@ -2838,6 +2838,35 @@ input, select, textarea { font-size: 1rem !important; }
 }
 
 /* ==========================================================================
+   PHONE PILLS + LEDE — countdown pills fit neatly, CARE lede steps down.
+   (≤640px only; tablets keep desktop mode per the band above.)
+   ========================================================================== */
+@media (max-width: 640px) {
+  /* "Next: … in 2d 0h 53m" stacks in clean centered lines, never squeezed. */
+  .hero__next,
+  .hero__live {
+    flex-direction: column;
+    gap: 0.2rem;
+    text-align: center;
+    max-width: calc(100vw - 2.5rem);
+  }
+  /* Topbar countdown wraps to two neat lines instead of clipping off-screen. */
+  .service-pill {
+    white-space: normal !important;
+    flex-wrap: wrap !important;
+    justify-content: center !important;
+    text-align: center !important;
+    row-gap: 0.15rem !important;
+    max-width: calc(100vw - 1.5rem) !important;
+  }
+  .topbar__inner {
+    overflow-x: visible !important;
+  }
+  /* CARE lede a touch smaller on phones. */
+  .hero__lede { font-size: 0.95rem !important; line-height: 1.6 !important; }
+}
+
+/* ==========================================================================
    TABLETS TAKE DESKTOP MODE — only phones use the mobile header.
    From 768px up the full chrome shows (name, links, search text, big logo),
    matching the desktop nav switch in layout.tsx. Below 768px the max-width

@@ -13,6 +13,7 @@ import {
   isValidTimezone,
   normalizeVisitorClock,
   setVisitorClock,
+  getVisitorClock,
   type VisitorClock,
 } from "./store";
 
@@ -27,13 +28,52 @@ type Probe = { url: string; read: (json: any, text: string) => Answer };
 
 const str = (v: unknown) => (typeof v === "string" ? v.trim() : "");
 
+/** Read across provider shapes: "a.b" walks nested objects, first hit wins. */
+function pick(json: any, paths: string[]): string {
+  for (const path of paths) {
+    let node: any = json;
+    for (const key of path.split(".")) {
+      node = node && typeof node === "object" ? node[key] : undefined;
+    }
+    const value = str(node);
+    if (value) return value;
+  }
+  return "";
+}
+
+const TZ_PATHS = ["timezone", "time_zone", "timezone.id", "timezone.name"];
+const PLACE_PATHS = ["city", "city.name"];
+const COUNTRY_PATHS = ["country_code", "country", "country.iso_code"];
+const CURRENCY_PATHS = ["currency", "currency.code"];
+
 /** Keyless CORS-open services, tried in order; first answer wins. */
 const PROBES: Probe[] = [
   {
-    /* Asked first: generous keyless limits and rarely blocked, city included.
+    /* Asked first: rich answer (zone, city, country and currency) with
+       generous free limits — the reader tolerates flat or nested shapes. */
+    url: "https://ipwho.is/json/",
+    read: (json) => ({
+      tz: pick(json, TZ_PATHS),
+      place: pick(json, PLACE_PATHS),
+      country: pick(json, COUNTRY_PATHS),
+      currency: pick(json, CURRENCY_PATHS),
+    }),
+  },
+  {
+    /* Flat shape: generous keyless limits and rarely blocked, city included.
        No currency in the answer — the country table covers that. */
     url: "https://get.geojs.io/v1/ip/geo.json",
     read: (json) => ({ tz: str(json?.timezone), place: str(json?.city), country: str(json?.country_code), currency: "" }),
+  },
+  {
+    /* Flat shape with currency included. */
+    url: "https://api.ip.sb/geoip",
+    read: (json) => ({
+      tz: pick(json, TZ_PATHS),
+      place: pick(json, PLACE_PATHS),
+      country: pick(json, COUNTRY_PATHS),
+      currency: pick(json, CURRENCY_PATHS),
+    }),
   },
   {
     /* Richest answer: zone, city, country *and* currency, in one call — but it
@@ -75,21 +115,11 @@ async function ask(probe: Probe): Promise<Answer | null> {
   }
 }
 
-function isLocalHost(): boolean {
-  try {
-    const h = window.location.hostname.toLowerCase();
-    if (!h || h === "localhost") return true;
-    if (h === "127.0.0.1" || h === "[::1]" || h === "::1" || h.startsWith("127.")) return true;
-    if (h.endsWith(".localhost") || h.endsWith(".local")) return true;
-    if (/^10\./.test(h) || /^192\.168\./.test(h) || /^172\.(1[6-9]|2\d|3[01])\./.test(h)) return true;
-  } catch {
-    return false;
-  }
-  return false;
-}
-
-async function askLocalProxy(): Promise<Answer | null> {
-  if (!isLocalHost()) return null;
+/** The site's own server, same address as the page itself: a VPN or filter
+    list that blocks third-party geo domains cannot block this without
+    breaking the site too. The server looks up the arriving address — VPN
+    exit included — and answers with its place. */
+async function askOwnServer(): Promise<Answer | null> {
   const controller = new AbortController();
   const timer = window.setTimeout(() => controller.abort(), TIMEOUT_MS);
   try {
@@ -99,6 +129,7 @@ async function askLocalProxy(): Promise<Answer | null> {
     const answer = { tz: str(json?.tz), place: str(json?.place), country: str(json?.country), currency: str(json?.currency) };
     return answer.tz && isValidTimezone(answer.tz) ? answer : null;
   } catch {
+    /* static hosting without the backend — the direct probes below cover it */
     return null;
   } finally {
     window.clearTimeout(timer);
@@ -123,12 +154,12 @@ function ipClock(answer: Answer): VisitorClock {
     services cannot answer — callers fall back to the church's own clock. */
 export async function findVisitorClock(): Promise<VisitorClock | null> {
   if (typeof navigator !== "undefined" && navigator.onLine === false) return null;
+  const own = await askOwnServer();
+  if (own) return ipClock(own);
   for (const probe of PROBES) {
     const answer = await ask(probe);
     if (answer) return ipClock(answer);
   }
-  const local = await askLocalProxy();
-  if (local) return ipClock(local);
   return null;
 }
 
@@ -165,12 +196,21 @@ export function refreshVisitorClock(): Promise<VisitorClock | null> {
 
 let started = false;
 
-/** Start one lookup per load (never blocks paint). */
+/** Start one lookup per load (never blocks paint). A slow or briefly-blocked
+    network gets one more chance shortly after — without it, a visitor whose
+    first lookup failed would sit on the church clock all visit. */
 export function startVisitorClock() {
   if (started) return;
   started = true;
   if (!isStale(normalizeVisitorClock(readCached()))) return;
   void refreshVisitorClock();
+  window.setTimeout(() => {
+    try {
+      if (!getVisitorClock()) void refreshVisitorClock();
+    } catch {
+      /* the page stands as-is */
+    }
+  }, 10000);
 }
 
 function readCached(): unknown {
