@@ -101,7 +101,12 @@
 
 /* --------------------------------------------------------------- the aurora */
 
-body {
+/* The aurora lives on `html`, and `body` stays transparent: the WebGL shader
+   canvas is a fixed child of body at z-index -1, which paints *above* the
+   root background but *below* body's own — an opaque body would bury it. With
+   WebGL running its opaque frame covers this; with WebGL unavailable the
+   canvas is removed and this gradient is the background. */
+html {
   background-color: var(--ink);
   background-image: radial-gradient(
       115% 70% at 6% -10%,
@@ -128,7 +133,11 @@ body {
   background-attachment: fixed;
 }
 
-[data-theme="light"] body {
+body {
+  background: transparent;
+}
+
+[data-theme="light"] html {
   background-color: var(--ink);
   background-image: radial-gradient(
       52% 40% at 4% -6%,
@@ -480,18 +489,7 @@ body {
 
 /* --------------------------------------------------------------- depth */
 
-.hero__scrim {
-  background: linear-gradient(
-    180deg,
-    rgba(5, 5, 9, 0.92) 0%,
-    rgba(5, 5, 9, 0.82) 44%,
-    rgba(2, 2, 5, 0.99) 100%
-  );
-}
-
-.page-head__bg::after {
-  background: linear-gradient(180deg, rgba(5, 5, 9, 0.8), rgba(3, 3, 6, 0.97));
-}
+/* Hero and page-head scrims live in pages.css per theme — no dark wash here. */
 
 .card--hover:hover {
   transform: translateY(-5px) scale(1.006);

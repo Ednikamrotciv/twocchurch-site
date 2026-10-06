@@ -40,6 +40,7 @@ const ICONS: Record<string, ReactNode> = {
   chevronRight: <><path d="M9.5 5.5l6.5 6.5-6.5 6.5" /></>,
   chevronLeft: <><path d="M14.5 5.5L8 12l6.5 6.5" /></>,
   chevronDown: <><path d="M5.5 9.5L12 16l6.5-6.5" /></>,
+  chevronUp: <><path d="M5.5 14.5L12 8l6.5 6.5" /></>,
   arrowRight: <><path d="M4 12h15" /><path d="M13.5 6.5L20 12l-6.5 5.5" /></>,
   arrowLeft: <><path d="M20 12H5" /><path d="M10.5 6.5L4 12l6.5 5.5" /></>,
   arrowUp: <><path d="M12 20V5" /><path d="M6.5 10.5L12 5l5.5 5.5" /></>,

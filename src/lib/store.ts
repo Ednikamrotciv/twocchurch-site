@@ -81,6 +81,9 @@ export type VisitorClock = {
   country: string;
   /** The currency that country uses, e.g. "NGN". Empty when unknown. */
   currency: string;
+  /** The public address the answer was looked up for — a changed address
+      means the visitor moved (VPN on/off) and the clock must be asked again. */
+  ip: string;
   /** Where the answer came from: their network, or their device as a fallback. */
   source: "ip" | "device";
   /** Which shape of answer this is — an older one is looked up again. */
@@ -93,8 +96,9 @@ export type VisitorClock = {
 export const VISITOR_KEY = KEYS.visitor;
 
 /** Lookup answer shape; bumped when it carries something new (note 98).
-    v5: IP address is the only source — older cached answers are looked up again. */
-export const VISITOR_CLOCK_V = 5;
+    v6: the answer carries the public IP it was looked up for, so a changed
+    address (VPN on/off) is asked again instead of sitting out the cache. */
+export const VISITOR_CLOCK_V = 6;
 
 export function normalizeVisitorClock(raw: any): VisitorClock | null {
   if (!raw || typeof raw !== "object") return null;
@@ -106,6 +110,7 @@ export function normalizeVisitorClock(raw: any): VisitorClock | null {
     place: typeof raw.place === "string" ? raw.place.trim() : "",
     country,
     currency: isValidCurrency(raw.currency) ? String(raw.currency).trim().toUpperCase() : "",
+    ip: typeof raw.ip === "string" ? raw.ip.trim().slice(0, 64) : "",
     source: raw.source === "device" ? "device" : "ip",
     v: Number(raw.v) || 0,
     at: Number(raw.at) || 0,

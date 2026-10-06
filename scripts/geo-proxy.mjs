@@ -170,7 +170,9 @@ export function createGeoProxy() {
       const raw = clientIp(req);
       const body = await lookupGeo(isPrivateIp(raw) ? "" : raw);
       if (!body) sendJson(res, 502, { error: "unreachable" });
-      else sendJson(res, 200, body);
+      /* Echo the address the visitor arrived on, so the page can notice when
+         it moves (VPN on/off) without asking a third party. */
+      else sendJson(res, 200, isPrivateIp(raw) ? body : { ...body, ip: raw });
     } catch {
       sendJson(res, 502, { error: "unreachable" });
     }

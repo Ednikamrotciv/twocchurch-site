@@ -105,12 +105,15 @@
 html {
   scroll-behavior: smooth;
   -webkit-text-size-adjust: 100%;
+  /* The page base lives on `html` and `body` stays transparent, so the fixed
+     shader canvas (z-index -1) paints above the base instead of under it. */
+  background: var(--ink);
 }
 
 body {
   margin: 0;
   text-align: left;
-  background: var(--ink);
+  background: transparent;
   color: var(--text);
   font-family: var(--font-sans);
   font-size: 16.5px;

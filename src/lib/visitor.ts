@@ -22,9 +22,9 @@ const FRESH_MS = 12 * 60 * 60 * 1000;
 /** Give a service this long before moving on to the next one. */
 const TIMEOUT_MS = 9000;
 
-type Answer = { tz: string; place: string; country: string; currency: string };
+type Answer = { tz: string; place: string; country: string; currency: string; ip: string };
 
-type Probe = { url: string; read: (json: any, text: string) => Answer };
+type Probe = { url: string; read: (json: any, text: string) => Omit<Answer, "ip"> };
 
 const str = (v: unknown) => (typeof v === "string" ? v.trim() : "");
 
@@ -107,7 +107,10 @@ async function ask(probe: Probe): Promise<Answer | null> {
       /* the plain-text service is expected to land here */
     }
     const answer = probe.read(json, text);
-    return answer && answer.tz && isValidTimezone(answer.tz) ? answer : null;
+    /* Every JSON probe carries the address it looked up (`ip`) — the plain
+       text one does not, and lands with a blank. */
+    const full: Answer = { ...answer, ip: str(json && typeof json === "object" ? (json as any).ip : "") };
+    return full && full.tz && isValidTimezone(full.tz) ? full : null;
   } catch {
     return null;
   } finally {
@@ -126,7 +129,7 @@ async function askOwnServer(): Promise<Answer | null> {
     const res = await fetch("/__geo", { signal: controller.signal, cache: "no-store", credentials: "omit" });
     if (!res.ok) return null;
     const json = await res.json();
-    const answer = { tz: str(json?.tz), place: str(json?.place), country: str(json?.country), currency: str(json?.currency) };
+    const answer: Answer = { tz: str(json?.tz), place: str(json?.place), country: str(json?.country), currency: str(json?.currency), ip: str(json?.ip) };
     return answer.tz && isValidTimezone(answer.tz) ? answer : null;
   } catch {
     /* static hosting without the backend — the direct probes below cover it */
@@ -144,6 +147,7 @@ function ipClock(answer: Answer): VisitorClock {
     place: answer.place,
     country,
     currency: isValidCurrency(answer.currency) ? answer.currency.toUpperCase() : currencyOfCountry(country),
+    ip: normIp(answer.ip),
     source: "ip",
     v: VISITOR_CLOCK_V,
     at: Date.now(),
@@ -171,6 +175,68 @@ function isStale(clock: VisitorClock | null): boolean {
 }
 
 let inFlight: Promise<VisitorClock | null> | null = null;
+
+/** One canonical shape for comparing addresses: services disagree on case,
+    brackets and zone tags (`::FFFF:1.2.3.4`, `[2001:db8::1%eth0]`), and a
+    cosmetic difference must never read as the visitor moving. */
+function normIp(raw: unknown): string {
+  let ip = (typeof raw === "string" ? raw : "").trim().toLowerCase().slice(0, 64);
+  if (ip.startsWith("[")) ip = ip.replace(/^\[|\]$/g, "");
+  const pct = ip.indexOf("%");
+  if (pct >= 0) ip = ip.slice(0, pct);
+  if (ip.startsWith("::ffff:")) ip = ip.slice(7);
+  return /^[0-9a-f.:]{3,64}$/.test(ip) ? ip : "";
+}
+
+/** The address the network arrives on right now, or "" when the one-question
+    service cannot answer. Tiny, keyless and CORS-open — it is only ever
+    compared with the address the cached clock was looked up for. */
+async function currentIp(): Promise<string> {
+  const controller = new AbortController();
+  const timer = window.setTimeout(() => controller.abort(), 4000);
+  try {
+    const res = await fetch("https://api.ipify.org?format=json", { signal: controller.signal, cache: "no-store", credentials: "omit" });
+    if (!res.ok) return "";
+    return normIp((await res.json())?.ip);
+  } catch {
+    return "";
+  } finally {
+    window.clearTimeout(timer);
+  }
+}
+
+/** Ask again when the visitor's address moved under a still-fresh clock — a
+    VPN taken mid-visit otherwise sits on the old country's time and money
+    for the rest of the cache window. The confirmed address is retained until
+    a genuinely different one shows up: a failed check keeps it, and a
+    cosmetic difference never counts as a move. Never blocks paint. */
+let addrBackoffUntil = 0;
+async function recheckAddress(): Promise<void> {
+  try {
+    if (Date.now() < addrBackoffUntil) return;
+    const cached = normalizeVisitorClock(readCached());
+    if (!cached || !cached.ip || inFlight) return;
+    const now = await currentIp();
+    if (!now || now === cached.ip || inFlight) return;
+    /* Drop the stale answer first, so a failed re-ask falls back to the
+       church clock rather than the old country's. */
+    try {
+      localStorage.removeItem(VISITOR_KEY);
+    } catch {
+      /* keep going — the refresh below still lands */
+    }
+    setVisitorClock(null);
+    await refreshVisitorClock();
+    /* When the fresh answer still disagrees with the address on the wire, the
+       two sources are seeing different paths (split tunnel, proxy) — churning
+       lookups would never settle, so the geo answer stands and the wire check
+       rests half an hour. A real move afterwards still re-asks on load. */
+    const fresh = normalizeVisitorClock(readCached());
+    addrBackoffUntil = fresh && fresh.ip && fresh.ip !== now ? Date.now() + 30 * 60 * 1000 : 0;
+  } catch {
+    /* the page stands as-is */
+  }
+}
 
 /** Look up now and remember; concurrent calls share the one lookup. */
 export function refreshVisitorClock(): Promise<VisitorClock | null> {
@@ -202,7 +268,12 @@ let started = false;
 export function startVisitorClock() {
   if (started) return;
   started = true;
-  if (!isStale(normalizeVisitorClock(readCached()))) return;
+  if (!isStale(normalizeVisitorClock(readCached()))) {
+    /* A fresh answer still gets its address confirmed, so a VPN taken since
+       the lookup shows the new country's time and money. */
+    void recheckAddress();
+    return;
+  }
   void refreshVisitorClock();
   window.setTimeout(() => {
     try {
@@ -230,18 +301,31 @@ export function useVisitorClock(): VisitorClock | null {
   return clock;
 }
 
-/** Re-check the clock when the tab wakes up and the cached answer is stale. */
+/** Re-check the clock when the tab wakes up and the cached answer is stale —
+    and confirm the address even when it is not, so a VPN taken mid-visit
+    moves the time and money without a reload. A quarter-hour timer covers a
+    page just sitting open. */
 export function useVisitorClockRefresh() {
   useEffect(() => {
     const onWake = () => {
       if (document.visibilityState !== "visible") return;
-      if (isStale(normalizeVisitorClock(readCached()))) void refreshVisitorClock();
+      if (isStale(normalizeVisitorClock(readCached()))) {
+        void refreshVisitorClock();
+        return;
+      }
+      void recheckAddress();
     };
+    const timer = window.setInterval(() => {
+      void recheckAddress();
+    }, 15 * 60 * 1000);
     document.addEventListener("visibilitychange", onWake);
     window.addEventListener("online", onWake);
+    window.addEventListener("focus", onWake);
     return () => {
+      window.clearInterval(timer);
       document.removeEventListener("visibilitychange", onWake);
       window.removeEventListener("online", onWake);
+      window.removeEventListener("focus", onWake);
     };
   }, []);
 }

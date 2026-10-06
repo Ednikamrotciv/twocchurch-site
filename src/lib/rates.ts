@@ -117,7 +117,7 @@ export function refreshRates(): Promise<FxRates | null> {
   return inFlight;
 }
 
-let started = false;
+let startedFor = "";
 
 /**
  * Is there anything for a rate to do for this reader? Their own currency, when
@@ -128,11 +128,14 @@ function ratesNeeded(): boolean {
   return visitorCurrencyEnabled() && !!own && own !== baseCurrency();
 }
 
-/** Start the lookup once per page load, only when there is something to convert. */
+/** Start the lookup once per page load, only when there is something to convert —
+    and again when the visitor's currency moved (a VPN re-ask landing after the
+    first fetch must not sit on the old money). */
 export function startRates() {
-  if (started || !ratesNeeded()) return;
-  started = true;
-  if (getRates().source === "live" && Date.now() - getRates().at < FRESH_MS) return;
+  if (!ratesNeeded()) return;
+  const cur = visitorCurrency();
+  if (getRates().source === "live" && Date.now() - getRates().at < FRESH_MS && startedFor === cur) return;
+  startedFor = cur;
   void refreshRates();
 }
 

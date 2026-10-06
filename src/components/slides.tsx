@@ -444,6 +444,13 @@ export function AnnouncementSlides({ slides = SLIDES }: { slides?: AnnouncementS
   const push3d = (dir: 1 | -1) => {
     cuboidApi.current?.push(dir);
   };
+  const goTo3d = (i: number) => {
+    cuboidApi.current?.goTo(i);
+  };
+  const snap3d = () => {
+    cuboidApi.current?.snap();
+  };
+  const [face, setFace] = useState(0);
 
   /* One shape for every announcement: the slide frame (src/lib/slideFrame.ts).
      Every picture is cut to it — uploaded, pasted or already published — so the
@@ -520,24 +527,50 @@ export function AnnouncementSlides({ slides = SLIDES }: { slides?: AnnouncementS
     }
   };
 
-  /* A sideways swipe turns the 3D stage; up-and-down scrolling is untouched. */
-  const touchX = useRef<number | null>(null);
+  /* Swipes go left and right only — a tap settles the box onto the nearest
+     face and holds it still, and up-and-down page scrolling is untouched. */
+  const touchStart = useRef<{ x: number; y: number } | null>(null);
 
   const onKeyDown3d = (e: React.KeyboardEvent<HTMLDivElement>) => {
-    if (!multi) return;
-    if (e.key === "ArrowLeft") {
+    if (e.key === "ArrowLeft" || e.key === "ArrowUp") {
       e.preventDefault();
       push3d(-1);
-    } else if (e.key === "ArrowRight") {
+    } else if (e.key === "ArrowRight" || e.key === "ArrowDown") {
       e.preventDefault();
       push3d(1);
     }
   };
 
   if (!count) {
-    /* No announcements posted: the box keeps the picture that used to live here
-       (see `photoOr`) rather than going empty — in the frame too, so the space
-       is the shape it will be the moment a slide arrives. */
+    /* No announcements posted: the box keeps turning with the church logo on
+       every face (see slides3d) rather than going empty — in the frame too, so
+       the space is the shape it will be the moment a slide arrives. */
+    if (!calm && webgl) {
+      return (
+        <div className="aslides-wrap">
+          <motion.div
+            className="aslides-motion"
+            initial={{ opacity: 0, y: 26 }}
+            whileInView={{ opacity: 1, y: 0 }}
+            viewport={{ once: true, margin: "-40px" }}
+            transition={{ duration: 0.6, ease: [0.22, 0.7, 0.3, 1] }}
+          >
+            <div
+              className="aslides aslides--3d"
+              style={shapeVar}
+              role="img"
+              aria-label={ct("auto.site.ed1bc718392f9ee1")}
+            >
+              <StageErrorBoundary fallback={<img className="aslide__photo" src={standIn} alt="" />}>
+                <React.Suspense fallback={null}>
+                  <CuboidSpace3D slides={[]} apiRef={cuboidApi} held={held} />
+                </React.Suspense>
+              </StageErrorBoundary>
+            </div>
+          </motion.div>
+        </div>
+      );
+    }
     return (
       <div className="aslides aslides--empty" style={shapeVar}>
         <img className="aslide__photo" src={standIn} alt="" />
@@ -592,20 +625,31 @@ export function AnnouncementSlides({ slides = SLIDES }: { slides?: AnnouncementS
             onBlurCapture={() => setHeld(false)}
             onKeyDown={onKeyDown3d}
             onTouchStart={(e) => {
-              touchX.current = e.touches[0]?.clientX ?? null;
+              touchStart.current = { x: e.touches[0]?.clientX ?? 0, y: e.touches[0]?.clientY ?? 0 };
               setHeld(true);
             }}
             onTouchEnd={(e) => {
-              const start = touchX.current;
-              touchX.current = null;
+              const start = touchStart.current;
+              touchStart.current = null;
               setHeld(false);
-              if (start === null) return;
-              const dx = (e.changedTouches[0]?.clientX ?? start) - start;
-              if (dx > 40) push3d(-1);
-              else if (dx < -40) push3d(1);
+              if (!start) return;
+              const dx = (e.changedTouches[0]?.clientX ?? start.x) - start.x;
+              const dy = (e.changedTouches[0]?.clientY ?? start.y) - start.y;
+              /* A tap settles the box onto the nearest face and it stays put;
+                 three quiet minutes resume the default revolve (see slides3d).
+                 Anything mostly up-and-down is a page scroll, left alone. */
+              if (Math.abs(dx) < 12 && Math.abs(dy) < 12) {
+                snap3d();
+                return;
+              }
+              if (Math.abs(dx) >= Math.abs(dy)) {
+                if (dx > 40) push3d(-1);
+                else if (dx < -40) push3d(1);
+                else snap3d();
+              }
             }}
             onTouchCancel={() => {
-              touchX.current = null;
+              touchStart.current = null;
               setHeld(false);
             }}
             role="region"
@@ -614,7 +658,7 @@ export function AnnouncementSlides({ slides = SLIDES }: { slides?: AnnouncementS
           >
             <StageErrorBoundary fallback={<img className="aslide__photo" src={standIn} alt="" />}>
               <React.Suspense fallback={null}>
-                <CuboidSpace3D slides={live} apiRef={cuboidApi} held={held} />
+                <CuboidSpace3D slides={live} apiRef={cuboidApi} held={held} onFace={setFace} />
               </React.Suspense>
             </StageErrorBoundary>
             {multi ? (
@@ -637,6 +681,17 @@ export function AnnouncementSlides({ slides = SLIDES }: { slides?: AnnouncementS
                 >
                   <Icon name="chevronRight" size={18} />
                 </motion.button>
+                <div className="aslides__dots" role="group" aria-label="Slide faces">
+                  {[0, 1, 2, 3, 4, 5].map((i) => (
+                    <button
+                      key={i}
+                      type="button"
+                      className={"aslides__dot" + (face === i ? " is-on" : "")}
+                      onClick={() => goTo3d(i)}
+                      aria-label={`Show face ${i + 1} of 6`}
+                    />
+                  ))}
+                </div>
               </>
             ) : null}
           </div>
