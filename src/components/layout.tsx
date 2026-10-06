@@ -8,7 +8,7 @@ import { BRANCHES, HQ } from "../data/branches";
 import { SERMONS, sermonDate, sermonThumb } from "../data/sermons";
 import { EVENTS, SEED_TESTIMONIES } from "../data/content";
 import { Icon, IconBtn, OPEN_SEARCH_EVENT } from "./ui";
-import { eventDate } from "./blocks";
+import { eventDate, AnnouncementBanner } from "./blocks";
 import { ct } from "../data/copy";
 
 /* ------------------------------------------------------------------ search index */
@@ -97,7 +97,8 @@ export function Header() {
   const { scrolled, progress } = useScrollProgress();
   const [open, setOpen] = useState(false);
   const [paletteOpen, setPaletteOpen] = useState(false);
-  const isDesktop = useMediaQuery("(min-width: 1080px)");
+  /* Tablets and up get the full desktop nav; only phones collapse to the menu. */
+  const isDesktop = useMediaQuery("(min-width: 768px)");
   const menuRef = useClickOutside<HTMLDivElement>(() => setOpen(false));
 
   useEffect(() => {
@@ -129,6 +130,7 @@ export function Header() {
   return (
     <>
       <div className="scroll-progress" style={{ transform: `scaleX(${progress})` }} aria-hidden="true" />
+      <div className="site-chrome">
       <div className="topbar">
         <div className="container topbar__inner">
           <span className="topbar__item">
@@ -177,6 +179,8 @@ export function Header() {
           </div>
         </div>
       </header>
+      <AnnouncementBanner />
+      </div>
 
       <CommandPalette open={paletteOpen} onClose={() => setPaletteOpen(false)} />    </>
   );
@@ -349,10 +353,6 @@ export function Footer() {
             <img src={siteFile(LOGO_MARK)} alt={SITE.name} className="footer__logo" />
             <h3>{SITE.name}</h3>
             <p className="muted">{SITE.tagline}</p>
-            <blockquote className="footer__verse">
-              “{SITE.verse.text}”
-              <cite>{SITE.verse.ref}</cite>
-            </blockquote>
           </div>
           {FOOTER_LINKS.map((col) => (
             <nav className="footer__col" key={col.title} aria-label={ct(col.title)}>

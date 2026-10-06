@@ -101,7 +101,7 @@ follow. See `src/lib/embed.ts` for the URL parsing.
 **Or a video the office uploaded.** `platform: "upload"` + `uploadUrl` (the drawer's *Upload the
 video* field, a `video` field type) plays the file itself in a `<video controls>` element — the
 `VideoPlayer` in `src/components/blocks.tsx` branches on `fileSrc(source)`. `VideoUpload` in
-`src/components/editor.tsx` sends the file to Perchance's upload service; if it is too large for
+`src/components/editor.tsx` sends the file to Platform's upload service; if it is too large for
 permanent storage (`file_too_big`) it is retried as a temporary file with a one-year expiry and the
 office is told the date, so a full-length service still plays. Short clips are best kept permanent;
 for a whole service a YouTube or Facebook link is better.

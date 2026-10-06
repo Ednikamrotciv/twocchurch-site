@@ -92,8 +92,9 @@ export type VisitorClock = {
 /** localStorage key. Also the key the React hook watches (src/lib/visitor.ts). */
 export const VISITOR_KEY = KEYS.visitor;
 
-/** Lookup answer shape; bumped when it carries something new (note 98). */
-export const VISITOR_CLOCK_V = 4;
+/** Lookup answer shape; bumped when it carries something new (note 98).
+    v5: IP address is the only source — older cached answers are looked up again. */
+export const VISITOR_CLOCK_V = 5;
 
 export function normalizeVisitorClock(raw: any): VisitorClock | null {
   if (!raw || typeof raw !== "object") return null;

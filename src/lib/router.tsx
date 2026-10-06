@@ -20,7 +20,7 @@ export function isPathMode(): boolean {
 
 const listeners = new Set<() => void>();
 
-/* Old hash bookmarks opened off Perchance (…/#/sermons) become the same
+/* Old hash bookmarks opened off Platform (…/#/sermons) become the same
    clean address once, before the first route is read. */
 if (typeof window !== "undefined" && isPathMode()) {
   try {

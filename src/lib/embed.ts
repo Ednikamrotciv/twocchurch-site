@@ -10,7 +10,7 @@ export const VIDEO_PLATFORM_LABELS: Record<VideoPlatform, string> = {
   upload: "Uploaded video",
 };
 
-/* Perchance sends no Referer, which YouTube answers with Error 153 — so every player iframe opts back in. */
+/* Platform sends no Referer, which YouTube answers with Error 153 — so every player iframe opts back in. */
 export const EMBED_REFERRER_POLICY = "strict-origin-when-cross-origin";
 
 /** The file extensions a browser will play straight from a URL. */

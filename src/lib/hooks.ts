@@ -154,6 +154,12 @@ export function useReducedMotion() {
 
 export function useTheme() {
   const [theme, setTheme] = useLocalState<"dark" | "light">("wom.theme", "dark");
+  /* Showcase cycle: dark is home, and the two trade places every 30 seconds —
+     until the visitor picks one, which holds for this load. A reload clears
+     the pick and the cycle resumes. */
+  useEffect(() => {
+    armThemeCycle();
+  }, []);
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
     const meta = document.querySelector('meta[name="theme-color"]');
@@ -161,6 +167,33 @@ export function useTheme() {
   }, [theme]);
   const toggle = useCallback(() => setTheme((t) => (t === "dark" ? "light" : "dark")), [setTheme]);
   return { theme, setTheme, toggle };
+}
+
+/** Every 30s flip dark ⇄ light unless the visitor picked one this load. */
+const THEME_CYCLE_MS = 30_000;
+let themeCycleArmed = false;
+
+function armThemeCycle() {
+  if (themeCycleArmed || typeof window === "undefined") return;
+  themeCycleArmed = true;
+  /* A pick only ever holds for one load: forget it, start at dark, cycle on. */
+  try {
+    localStorage.removeItem("wom.theme");
+  } catch {
+    /* private mode — the cycle below then stands down to protect the default */
+  }
+  publish("wom.theme", "dark");
+  window.setInterval(() => {
+    let manual = true;
+    try {
+      manual = localStorage.getItem("wom.theme") !== null;
+    } catch {
+      manual = true;
+    }
+    if (manual) return;
+    const current = document.documentElement.dataset.theme === "light" ? "light" : "dark";
+    writeStore<"dark" | "light">("wom.theme", current === "dark" ? "light" : "dark");
+  }, THEME_CYCLE_MS);
 }
 
 /* ---------- clock ---------- */

@@ -241,7 +241,7 @@ const server = http.createServer(async (req, res) => {
       return;
     }
 
-    /* Local file uploads: the Perchance upload service only exists on the live
+    /* Local file uploads: the Platform upload service only exists on the live
        site, so local runs keep the office's photos and videos on their own
        disk (data/uploads/), served back like any other file. */
     if (pathname === "/__upload" && req.method === "POST") {

@@ -79,6 +79,8 @@ const ICONS: Record<string, ReactNode> = {
   qr: <><rect x="4" y="4" width="6" height="6" /><rect x="14" y="4" width="6" height="6" /><rect x="4" y="14" width="6" height="6" /><path d="M14 14h2v2h-2zM18 14h2v2h-2zM14 18h2v2h-2zM18 18h2v2h-2z" /></>,
   bell: <><path d="M6.5 16.5V11a5.5 5.5 0 0 1 11 0v5.5z" /><path d="M4.5 16.5h15" /><path d="M10 20a2 2 0 0 0 4 0" /></>,
   link: <><path d="M10 13.5a4 4 0 0 0 5.7 0l2.8-2.8a4 4 0 0 0-5.7-5.7l-1 1" /><path d="M14 10.5a4 4 0 0 0-5.7 0l-2.8 2.8a4 4 0 0 0 5.7 5.7l1-1" /></>,
+  monitor: <><rect x="3" y="4.5" width="18" height="12" rx="2" /><path d="M9.5 20.5h5M12 16.5v4" /></>,
+  smartphone: <><rect x="7.5" y="3" width="9" height="18" rx="2.2" /><path d="M11 18h2" /></>,
 };
 
 export type IconName = keyof typeof ICONS;

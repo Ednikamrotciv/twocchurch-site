@@ -392,7 +392,7 @@
      word opens the sign-in modal (`LoginGate` from `src/components/editor.tsx`, now with an
      `onExit` back to the live site) instead of the popover.
    - **Verified live**: home `#/admin` shows 34 copy targets + 14 tagged photos with **no mark
-     leakage** and no console/perchance errors; click-to-edit changed the h1 as typed and persisted
+     leakage** and no console/platform errors; click-to-edit changed the h1 as typed and persisted
      to the draft; click-to-replace swapped the hero photo and reverted; publish → rev 1 → *Undo the
      last publish* → restore all worked; the public route never showed draft content; drawer lists
      (19 sermons, field controls, Move/Duplicate/Delete) and all three tabs worked; 390×844 has no
@@ -452,7 +452,7 @@
      44 on the home page); clicking an auto entry opens its popover with a plain-language label,
      typing updates the header/pill live, the bar counts "1 unsaved change" and the publish modal
      names *Site-wide text* as the changed section; Discard clears it and closes the popover; the
-     drawer shows 53 sections in 9 groups with all 16 page-text groups; no console or perchance
+     drawer shows 53 sections in 9 groups with all 16 page-text groups; no console or platform
      errors; 390×844 has no horizontal overflow.
 
 34. **The admin, redesigned around jobs — one search box over the whole site.**
@@ -514,7 +514,7 @@
      "1 unsaved change" and **Undo** restored it and disabled itself; the Guides toggle removed the
      dotted underline (`data-guides=off`) and round-tripped; the help modal, all three tabs (53
      blocks under *Everything*), the sign-in gate and the sign-in flow all worked; no console or
-     perchance errors and **no mark leakage**; 390×844 has no horizontal overflow, a single-column
+     platform errors and **no mark leakage**; 390×844 has no horizontal overflow, a single-column
      job list and a correctly inset panel, and the dark theme holds up.
 
 35. **Every word, in full.** *"all text on the website should only be edited in the web editor"*
@@ -551,7 +551,7 @@
      outside the copy layer and the records.
    - **The drawer's text field** now warns that a `{{name}}` token is filled in by the page and must
      be kept where the value should appear (`cmsSchema.ts`). Verified live: build green, all routes
-     render with no console or perchance errors.
+     render with no console or platform errors.
 
 36. **All editing happens in the panel — the page itself is read-only.**
    *"every edit should be done in the everything part of the website editor, even the text changes
@@ -582,7 +582,7 @@
      private-use characters and no underlines, in both the editor and the public site; editing the
      giving hero headline from the drawer's *Page text* list changed the page as it was typed
      (emphasis preserved) and reverting it cleared the unsaved-changes count; the help modal shows
-     four drawer steps; no console or perchance errors.
+     four drawer steps; no console or platform errors.
 
 ## 37. Segment-by-segment editing, fixed buttons & titles, and video that plays on the page
 
@@ -642,13 +642,13 @@
   named segments with `Fixed · Page title` / `Fixed · Section title` / `Fixed · Button caption` rows
   read-only and everything else editable (typing in a segment updates the page as you type); a search
   hit for a fixed line reports *fixed section title* and opens its segment; every route renders with
-  no console or perchance errors and no pending changes on a stale draft.
+  no console or platform errors and no pending changes on a stale draft.
 
 ## 38. YouTube "Error 153" — the player now opts back in to sending a referrer
 
 > *"fix the youtube video player configuration error Error 153"*
 
-- **Cause, measured on the live page, not guessed.** The perchance page runs with
+- **Cause, measured on the live page, not guessed.** The platform page runs with
   `<meta name="referrer" content="no-referrer">`, so *every* request leaves the page with **no
   `Referer` header at all** (proved by echoing the headers back from `httpbin.org/headers`) — and the
   YouTube embed refuses to boot without one: it answers `onError 153`. The exact embed address the
@@ -662,11 +662,11 @@
   (`src/components/blocks.tsx`) applies it, so YouTube — and equally a Facebook plugin iframe — gets
   the domain it needs. A per-element `referrerpolicy` overrides the inherited document policy
   (verified: an iframe pointed back at the page reads `document.referrer` as `""` plain,
-  `"https://<publicId>.perchance.org/<name>"` with the attribute), which is why the rest of the page
+  `"https://<publicId>.platform.org/<name>"` with the attribute), which is why the rest of the page
   can stay `no-referrer`. Uploaded videos play in a `<video>` and were never affected.
 - **Verified live:** `/watch-live`'s real player iframe carries
   `referrerpolicy="strict-origin-when-cross-origin"`, its address no longer produces `onError 153`,
-  the poster and all five thumbnails load, every route renders with no console or perchance errors.
+  the poster and all five thumbnails load, every route renders with no console or platform errors.
 
 ## 39. The "Watch here" heading is gone from `/watch-live`
 
@@ -688,7 +688,7 @@
   rendered HTML (even with a draft in storage that still carries them); the panel is still one card
   with the stage and the side list side by side (656px / 410px at 1280px); the drawer's *Watch live
   page text* section lists the segments without the removed one; every route renders with no console
-  or perchance errors.
+  or platform errors.
 
 ## 40. Wrong addresses now find their page (and the 404 says what was asked for)
 
@@ -730,7 +730,7 @@
   reach their filtered list; `/sermons/Overcoming-In-Christ` shows the message; `/foo`,
   `/totally-made-up/address` and a bad message id still 404 and show the address that was asked for;
   the search button opens and closes the palette; every real route is untouched, all 51 links still
-  resolve, and there are no console or perchance errors at 1280 px or 390 px.
+  resolve, and there are no console or platform errors at 1280 px or 390 px.
 
 ## 41. "#/ministries/admin" is the ministries page with the tools on
 
@@ -756,7 +756,7 @@
   `#/admin/watch-live`, `/admin/live` → `#/admin/watch-live`, `/admin/home` → `#/admin`; all 34
   links inside the admin resolve with no 404; every site route still renders in the site shell
   (never the admin shell) with all 51 links resolving, the forgiving addresses from §40 unchanged,
-  and no console or perchance errors.
+  and no console or platform errors.
 
 ## 42. Every photo and cover on the site is uploadable and reversible
 
@@ -790,7 +790,7 @@
   (`sermonThumb` → `posterFor` puts it on the card and behind the player). It is now
   **Cover image**, with a hint and an empty-note that say what an empty value means.
 - **Verified live:** all 10 image-bearing sections render the control (upload, paste box, caption)
-  with no console or perchance errors; the upload and the revert path each move the rendered page;
+  with no console or platform errors; the upload and the revert path each move the rendered page;
   a 12-route sweep shows no broken images; at 390 px the control stacks (photo above the controls —
   `@media (max-width: 620px)`) with no page overflow.
 
@@ -843,7 +843,7 @@
   publish could look successful and still reach nobody. Now pressing **Publish** does both jobs:
   it saves the website, then publishes the content to the saved site's permanent server, where it
   is live for every visitor and survives reloads.
-- **How the save is asked for.** The preview is a frame inside the perchance editor tab, so the
+- **How the save is asked for.** The preview is a frame inside the platform editor tab, so the
   generator cannot save itself — but the editor listens for one message from the frame it hosts
   (`saveKeyboardShortcut`) and then runs its own "is this browser allowed to save this generator?"
   check. `cms.requestWebsiteSave()` posts exactly that (only when `window.parent !== window`, i.e.
@@ -862,7 +862,7 @@
   yet and that publishing saves it; while saving it shows a spinner and the button reads *Saving
   the website…*. With nothing to publish the button reads *Save the website* and still asks for the
   save — saving the site is the point of Publish while it is unsaved. If the save does not happen
-  within ~14 s (not the owner, not signed in to perchance, no editor around) it says so, keeps the
+  within ~14 s (not the owner, not signed in to platform, no editor around) it says so, keeps the
   draft **and** the waiting publish, and asks for the editor's own **Save** (Ctrl+S) — the publish
   finishes by itself after that.
 - **Verified end to end** in the live editor, without ever saving the user's generator: the message
@@ -1853,7 +1853,7 @@ every line it named is listed in the bullets that follow):
   so it would leave the screen saying "Live now" all week.
 - **Why the check is not a `fetch`.** YouTube sends no CORS headers, and a browser `fetch` of
   youtube.com is refused ("Failed to fetch" — verified live). The check therefore goes through
-  perchance's proxy: `main.pjs` now imports `super-fetch-plugin` as `superFetch`, read as
+  platform's proxy: `main.pjs` now imports `super-fetch-plugin` as `superFetch`, read as
   `window.root.superFetch` (the pattern `src/components/editor.tsx` already uses for `uploadPlugin`).
   `checkLiveStream()` times the request out at 15s and returns **`unknown`** on any failure — never
   `off` — so a flaky proxy can only fall back to the old behaviour, never fake an ended stream.
@@ -2568,7 +2568,7 @@ and make sure **every** branch — *"including the global hq lagos"* — carries
   67px tall). The three footer buttons are untouched. On the public site, no page's text contains
   *Oke-Odo, Lagos* and no element matches *Main Branch* or *Sub-branch* — the only *Oke-Odo* left
   anywhere is the street address in the footer and on the contact page (note 80 still holds). Build
-  clean: no console errors, no `perchanceErrors`, no `syntaxErrors`; 390px and 1440px passes with no
+  clean: no console errors, no `platformErrors`, no `syntaxErrors`; 390px and 1440px passes with no
   horizontal overflow.
 
 ## 83. Every change takes effect — the draft stays on the page, and the on-air switch reaches the whole site
@@ -2722,8 +2722,8 @@ on the very first frame; the answer is re-checked once it is more than half a da
   (`Intl.DateTimeFormat().resolvedOptions().timeZone`, `source: "device"`) and, failing even that,
   the site stays on the church's clock — which is where it was before any of this existed.
 - **The lookup is a plain `fetch`, and that is the whole trick.** `superFetch` (used for the YouTube
-  live check) sends the request from *perchance's server* — the service would see perchance's address
-  and answer with perchance's location, so every visitor on earth would be told the same city. A
+  live check) sends the request from *platform's server* — the service would see platform's address
+  and answer with platform's location, so every visitor on earth would be told the same city. A
   browser `fetch` goes from the visitor's own machine, which is the only way an IP lookup can mean
   anything. The endpoints are CORS-open, so no proxy is needed. (Verified in the live preview: the
   geojs response carried the reader's own address, `197.211.52.241` → `Africa/Lagos` / Lagos.)
@@ -2806,7 +2806,7 @@ independent brute-force computation in the reading zone:
   "Sunday 1:00 AM" back into "Sunday 7:00 AM" and on turned it back, with `aria-checked` and
   `applied().site.visitorTime` following.
 - No horizontal overflow at 390px or 1440px on all fourteen public routes
-  (`scrollWidth - innerWidth` = −15, the scrollbar), no console errors, no perchance errors; the new
+  (`scrollWidth - innerWidth` = −15, the scrollbar), no console errors, no platform errors; the new
   copy line was collected by `auto-copy.mjs` (742 → 743 entries, `auto.site.9087ea3faed891fe`
   "Times shown in your local time"), and the pill was looked at on the next-gathering card and above
   the *Coming up* table at both widths.
@@ -2993,7 +2993,7 @@ QR block and the *never share your reference* notice) and the sidebar's *My givi
   this fund* still lands back in the wizard, and *Other ways* shows the new bank-transfer note. The
   drawer's *Ways to give* section lists the three methods and offers *Add another* / *Put this back
   to the original*; a fourteen-route sweep at both widths reported no overflow, no console errors
-  and no `perchanceErrors`.
+  and no `platformErrors`.
 
 ## 89. The audit claims, the *Mobile money* method and the one-time/monthly chips are gone — and the amount buttons no longer glow gold on hover
 
@@ -3080,7 +3080,7 @@ details"*.
   *Account details* tab shows *Bank transfer details*, its note, and one account block (badge *Lagos
   (NGN)*, bank, account name, account number and its copy button) with no callout cards; vision
   passes over both panels at 1440×900 and 390×844 read them finished, with nothing clipped, empty,
-  orphaned or overflowing; a fourteen-route sweep reported no overflow and no console or perchance
+  orphaned or overflowing; a fourteen-route sweep reported no overflow and no console or platform
   errors; and the draft differs from the shipped content in **`live` alone**.
 
 ## 91. *Give now* opens *Account details* — and the giving panel lives in the address
@@ -3296,7 +3296,7 @@ America / Canada / …🇳🇬 Lagos …"* — the whole band, heading, country 
 - **Verified live.** The band is absent at 1440 and at the editor's width, `Nigeria`/`America`/
   `Canada` appear nowhere on the page outside the footer address, the bands under it (*Recent
   services*, *Services we have broadcast*, *Everywhere you already are*) are unchanged and vision
-  passes over the full page with no gap where the table was, no overflow, no console or perchance
+  passes over the full page with no gap where the table was, no overflow, no console or platform
   errors, and the office's draft differing from the shipped content in `live` alone.
 
 ## 98. The money is read in the visitor's own currency (found from their IP, like the clock)
@@ -3368,7 +3368,7 @@ money is read back in that country's currency.
   testimony*. At 390×844 the six buttons are 2×3, single-line and `scrollWidth === clientWidth` on
   every one (no page overflow); the drawer shows both new fields and both switches in the right
   order; the office's draft still differs from the shipped content in `live` alone; and no console,
-  perchance or syntax errors on any of the fourteen routes.
+  platform or syntax errors on any of the fourteen routes.
 
 ## 99. The rate note and the live card's schedule line are gone — the card says what it does
 
@@ -3406,7 +3406,7 @@ Sundays 9:00 & 11:30 AM (CT) put a statement that whenever broadcast is active"*
   buttons and *Step 2 — choose a fund*, and no leftover gap where the note was (vision over the giving
   panel, six NGN buttons still 3×2 and aligned); the drawer's field, the stored draft and the shipped
   value all carry the new words, with the draft still differing from the shipped content in `live`
-  alone (their on-air switch) and no console, perchance or syntax errors.
+  alone (their on-air switch) and no console, platform or syntax errors.
 
 ## 100. The visit wizard's branch notice is gone
 
@@ -3427,7 +3427,7 @@ Kids for ages 3–11."*
   step bottom equals the branch grid's bottom, so no leftover element sits below it; vision over the
   wizard panel shows the branch buttons running straight into the *Back* / *Next* footer with no
   stray box; the drawer's draft differs from the shipped content in `live` alone (their unsaved
-  on-air switch), `overrides` is empty and there are no console, perchance or syntax errors.
+  on-air switch), `overrides` is empty and there are no console, platform or syntax errors.
 
 ## 101. *Ask about an event* leads to the *Email us* card
 
@@ -3453,7 +3453,7 @@ The ask: *"the ask about an event should be linked to the email us"*.
   person* with the *Email us* card first in the card row; the header still shows two aligned,
   legible buttons with the envelope icon on the first (vision); `app.js` no longer contains either
   template; the drawer's draft still differs from the shipped content in `live` alone (their unsaved
-  on-air switch) with `overrides` empty, and there are no console, perchance or syntax errors.
+  on-air switch) with `overrides` empty, and there are no console, platform or syntax errors.
 
 ## 102. The line under the live panel's headline is gone
 
@@ -3486,7 +3486,7 @@ panel."*
   kept branch renders exactly as before. The office's unsaved switch was toggled off and back on to
   test and its stored draft came out byte-identical (`JSON.stringify(draft.live)` compared before and
   after); the draft still differs from the shipped content in `live` alone, `overrides` is empty, and
-  there are no console, perchance or syntax errors.
+  there are no console, platform or syntax errors.
 
 ## 103. A pass over the drawer and the site's own wording
 
@@ -3588,7 +3588,7 @@ internally."*
   Tone, Post date, Link (optional), Link label, Show on the site.
 - **The site is otherwise as it was.** The two notices still draw on the strip (verified with the
   dismissal list cleared and restored), the fourteen routes sweep clean, the collector reports 0 files
-  touched / 0 literals, and there are no console, perchance or syntax errors. Nothing was published or
+  touched / 0 literals, and there are no console, platform or syntax errors. Nothing was published or
   saved.
 
 ## 105. The Watch live page's words come out, and the live screen stops contradicting itself
@@ -3645,7 +3645,7 @@ The ask: *"remove the watch live page text, fix the live now"*.
   notice wraps to two lines (653 × 106px) with nothing clipped. The drawer's *Update* tab counts
   **34** sections with *Watch live page text* gone and *Home page text* still there, the words job
   offers Home alone, the fourteen routes sweep clean, the collector reports **0 files / 0 literals**
-  (696 entries), and there are no console, perchance or syntax errors. **Nothing was published or
+  (696 entries), and there are no console, platform or syntax errors. **Nothing was published or
   saved** — the office's draft still differs from the shipped content in `live` alone (their switch),
   and the tests above put it back exactly as they left it.
 
@@ -3706,7 +3706,7 @@ The ask: *"edit in the admin where to stop continue and start a livestream, edit
   deleted through the drawer and the panel went back to *Coming up next*. Both panels were checked by
   eye, and hold at phone width (390px: drawer 375px, panels 300px, zero overflow). The drawer's
   *Update* tab still counts **34** sections, the collector reports **0 files / 0 literals** (696
-  entries), and there are no console, perchance or syntax errors. **Nothing was published or saved** —
+  entries), and there are no console, platform or syntax errors. **Nothing was published or saved** —
   the tests' draft changes were put back exactly as the office left them (on air, `liveSince` /
   `liveCut` at 0).
 
@@ -3738,7 +3738,7 @@ The ask: *"remove all the option to change icons"*.
   *Social links* sub-list three, and `ICON_NAMES` is no longer referenced by any component. The
   collector reports **0 files / 0 literals** (696 entries, no orphans left behind by the removed
   label), the *Update* tab still counts **34** sections, the home page still draws its **106** icons,
-  and there are no console, perchance or syntax errors. Nothing was published or saved.
+  and there are no console, platform or syntax errors. Nothing was published or saved.
 
 ## 108. Where the last message and the previous sermons play from
 
@@ -3791,7 +3791,7 @@ edit this"* — with the message page for *The Hope That Overcomes the World* pa
   field list present, the four video fields among them. The board holds at **560px and below** (tag on its
   own line, every row starting at the same left edge, no overflow at 390px: drawer 375px, card 300px) and at
   desktop (titles and meta on one column, 67px rows). The fourteen routes render clean, the collector
-  reports **0 files / 0 literals** (696 entries), and there are no console, perchance or syntax errors.
+  reports **0 files / 0 literals** (696 entries), and there are no console, platform or syntax errors.
   **Nothing was published or saved.**
 
 > **Superseded by note 109.** The board this note added left the *Live stream* section at the church's
@@ -3848,7 +3848,7 @@ services saved video should replace the previous sermon in the livestream area o
   the archive-message fallback; *Put it back* emptied the field and the card returned. The panel was
   checked by eye at both widths (670px card: three rows, thumbnails rendering, nothing clipped; 390px:
   card 300px, rows wrap, the take-off button stays inside, no overflow), the fourteen routes render clean,
-  the collector reports **0 files / 0 literals** (696 entries), and there are no console, perchance or
+  the collector reports **0 files / 0 literals** (696 entries), and there are no console, platform or
   syntax errors. **Nothing was published or saved** — the test's seed and caches (`wom.recentstreams`,
   `wom.livestatus`) were cleared and the live section put back exactly as the office had it
   (`isLive` false, `liveSince` 0, `liveCut` as it was, `hiddenReplays` empty).
@@ -3874,7 +3874,7 @@ service ends*, then *Open the sermon list*).
   service ends*, *Open the sermon list* and *Put this back to the original*, `/watch-live` and `/sermons`
   both still show the four cards (Live stream · Plays here whenever our broadcast is active, YouTube ·
   @worldovercomers, Facebook · /worldovercomers, Sermon archive · Every message since 2026), and the
-  routes render with no console, perchance or syntax errors. **Nothing was published or saved.**
+  routes render with no console, platform or syntax errors. **Nothing was published or saved.**
 
 ## 111. The stream ends, and the site stops by itself
 
@@ -3928,7 +3928,7 @@ recent services"*.
   *Stop* still set `liveEndedBy: "office"` and keep their wording. A service found on **Facebook** (its own two markers)
   stopped the site with *The stream ended on Facebook…* and left no Facebook id in the list. Then every route was
   re-rendered (the same sizes as before the change), the collector reported **0 files / 0 literals**, and there were no
-  console, perchance or syntax errors. **Nothing was published or saved**: the test's channel, stream links, seeds and
+  console, platform or syntax errors. **Nothing was published or saved**: the test's channel, stream links, seeds and
   caches were rolled back with the drawer's own *Undo* and the draft's own JSON, and the live section put back exactly
   as the office had it (`isLive` false, `liveSince` 0, `liveCut` 1790290196260, `hiddenReplays` empty, `liveEndedBy`
   office, the channel fields empty).
@@ -4005,7 +4005,7 @@ line of link work turned up a false "we are live now" and a data-loss bug in the
   reloads with *1 unsaved change*; the *Recent services* band holds the channel's own six newest
   services; the door cards and the footer read `@twocorg` on both the draft and the published page,
   with no clipping, no overlap, equal card heights at 1440px and no horizontal overflow at 390px; and
-  the load is clean — no console errors, no `perchanceErrors`, no `syntaxErrors`. **Nothing was
+  the load is clean — no console errors, no `platformErrors`, no `syntaxErrors`. **Nothing was
   published or saved**; the office's other draft content is exactly as they left it.
 
 ## 113. Recent services by date — one message, however many times it was published
@@ -4048,7 +4048,7 @@ The ask: *"adjust the last six message to be determined by the nearest date to e
   *THANKSGIVING SUNDAY SERVICE — 6th Sept* — each with its exact date, each service's duplicated
   uploads folded to one card (the three copies of 30 August collapsed to a single entry, the two of
   20 September to one, and so on). Laid out as a 2×3 grid with even heights per row at 1440px, no
-  clipped text and no horizontal overflow. No console errors, no `perchanceErrors`, no
+  clipped text and no horizontal overflow. No console errors, no `platformErrors`, no
   `syntaxErrors`, and **nothing was published** — the office's draft is untouched apart from their own
   channel setting (`@twocorg`), which still waits for their **Publish**.
 
@@ -4102,7 +4102,7 @@ The ask: *“when i click the unsaved changes it should show me what ii have not
   and *Put back* restored the section to published (it left `pendingSections()`, which is the
   definition of equal). Checked at 1440×900 and 390×844: the pill, the rows and the *Put back* button
   (icon-only under 420px) lay out with no overflow or clipped text. No console errors, no
-  `perchanceErrors`, no `syntaxErrors`, and **nothing was published or saved** — the office's draft
+  `platformErrors`, no `syntaxErrors`, and **nothing was published or saved** — the office's draft
   still holds their channel setting and nothing else. Two empty *Add another* entries (`series`,
   `sermons`) that earlier test runs had left in the draft were taken out of the list with its own
   *Put back* button, which is what that button is for.
@@ -4132,7 +4132,7 @@ page lists.”*
   *“Paste the channel's @name, its id or its link.”*; the block body holds no empty element and
   no gap where the paragraph was (measured: header → card → first field are flush, as they are in
   every other section, with the card's own padding doing the work). No console errors, no
-  `perchanceErrors`, no `syntaxErrors`, and **nothing was published or saved** — the office's own
+  `platformErrors`, no `syntaxErrors`, and **nothing was published or saved** — the office's own
   unsaved channel change is untouched.
 
 ## 116. The welcome picture became a slide space for the office's announcements
@@ -4228,7 +4228,7 @@ of a church notice board — a poster filling a screen, then a red arrow and a s
   *Upload a photo*, *Use the original photo*), the four word fields, the *Design* select with
   *Automatic (a different one for every picture)* plus the eight names, and *Show this slide*; *Add
   another*, *Delete* and *Put this back to the original* are all there. No console errors, no
-  `perchanceErrors`, no `syntaxErrors`, and **nothing was published or saved** — the office's own
+  `platformErrors`, no `syntaxErrors`, and **nothing was published or saved** — the office's own
   unsaved channel change is untouched.
 
 ## 117. The slide space takes its colours from the picture — and fills the column
@@ -4247,7 +4247,7 @@ fill the whole space area especially for desktop view”* — three separate thi
   is reachable: the others carry `inert`, so the keyboard and a screen reader skip them.
 - **The colours come off the picture** (`src/lib/palette.ts`, new). A slide used to be drawn in the one
   fixed poster palette. It is now read from the office's own upload: the picture is drawn to a 64×~96
-  canvas (`crossOrigin = "anonymous"` — the bundled photos are same-origin and perchance's upload host
+  canvas (`crossOrigin = "anonymous"` — the bundled photos are same-origin and platform's upload host
   answers with `Access-Control-Allow-Origin`, so both read) and each pixel votes into one of 24 hue
   buckets, **weighted by how vivid it is** (`s²·(1 − |2l − 1|·0.55)`), so a sharply coloured flyer on a
   white ground is read as *its* colour and not as white; the winning bucket is averaged with its two
@@ -4322,7 +4322,7 @@ fill the whole space area especially for desktop view”* — three separate thi
   *Parchment plate* (2 slides) with arrows, dots, drag, self-advance and `inert` flipping; `?slides=all`
   lays the eight out at the desktop box size for the checks above; *Events & notices → Announcement
   slides* still lists both slides with their words, *Add another* and *Put this back to the original*.
-  No console errors, no `perchanceErrors`, no `syntaxErrors`; the office's unsaved channel change was
+  No console errors, no `platformErrors`, no `syntaxErrors`; the office's unsaved channel change was
   left alone.
 
 ## 118. A slide is the shape of its own upload
@@ -4374,7 +4374,7 @@ well as its colours.
 - **Verified live.** The home page's box matches its picture's shape at 759 px (699×466 for the 1.5
   photograph), at 1440 (546×364, the figure centred beside the words) and at 390 (329×220); the
   design preview follows the first slide's shape (306×204 cells on a phone); the chip stays below the
-  box at every width; no page overflow anywhere. No console errors, no `perchanceErrors`, no
+  box at every width; no page overflow anywhere. No console errors, no `platformErrors`, no
   `syntaxErrors`, and nothing was published or saved — the office's own unsaved draft is untouched
   (the `slides` section carries no office edit, so the shipped list is still what shows).
 
@@ -4425,7 +4425,7 @@ was there before stays.
 - **Verified live.** The hero's faint layer covers the hero at 1440×900 and on a phone (375×780, the
   layer 393×819 with its 5% bleed), the announcement box below is untouched (329×220 for the shipped
   landscape photo), there is no horizontal overflow anywhere, and the new slot is in the drawer. No
-  console errors, no `perchanceErrors`, no `syntaxErrors`; nothing was published or saved.
+  console errors, no `platformErrors`, no `syntaxErrors`; nothing was published or saved.
 
 ## 120. The photo behind the home headline shows properly — sharp, and still off the words
 
@@ -4483,7 +4483,7 @@ paragraph getting any harder to read.
   discarded, as in notes 116–119.
 - **Verified live** at 1440×900 and on a phone (390×844): no horizontal overflow, no text overflow
   inside the live/next pill (329/329), zero overlapping copy rectangles, and no console errors,
-  `perchanceErrors` or `syntaxErrors`. Nothing was published or saved.
+  `platformErrors` or `syntaxErrors`. Nothing was published or saved.
 
 ## 121. The slide runs the full length of the band, and the welcome copy is underneath it
 
@@ -4538,7 +4538,7 @@ to be underneath it.
   cut-off heading and an overlapping paragraph — every one of which the measurements above
   contradict, so its readings were discarded, as in notes 116–120.
 - **Verified live** in both themes, at 759, 1440×900 and on a phone (390×844); no console errors, no
-  `perchanceErrors`, no `syntaxErrors`. Nothing was published or saved. The final geometry was
+  `platformErrors`, no `syntaxErrors`. Nothing was published or saved. The final geometry was
   re-measured after the media-breakout change: the stage's left edge is **−7.7px** and its right edge
   **innerWidth − 7.7px** at every width (clipped by the band's `overflow: hidden`, so the poster
   reaches both edges of the viewport), the stage is **759.3** wide in the 759 pane, **1440** at
@@ -4795,7 +4795,7 @@ title typed in: the page behind drew a twentieth card, addressed
 dated to the most recent Sunday. A second pass with "Zz Test Message Id" produced
 `zz-test-message-id`. Both test entries were then removed (the draft's sermons list was restored to
 exactly what it was: **19** entries, `pending` back to the office's own *Announcement slides*
-change alone), no message's id changed, no console, perchance or syntax errors, theme light. The
+change alone), no message's id changed, no console, platform or syntax errors, theme light. The
 whole drawer was re-read afterwards: the entry shows the fifteen fields above, with no *URL id*, no
 *Speaker's role*, no *Weeks ago preached* anywhere in the block.
 
@@ -4852,7 +4852,7 @@ override or pending change carries them (`__churchCms.pending()` is still the of
 (`auto.live.119262a1855436a8`, the live panel's headphones button to the church's socials) is a
 different page and was left alone — the ask named the sermon page.
 
-Fresh load afterwards: no console, perchance or syntax errors; theme light.
+Fresh load afterwards: no console, platform or syntax errors; theme light.
 
 ## 126. The sermon form loses its cover picture, its tags and two long hints (the office asked)
 
@@ -4957,7 +4957,7 @@ edit (*Filed from the live stream: switched off*) exactly as before.
 same message still plays (`https://www.youtube.com/embed/0xThVTs8aro?rel=0&…` built the moment play
 was pressed), its card still shows `https://i.ytimg.com/vi/0xThVTs8aro/hqdefault.jpg`, its *Open*
 button still points at `watch?v=0xThVTs8aro`, the home page's featured video still loads its still,
-and the downloaded outline still carries its *Watch:* line. No console, perchance or syntax errors.
+and the downloaded outline still carries its *Watch:* line. No console, platform or syntax errors.
 `LIVE.youtubeId` (the live stream's own field, labelled *YouTube stream link*, already worded
 "a live link, a watch link or just the video id — all of them work") is empty and was left alone.
 
@@ -5010,7 +5010,7 @@ hint; the field above *Facebook video link* reads *YouTube video link* and holds
 each holds a `youtube.com/watch?v=…` link. On the site behind the drawer: `/sermons` draws its 19
 cards, `/watch-live` still shows its **Previous sermons** band, a message page still plays (its
 still `i.ytimg.com/vi/0xThVTs8aro/hqdefault.jpg`, pressing play builds
-`youtube.com/embed/0xThVTs8aro?rel=0&…`), and *Watch & share* is unchanged. No console, perchance or
+`youtube.com/embed/0xThVTs8aro?rel=0&…`), and *Watch & share* is unchanged. No console, platform or
 syntax errors; build wrote `src/app.js` / `src/app.css` with nothing unresolved.
 
 ## 129. The *Watch & share* tab loses its hosting line, and the outline notice loses its "press play" clause (the office asked)
@@ -5055,7 +5055,7 @@ back, with the applied content compared byte-for-byte before and after) — and 
 printed exactly the sentence above. *Watch & share* on *Overcoming in Christ* now shows the platform
 row alone (*YouTube · Highest quality, with captions · Open*), with no hosting line anywhere in the
 page. Neither removed phrase survives in the built `src/app.js` or in any section of the content the
-site renders from. No console, perchance or syntax errors.
+site renders from. No console, platform or syntax errors.
 
 **One note about the content server.** While this was being done the drawer's log read **rev 8 —
 *Updated Announcement slides, Sermons*** at 21:34, i.e. the office's two unsaved edits had just been
@@ -5144,7 +5144,7 @@ the sermon list* jumps to the *Sermons* section, which opens with that block in 
 services* panel still draws its six rows, thumbnails and *Take it off* buttons. Both remaining cards
 were looked at (a snapshot of each): the foot card holds the number field and the button and nothing
 else; the recent card holds the heading, the read line, the list — and no paragraph. No console,
-perchance or syntax errors.
+platform or syntax errors.
 
 **The office's draft was left alone.** It held two unsaved changes while this was done (*How many
 previous sermons to show* 20 → 10, and an empty *New sermon* removed) — nothing in this note writes to
@@ -5169,7 +5169,7 @@ empty state (*Nothing here yet…* / *Paste the channel above…*), *Take it off
 **Verified live** after a fresh load: the *Recent services* card draws its six rows with thumbnails,
 dates, *YouTube* links and *Take it off* buttons and carries no line between the heading and the list —
 nothing anywhere in the drawer reads *was read*, and no element with `admin__archive-state` remains. No
-console, perchance or syntax errors.
+console, platform or syntax errors.
 
 Meanwhile the office's own draft changed under this session: its *How many previous sermons to show*
 went back to the published 20 (the section is still flagged dirty, so the value now matches what is
@@ -5244,7 +5244,7 @@ own write path, did not gain an `isSub` in the draft but **did** nest — the Lo
 the gold-ruled `.branch-sub` panel under Nigeria/Lagos and the drawer's Lagos row read *Lagos · 1
 sub-branch* — and the draft was then put back byte-for-byte (pending returned to exactly what it was:
 the office's own three branch renames plus the removed *New sermon*). Home and Locations render with
-no broken images, and there were no console, perchance or syntax errors.
+no broken images, and there were no console, platform or syntax errors.
 
 ## 132. The whole site takes a liquid-glass material over a shadier aurora (the office asked)
 
@@ -5293,7 +5293,7 @@ those for itself, so nothing else moves. Measured on the drawer's own body text,
 about, devotions, `#/admin`) render with no horizontal overflow and no collapsed panels, at both
 1440×900 and 390×844; the admin drawer's cards are clean frosted panes with no bevel and its body
 text measures 5.4–6.2:1; the dark theme keeps its warm blooms and reads cleanly; there were no
-console, perchance or syntax errors. Nothing was published, and the office's own unsaved draft was
+console, platform or syntax errors. Nothing was published, and the office's own unsaved draft was
 left exactly as it was.
 
 ## 133. The stream itself now decides *Live now*, and the wait for one has a ticking clock (the office asked)
@@ -5388,7 +5388,7 @@ every indicator. A staged ending older than the office's command — the real ca
 already seen: a service streamed tonight at 21:15 that is not on the schedule — took *Live now* off the
 pill, the hero, the card and the panel at once, left the panel on *Live has ended* over that stream's
 own still, and stepped the clock over the gathering it interrupted. All fourteen routes render at
-390 px with no horizontal overflow, and there were no console, perchance or syntax errors. Nothing was
+390 px with no horizontal overflow, and there were no console, platform or syntax errors. Nothing was
 published; the office's draft was put back byte-for-byte (the same three branch renames and the
 removed *New sermon*, with `dirty` exactly as it was found).
 
@@ -5411,7 +5411,7 @@ at ~30 fps, pauses with the tab (requestAnimationFrame stops itself when hidden)
 frame under *prefers-reduced-motion*, and removes itself if WebGL is unavailable — in which case the
 CSS aurora underneath shows, exactly as before, since the canvas sits over it as a fixed layer behind
 everything else. Verified live: varied pixels in the warm and deep zones of both themes, glass panels
-composing over it on the full page, no console, perchance or syntax errors. Nothing was published.
+composing over it on the full page, no console, platform or syntax errors. Nothing was published.
 
 ## 135. The last message is the latest upload (the office asked)
 
@@ -5427,7 +5427,7 @@ read (no channel, failed read) the newest write-up keeps the slot exactly as bef
 plays above, the newest write-up rejoins *Previous sermons* instead of hiding behind the feature.
 *Previous sermons* itself is unchanged — still the hand-written archive, nothing ever rolls into it on
 its own. Verified live: the Youth Sunday/Communion service plays in the band, the write-ups follow
-from the newest, the grid starts at the next upload, no console, perchance or syntax errors. Nothing
+from the newest, the grid starts at the next upload, no console, platform or syntax errors. Nothing
 was published.
 
 ## 136. The last message stays a previous sermon, not a recent upload (correction to 135)
@@ -5439,7 +5439,7 @@ the newest **previous sermon** — the latest message from the hand-written arch
 `src/pages/WatchLive.tsx`, the newest write-up by preached date), never a raw stream. So 135 is
 reverted in full: the band plays the newest write-up again through `SermonWatch`, *Recent services*
 keeps all six uploads, and *Previous sermons* follows from the next write-up. Verified live: the band
-is back on the newest write-up with the grid complete underneath, no console, perchance or syntax
+is back on the newest write-up with the grid complete underneath, no console, platform or syntax
 errors. Nothing was published.
 
 ## 137. The unsaved-changes row gets a Delete button (the office asked)
@@ -5465,7 +5465,7 @@ cleared the server session but left the drawer's local preview mode on, so a tab
 locally stayed editable. The modal now takes an `onSignOut` hook (`src/pages/Admin.tsx` passes one
 that drops `localMode`), so signing out locks the drawer behind the office password again. The *How
 sharing works* notice says both halves now — publishing shares, signing out signs this browser tab out
-of the shared server while everything published stays live. Verified live: no console, perchance or
+of the shared server while everything published stays live. Verified live: no console, platform or
 syntax errors. Testing note, read before touching the draft: mid-session a wedged preview reload (one
 that hung ~75s before recovering) blanked the office's unsaved draft; it was rebuilt byte-for-byte
 from that session's own snapshot (three branch renames, plate pin, removed empty sermon, the office's
@@ -5484,7 +5484,7 @@ has any says so before the two-click confirm. Anything without children deletes 
 The removal itself is still a draft change like any other — nothing leaves the site until Publish —
 but once published it is gone from every surface at once (page, chips, counts, search), because
 those all read the one list. Undo takes it back up to Publish. Verified: unit-tested the cascade
-helper against a parent/child/grandchild/id-less mix, rebuilt clean, no console, perchance or
+helper against a parent/child/grandchild/id-less mix, rebuilt clean, no console, platform or
 syntax errors. Nothing was published and the office draft was never written.
 
 ## 140. The unsaved list grows a real Delete next to Put back (the office asked)
@@ -5503,7 +5503,7 @@ section the way Publish does, to send on reconnect. Only real add/remove lists (
 events …) offer Delete; a reworded line has nothing to take off, so those rows keep Put back alone.
 The cleanup is undoable up to the publish, and the publish itself joins the server history like any
 other. Verified: surgery logic unit-tested (add/drop, edit/revert, remove/keep, reorder folded,
-id-less lists), rebuilt clean, no console, perchance or syntax errors. Nothing was published in
+id-less lists), rebuilt clean, no console, platform or syntax errors. Nothing was published in
 testing and the office draft was never written.
 
 ## 141. Sermons date themselves — the Date field is gone (the office asked)
@@ -5516,7 +5516,7 @@ and a duplicated message restamps too — a copy is a new upload, not the origin
 (`duplicate` in `src/pages/Admin.tsx`). Nothing else changes: dates already on published messages
 (including messages filed from broadcasts) are still honoured, and messages without one still fall
 back to their week count, so the archive order never jumps. Verified live: the sermon form shows
-no date field, rebuilt clean, no console, perchance or syntax errors. Nothing was published and
+no date field, rebuilt clean, no console, platform or syntax errors. Nothing was published and
 the office draft was never written.
 
 ## 142. New sermons land at the top of the admin list (the office asked)
@@ -5558,7 +5558,7 @@ order the office left them in — and a manual reorder alone no longer counts as
 publishing, since order is derived from dates. The draft follows what goes live (Delete's path),
 so the section leaves the unsaved list instead of popping back in on order alone. Verified:
 ordering unit-tested against mixed dates/weeksAgo/legacy blanks, rebuilt clean, no console,
-perchance or syntax errors. Publish itself was not test-fired — the office's pending work must
+platform or syntax errors. Publish itself was not test-fired — the office's pending work must
 never go live from testing — and their draft was never written.
 
 > Superseded by note 145 below — sorting at Publish changed the stored order the whole site
@@ -5581,7 +5581,7 @@ before. The reorder now lives only in the drawer's sermon list (`order` in `List
 moment it is published it joins the date order at the top, on screen only; nothing stored ever
 moves. Move up/down is hidden on sermons (order comes from dates, so the buttons would look
 broken); every other action still runs on the stored entry. Verified live: published sermons
-newest-first, the in-progress upload at the foot, rebuilt clean, no console, perchance or
+newest-first, the in-progress upload at the foot, rebuilt clean, no console, platform or
 syntax errors. Nothing was published and the office draft was never written.
 
 > Superseded by note 146 below — a new upload keeps a blank id, so ids alone called a published
@@ -5598,7 +5598,7 @@ whole-content match second. An upload being filled in still matches nothing and 
 foot; the moment its content equals what is live — Publish, or Delete — it joins the
 newest-first order at the top. The website is untouched (display order only, drawer only).
 Verified live: the published blank-id upload reads at the top, rebuilt clean, no console,
-perchance or syntax errors. Nothing was published and the office draft was never written.
+platform or syntax errors. Nothing was published and the office draft was never written.
 
 ## 147. Framer Motion runs the modals and toasts (the office asked)
 
@@ -5615,7 +5615,7 @@ panel rise, and — new — a matching exit instead of blinking out) and the `To
 for the command palette, which is still CSS. The root `MotionConfig` sets `reducedMotion="user"`,
 so the site's reduced-motion promise holds. Scroll reveals stay CSS on purpose. Verified live:
 Library's clear-data modal opens, exits and unmounts; a toast appears and dismisses; home page
-unchanged; no console, perchance or syntax errors. Nothing was published and the office draft
+unchanged; no console, platform or syntax errors. Nothing was published and the office draft
 was never touched.
 
 ## 148. One motion language for the whole site (Framer Motion redesign)
@@ -5647,7 +5647,7 @@ was never touched.
 - **Verified live:** About's accordion opens (126px, opacity 1) and closes back to unmounted;
   a toast appears, settles (opacity 1, transform none) and dismisses itself; the tools modal
   opens (backdrop `blur(6px)`) and Escape exits to unmounted; home reveals sit at opacity 0
-  below the fold and flip to 1 on scroll; no console, perchance or syntax errors; the office
+  below the fold and flip to 1 on scroll; no console, platform or syntax errors; the office
   draft untouched (165032 bytes before and after). Nothing was published.
 
 ## 149. The backup cards left the Tools modal
@@ -5661,7 +5661,7 @@ was never touched.
   the same way (*Tools*). `cms.exportSnapshot()` / `cms.importSnapshot()` stay in `src/lib/cms.ts`
   as engine API with no caller, so bringing an export back is one card.
 - **Verified live:** the Tools modal opens with two cards and no backup wording; no console,
-  perchance or syntax errors; the office draft untouched. Nothing was published.
+  platform or syntax errors; the office draft untouched. Nothing was published.
 
 ## 150. The sign-out card says “log out this admin.”
 
@@ -5783,7 +5783,7 @@ Verified live, zip re-attached. Nothing was published.
   closed sections are pruned, and seeding takes the first id only — so a reload cannot resurrect
   a stack of old sections either.
 - Verified as far as the signed-out preview allows: build clean, page renders with no console,
-  perchance or syntax errors, draft untouched. The click-through (opening B opens, A shuts) needs
+  platform or syntax errors, draft untouched. The click-through (opening B opens, A shuts) needs
   the office session, which a reload signs out. Nothing was published.
 
 ## 158. Tab clicks become the last state too
@@ -5795,7 +5795,7 @@ Verified live, zip re-attached. Nothing was published.
   rest: the emptied open list is written and every section entry pruned, and the tab's mode plus
   home view recorded — a reload or return lands on the clicked tab, not a resurrected section.
 - Verified as far as the signed-out preview allows: build clean, page renders with no console,
-  perchance or syntax errors, draft untouched. The click-through needs the office session, which
+  platform or syntax errors, draft untouched. The click-through needs the office session, which
   a reload signs out. Nothing was published.
 
 ## 159. Status tab stat cards removed
@@ -5805,7 +5805,7 @@ Verified live, zip re-attached. Nothing was published.
 - The "At a glance / How much is on the site" heading and the four stat cards are gone from the
   Status tab, along with the now-unused `counts` memo and the orphaned `.admin__cards` /
   `.admin__stat` CSS. Everything else on the tab (live state, this week, history) is untouched.
-- Verified: build clean, page renders with no console, perchance or syntax errors, the heading
+- Verified: build clean, page renders with no console, platform or syntax errors, the heading
   string no longer appears in the rendered page, draft untouched. Nothing was published.
 
 ## 160. Tools sits after the Status tab
@@ -5815,7 +5815,7 @@ Verified live, zip re-attached. Nothing was published.
 - The drawer's Tools button moved out of the Status heading and into the tab row, right after
   the Status tab, styled as a tab. It opens the same Tools modal; the drawer's place behind it
   is untouched. The now-unused `onTools` prop left `Dashboard`.
-- Verified: build clean, page renders with no console, perchance or syntax errors, draft
+- Verified: build clean, page renders with no console, platform or syntax errors, draft
   untouched. The signed-in tab row needs the office session to eyeball. Nothing was published.
 
 ## 161. Tools lights up like the other tabs
@@ -5826,7 +5826,7 @@ Verified live, zip re-attached. Nothing was published.
   takes `is-active` (the same gold highlight) while the Tools modal is open and drops it on
   close, via a `toolsActive` prop from the drawer's modal state.
 - Verified live in the preview: tapped Tools, modal opened with Tools highlighted gold like an
-  active Edit/Update/Status tab; closed it, highlight cleared. No console, perchance or syntax
+  active Edit/Update/Status tab; closed it, highlight cleared. No console, platform or syntax
   errors, draft untouched. Nothing was published.
 
 ## 162. Tools is a page, not a popup
@@ -6426,7 +6426,7 @@ Verified live, zip re-attached. Nothing was published.
   against it and reading every section back. First local launch matches the
   preview exactly; later publishes continue from rev 49.
 - The admin bar's external-icon button opens the visitor's website in a new
-  tab (`https://perchance.org/<name>#/` on Perchance, the server root on a
+  tab (`https://platform.org/<name>#/` on Platform, the server root on a
   standalone host), falling back to same-tab navigation if the popup is
   blocked. The standalone path router only claims the pathname when there is
   no hash, so that fallback `#/` still lands on the visitor home.
@@ -6531,7 +6531,7 @@ exactly as it did before:
 
 Verified read-only in the live preview (the preview is connected to the shared server with the
 office's own publish in flight, so nothing was added, published or cleared there): no console,
-perchance or syntax errors; the drawer sermon list renders with no Unpublished pills; rebuilt
+platform or syntax errors; the drawer sermon list renders with no Unpublished pills; rebuilt
 clean and stale chunks deleted. Nothing was published and the office draft was never written.
 
 ## 195. The newly published sermon is the last message; lists follow publish date and time (the office asked)
@@ -6551,7 +6551,7 @@ published last reads first. Unfinished uploads still wait at the foot of the dra
 
 Verified headlessly against the real code (esbuild bundle of `src/data/sermons.ts` run in isolation):
 legacy date order unchanged, a freshly stamped upload sorts above same-day messages, archive still
-19 entries with its top unchanged; live preview re-rendered with no console, perchance or syntax
+19 entries with its top unchanged; live preview re-rendered with no console, platform or syntax
 errors. Nothing was published and the office draft was never written — the connected preview holds
 the office's own in-flight publish, so no add/publish test was run there.
 
@@ -6583,7 +6583,7 @@ the split chunks were already content-named. The prebuilt `site-deploy.zip` page
 hash on their bundle references when repacked. Anything published before this reaches a browser
 still follows date order — republishing it (or any new publish) stamps it and it takes the last
 message at once. Verified: rebuilt, the live preview re-rendered from the hashed URLs with no
-console, perchance or syntax errors. The generator itself still needs its normal save for any of
+console, platform or syntax errors. The generator itself still needs its normal save for any of
 this to reach the public page, and a self-hosted copy needs the fresh `site-deploy.zip`.
 
 ## 198. A published sermon always outranks the standing Sunday message (the office asked)
@@ -6602,7 +6602,7 @@ shared data (the office's stamped upload reads as the latest message and first c
 upload is still untitled, so it shows as `New sermon` until the office names it.
 ## 199. Publish history cleared; code comments slimmed (the office asked)
 > make sure history is clean until new publish, make the codes clean and make the comments in all the code simple and not too much
-History: the Status tab's publish history was cleared (Clear history, double-pressed inside the arm window) — "Nothing has been published from this console yet". The next publish re-records from zero. Comments: every comment over four lines across sources, components, data, styles and tools condensed to one short line (SPEC pointers kept as `note N`). No code was changed. Verified: rebuilt with no orphans and no unresolved imports, live preview re-rendered with no console, perchance or syntax errors.
+History: the Status tab's publish history was cleared (Clear history, double-pressed inside the arm window) — "Nothing has been published from this console yet". The next publish re-records from zero. Comments: every comment over four lines across sources, components, data, styles and tools condensed to one short line (SPEC pointers kept as `note N`). No code was changed. Verified: rebuilt with no orphans and no unresolved imports, live preview re-rendered with no console, platform or syntax errors.
 ## 200. Sign-in after sign-out kept failing (the office asked)
 > after my first sign in i can not sign in again — "not reachable", stuck Reconnecting
 Three traps in the join path: a dead-but-kept socket made every retry a no-op; sign-in failed fast on `offline` instead of joining; a hanging open never timed out. Fixed: user joins drop the dead socket, reset backoff and connect fresh (`retryNow`), a hanging open ends after 9s, stale attempts can't clobber a live one, no server means stand-alone (rejoining quietly later). Verified: three sign-out/in cycles in the preview, Connected throughout. Rebuilt, repacked.

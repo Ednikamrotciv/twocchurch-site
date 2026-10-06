@@ -1,7 +1,6 @@
 import React, { useEffect } from "react";
 import { useRoute, navigate, ADMIN_PREFIX } from "./lib/router";
 import { Header, Footer, ScrollTop, SkipLink } from "./components/layout";
-import { AnnouncementBanner } from "./components/blocks";
 import { Toaster } from "./components/ui";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import { startCms, useCmsVersion } from "./lib/cms";
@@ -110,7 +109,6 @@ function SiteApp() {
     <>
       <SkipLink />
       <Header />
-      <AnnouncementBanner />
       <main id="main" key={to}>
         <ErrorBoundary>
           <React.Suspense fallback={null}>{page}</React.Suspense>

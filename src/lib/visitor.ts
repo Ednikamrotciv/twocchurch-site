@@ -1,5 +1,7 @@
-/* Visitor place from IP (direct fetch, so the service sees them; notes 85, 98): clock + currency,
-   cached for first-frame paint. Falls back to device, then the church's own. Switchable in console. */
+/* Visitor place from IP only (direct fetch, so the service sees their address;
+   notes 85, 98): clock + currency, cached for first-frame paint.
+   No device fallback — when the IP services cannot answer, times show on the
+   church's own clock and amounts in the church's own currency. */
 
 import { useEffect } from "react";
 import { useLocalState, writeStore } from "./hooks";
@@ -13,7 +15,6 @@ import {
   setVisitorClock,
   type VisitorClock,
 } from "./store";
-import { countryOfTimezone } from "../data/currencies";
 
 /** How long a found clock is trusted before it is looked up again. */
 const FRESH_MS = 12 * 60 * 60 * 1000;
@@ -104,33 +105,6 @@ async function askLocalProxy(): Promise<Answer | null> {
   }
 }
 
-/** Ask the visitor's own device, used only when the IP services cannot answer. */
-function deviceZone(): string {
-  try {
-    const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
-    return isValidTimezone(tz) ? tz : "";
-  } catch {
-    return "";
-  }
-}
-
-/** Device country: clock region first, then language region; region-less stays unknown. */
-function deviceCountry(tz: string): string {
-  const fromZone = countryOfTimezone(tz);
-  if (fromZone) return fromZone;
-  try {
-    const tags = [navigator.language, ...(navigator.languages || [])];
-    for (const tag of tags) {
-      if (typeof tag !== "string" || !tag) continue;
-      const region = new Intl.Locale(tag).region;
-      if (region && /^[A-Za-z]{2}$/.test(region)) return region.toUpperCase();
-    }
-  } catch {
-    /* no Intl.Locale on an old browser — the currency simply stays unknown */
-  }
-  return "";
-}
-
 /** One IP service's answer, as the clock (and money) the site will read in. */
 function ipClock(answer: Answer): VisitorClock {
   const country = /^[A-Za-z]{2}$/.test(answer.country) ? answer.country.toUpperCase() : "";
@@ -145,15 +119,8 @@ function ipClock(answer: Answer): VisitorClock {
   };
 }
 
-/** The visitor's own device, when none of the IP services answered. */
-function deviceClock(): VisitorClock | null {
-  const tz = deviceZone();
-  if (!tz) return null;
-  const country = deviceCountry(tz);
-  return { tz, place: "", country, currency: currencyOfCountry(country), source: "device", v: VISITOR_CLOCK_V, at: Date.now() };
-}
-
-/** Find the visitor's clock: their IP first, their device second, nothing third. */
+/** Find the visitor's clock from their IP address only. `null` when the IP
+    services cannot answer — callers fall back to the church's own clock. */
 export async function findVisitorClock(): Promise<VisitorClock | null> {
   if (typeof navigator !== "undefined" && navigator.onLine === false) return null;
   for (const probe of PROBES) {
@@ -162,7 +129,7 @@ export async function findVisitorClock(): Promise<VisitorClock | null> {
   }
   const local = await askLocalProxy();
   if (local) return ipClock(local);
-  return deviceClock();
+  return null;
 }
 
 /** Re-ask when missing, half a day old, or predating country/currency (note 98). */
