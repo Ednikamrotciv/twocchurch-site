@@ -1920,6 +1920,53 @@ export function ToolsPage() {
     fireToast(res.ok ? "Rolled back to the previous revision." : `Could not roll back (${res.error}).`, res.ok ? "success" : "error");
   };
 
+  /* Backup: the latest published content as a file the office keeps. */
+  const doBackup = () => {
+    try {
+      const text = cms.exportPublished();
+      const d = new Date();
+      const p = (n: number) => String(n).padStart(2, "0");
+      const name = `world-overcomers-backup-${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}-${p(d.getHours())}${p(d.getMinutes())}.json`;
+      const url = URL.createObjectURL(new Blob([text], { type: "application/json" }));
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = name;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      window.setTimeout(() => URL.revokeObjectURL(url), 5000);
+      fireToast("Backup downloaded — the latest published content.", "success");
+    } catch {
+      fireToast("Could not build the backup.", "error");
+    }
+  };
+
+  /* Restore: an uploaded backup returns as a draft — review, then Publish. */
+  const restoreRef = useRef<HTMLInputElement>(null);
+  const doRestoreFile = async (file: File | undefined) => {
+    if (!file) return;
+    setBusy(true);
+    try {
+      const res = cms.importBackup(await file.text());
+      if (!res.ok) {
+        fireToast(`Could not restore (${res.error}).`, "error");
+      } else {
+        const n = res.restored?.length || 0;
+        const left = res.skipped?.length || 0;
+        fireToast(
+          left
+            ? `Brought back ${n} ${n === 1 ? "section" : "sections"} — review, then Publish. ${left} ${left === 1 ? "section" : "sections"} from the backup no longer exist in this update and ${left === 1 ? "was" : "were"} left out.`
+            : `Brought back ${n} ${n === 1 ? "section" : "sections"} — review, then Publish to put it live.`,
+          "success"
+        );
+      }
+    } catch {
+      fireToast("Could not read that file.", "error");
+    }
+    setBusy(false);
+    if (restoreRef.current) restoreRef.current.value = "";
+  };
+
   return (
     <div className="admin__page">
       {state.role === "main" && <Authenticator />}
@@ -1951,6 +1998,31 @@ export function ToolsPage() {
             }}
           >
             Sign out
+          </Btn>
+        </Card>
+        <Card className="admin__tool">
+          <h4>
+            <Icon name="download" size={16} /> Download a backup
+          </h4>
+          <p>Saves the latest published content as a file — keep it somewhere safe.</p>
+          <Btn size="sm" variant="ghost" icon="download" onClick={doBackup} disabled={busy}>
+            Back up now
+          </Btn>
+        </Card>
+        <Card className="admin__tool">
+          <h4>
+            <Icon name="archive" size={16} /> Restore from a backup
+          </h4>
+          <p>Uploads a backup file and brings its content back as a draft — review it, then Publish.</p>
+          <input
+            ref={restoreRef}
+            type="file"
+            accept=".json,application/json"
+            hidden
+            onChange={(e) => void doRestoreFile(e.target.files?.[0])}
+          />
+          <Btn size="sm" variant="ghost" icon="archive" onClick={() => restoreRef.current?.click()} disabled={busy}>
+            {busy ? "Restoring…" : "Restore a backup"}
           </Btn>
         </Card>
       </div>

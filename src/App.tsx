@@ -6,13 +6,14 @@ import { ErrorBoundary } from "./components/ErrorBoundary";
 import { startCms, useCmsVersion } from "./lib/cms";
 import { mountShaderBackground } from "./lib/shaderbg";
 import { startVisitorClock, useVisitorClock, useVisitorClockRefresh } from "./lib/visitor";
-import { useI18nTick, ensureI18n } from "./lib/i18n";
+import { useI18nTick, ensureI18n, setProtectedValues } from "./lib/i18n";
 import { allCopySources } from "./data/copy";
 import { startRates, useRates, useRatesRefresh } from "./lib/rates";
 import { useLiveStream } from "./lib/livestatus";
 import { nextService, onAir, churchTimezone } from "./lib/store";
 import { useNow } from "./lib/hooks";
 import { SERVICES } from "./data/site";
+import { BRANCHES } from "./data/branches";
 import { resolvePath } from "./lib/routes";
 import { ADMIN_RETURN_MS, readAdminReturn } from "./lib/adminReturn";
 import { ct } from "./data/copy";
@@ -32,6 +33,18 @@ export function App() {
      translations land (note 209). */
   useI18nTick();
   useEffect(() => {
+    /* Everything translates except identity: the church's name, every
+       address and every email stays exactly as the office typed it. */
+    setProtectedValues([
+      SITE.name,
+      SITE.short,
+      SITE.address,
+      SITE.email,
+      SITE.prayerEmail,
+      SITE.givingEmail,
+      SITE.mediaEmail,
+      ...BRANCHES.flatMap((b) => [b.name, b.address, b.email, b.phone]),
+    ]);
     if (clock?.country) void ensureI18n(clock.country, allCopySources());
   }, [clock?.country, version]);
   /* Today's rates, from the visitor's browser (note 98). */

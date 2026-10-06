@@ -30,7 +30,9 @@ export function Home() {
       {/* ---------------- hero ---------------- */}
       <section className="hero">
         <div className="hero__bg" aria-hidden="true">
-          <img src={img("hero")} alt="" />
+          <img className="hero__photo" src={img("hero")} alt="" />
+          {/* Phones get the office's own verse graphic instead of the banner. */}
+          <img className="hero__mobile" src={img("hero-mobile")} alt="" />
           <span className="hero__scrim" />
           <img className="hero__faint" src={img("hero-faint")} alt="" />
           <span className="hero__glow" />

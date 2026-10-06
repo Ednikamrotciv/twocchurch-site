@@ -2835,9 +2835,10 @@ input, select, textarea { font-size: 1rem !important; }
    The verse is absolute + 3 lines tall on phones; the hero needs room.
    ========================================================================== */
 @media (max-width: 640px) {
-  .hero { padding-bottom: 8.5rem !important; }
-  .hero__meta { margin-bottom: 1.4rem !important; }
-  .hero__verse { line-height: 1.65 !important; padding: 0.9rem 1rem 1rem !important; }
+  .hero { padding-bottom: 8rem !important; }
+  .hero__meta { margin-bottom: 1.8rem !important; }
+  .hero__verse { line-height: 1.7 !important; padding: 1rem 1.2rem 1.15rem !important; white-space: normal !important; }
+  .hero__verse span { display: inline !important; }
 }
 
 /* ==========================================================================

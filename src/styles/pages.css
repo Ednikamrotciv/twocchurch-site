@@ -31,6 +31,11 @@
   transition: opacity 0.6s ease, filter 0.6s ease;
 }
 
+/* The phones-only banner (the office's verse graphic): off everywhere else. */
+.hero__bg .hero__mobile {
+  display: none;
+}
+
 .hero__scrim {
   position: absolute;
   inset: 0;
@@ -344,7 +349,22 @@
 @media (max-width: 640px) {
   .hero {
     min-height: 0;
-    padding: 2.4rem 0 4.2rem;
+    padding: 2.4rem 0 8rem;
+  }
+  /* Phones show the office's verse graphic, not the desktop banner. Its own
+     baked-in words are melted into a soft wash (blur + dim) so only the
+     page's clean text reads over it. */
+  .hero__bg .hero__photo,
+  .hero__bg .hero__faint {
+    display: none;
+  }
+  .hero__bg .hero__mobile {
+    display: block;
+    filter: blur(10px) brightness(0.62) saturate(1.15);
+    transform: scale(1.15);
+  }
+  [data-theme="light"] .hero__bg .hero__mobile {
+    opacity: 0.34;
   }
   .hero__eyebrow {
     font-size: 0.62rem;
@@ -367,13 +387,21 @@
     flex-direction: column;
     gap: 0.7rem;
     margin-top: 1.5rem;
+    /* Clear air between "Stream details" and the verse strip below it. */
+    margin-bottom: 1.8rem;
+  }
+  .hero__link {
+    font-size: 0.95rem;
+    padding: 0.35rem 0.6rem;
   }
   .hero__verse {
-    font-size: 0.78rem;
-    padding: 0.5rem 0.9rem;
+    font-size: 0.82rem;
+    line-height: 1.7;
+    padding: 1rem 1.2rem 1.15rem;
+    white-space: normal;
   }
   .hero__verse span {
-    display: none;
+    display: inline;
   }
   .section {
     padding: 2.6rem 0;
@@ -5383,29 +5411,8 @@
   cursor: pointer;
 }
 .aslides--3d .aslides__arrow,
-.aslides--3d .aslides__dots,
 .aslides--3d .aslides__count {
   z-index: 60;
-}
-.aslides__dots {
-  position: absolute;
-  left: 50%;
-  bottom: 10px;
-  transform: translateX(-50%);
-  display: flex;
-  gap: 6px;
-}
-.aslides__dot {
-  width: 22px;
-  height: 4px;
-  border-radius: 2px;
-  border: 0;
-  padding: 0;
-  background: rgba(255, 255, 255, 0.28);
-  cursor: pointer;
-}
-.aslides__dot.is-on {
-  background: var(--gold-ui, #e8bd62);
 }
 .aslides__caption {
   display: grid;
@@ -5993,16 +6000,6 @@
     opacity: 1;
     border-color: #fff;
   }
-}
-/* The six face dots under the 3D stage — one per face, gold on show. */
-.aslides--3d .aslides__dots {
-  z-index: 60;
-  bottom: 12px;
-}
-.aslides--3d .aslides__dot {
-  width: 26px;
-  height: 6px;
-  border-radius: 3px;
 }
 /* ── the framer-motion chrome: counter, pause toggle, gold progress ─────── */
 .aslides__meta {

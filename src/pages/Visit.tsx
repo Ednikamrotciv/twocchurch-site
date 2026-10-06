@@ -40,7 +40,7 @@ export function Visit() {
       "",
       ct("auto.visit.687dbc3caf4ff5a5", { "name": service.name }),
       `When: ${fmtDate(when, "long")} at ${to12h(clockAt(when).time)}`,
-      `Party: ${party.adults} adult${party.adults === 1 ? "" : "s"}${party.kids ? `, ${party.kids} child${party.kids === 1 ? "" : "ren"}` : ""}`,
+      `Worship: ${party.adults} adult${party.adults === 1 ? "" : "s"}${party.kids ? `, ${party.kids} child${party.kids === 1 ? "" : "ren"}` : ""}`,
       party.accessibility !== "none" ? ct("auto.visit.cf547a49e71d27d0", { "accessibility": party.accessibility }) : "",
       party.notes ? ct("auto.visit.1d172ae40174ca25", { "notes": party.notes }) : "",
       you.name ? ct("auto.visit.1665ab0270cea3d3", { "name": you.name }) : "",

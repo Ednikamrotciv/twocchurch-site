@@ -1,6 +1,6 @@
-/* Announcement slides as a rotating 3D cuboid. Past six, the faces carry the first six.
-   Faces without a picture carry the church logo; with no slides at all the box
-   is all logo. Flat swiper fallback in ./slides.tsx. */
+/* Announcement slides as a rotating 4-sided stage. Past four, the faces carry
+   the first four. Faces without a picture carry the church logo; with no
+   slides at all the stage is all logo. Flat swiper fallback in ./slides.tsx. */
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import * as THREE from "three";
@@ -24,10 +24,8 @@ const CAM_POS: [number, number, number] = [0, 0.5, 11];
 const TAN_HALF = Math.tan((FOV * Math.PI) / 360);
 
 export type CuboidApi = {
-  /** One face-step around the ring (swipe sideways, side zones and keys). */
+  /** One face-step around the ring (swipe sideways, arrows and keys). */
   push: (dir: 1 | -1) => void;
-  /** Straight to a ring face (the dots under the stage). */
-  goTo: (i: number) => void;
   /** Settle onto the nearest face and hold still (a tap on the box). */
   snap: () => void;
 };
@@ -36,22 +34,18 @@ const TURN_SPEED = (Math.PI * 2) / 26;
 /** Hands off the box this long and it resumes its default slow revolve. */
 const IDLE_MS = 3 * 60 * 1000;
 
-/* The six faces in the order the side zones walk them. Every step is a short
-   turn and every resting face reads upright, picture and words (verified
-   against the box geometry's own UVs: each face's texture-top edge maps up). */
+/* The four sides in the order the arrows walk them: front → right → back →
+   left. Every step is a short quarter-turn of level yaw, and every resting
+   face reads upright — no top or bottom faces, so words can never tip. */
 function ringQuats(): THREE.Quaternion[] {
   const P = Math.PI;
   const ax = (x: number, y: number, z: number, a: number) =>
     new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(x, y, z), a);
-  /* Walk order front → top → right → back → left → bottom: every step is
-     short (90–120°), so the box never swings through a flip to get there. */
   return [
     new THREE.Quaternion(), // front
-    ax(1, 0, 0, P / 2), // top, upright
     ax(0, 1, 0, -P / 2), // right
     ax(0, 1, 0, P), // back
     ax(0, 1, 0, P / 2), // left
-    ax(1, 0, 0, -P / 2), // bottom, upright
   ];
 }
 
@@ -242,7 +236,7 @@ function useFaceTextures(slots: FaceSlot[], logoUrl: string): (THREE.Texture | n
   return textures;
 }
 
-function Cuboid({ slides, apiRef, held, logo, theme, onFace }: { slides: (SlideT | null)[]; apiRef?: { current: CuboidApi | null }; held?: boolean; logo: string; theme: string; onFace?: (i: number) => void }) {
+function Cuboid({ slides, apiRef, held, logo, theme }: { slides: (SlideT | null)[]; apiRef?: { current: CuboidApi | null }; held?: boolean; logo: string; theme: string }) {
   const group = useRef<THREE.Group>(null);
   /* One quaternion eased towards its target every frame: the default revolve
      walks a slow yaw, hands-on snaps to the ring — no separate animation. */
@@ -254,9 +248,6 @@ function Cuboid({ slides, apiRef, held, logo, theme, onFace }: { slides: (SlideT
   /* Hands-on until three quiet minutes pass, then the default revolve resumes. */
   const manual = useRef(false);
   const lastAct = useRef(0);
-  const lastFace = useRef(-1);
-  const onFaceRef = useRef(onFace);
-  onFaceRef.current = onFace;
   const touch = () => {
     manual.current = true;
     lastAct.current = performance.now();
@@ -264,11 +255,6 @@ function Cuboid({ slides, apiRef, held, logo, theme, onFace }: { slides: (SlideT
   const step = (dir: 1 | -1) => {
     touch();
     ringPos.current = (ringPos.current + dir + RING.length) % RING.length;
-  };
-  const go = (i: number) => {
-    touch();
-    const n = RING.length;
-    ringPos.current = ((Math.round(i) % n) + n) % n;
   };
   const settle = () => {
     touch();
@@ -286,17 +272,22 @@ function Cuboid({ slides, apiRef, held, logo, theme, onFace }: { slides: (SlideT
   };
   useEffect(() => {
     if (!apiRef) return;
-    apiRef.current = { push: step, goTo: go, snap: settle };
+    apiRef.current = { push: step, snap: settle };
   }, [apiRef]);
-  const faceSlides = useMemo(() => [0, 1, 2, 3, 4, 5].map((f) => (slides.length ? slides[f % slides.length] : null)), [slides]);
-  /* A face with no picture of its own carries the church logo — the box never
-     shows a blank face, and with no slides at all it is all logo. Each face is
-     painted with its slide's own words, the same content the flat stage shows. */
+  const faceSlides = useMemo(() => [0, 1, 2, 3].map((f) => (slides.length ? slides[f % slides.length] : null)), [slides]);
+  /* The four sides carry the slides' own content (box material order is
+     +x, -x, +y, -y, +z, -z: the caps get no slide and stay plain dark).
+     A face with no picture of its own carries the church logo — the stage
+     never shows a blank face, and with no slides at all it is all logo.
+     Each face is painted with its slide's own words, the same content the
+     flat stage shows. */
   const slots: FaceSlot[] = useMemo(() => {
-    const urls = [faceSlides[1]?.image, faceSlides[3]?.image, faceSlides[4]?.image, faceSlides[5]?.image, faceSlides[0]?.image, faceSlides[2]?.image]
-      .map((u) => (u && String(u).trim() ? String(u) : logo));
+    const faces = [faceSlides[1], faceSlides[3], null, null, faceSlides[0], faceSlides[2]];
+    const urls = faces.map((f) => {
+      const u = f?.image;
+      return u && String(u).trim() ? String(u) : logo;
+    });
     const aspects = [SIDE_ASPECT, SIDE_ASPECT, CAP_ASPECT, CAP_ASPECT, SIDE_ASPECT, SIDE_ASPECT];
-    const faces = [faceSlides[1], faceSlides[3], faceSlides[4], faceSlides[5], faceSlides[0], faceSlides[2]];
     return urls.map((url, i) => ({ slide: faces[i], url, aspect: aspects[i] }));
   }, [faceSlides, logo]);
   const textures = useFaceTextures(slots, logo);
@@ -340,22 +331,6 @@ function Cuboid({ slides, apiRef, held, logo, theme, onFace }: { slides: (SlideT
     const a = 1 - Math.exp(-(manual.current ? 7 : 2.2) * delta);
     qCur.current.slerp(qTarget.current, a);
     g.quaternion.copy(qCur.current);
-    /* Report the face on show (nearest ring rest), so the dots keep up. */
-    if (onFaceRef.current) {
-      let best = 0;
-      let bestDot = -2;
-      RING.forEach((q, i) => {
-        const d = Math.abs(qCur.current.dot(q));
-        if (d > bestDot) {
-          bestDot = d;
-          best = i;
-        }
-      });
-      if (best !== lastFace.current) {
-        lastFace.current = best;
-        onFaceRef.current(best);
-      }
-    }
     /* Hands-on the box sits truly still; revolving it bobs gently as before. */
     const bobT = manual.current || held ? 0 : Math.sin(clock.elapsedTime * 0.8) * 0.08;
     g.position.y = THREE.MathUtils.damp(g.position.y, bobT, 3, delta);
@@ -401,7 +376,7 @@ function CameraRig() {
   return null;
 }
 
-export function CuboidSpace3D({ slides, apiRef, held, onFace }: { slides: SlideT[]; apiRef?: { current: CuboidApi | null }; held?: boolean; onFace?: (i: number) => void }) {
+export function CuboidSpace3D({ slides, apiRef, held }: { slides: SlideT[]; apiRef?: { current: CuboidApi | null }; held?: boolean }) {
   /* The stage light follows the page theme, and the canvas stays transparent
      so the box revolves against the light or dark page background itself. */
   const [theme, setTheme] = useState(() => {
@@ -437,7 +412,7 @@ export function CuboidSpace3D({ slides, apiRef, held, onFace }: { slides: SlideT
         <CameraRig />
         <Sparkles count={42} scale={[15, 7, 4]} position={[0, 0, -3.5]} size={2.4} speed={0.22} opacity={0.5} color="#e8c37a" />
         <CuboidFit>
-          <Cuboid slides={slides} apiRef={apiRef} held={held} logo={logo} theme={theme} onFace={onFace} />
+          <Cuboid slides={slides} apiRef={apiRef} held={held} logo={logo} theme={theme} />
         </CuboidFit>
       </Canvas>
     </div>

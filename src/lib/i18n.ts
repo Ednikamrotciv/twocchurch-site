@@ -84,11 +84,76 @@ export function translatedText(id: string, source: string): string | null {
   return null;
 }
 
-/** Worth sending: has letters, is not an address of its own. */
+/* ------------------------------------------------------------------ keepers */
+
+/* Values that always stay as the office typed them: the church's name, its
+   addresses and its emails are identity, not prose — translating them would
+   misdirect visitors (a translated street name no map can find). Set once the
+   site's own data is known (see App); every check below runs against them. */
+let keepers: string[] = [];
+
+export function setProtectedValues(values: (string | undefined | null)[]): void {
+  keepers = [];
+  const seen = new Set<string>();
+  for (const v of values) {
+    const t = String(v || "").trim();
+    if (t.length < 3) continue;
+    const low = t.toLowerCase();
+    if (!seen.has(low)) {
+      seen.add(low);
+      keepers.push(t);
+      /* The mail domain on its own is identity too ("visit worldovercomers.org"). */
+      const at = t.indexOf("@");
+      if (at > 0 && /^[\w.+-]+@[\w-]+(\.[\w-]+)+$/.test(t)) {
+        const domain = t.slice(at + 1).toLowerCase();
+        if (!seen.has(domain)) {
+          seen.add(domain);
+          keepers.push(t.slice(at + 1));
+        }
+      }
+    }
+  }
+  /* New keepers can unseat old translations — drop any cached line holding one. */
+  if (lang !== "en") {
+    let changed = false;
+    for (const id of Object.keys(table)) {
+      const hit = table[id];
+      if (hit && isProtected(hit.s)) {
+        delete table[id];
+        changed = true;
+      }
+    }
+    if (changed) {
+      saveCache(lang);
+      bump();
+    }
+  }
+}
+
+/** True when a line carries an email address of its own. */
+function hasEmail(text: string): boolean {
+  return /[\w.+-]+@[\w-]+(\.[\w-]+)+/.test(String(text || ""));
+}
+
+/** True when a line carries one of the office's kept values (name/address/email). */
+function isProtected(text: string): boolean {
+  const t = String(text || "");
+  if (!t) return false;
+  if (hasEmail(t)) return true;
+  const low = t.toLowerCase();
+  for (const k of keepers) {
+    if (k.length >= 3 && low.includes(k.toLowerCase())) return true;
+  }
+  return false;
+}
+
+/** Worth sending: has letters, is not an address of its own, holds nothing kept. */
 function worthTranslating(text: string): boolean {
   const t = String(text || "");
   if (t.length < 2 || t.length > 1200) return false;
   if (/^(https?:|mailto:|tel:|data:|blob:|#)/i.test(t.trim())) return false;
+  /* The church's name, addresses and emails never convert — only prose does. */
+  if (isProtected(t)) return false;
   return /[A-Za-zÀ-ÿĀ-ž]/.test(t);
 }
 
@@ -112,7 +177,9 @@ function restore(translated: string, vars: string[]): string | null {
 }
 
 function cacheKey(l: string): string {
-  return `wom.i18n.v1.${l}`;
+  /* v2: keeper lines (name/address/email) are never translated — stale caches
+     that may hold converted ones are dropped outright. */
+  return `wom.i18n.v2.${l}`;
 }
 
 function loadCache(l: string): Record<string, Hit> {

@@ -1746,8 +1746,7 @@ export function exportSnapshot(): string {
   );
 }
 
-export function importSnapshot(text: string): { ok: boolean; error?: string } {
-  try {
+export function importSnapshot(text: string): { ok: boolean; error?: string } {  try {
     const parsed = JSON.parse(text);
     const content = parsed?.content && typeof parsed.content === "object" ? parsed.content : parsed;
     if (!content || typeof content !== "object") return { ok: false, error: "That file does not look like a content export." };
@@ -1763,6 +1762,58 @@ export function importSnapshot(text: string): { ok: boolean; error?: string } {
   } catch (err: any) {
     return { ok: false, error: err?.message || "Could not read that file." };
   }
+}
+
+/* -------------------------------------------------- backup file + restore */
+
+/** The latest PUBLISHED content as a downloadable backup — never draft edits.
+    Shaped by this update's own defaults, so it restores cleanly anywhere. */
+export function exportPublished(): string {
+  return JSON.stringify(
+    { site: "world-overcomers", kind: "content-backup", exportedAt: Date.now(), rev, content: merge(overrides) },
+    null,
+    2
+  );
+}
+
+/**
+ * Restore an uploaded backup into the draft — review, then Publish to put it
+ * live. Only sections this update still carries come back: anything the update
+ * cleared is left out (and named, so the office sees what stayed behind).
+ * Dropped fields inside kept sections never resurrect either — the merge keeps
+ * this update's shape and ignores stored keys it no longer knows.
+ */
+export function importBackup(text: string): { ok: boolean; error?: string; restored?: string[]; skipped?: string[] } {
+  let parsed: any;
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    return { ok: false, error: "That file could not be read." };
+  }
+  const content = parsed?.content && typeof parsed.content === "object" && !Array.isArray(parsed.content) ? parsed.content : parsed;
+  if (!content || typeof content !== "object" || Array.isArray(content)) {
+    return { ok: false, error: "That file does not look like a content backup." };
+  }
+  if (parsed?.site && parsed.site !== "world-overcomers") {
+    return { ok: false, error: "That backup belongs to a different site." };
+  }
+  const known = new Set(SECTION_DEFS.map((d) => d.id));
+  const kept: Snapshot = {};
+  const skipped: string[] = [];
+  for (const key of Object.keys(content)) {
+    if (known.has(key)) kept[key] = content[key];
+    else skipped.push(key);
+  }
+  const restored = SECTION_DEFS.filter((d) => kept[d.id] !== undefined).map((d) => d.id);
+  if (!restored.length) return { ok: false, error: "No recognised sections in that file." };
+  draft = normalizeDraft({ ...clone(defaults), ...kept });
+  draftFromRev = rev;
+  dirty = {};
+  editUndos = [];
+  for (const id of restored) dirty[id] = true;
+  persistDraft();
+  notify();
+  return { ok: true, restored, skipped };
 }
 
 /* ----------------------------------------------------------------- publish */

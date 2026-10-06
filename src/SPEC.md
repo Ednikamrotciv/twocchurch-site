@@ -6644,3 +6644,27 @@ The desktop arrow is the swipe equivalent, so it stays. Flat fallback: the `mult
 ## 211. Arrows breathe toward their direction (the office asked)
 
 Each arrow's icon nudges toward its own side (prev left, next right, 1.6s alternate) via CSS keyframes on the inner svg — the button's centring transform and tap spring are untouched. Pauses on hover/focus so it steadies under aim; off under prefers-reduced-motion. Verified: repacked.
+
+## 212. Four-sided stage, dots removed, phones get the verse graphic (the office asked)
+
+Three parts. (1) The stage is four sides only — the ring is front-right-back-left quarter-turns of level yaw, so the top/bottom are never rested on and words can never tip; past four slides the faces carry the first four, caps carry the plain logo, and the idle revolve is unchanged yaw. (2) The face dots are gone everywhere (JSX, onFace/goTo plumbing and CSS removed) — the always-visible animated arrows are the swipe equivalent. (3) Phones show the office's verse graphic (new src/assets/img/hero-mobile.jpg, console-swappable under Main photos as Home banner (phones)) instead of the desktop banner; its baked-in words melt into a soft wash (blur + dim) while the page renders clean Stream-details and verse text with clear air between them (8rem hero foot, 1.8rem meta gap, verse wraps to three lines instead of hiding). Verified: no dots/goTo/onFace references left in code, repacked.
+
+## 213. Name, addresses and emails never translate (the office asked)
+
+All prose still converts to the visitor's IP language, but identity stays: new keeper registry in lib/i18n (setProtectedValues) holding the church name/short-name, every address (headquarters + all branches) and every email (+ bare mail domains); any copy line carrying one — or any email-shaped token — is never sent, and lone-word tx() honors it too. App refreshes the list on every language/content pass; keeper lines already in old caches are unseated live, and the cache version moved v1→v2 so stale converted names/addresses are dropped outright. Verified: read-back of the keeper block and call site, repacked.
+
+## 214. Visit wizard pills renamed (the office asked)
+
+Plan-a-Visit step pills were "Your branch, Your service, Your party, Almost there" — now "Your branch, Your direction, Your service, Your worship" in that order (autocopy defaults + editor labels; wizard flow and indexes unchanged). Verified: repacked.
+
+## 215. Previous visit wording removed totally (the office asked)
+
+The last "Your party" (visit-pass summary row) is now "Your worship", and the plan summary's hardcoded "Party:" line reads "Worship:" — no previous pill wording ("Your party", "Almost there", "Party:") remains anywhere in code; only this history note quotes it. Verified by search, repacked.
+
+## 216. Backup + Restore under Sign out (the office asked)
+
+Tools now has Download a backup and Restore from a backup cards below Sign out. Backup downloads the latest PUBLISHED content only (new cms.exportPublished — draft edits never leak in) as a dated world-overcomers-backup JSON. Restore uploads a backup file and loads it as a draft for review-then-Publish; visible-only rule enforced two ways: unknown top-level sections are stripped and named in the success message, and the existing merge already drops stored fields/lines this update no longer carries (object keys, fixed copy lists) so cleared things stay cleared. Legacy exportSnapshot/importSnapshot untouched. Verified: new engine + UI call sites present, existing icons only, repacked.
+
+## 217. Backup/Restore card wording trimmed (the office asked)
+
+Removed the two sentences from the Tools cards ("After an update changes the site…" and "Anything the update cleared away…"). Behavior unchanged — restore still only brings back what this update carries.

@@ -443,13 +443,9 @@ export function AnnouncementSlides({ slides = SLIDES }: { slides?: AnnouncementS
   const push3d = (dir: 1 | -1) => {
     cuboidApi.current?.push(dir);
   };
-  const goTo3d = (i: number) => {
-    cuboidApi.current?.goTo(i);
-  };
   const snap3d = () => {
     cuboidApi.current?.snap();
   };
-  const [face, setFace] = useState(0);
 
   /* One shape for every announcement: the slide frame (src/lib/slideFrame.ts).
      Every picture is cut to it — uploaded, pasted or already published — so the
@@ -564,7 +560,7 @@ export function AnnouncementSlides({ slides = SLIDES }: { slides?: AnnouncementS
             >
               <StageErrorBoundary fallback={<img className="aslide__photo" src={standIn} alt="" />}>
                 <React.Suspense fallback={null}>
-                  <CuboidSpace3D slides={[]} apiRef={cuboidApi} held={held} onFace={setFace} />
+                  <CuboidSpace3D slides={[]} apiRef={cuboidApi} held={held} />
                 </React.Suspense>
               </StageErrorBoundary>
               {/* Desktop arrows never hide — they are the swipe equivalent. */}
@@ -586,17 +582,6 @@ export function AnnouncementSlides({ slides = SLIDES }: { slides?: AnnouncementS
               >
                 <Icon name="chevronRight" size={18} />
               </motion.button>
-              <div className="aslides__dots" role="group" aria-label="Slide faces">
-                {[0, 1, 2, 3, 4, 5].map((i) => (
-                  <button
-                    key={i}
-                    type="button"
-                    className={"aslides__dot" + (face === i ? " is-on" : "")}
-                    onClick={() => goTo3d(i)}
-                    aria-label={`Show face ${i + 1} of 6`}
-                  />
-                ))}
-              </div>
             </div>
           </motion.div>
         </div>
@@ -689,10 +674,10 @@ export function AnnouncementSlides({ slides = SLIDES }: { slides?: AnnouncementS
           >
             <StageErrorBoundary fallback={<img className="aslide__photo" src={standIn} alt="" />}>
               <React.Suspense fallback={null}>
-                <CuboidSpace3D slides={live} apiRef={cuboidApi} held={held} onFace={setFace} />
+                <CuboidSpace3D slides={live} apiRef={cuboidApi} held={held} />
               </React.Suspense>
             </StageErrorBoundary>
-            {/* The zones and dots are always present on the 3D stage — desktops
+            {/* The arrows are always present on the 3D stage — desktops
                 without touch need them for every turn. */}
             <motion.button
               type="button"
@@ -712,17 +697,6 @@ export function AnnouncementSlides({ slides = SLIDES }: { slides?: AnnouncementS
             >
               <Icon name="chevronRight" size={18} />
             </motion.button>
-            <div className="aslides__dots" role="group" aria-label="Slide faces">
-              {[0, 1, 2, 3, 4, 5].map((i) => (
-                <button
-                  key={i}
-                  type="button"
-                  className={"aslides__dot" + (face === i ? " is-on" : "")}
-                  onClick={() => goTo3d(i)}
-                  aria-label={`Show face ${i + 1} of 6`}
-                />
-              ))}
-            </div>
           </div>
         </motion.div>
       </div>

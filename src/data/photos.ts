@@ -20,6 +20,12 @@ export const PHOTO_SLOTS: PhotoSlot[] = [
     group: "Main photos",
   },
   {
+    key: "hero-mobile",
+    label: "Home banner (phones)",
+    where: "The home page photo on phones only — the office's verse graphic. Change it here without touching the desktop banner.",
+    group: "Main photos",
+  },
+  {
     key: "hero-faint",
     label: "Home page background",
     where: "Laid over the home banner as a faint texture, behind the home page headline only.",
