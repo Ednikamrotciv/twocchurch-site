@@ -6684,3 +6684,7 @@ Choosing the IP language in the popup now moves the times too, not just the word
 ## 221. Library stat cards trimmed (the office asked)
 
 The three trailing stat cards are gone — reading-plan days, answered prayers logged, and giving recorded. The row now reads saved / watched / notes only. The underlying data is untouched: the activity tab still lists prayer requests, the reading plan and the giving log exactly as before. Verified: hooks and imports all still used below the fold, repacked.
+
+## 222. Stray brace in App.tsx broke `npm run dev` (the office asked)
+
+`npm run dev` failed at esbuild's dependency scan: `Unexpected "}" src/App.tsx:131` — a leftover extra closing brace after the LangAsk language-popup component (it predates recent edits; the scan stops at the first error so nothing else could even load). Removed the one brace; all 65 source files re-parsed clean with a TSX parser. Repacked.

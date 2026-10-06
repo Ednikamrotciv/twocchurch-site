@@ -128,7 +128,6 @@ function LangAsk() {
     </div>
   );
 }
-}
 
 function SiteApp() {
   const { path } = useRoute();
