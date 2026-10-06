@@ -1,4 +1,5 @@
 import React, { useMemo, useState } from "react";
+import { tx } from "../lib/i18n";
 import { Link } from "../lib/router";
 import { PRAYER_CATEGORIES, PRAYER_FOCUS, SCRIPTURES } from "../data/content";
 import { ct } from "../data/copy";
@@ -81,7 +82,7 @@ export function Prayer() {
                       {ct("auto.prayer.d87c424c1b5a1925")}</Chip>
                     {PRAYER_CATEGORIES.slice(0, 6).map((c) => (
                       <Chip key={c.id} active={wallCat === c.id} onClick={() => setWallCat(c.id)} count={wall.all.filter((w) => w.category === c.id).length}>
-                        {c.label}
+                        {tx(c.label)}
                       </Chip>
                     ))}
                   </div>
@@ -100,7 +101,7 @@ export function Prayer() {
                           </span>
                           {w.mine && <Badge accent="gold">{ct("auto.prayer.8df3c3f1d86ab270")}</Badge>}
                         </div>
-                        <p>{w.text}</p>
+                        <p>{tx(w.text)}</p>
                         <div className="wall-item__foot">
                           <button type="button" className={"pray-btn" + (wall.iPrayed(w.id) ? " pray-btn--on" : "")} onClick={() => wall.pray(w.id)} aria-pressed={wall.iPrayed(w.id)}>
                             <Icon name="prayer" size={16} /> {wall.iPrayed(w.id) ? ct("auto.prayer.187119665f3ed0bf") : ct("auto.prayer.5ffc34a841739af9")} <b>{w.prayed}</b>
@@ -166,8 +167,8 @@ export function Prayer() {
             <Card className="focus-card">
               <span className="focus-card__icon"><Icon name="fire" size={22} /></span>
               <h3>{ct("prayer.side.focus.title")}</h3>
-              <p>{focus}</p>
-              <button type="button" className="link-btn" onClick={() => copyText(focus, ct("auto.prayer.da840f163a2d9c9f"))}>
+              <p>{tx(focus)}</p>
+              <button type="button" className="link-btn" onClick={() => copyText(tx(focus), ct("auto.prayer.da840f163a2d9c9f"))}>
                 <Icon name="copy" size={14} /> {ct("auto.prayer.9a999c537eb72e32")}</button>
             </Card>
 
@@ -192,9 +193,9 @@ export function Prayer() {
                     const c = clockHere(s.time, s.day, branchZone(BRANCHES[0]));
                     return (
                       <li key={i}>
-                        <b>{DAY_NAMES[c.day]}</b>
+                        <b>{tx(DAY_NAMES[c.day])}</b>
                         <span>{to12h(c.time)}</span>
-                        <em>{s.name}</em>
+                        <em>{tx(s.name)}</em>
                       </li>
                     );
                   })}
@@ -352,7 +353,7 @@ function PrayerForm({ onSubmit, onPosted }: { onSubmit: (r: any) => void; onPost
           <Input value={form.phone} onChange={(e) => set({ phone: e.target.value })} placeholder="+1 214 555 0147" />
         </Field>
         <Field label={ct("auto.prayer.6a5824ad4e0b795c")}>
-          <Select value={form.category} onChange={(e) => set({ category: e.target.value })} options={PRAYER_CATEGORIES.map((c) => ({ value: c.id, label: c.label }))} />
+          <Select value={form.category} onChange={(e) => set({ category: e.target.value })} options={PRAYER_CATEGORIES.map((c) => ({ value: c.id, label: tx(c.label) }))} />
         </Field>
         <div className="form-grid__full">
           <Field label={ct("auto.prayer.24a5f711eb94f968")}>
@@ -396,7 +397,7 @@ function PostToWall({ onPost }: { onPost: (w: any) => void }) {
       <Textarea rows={3} value={text} onChange={(e) => setText(e.target.value)} placeholder={ct("auto.prayer.01cbe729c2ae9878")} />
       <div className="wall-post__row">
         <Input value={anon ? "" : name} disabled={anon} onChange={(e) => setName(e.target.value)} placeholder={ct("auto.prayer.5e773ef9267bcb50")} />
-        <Select value={category} onChange={(e) => setCategory(e.target.value)} options={PRAYER_CATEGORIES.map((c) => ({ value: c.id, label: c.label }))} />
+        <Select value={category} onChange={(e) => setCategory(e.target.value)} options={PRAYER_CATEGORIES.map((c) => ({ value: c.id, label: tx(c.label) }))} />
         <Btn
           icon="send"
           onClick={() => {

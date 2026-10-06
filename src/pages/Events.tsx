@@ -1,4 +1,5 @@
 import React, { useMemo, useState } from "react";
+import { tx, currentLang } from "../lib/i18n";
 import { EVENTS, EVENT_FILTERS, type ChurchEvent } from "../data/content";
 import { BRANCHES, branchFlag } from "../data/branches";
 import { SITE, img } from "../data/site";
@@ -27,7 +28,7 @@ export function Events() {
       map.set(key, [...(map.get(key) || []), e]);
     });
     return [...map.entries()];
-  }, [filtered]);
+  }, [filtered, currentLang()]);
 
   return (
     <>
@@ -60,8 +61,8 @@ export function Events() {
             </div>
             <div className="event-feature__body">
               <p className="eyebrow">{tidyCount(ct("events.featured.eyebrow", { days: daysUntil(featured) }))}</p>
-              <h2>{featured.title}</h2>
-              <p className="lede">{featured.description}</p>
+              <h2>{tx(featured.title)}</h2>
+              <p className="lede">{tx(featured.description)}</p>
               <ul className="event-feature__facts">
                 <li><Icon name="calendar" size={16} /><span>{fmtDate(eventDate(featured), "long")}</span></li>
                 <li><Icon name="clock" size={16} /><span>{to12h(clockAt(eventDate(featured)).time)} · {tidyCount(`${Math.round(featured.durationMin / 60)} ${ct("auto.events.7c883d7420442e2d")}`)}</span></li>
@@ -91,7 +92,7 @@ export function Events() {
           <div className="chips">
             {EVENT_FILTERS.map((c) => (
               <Chip key={c.id} active={cat === c.id} onClick={() => setCat(c.id)} count={c.id === "all" ? EVENTS.length : EVENTS.filter((e) => e.category === c.id).length}>
-                {c.label}
+                {tx(c.label)}
               </Chip>
             ))}
           </div>
@@ -150,14 +151,14 @@ export function Events() {
                     <div className="event-row" key={e.id}>
                       <span className="event-row__date">
                         <b>{day.day}</b>
-                        <em>{DAY_SHORT[day.weekday]}</em>
+                        <em>{tx(DAY_SHORT[day.weekday])}</em>
                       </span>
                       <span className="event-row__body">
-                        <b>{e.title}</b>
+                        <b>{tx(e.title)}</b>
                         <em>
                           {to12h(at.time)} · {e.location} {branch ? `· ${branchFlag(branch)}` : ""}
                         </em>
-                        <span className="event-row__desc">{e.description}</span>
+                        <span className="event-row__desc">{tx(e.description)}</span>
                       </span>
                       <span className="event-row__actions">
                         <Badge accent="gold">{daysUntil(e) === 0 ? ct("auto.events.2ecd29a0fde93091") : tidyCount(ct("auto.events.61f7113b9dc4143a", { "v0": daysUntil(e) }))}</Badge>

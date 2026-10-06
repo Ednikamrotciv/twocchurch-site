@@ -1,4 +1,5 @@
 import React, { useState } from "react";
+import { tx } from "../lib/i18n";
 import { GIVING_FUNDS, GIVING_BREAKDOWN, BANK_ACCOUNTS, SITE, FAQS, img } from "../data/site";
 import { GIVING_FAQS, GIVING_METHODS } from "../data/content";
 import { ct } from "../data/copy";
@@ -72,9 +73,9 @@ export function Giving() {
                 <div className="fund-grid">
                   {GIVING_FUNDS.map((f) => (
                     <button key={f.id} type="button" className={"fund-btn" + (fund === f.id ? " fund-btn--active" : "")} onClick={() => setFund(f.id)}>
-                      <b>{f.name}</b>
-                      <em>{f.desc}</em>
-                      <span className="fund-btn__verse">{f.verse}</span>
+                      <b>{tx(f.name)}</b>
+                      <em>{tx(f.desc)}</em>
+                      <span className="fund-btn__verse">{tx(f.verse)}</span>
                     </button>
                   ))}
                 </div>
@@ -85,8 +86,8 @@ export function Giving() {
                     <button key={m.id} type="button" className={"method-btn" + (method === m.id ? " method-btn--active" : "")} onClick={() => setMethod(m.id)}>
                       <Icon name={m.id === "transfer" ? "home" : "people"} size={18} />
                       <span>
-                        <b>{m.label}</b>
-                        <em>{m.note}</em>
+                        <b>{tx(m.label)}</b>
+                        <em>{tx(m.note)}</em>
                       </span>
                     </button>
                   ))}
@@ -107,7 +108,7 @@ export function Giving() {
                     {GIVING_BREAKDOWN.map((a) => (
                       <li key={a.label}>
                         <span className="alloc-list__head">
-                          <b>{a.label}</b>
+                          <b>{tx(a.label)}</b>
                           <em>{a.pct}%</em>
                         </span>
                         <Progress value={a.pct} />
@@ -118,9 +119,9 @@ export function Giving() {
                 <div className="grid grid-2">
                   {GIVING_FUNDS.map((f) => (
                     <Card key={f.id} className="fund-detail">
-                      <Badge accent="gold">{f.verse}</Badge>
-                      <h3>{f.name}</h3>
-                      <p>{f.desc}</p>
+                      <Badge accent="gold">{tx(f.verse)}</Badge>
+                      <h3>{tx(f.name)}</h3>
+                      <p>{tx(f.desc)}</p>
                       <Btn size="sm" variant="quiet" icon="gift" onClick={() => { setFund(f.id); setTab("give"); }}>
                         {ct("auto.giving.52dbf311bdd548c0")}</Btn>
                     </Card>
@@ -222,7 +223,7 @@ export function Giving() {
             <Accordion
               numbered
               defaultOpen={0}
-              items={GIVING_FAQS.map((f) => ({ q: f.q, a: f.a }))}
+              items={GIVING_FAQS.map((f) => ({ q: tx(f.q), a: tx(f.a) }))}
             />
           </div>
         </div>

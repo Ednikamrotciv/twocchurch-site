@@ -3,6 +3,7 @@
    slides at all the stage is all logo. Flat swiper fallback in ./slides.tsx. */
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import { tx, currentLang, useI18nTick, i18nTickN } from "../lib/i18n";
 import * as THREE from "three";
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import { Sparkles } from "@react-three/drei/core/Sparkles";
@@ -104,9 +105,10 @@ function drawFace(slot: FaceSlot, photo: HTMLImageElement | null, W: number, H: 
   const ctx = cv.getContext("2d");
   if (!ctx) return cv;
   const slide = slot.slide;
-  const headline = String(slide?.headline || "").trim();
-  const line = String(slide?.line || "").trim();
-  const cta = String(slide?.cta || "").trim();
+  /* Painted in the visitor's own language, like the flat stage's words. */
+  const headline = tx(String(slide?.headline || "").trim());
+  const line = tx(String(slide?.line || "").trim());
+  const cta = tx(String(slide?.cta || "").trim());
   const link = String(slide?.link || "").trim();
   const wordless = !headline && !line && !(cta && link);
   const logoOnly = !photo || slot.url === logoUrl;
@@ -191,7 +193,10 @@ function drawFace(slot: FaceSlot, photo: HTMLImageElement | null, W: number, H: 
  */
 function useFaceTextures(slots: FaceSlot[], logoUrl: string): (THREE.Texture | null)[] {
   const [textures, setTextures] = useState<(THREE.Texture | null)[]>(() => slots.map(() => null));
-  const key = slots.map((s) => [s.url, s.aspect, s.slide?.headline || "", s.slide?.line || "", s.slide?.cta || "", s.slide?.link || ""].join("|")).join("~");
+  /* The visitor's language is part of the key: choosing one repaints every
+     face with translated words (the table fills progressively underneath). */
+  useI18nTick();
+  const key = currentLang() + "#" + i18nTickN() + "|" + slots.map((s) => [s.url, s.aspect, s.slide?.headline || "", s.slide?.line || "", s.slide?.cta || "", s.slide?.link || ""].join("|")).join("~");
   useEffect(() => {
     let alive = true;
     const made: THREE.Texture[] = [];
@@ -367,9 +372,9 @@ function CameraRig() {
   useFrame(({ clock, camera, pointer }, rawDelta) => {
     const delta = Math.min(rawDelta, 0.05);
     const t = clock.elapsedTime;
-    const tx = pointer.x * 0.7 + Math.sin(t * 0.3) * 0.15;
+    const px = pointer.x * 0.7 + Math.sin(t * 0.3) * 0.15;
     const ty = 0.5 + pointer.y * 0.35 + Math.cos(t * 0.23) * 0.08;
-    camera.position.x = THREE.MathUtils.damp(camera.position.x, tx, 2.2, delta);
+    camera.position.x = THREE.MathUtils.damp(camera.position.x, px, 2.2, delta);
     camera.position.y = THREE.MathUtils.damp(camera.position.y, ty, 2.2, delta);
     camera.lookAt(0, 0, 0);
   });

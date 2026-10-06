@@ -1,7 +1,8 @@
 import React, { useEffect, useMemo, useState } from "react";
+import { tx } from "../lib/i18n";
 import { Link, navigate, useRoute } from "../lib/router";
 import { useHotkey, useMediaQuery, useScrollProgress, useTheme, useNow, useClickOutside, useBodyLock } from "../lib/hooks";
-import { nextService, onAir, countdownParts, to12h, DAY_SHORT, fmtDate, zoneYear, clockAt, churchTimezone } from "../lib/store";
+import { nextService, onAir, countdownParts, to12h, DAY_SHORT, fmtDate, zoneYear, clockAt, churchTimezone, visitorPlace } from "../lib/store";
 import { SITE, SERVICES, NAV, FOOTER_LINKS, LOGO_MARK } from "../data/site";
 import { siteFile } from "../lib/livefeed";
 import { BRANCHES, HQ } from "../data/branches";
@@ -58,12 +59,12 @@ function ServicePill() {
           {/* Which gathering is on is the clock's to say. When the office's
               switch is the one that put us on air, there is no slot to name —
               the badge alone is the honest answer. */}
-          {info.isLive && <span>{info.slot.name}</span>}
+          {info.isLive && <span>{tx(info.slot.name)}</span>}
         </>
       ) : (
         <>
           <Icon name="clock" size={14} />
-          <span>{HQ.city.split(",")[0]} · {info.slot.name} {ct("auto.site.5df3daaf05ddb736")}{" "}</span>
+          <span>{(visitorPlace() || HQ.city).split(",")[0]} · {tx(info.slot.name)} {ct("auto.site.5df3daaf05ddb736")}{" "}</span>
           <b>{countdownParts(info.msUntil).days > 0 ? `${countdownParts(info.msUntil).days}d ` : ""}{countdownParts(info.msUntil).hours}{ct("auto.site.78a4b60026fcee61")}{countdownParts(info.msUntil).minutes}{ct("auto.site.ac1b197f609e9dbe")}</b>
         </>
       )}
@@ -352,7 +353,7 @@ export function Footer() {
           <div className="footer__brand">
             <img src={siteFile(LOGO_MARK)} alt={SITE.name} className="footer__logo" />
             <h3>{SITE.name}</h3>
-            <p className="muted">{SITE.tagline}</p>
+            <p className="muted">{tx(SITE.tagline)}</p>
           </div>
           {FOOTER_LINKS.map((col) => (
             <nav className="footer__col" key={col.title} aria-label={ct(col.title)}>

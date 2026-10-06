@@ -1,4 +1,5 @@
 import React, { useState } from "react";
+import { tx } from "../lib/i18n";
 import { Link } from "../lib/router";
 import { SITE, DEPARTMENTS, FAQS, img } from "../data/site";
 import { BRANCHES, DEFAULT_BRANCH_ID, HQ, branchZone } from "../data/branches";
@@ -169,7 +170,7 @@ export function Contact() {
                       <div className="chips">
                         {CONTACT_TOPICS.map((t) => (
                           <button key={t.id} type="button" className={"chip" + (topic === t.id ? " chip--active" : "")} onClick={() => setTopic(t.id)}>
-                            {t.label}
+                            {tx(t.label)}
                           </button>
                         ))}
                       </div>
@@ -260,7 +261,7 @@ export function Contact() {
       <Section tone="raised">
         <SectionHeading center eyebrow={ct("contact.faq.eyebrow")} title={ct("contact.faq.title")} />
         <div className="narrow">
-          <Accordion items={FAQS.map((f) => ({ q: f.q, a: f.a }))} />
+          <Accordion items={FAQS.map((f) => ({ q: tx(f.q), a: tx(f.a) }))} />
         </div>
         <div className="center mt-3">
           <Btn to="/visit" variant="ghost" icon="ticket">

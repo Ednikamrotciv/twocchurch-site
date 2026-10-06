@@ -172,7 +172,7 @@ export function AnnouncementBanner() {
           >
             <Icon name={a.level === "important" ? "alert" : a.level === "celebration" ? "sparkle" : "bell"} size={17} />
             <div className="notice-strip__body">
-              <b>{a.title}</b>
+              <b>{tx(a.title)}</b>
               <AnimatePresence initial={false}>
                 {open && (
                   <motion.div
@@ -182,10 +182,10 @@ export function AnnouncementBanner() {
                     exit={calm ? { opacity: 0 } : { height: 0, opacity: 0 }}
                     transition={{ duration: 0.35, ease: [0.22, 0.7, 0.3, 1] }}
                   >
-                    {a.body && <span>{a.body}</span>}
+                    {a.body && <span>{tx(a.body)}</span>}
                     {a.link && (
                       <Link to={a.link} className="notice-strip__link" onClick={(e) => e.stopPropagation()}>
-                        {a.linkLabel || ct("auto.site.6e73bbe0078b8869")} <Icon name="arrowRight" size={13} />
+                        {tx(a.linkLabel) || ct("auto.site.6e73bbe0078b8869")} <Icon name="arrowRight" size={13} />
                       </Link>
                     )}
                   </motion.div>
@@ -472,8 +472,9 @@ export function WatchCards() {
 
 /** One card in "Recent services", playing right here on the card. */
 export function RecentServiceCard({ item }: { item: RecentService }) {
-  /* The feed's exact date when it reached this far, else YouTube's own words. */
-  const when = item.at ? fmtDate(new Date(item.at), "long") : item.ago;
+  /* The feed's exact date when it reached this far, else YouTube's own words
+     (translated with the visitor's language like everything else). */
+  const when = item.at ? fmtDate(new Date(item.at), "long") : tx(item.ago);
   return (
     <Card className="recent-card" pad={false}>
       <VideoPlayer
@@ -537,12 +538,12 @@ export function SermonCard({ sermon, layout = "grid" }: { sermon: Sermon; layout
           <span className="sermon-card__date">{fmtDate(date, "short")}</span>
         </div>
         <h3 className="sermon-card__title">
-          <Link to={`/sermons/${sermon.id}`}>{sermon.title}</Link>
+          <Link to={`/sermons/${sermon.id}`}>{tx(sermon.title)}</Link>
         </h3>
         <p className="sermon-card__sub">
           {sermon.speaker}
         </p>
-        {layout !== "row" && <p className="sermon-card__summary">{sermon.summary}</p>}
+        {layout !== "row" && <p className="sermon-card__summary">{tx(sermon.summary)}</p>}
         <div className="sermon-card__foot">
           <Btn to={`/sermons/${sermon.id}`} size="sm" variant="ghost" icon="play">
             {ct("auto.site.ba151917648414f6")}</Btn>
@@ -603,11 +604,11 @@ export function BranchMapPopup({ branch, onClose }: { branch: Branch; onClose: (
             <Icon name="clock" size={15} />
             <span>
               {next
-                ? `${DAY_NAMES[next.day]} ${to12h(next.time)} · ${info!.slot.name}`
+                ? `${tx(DAY_NAMES[next.day])} ${to12h(next.time)} · ${tx(info!.slot.name)}`
                 : branch.schedule
                     .map((s) => {
                       const c = clockHere(s.time, s.day, zone);
-                      return `${DAY_NAMES[c.day].slice(0, 3)} ${to12h(c.time)}`;
+                      return `${tx(DAY_NAMES[c.day]).slice(0, 3)} ${to12h(c.time)}`;
                     })
                     .join(" · ")}
             </span>
@@ -678,11 +679,11 @@ export function SubBranchesPopup({
                       <Icon name="clock" size={14} />
                       <span>
                         {next
-                          ? `${DAY_NAMES[next.day]} ${to12h(next.time)} · ${info!.slot.name}`
+                          ? `${tx(DAY_NAMES[next.day])} ${to12h(next.time)} · ${tx(info!.slot.name)}`
                           : s.schedule
                               .map((slot) => {
                                 const c = clockHere(slot.time, slot.day, zone);
-                                return `${DAY_NAMES[c.day].slice(0, 3)} ${to12h(c.time)}`;
+                                return `${tx(DAY_NAMES[c.day]).slice(0, 3)} ${to12h(c.time)}`;
                               })
                               .join(" · ")}
                       </span>
@@ -743,7 +744,7 @@ export function BranchCard({
         <ul className="branch-card__facts">
           <li>
             <Icon name="user" size={14} />
-            <span>{branch.pastor}<em>{branch.pastorRole}</em></span>
+            <span>{branch.pastor}<em>{tx(branch.pastorRole)}</em></span>
           </li>
           <li>
             <Icon name="pin" size={14} />
@@ -755,7 +756,7 @@ export function BranchCard({
             const c = clockHere(s.time, s.day, zone);
             return (
               <span key={i} className="time-row">
-                <b>{DAY_NAMES[c.day].slice(0, 3)}</b> {to12h(c.time)} <em>{s.name}</em>
+                <b>{tx(DAY_NAMES[c.day]).slice(0, 3)}</b> {to12h(c.time)} <em>{tx(s.name)}</em>
               </span>
             );
           })}
@@ -813,14 +814,14 @@ export function EventCard({ event, layout = "grid" }: { event: ChurchEvent; layo
           <b>{day.day}</b>
           <em>{MONTH_SHORT[day.month - 1].toUpperCase()}</em>
         </span>
-        <span className="event-card__cat">{event.category}</span>
+        <span className="event-card__cat">{tx(event.category)}</span>
       </div>
       <div className="event-card__body">
         <span className="event-card__when">
           <Icon name="clock" size={14} /> {to12h(when.time)} · {days === 0 ? ct("auto.site.5416b8171f3bb8fe") : days === 1 ? ct("auto.site.35381cc514496da4") : ct("auto.site.5b3575374d6ff54e", { "days": days })}
         </span>
-        <h3>{event.title}</h3>
-        <p className="muted">{event.description}</p>
+        <h3>{tx(event.title)}</h3>
+        <p className="muted">{tx(event.description)}</p>
         <ul className="event-card__facts">
           <li><Icon name="pin" size={14} /> {event.location}</li>
           {branch && <li><Icon name="map" size={14} /> {branch.city}, {branch.country}</li>}
@@ -854,8 +855,8 @@ export function TestimonyCard({ testimony, onOpen, onAmen }: { testimony: Testim
     <Card hover className="testimony-card">
       <span className="testimony-card__quote"><Icon name="quote" size={22} /></span>
       <Badge accent={catAccent(cat)}>{categoryLabel(cat)}</Badge>
-      <h3>{testimony.title}</h3>
-      <p className="testimony-card__body">{testimony.body.length > 210 && !onOpen ? testimony.body.slice(0, 205) + "…" : testimony.body}</p>
+      <h3>{tx(testimony.title)}</h3>
+      <p className="testimony-card__body">{tx(testimony.body.length > 210 && !onOpen ? testimony.body.slice(0, 205) + "…" : testimony.body)}</p>
       <div className="testimony-card__foot">
         <div className="testimony-card__who">
           {testimony.photo ? <img src={testimony.photo} alt="" className="testimony-card__photo" /> : <Monogram name={testimony.name} letters={testimony.monogram} size={38} />}
@@ -907,13 +908,13 @@ export function MinistryCard({ ministry, onJoin }: { ministry: { id: string; nam
     <Card hover pad={false} className="ministry-card">
       <div className="ministry-card__media">
         <img src={photoOr(ministry.image, "youth")} alt="" loading="lazy" />
-        <span className="ministry-card__for">{ministry.for}</span>
+        <span className="ministry-card__for">{tx(ministry.for)}</span>
       </div>
       <div className="ministry-card__body">
-        <h3>{ministry.name}</h3>
-        <p className="muted">{ministry.description}</p>
+        <h3>{tx(ministry.name)}</h3>
+        <p className="muted">{tx(ministry.description)}</p>
         <ul className="ministry-card__facts">
-          <li><Icon name="clock" size={14} /> {ministry.meets}</li>
+          <li><Icon name="clock" size={14} /> {tx(ministry.meets)}</li>
           <li><Icon name="user" size={14} /> {ministry.leader}</li>
         </ul>
         <Btn size="sm" variant="ghost" icon="send" onClick={onJoin}>
@@ -932,9 +933,9 @@ export function PersonCard({ person }: { person: Person }) {
       </div>
       <div className="person-card__body">
         <h3>{person.name}</h3>
-        <p className="person-card__role">{person.role}</p>
-        <p className="person-card__bio">{open ? person.bio : person.bio.slice(0, 96) + (person.bio.length > 96 ? "…" : "")}</p>
-        {person.verse && open && <blockquote className="person-card__verse">{person.verse}</blockquote>}
+        <p className="person-card__role">{tx(person.role)}</p>
+        <p className="person-card__bio">{tx(open ? person.bio : person.bio.slice(0, 96) + (person.bio.length > 96 ? "…" : ""))}</p>
+        {person.verse && open && <blockquote className="person-card__verse">{tx(person.verse)}</blockquote>}
         <button type="button" className="link-btn" onClick={() => setOpen((v) => !v)}>
           {open ? ct("auto.site.c6dd472a2e89a04b") : ct("auto.site.edd3c68a0387a69b")} <Icon name={open ? "chevronDown" : "arrowRight"} size={14} />
         </button>
@@ -948,16 +949,17 @@ export function PersonCard({ person }: { person: Person }) {
 export function VerseOfDay({ compact }: { compact?: boolean }) {
   const verse = pickForDay(SCRIPTURES, "votd");
   const [revealed, setRevealed] = useState(!compact);
+  const vtext = tx(verse.text);
   return (
     <div className={"verse-card" + (compact ? " verse-card--compact" : "")}>
       <span className="verse-card__glow" aria-hidden="true" />
       <Eyebrow>{ct("auto.site.2bebce4ffef0d96e")}</Eyebrow>
-      <blockquote className="verse-card__text">“{verse.text}”</blockquote>
+      <blockquote className="verse-card__text">“{vtext}”</blockquote>
       <cite className="verse-card__ref">{verse.ref}</cite>
       <div className="verse-card__actions">
-        <button type="button" className="share-btn" onClick={() => copyText(`"${verse.text}" — ${verse.ref}`, ct("auto.site.7b7f38e9bc760510"))}>
+        <button type="button" className="share-btn" onClick={() => copyText(`"${vtext}" — ${verse.ref}`, ct("auto.site.7b7f38e9bc760510"))}>
           <Icon name="copy" size={15} /> {ct("auto.site.ae507baef9c5bfbf")}</button>
-        <a className="share-btn" href={whatsappLink(`"${verse.text}" — ${verse.ref}`)} target="_blank" rel="noopener noreferrer">
+        <a className="share-btn" href={whatsappLink(`"${vtext}" — ${verse.ref}`)} target="_blank" rel="noopener noreferrer">
           <Icon name="whatsapp" size={15} /> {ct("auto.site.1f815e5e7fd8b267")}</a>
         <Link className="share-btn" to="/devotional">
           <Icon name="book" size={15} /> {ct("auto.site.623e42b3e55ab622")}</Link>
@@ -1052,7 +1054,7 @@ export function BranchPanel({
         <p className="muted">{branch.name}</p>
         <ul className="branch-panel__facts">
           <li><Icon name="pin" size={15} /> {branch.address}</li>
-          <li><Icon name="clock" size={15} /> {branch.schedule.map((s) => { const c = clockHere(s.time, s.day, zone); return `${DAY_NAMES[c.day].slice(0, 3)} ${to12h(c.time)}`; }).join(" · ")}</li>
+          <li><Icon name="clock" size={15} /> {branch.schedule.map((s) => { const c = clockHere(s.time, s.day, zone); return `${tx(DAY_NAMES[c.day]).slice(0, 3)} ${to12h(c.time)}`; }).join(" · ")}</li>
           <li><Icon name="phone" size={15} /> <a href={`tel:${branch.phone.replace(/[^\d+]/g, "")}`}>{branch.phone}</a></li>
           <li><Icon name="mail" size={15} /> <a href={`mailto:${branch.email}`}>{branch.email}</a></li>
           <li><Icon name="globe" size={15} /> {branch.languages.join(", ")}</li>
@@ -1142,7 +1144,7 @@ export function NextServiceCard() {
   return (
     <div className={"next-service" + (live ? " next-service--live" : "")}>
       <Eyebrow>{live ? ct("auto.site.06bfee249b41bda5") : ct("auto.site.19d68ad8b3328ba1")}</Eyebrow>
-      <h3>{info.slot.name}</h3>
+      <h3>{tx(info.slot.name)}</h3>
       <p className="muted">
         {tx(DAY_NAMES[when.day])}{ct("auto.site.ecb64ceed77c7057")}{to12h(when.time)} · {city}
       </p>
@@ -1247,9 +1249,9 @@ export function ServiceTimesList({ branch, compact }: { branch: Branch; compact?
         const c = clockHere(s.time, s.day, zone);
         return (
           <li key={i}>
-            <b>{DAY_NAMES[c.day]}</b>
+            <b>{tx(DAY_NAMES[c.day])}</b>
             <span>{to12h(c.time)}</span>
-            <em>{s.name}</em>
+            <em>{tx(s.name)}</em>
             <span className="muted">{fmtDuration(s.minutes)}</span>
           </li>
         );

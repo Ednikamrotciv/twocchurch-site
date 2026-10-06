@@ -10,6 +10,7 @@ import { Icon } from "./ui";
 import { photoOr } from "../data/photos";
 import { useCmsVersion } from "../lib/cms";
 import { ct } from "../data/copy";
+import { tx } from "../lib/i18n";
 import { loadSlidePalette, paletteFor, type SlidePalette } from "../lib/palette";
 import { SLIDE_FRAME, framedImageSync, framedImageUrl } from "../lib/slideFrame";
 import { SLIDES, SLIDE_DESIGNS, slideDesigns, visibleSlides, slideDesignName, type AnnouncementSlide, type SlideDesign } from "../data/slides";
@@ -116,10 +117,11 @@ export function AnnouncementSlide({
      palette is the office's own picture and not the mat the frame puts round it. */
   const photo = useSlideFrame(original);
   const palette = useSlidePalette(original);
-  const headline = String(slide.headline || "").trim();
-  const line = String(slide.line || "").trim();
+  /* Painted/translated with the visitor's language — every face follows it. */
+  const headline = tx(String(slide.headline || "").trim());
+  const line = tx(String(slide.line || "").trim());
   const link = String(slide.link || "").trim();
-  const cta = String(slide.cta || "").trim();
+  const cta = tx(String(slide.cta || "").trim());
 
   const action = link ? (
     link.startsWith("/") ? (

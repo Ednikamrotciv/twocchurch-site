@@ -1,7 +1,8 @@
 import React, { useState } from "react";
 import { Link } from "../lib/router";
+import { tx } from "../lib/i18n";
 import { useNow, useToasts } from "../lib/hooks";
-import { nextService, onAir, countdownParts, to12h, DAY_NAMES, fmtDate, zoneYear, clockHere, churchTimezone } from "../lib/store";
+import { nextService, onAir, countdownParts, to12h, DAY_NAMES, fmtDate, zoneYear, clockHere, churchTimezone, visitorPlace } from "../lib/store";
 import { SITE, SERVICES, VALUES, MINISTRIES, img } from "../data/site";
 import { BRANCHES, HQ, branchFlag, branchZone } from "../data/branches";
 import { sermonsNewestFirst, sermonDate } from "../data/sermons";
@@ -74,7 +75,7 @@ export function Home() {
                 {info?.isLive ? (
                   <>
                     {ct("auto.home.caff7790d4063599")}
-                    {info.slot.name}
+                    {tx(info.slot.name)}
                   </>
                 ) : (
                   ct("auto.site.96c2adc6bda4059f")
@@ -84,7 +85,7 @@ export function Home() {
               info && (
                 <span className="hero__next">
                   <Icon name="clock" size={15} />
-                  {ct("auto.home.7af560c8a7a14349")}<b>{info.slot.name}</b> {when ? DAY_NAMES[when.day] : ""} {when ? to12h(when.time) : ""} {ct("auto.home.f8b81a4278b923bb")}{HQ.city.split(",")[0]}{" "}
+                  {ct("auto.home.7af560c8a7a14349")}<b>{tx(info.slot.name)}</b> {when ? tx(DAY_NAMES[when.day]) : ""} {when ? to12h(when.time) : ""} {ct("auto.home.f8b81a4278b923bb")}{(visitorPlace() || HQ.city).split(",")[0]}{" "}
                   <em>
                     {ct("auto.home.8ded8fa080b51139")}{countdownParts(info.msUntil).days}{ct("auto.home.d2448217aa4f6a76")}{countdownParts(info.msUntil).hours}{ct("auto.home.a75c1e7b9034d2aa")}{countdownParts(info.msUntil).minutes}{ct("auto.home.c009d7385019ed69")}</em>
                 </span>
@@ -96,7 +97,7 @@ export function Home() {
           </Reveal>
         </div>
         <div className="hero__verse" aria-hidden="true">
-          <span>“{SITE.verse.text}” — {SITE.verse.ref}</span>
+          <span>“{tx(SITE.verse.text)}” — {SITE.verse.ref}</span>
         </div>
       </section>
 
@@ -128,8 +129,8 @@ export function Home() {
               <li key={v.title}>
                 <Icon name={v.icon} size={18} />
                 <span>
-                  <b>{v.title}</b>
-                  <em>{v.text}</em>
+                  <b>{tx(v.title)}</b>
+                  <em>{tx(v.text)}</em>
                 </span>
               </li>
             ))}
@@ -247,7 +248,7 @@ export function Home() {
                 <span className="branch-chip__body">
                   <b>{b.city}</b>
                   <em>
-                    {DAY_NAMES[c.day]} {to12h(c.time)}
+                    {tx(DAY_NAMES[c.day])} {to12h(c.time)}
                   </em>
                 </span>
                 <Icon name="chevronRight" size={15} />

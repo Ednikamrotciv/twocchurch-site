@@ -1,4 +1,5 @@
 import React, { useMemo, useRef, useState } from "react";
+import { tx } from "../lib/i18n";
 import { useRoute, Link } from "../lib/router";
 import { TESTIMONY_CATEGORIES } from "../data/content";
 import { SITE, img } from "../data/site";
@@ -147,7 +148,7 @@ export function Testimonies() {
               {mine.map((t) => (
                 <Card key={t.id} className="mini-testimony">
                   <Badge accent={catAccent(t.category)}>{categoryLabel(t.category)}</Badge>
-                  <b>{t.title}</b>
+                  <b>{tx(t.title)}</b>
                   <em>{ct("auto.testimonies.0fd05211657e35d8")}{fmtDate(t.createdAt, "short")}</em>
                   <div className="btn-row">
                     <Btn size="sm" variant="ghost" icon="eye" onClick={() => setReading(t.id)}>
@@ -184,7 +185,7 @@ export function Testimonies() {
 
       <ShareForm open={formOpen} onClose={() => setFormOpen(false)} onSubmit={(d) => add(d)} />
 
-      <Modal open={!!readingItem} onClose={() => setReading(null)} title={readingItem?.title || ""} size="md" footer={readingItem ? <ShareRow title={readingItem.title} path="/testimonies" text={readingItem.body} /> : null}>
+      <Modal open={!!readingItem} onClose={() => setReading(null)} title={readingItem ? tx(readingItem.title) : ""} size="md" footer={readingItem ? <ShareRow title={tx(readingItem.title)} path="/testimonies" text={tx(readingItem.body)} /> : null}>
         {readingItem && (
           <div className="testimony-full">
             <div className="testimony-full__who">
@@ -197,7 +198,7 @@ export function Testimonies() {
                 <Badge accent={catAccent(readingItem.category)}>{categoryLabel(readingItem.category)}</Badge>
               </div>
             </div>
-            <p>{readingItem.body}</p>
+            <p>{readingItem && tx(readingItem.body)}</p>
             <button type="button" className={"amen-btn amen-btn--lg" + (readingItem.iAmened ? " amen-btn--on" : "")} onClick={() => amen(readingItem.id)}>
               <Icon name="prayer" size={17} /> {ct("auto.testimonies.571e2839a906c888")}<b>{readingItem.amens}</b>
             </button>

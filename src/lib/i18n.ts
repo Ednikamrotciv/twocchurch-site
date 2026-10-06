@@ -6,8 +6,7 @@
 
 import { useEffect, useState } from "react";
 
-/** Two-letter country → Google translate code. Unmapped means English. */
-const LANG_OF: Record<string, string> = {
+/** Two-letter country → Google translate code. Unmapped means English. */const LANG_OF: Record<string, string> = {
   FR: "fr", BE: "fr", LU: "fr", MC: "fr", CM: "fr", SN: "fr", CI: "fr", ML: "fr",
   BF: "fr", NE: "fr", GN: "fr", TD: "fr", CG: "fr", CD: "fr", RW: "fr", BI: "fr",
   DJ: "fr", MG: "fr", HT: "fr", GF: "fr",
@@ -39,6 +38,85 @@ export function langForCountry(country: string): string {
   return LANG_OF[String(country || "").trim().toUpperCase()] || "en";
 }
 
+/** What each language calls itself — the popup offers it by this name. */
+export const LANG_NAMES: Record<string, string> = {
+  fr: "Français", de: "Deutsch", es: "Español", it: "Italiano", pt: "Português",
+  nl: "Nederlands", ru: "Русский", uk: "Українська", pl: "Polski", tr: "Türkçe",
+  ar: "العربية", so: "Soomaali", am: "አማርኛ", fa: "فارسی", ur: "اردو",
+  hi: "हिन्दी", bn: "বাংলা", ne: "नेपाली", si: "සිංහල",
+  "zh-CN": "简体中文", "zh-TW": "繁體中文", ja: "日本語", ko: "한국어",
+  th: "ไทย", vi: "Tiếng Việt", id: "Bahasa Indonesia", ms: "Bahasa Melayu",
+  tl: "Tagalog", my: "မြန်မာ", km: "ខ្មែរ", lo: "ລາວ", mn: "Монгол",
+  ka: "ქართული", hy: "Հայերեն", az: "Azərbaycan", uz: "O'zbek",
+  tg: "Тоҷикӣ", tk: "Türkmen", he: "עברית",
+  sv: "Svenska", nb: "Norsk", da: "Dansk", fi: "Suomi", is: "Íslenska",
+  el: "Ελληνικά", ro: "Română", hu: "Magyar", cs: "Čeština", sk: "Slovenčina",
+  bg: "Български", hr: "Hrvatski", sr: "Српски", mk: "Македонски", sl: "Slovenščina",
+  et: "Eesti", lv: "Latviešu", lt: "Lietuvių", sq: "Shqip", mt: "Malti",
+};
+
+/* ------------------------------------------------------- the visitor's pick */
+
+/* A non-English IP is ASKED — English or their own language — and the whole
+   site follows the answer. The pick survives reloads; "not now" only hides
+   the question until the next visit. */
+const CHOICE_KEY = "wom.i18n.choice";
+const ASK_LATER_KEY = "wom.i18n.asklater";
+
+let lastEntries: [string, string][] = [];
+let needAsk = false;
+let askLang = "";
+
+function readChoice(): string | null {
+  try {
+    return localStorage.getItem(CHOICE_KEY);
+  } catch {
+    return null;
+  }
+}
+
+function askLater(): boolean {
+  try {
+    return sessionStorage.getItem(ASK_LATER_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
+/** Whether the language question is showing, and for which language. */
+export function i18nAsk(): { show: boolean; lang: string; name: string } {
+  return { show: needAsk, lang: askLang, name: LANG_NAMES[askLang] || askLang };
+}
+
+/** The visitor picked a language — remember it and move the whole site over. */
+export function chooseLang(l: string): void {
+  try {
+    localStorage.setItem(CHOICE_KEY, l);
+  } catch {
+    /* private mode — the pick holds for this visit */
+  }
+  try {
+    sessionStorage.removeItem(ASK_LATER_KEY);
+  } catch {
+    /* session-only nicety */
+  }
+  needAsk = false;
+  askLang = "";
+  void runFor(l, lastEntries);
+}
+
+/** Hide the question until the next visit (the site stays English). */
+export function dismissAsk(): void {
+  try {
+    sessionStorage.setItem(ASK_LATER_KEY, "1");
+  } catch {
+    /* session-only nicety */
+  }
+  needAsk = false;
+  askLang = "";
+  bump();
+}
+
 type Hit = { s: string; t: string };
 
 let lang = "en";
@@ -48,6 +126,7 @@ let runToken = 0;
 
 const listeners = new Set<() => void>();
 function bump() {
+  tickN += 1;
   listeners.forEach((fn) => {
     try {
       fn();
@@ -55,6 +134,12 @@ function bump() {
       /* one tearing listener must not stop the rest */
     }
   });
+}
+
+/** Counts every repaint broadcast — paint caches (box faces) key on it. */
+let tickN = 0;
+export function i18nTickN(): number {
+  return tickN;
 }
 
 /** Repaint the tree when translated lines land. Mount once, near the root. */
@@ -240,9 +325,39 @@ async function translateLines(l: string, texts: string[]): Promise<(string | nul
 /**
  * Move the site onto a country's language. `entries` are the current
  * [id, resolved text] pairs; only missing or changed lines travel.
+ *
+ * Non-English visitors are asked first: a stored pick is honored silently,
+ * otherwise the question pops up and the site stays English until they answer.
  */
 export async function ensureI18n(country: string, entries: [string, string][]): Promise<void> {
+  lastEntries = entries;
   const l = langForCountry(country);
+  const saved = readChoice();
+  if (l === "en" || saved === "en") {
+    needAsk = false;
+    askLang = "";
+    await runFor("en", entries);
+    return;
+  }
+  if (saved && saved === l) {
+    needAsk = false;
+    askLang = "";
+    await runFor(l, entries);
+    return;
+  }
+  /* Someone new (or on a new IP language): ask, stay English meanwhile. */
+  lang = "en";
+  table = {};
+  runningFor = "";
+  if (!askLater()) {
+    needAsk = true;
+    askLang = l;
+  }
+  bump();
+}
+
+/** Drive the site onto one language (the shared body behind ask + answer). */
+async function runFor(l: string, entries: [string, string][]): Promise<void> {
   const token = ++runToken;
   lang = l;
   table = l === "en" ? {} : loadCache(l);
@@ -306,30 +421,77 @@ export async function ensureI18n(country: string, entries: [string, string][]): 
 }
 
 /**
- * Translate a lone word (countdown units, day names). English now; the
- * translation lands in the cache and repaints when it arrives.
+ * Translate a lone string — countdown units, day names, sermon titles,
+ * testimony bodies: any page text that is data rather than a copy line.
+ * English now; the translation lands in the cache and repaints when it
+ * arrives. Requests are micro-batched (one per burst, newline-joined like the
+ * copy batches) instead of one per string.
  */
-const wordQueue = new Map<string, Promise<void>>();
+const dynPending = new Map<string, string>();
+let dynTimer = 0;
+
 export function tx(word: string): string {
   const w = String(word || "");
   if (lang === "en" || !worthTranslating(w)) return w;
   const id = `w:${w}`;
   const hit = table[id];
   if (hit && hit.s === w) return hit.t;
-  if (!wordQueue.has(id) && (typeof navigator === "undefined" || navigator.onLine !== false)) {
-    const job = translateLines(lang, [w])
-      .then(([t]) => {
-        if (t && t !== w) {
-          table[id] = { s: w, t };
-          saveCache(lang);
-          bump();
-        }
-      })
-      .catch(() => {})
-      .then(() => {
-        wordQueue.delete(id);
-      });
-    wordQueue.set(id, job);
+  if (!dynPending.has(id) && (typeof navigator === "undefined" || navigator.onLine !== false)) {
+    dynPending.set(id, w);
+    if (!dynTimer && typeof window !== "undefined") {
+      dynTimer = window.setTimeout(() => void flushDyn(), 700);
+    }
   }
   return w;
+}
+
+/* Newlines ride masked (batches are newline-joined) and come back after. */
+const NL_TOKEN = "__WOMNL__";
+
+async function flushDyn(): Promise<void> {
+  dynTimer = 0;
+  if (lang === "en" || (typeof navigator !== "undefined" && navigator.onLine === false)) {
+    if (lang === "en") dynPending.clear();
+    else if (typeof window !== "undefined") dynTimer = window.setTimeout(() => void flushDyn(), 5000);
+    return;
+  }
+  const batch = [...dynPending.entries()];
+  dynPending.clear();
+  if (!batch.length) return;
+  const l = lang;
+  const chunks: [string, string][][] = [];
+  let cur: [string, string][] = [];
+  let chars = 0;
+  for (const [id, source] of batch) {
+    const masked = tokenize(source).masked.split("\n").join(NL_TOKEN);
+    if (cur.length >= 25 || chars + masked.length > 1400) {
+      chunks.push(cur);
+      cur = [];
+      chars = 0;
+    }
+    cur.push([id, source]);
+    chars += masked.length;
+  }
+  if (cur.length) chunks.push(cur);
+  for (const chunk of chunks) {
+    if (lang !== l) return;
+    const masked = chunk.map(([, source]) => tokenize(source).masked.split("\n").join(NL_TOKEN));
+    const out = await translateLines(l, masked);
+    if (lang !== l) return;
+    let applied = 0;
+    out.forEach((t, i) => {
+      if (!t) return;
+      const [id, source] = chunk[i];
+      const withBreaks = t.split(NL_TOKEN).join("\n");
+      const restored = restore(withBreaks, tokenize(source).vars);
+      if (!restored || restored === source) return;
+      table[id] = { s: source, t: restored };
+      applied++;
+    });
+    if (applied) {
+      saveCache(l);
+      bump();
+    }
+    await new Promise((r) => window.setTimeout(r, 350));
+  }
 }

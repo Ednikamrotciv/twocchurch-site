@@ -1,4 +1,5 @@
 import React, { useMemo, useState } from "react";
+import { tx } from "../lib/i18n";
 import { Link } from "../lib/router";
 import { BRANCHES, DEFAULT_BRANCH_ID, branchFlag, branchZone } from "../data/branches";
 import { SITE, FAQS, img } from "../data/site";
@@ -185,7 +186,7 @@ export function Visit() {
                       const shown = clockAt(at);
                       return (
                         <button key={s.name + s.time} type="button" className={"service-choose__item" + (serviceIdx === i ? " is-active" : "")} onClick={() => setServiceIdx(i)}>
-                          <b>{s.name}</b>
+                          <b>{tx(s.name)}</b>
                           <span>{to12h(shown.time)}</span>
                           <em>{ct("auto.visit.2db7ce7214855b23")}{fmtDate(at, "medium")}</em>
                           <span className="muted">{tidyCount(`${Math.round(s.minutes / 60)} ${ct("auto.visit.18b7dd7c06508615")}`)}</span>
@@ -198,9 +199,9 @@ export function Visit() {
                         const shown = clockHere(s.time, s.day, zone);
                         return (
                           <div key={s.name + s.time} className="service-choose__item service-choose__item--muted">
-                            <b>{s.name}</b>
+                            <b>{tx(s.name)}</b>
                             <span>
-                              {DAY_NAMES[shown.day]}{ct("auto.visit.7e76c3868e2697b7")}{to12h(shown.time)}
+                              {tx(DAY_NAMES[shown.day])}{ct("auto.visit.7e76c3868e2697b7")}{to12h(shown.time)}
                             </span>
                             <em>{ct("auto.visit.ce07aebc2755dd25")}</em>
                           </div>
@@ -324,8 +325,8 @@ export function Visit() {
                 <span className="expect-card__icon">
                   <Icon name={e.icon === "kids" ? "people" : e.icon} size={22} />
                 </span>
-                <h3>{e.title}</h3>
-                <p>{e.text}</p>
+                <h3>{tx(e.title)}</h3>
+                <p>{tx(e.text)}</p>
               </Card>
             </Reveal>
           ))}
@@ -337,8 +338,8 @@ export function Visit() {
         <div className="narrow">
           <Accordion
             items={[
-              ...FAQS.slice(0, 5).map((f) => ({ q: f.q, a: f.a })),
-              ...VISIT_FAQS.map((f) => ({ q: f.q, a: f.a })),
+              ...FAQS.slice(0, 5).map((f) => ({ q: tx(f.q), a: tx(f.a) })),
+              ...VISIT_FAQS.map((f) => ({ q: tx(f.q), a: tx(f.a) })),
             ]}
           />
         </div>

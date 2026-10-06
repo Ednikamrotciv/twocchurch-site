@@ -1,4 +1,5 @@
 import React, { useState } from "react";
+import { tx } from "../lib/i18n";
 import { SITE, VALUES, BELIEFS, TIMELINE, LEADERSHIP, FAQS, MINISTRIES, img } from "../data/site";
 import { BRANCHES, branchFlag } from "../data/branches";
 import { Badge, Btn, Card, Eyebrow, Icon, Reveal, Rich, Section, SectionHeading, Accordion, Tiles } from "../components/ui";
@@ -34,21 +35,21 @@ export function About() {
             <Card className="mission-card">
               <span className="mission-card__icon"><Icon name="cross" size={24} /></span>
               <h3>{ct("about.mission.title")}</h3>
-              <p>{SITE.mission}</p>
+              <p>{tx(SITE.mission)}</p>
             </Card>
           </Reveal>
           <Reveal delay={70}>
             <Card className="mission-card">
               <span className="mission-card__icon"><Icon name="globe" size={24} /></span>
               <h3>{ct("about.vision.title")}</h3>
-              <p>{SITE.vision}</p>
+              <p>{tx(SITE.vision)}</p>
             </Card>
           </Reveal>
           <Reveal delay={140}>
             <Card className="mission-card">
               <span className="mission-card__icon"><Icon name="prayer" size={24} /></span>
               <h3>{ct("about.anchor.title")}</h3>
-              <p>“{SITE.verse.text}”</p>
+              <p>“{tx(SITE.verse.text)}”</p>
               <cite>{SITE.verse.ref}</cite>
             </Card>
           </Reveal>
@@ -71,8 +72,8 @@ export function About() {
               <span className="timeline__dot" aria-hidden="true" />
               <span className="timeline__year">{t.year}</span>
               <div className="timeline__body">
-                <h3>{t.title}</h3>
-                <p>{t.text}</p>
+                <h3>{tx(t.title)}</h3>
+                <p>{tx(t.text)}</p>
               </div>
             </li>
           ))}
@@ -91,8 +92,8 @@ export function About() {
             <Reveal key={b.title} delay={i * 40}>
               <Card className="belief-card">
                 <Badge accent="gold">{b.verse}</Badge>
-                <h3>{b.title}</h3>
-                <p>{b.text}</p>
+                <h3>{tx(b.title)}</h3>
+                <p>{tx(b.text)}</p>
               </Card>
             </Reveal>
           ))}
@@ -137,7 +138,7 @@ export function About() {
       <Section>
         <SectionHeading center eyebrow={ct("about.faq.eyebrow")} title={ct("about.faq.title")} />
         <div className="narrow">
-          <Accordion items={FAQS.map((f) => ({ q: f.q, a: f.a }))} defaultOpen={0} />
+          <Accordion items={FAQS.map((f) => ({ q: tx(f.q), a: tx(f.a) }))} defaultOpen={0} />
         </div>
         <div className="center mt-3">
           <Btn to="/contact" variant="ghost" icon="send">
@@ -166,9 +167,9 @@ function PersonCardLite({ person }: { person: (typeof LEADERSHIP)[number] }) {
       </div>
       <div className="person-card__body">
         <h3>{person.name}</h3>
-        <p className="person-card__role">{person.role}</p>
-        <p className="person-card__bio">{open ? person.bio : person.bio.slice(0, 84) + "…"}</p>
-        {open && person.verse && <blockquote className="person-card__verse">{person.verse}</blockquote>}
+        <p className="person-card__role">{tx(person.role)}</p>
+        <p className="person-card__bio">{tx(open ? person.bio : person.bio.slice(0, 84) + "…")}</p>
+        {open && person.verse && <blockquote className="person-card__verse">{tx(person.verse)}</blockquote>}
         <button type="button" className="link-btn" onClick={() => setOpen((v) => !v)}>
           {open ? ct("auto.about.c45ab7af05f750ce") : ct("about.readBio")} <Icon name={open ? "chevronDown" : "arrowRight"} size={14} />
         </button>

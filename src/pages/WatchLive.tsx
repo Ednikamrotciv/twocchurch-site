@@ -1,4 +1,5 @@
 import React, { useMemo, useState } from "react";
+import { tx } from "../lib/i18n";
 import { Link } from "../lib/router";
 import { SITE, SERVICES, img } from "../data/site";
 import { LIVE, hiddenReplays, numberWord, pastLimit, recentLimit, sermonTurnaroundHours } from "../data/live";
@@ -6,7 +7,7 @@ import { ct } from "../data/copy";
 import { BRANCHES, DEFAULT_BRANCH_ID, HQ } from "../data/branches";
 import { sermonsNewestFirst, sermonSource, sermonThumb } from "../data/sermons";
 import { useLocalState, useNow, fireToast } from "../lib/hooks";
-import { KEYS, nextService, onAir, to12h, DAY_NAMES, countdownParts, addToCalendar, mailto, clockHere, tidyCount, churchTimezone } from "../lib/store";
+import { KEYS, nextService, onAir, to12h, DAY_NAMES, countdownParts, addToCalendar, mailto, clockHere, tidyCount, churchTimezone, visitorPlace } from "../lib/store";
 import { isFacebookVideoUrl, parseYoutubeId, platformLabel, watchUrl, youtubeThumb, type VideoPlatform, type VideoSource } from "../lib/embed";
 import { useLiveStream, liveTarget, facebookTarget } from "../lib/livestatus";
 import { useRecentServices } from "../lib/recentstreams";
@@ -90,7 +91,7 @@ export function WatchLive() {
   const streaming = air.state === "live";
   const onAirNow = onAir(info);
   /* What the panel calls the broadcast while on air. */
-  const liveName = air.title || (info?.isLive ? info.slot.name : "") || LIVE.liveTitle || info?.slot.name || "";
+  const liveName = tx(air.title || (info?.isLive ? info.slot.name : "") || LIVE.liveTitle || info?.slot.name || "");
   const streamCountdown = info ? countdownParts(info.msUntil) : null;
 
 
@@ -163,12 +164,12 @@ export function WatchLive() {
                 {ct("live.next.badge")}
               </Badge>
             )}
-            <h2>{onAirNow ? liveName : info?.slot.name}</h2>
+            <h2>{onAirNow ? liveName : info ? tx(info.slot.name) : ""}</h2>
             {!onAirNow && (
               <p className="lede">
-                {DAY_NAMES[when?.day ?? 0]}
+                {tx(DAY_NAMES[when?.day ?? 0])}
                 {ct("auto.live.e58d3887c0716716")}
-                {to12h(when?.time || "10:00")} · {HQ.city}
+                {to12h(when?.time || "10:00")} · {visitorPlace() || HQ.city}
                 {streamCountdown && (
                   <>
                     {" · "}
@@ -362,7 +363,7 @@ export function WatchLive() {
         <SectionHeading
           eyebrow={ct("live.replay.eyebrow")}
           title={ct("live.replay.title")}
-          lede={ct("live.replay.lede", { limit: numberWord(limit) })}
+          lede={ct("live.replay.lede", { limit: tx(numberWord(limit)) })}
           actions={
             <>
               {platformLinks.youtube && (
@@ -407,7 +408,7 @@ export function WatchLive() {
           <SectionHeading
             eyebrow={ct("live.past.eyebrow")}
             title={ct("live.past.title")}
-            lede={ct("live.past.lede", { hours: numberWord(sermonTurnaroundHours()) })}
+            lede={ct("live.past.lede", { hours: tx(numberWord(sermonTurnaroundHours())) })}
             actions={
               <Btn to="/sermons" variant="ghost" iconRight="arrowRight">
                 {ct("live.past.action")}

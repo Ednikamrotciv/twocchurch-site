@@ -1,4 +1,5 @@
 import React, { useState } from "react";
+import { tx } from "../lib/i18n";
 import { useRoute, Link, navigate } from "../lib/router";
 import { sermonById, sermonDate, sermonsNewestFirst, sermonSource, sermonWatchUrl } from "../data/sermons";
 import { ct } from "../data/copy";
@@ -43,14 +44,14 @@ export function SermonDetail() {
   const minutes = parseDuration(sermon.durationText);
 
   const outline = [
-    `${sermon.title}`,
-    `${sermon.speaker}${sermon.speakerRole ? ` — ${sermon.speakerRole}` : ""}`,
+    `${tx(sermon.title)}`,
+    `${sermon.speaker}${sermon.speakerRole ? ` — ${tx(sermon.speakerRole)}` : ""}`,
     `Preached ${fmtDate(date, "long")}${sermon.scripture ? ` · ${sermon.scripture}` : ""}`,
     "",
-    ...(sermon.summary ? [ct("auto.sermon.0355b78f49f341e6"), sermon.summary, ""] : []),
-    ...(sermon.points.length ? [ct("auto.sermon.c93f82d73d378fbe"), ...sermon.points.map((p, i) => `${i + 1}. ${p}`), ""] : []),
+    ...(sermon.summary ? [ct("auto.sermon.0355b78f49f341e6"), tx(sermon.summary), ""] : []),
+    ...(sermon.points.length ? [ct("auto.sermon.c93f82d73d378fbe"), ...sermon.points.map((p, i) => `${i + 1}. ${tx(p)}`), ""] : []),
     ...(sermon.questions.length
-      ? [ct("auto.sermon.95a2d90e3fe12937"), ...sermon.questions.map((q, i) => `${i + 1}. ${q}`), ""]
+      ? [ct("auto.sermon.95a2d90e3fe12937"), ...sermon.questions.map((q, i) => `${i + 1}. ${tx(q)}`), ""]
       : []),
     ct("auto.sermon.98c6c3bb89ddea4a", { "v0": sermonWatchUrl(sermon) }),
     "",
@@ -62,10 +63,10 @@ export function SermonDetail() {
     <>
       <section className="sermon-detail-head">
         <div className="container">
-          <Breadcrumbs items={[{ label: ct("auto.sermon.823b39145f302775"), to: "/" }, { label: ct("auto.sermon.a6363cbc677c349d"), to: "/sermons" }, { label: sermon.title }]} />
+          <Breadcrumbs items={[{ label: ct("auto.sermon.823b39145f302775"), to: "/" }, { label: ct("auto.sermon.a6363cbc677c349d"), to: "/sermons" }, { label: tx(sermon.title) }]} />
           <div className="sermon-detail-head__grid">
             <div>
-              <h1>{sermon.title}</h1>
+              <h1>{tx(sermon.title)}</h1>
               <p className="sermon-detail-head__meta">
                 <span><Icon name="user" size={15} /> {sermon.speaker}</span>
                 <span><Icon name="calendar" size={15} /> {fmtDate(date, "long")}</span>
@@ -99,17 +100,17 @@ export function SermonDetail() {
       <Section>
         <div className="sermon-detail-grid">
           <div className="sermon-detail__main">
-            <ShareRow title={sermon.title} path={`/sermons/${sermon.id}`} text={sermon.summary} />
+            <ShareRow title={tx(sermon.title)} path={`/sermons/${sermon.id}`} text={tx(sermon.summary)} />
 
             <div className="sermon-summary">
               <h2>{ct("sermon.about.title")}</h2>
               {sermon.summary ? (
-                <p className="lede">{sermon.summary}</p>
+                <p className="lede">{tx(sermon.summary)}</p>
               ) : (
                 <p className="lede muted">
                   {ct("auto.sermon.1dd7203c8cd5c18d")}</p>
               )}
-              <TagList tags={sermon.tags} />
+              <TagList tags={sermon.tags.map((t) => tx(t))} />
             </div>
 
             <div className="sermon-tabs">
@@ -131,7 +132,7 @@ export function SermonDetail() {
                   {sermon.points.length > 0 ? (
                     <ol className="numbered">
                       {sermon.points.map((p) => (
-                        <li key={p}>{p}</li>
+                        <li key={p}>{tx(p)}</li>
                       ))}
                     </ol>
                   ) : (
@@ -168,7 +169,7 @@ export function SermonDetail() {
                   {sermon.questions.length > 0 ? (
                     <ol className="numbered">
                       {sermon.questions.map((q) => (
-                        <li key={q}>{q}</li>
+                        <li key={q}>{tx(q)}</li>
                       ))}
                     </ol>
                   ) : (
@@ -205,14 +206,14 @@ export function SermonDetail() {
               {prev && (
                 <button type="button" className="side-nav__btn" onClick={() => { navigate(`/sermons/${prev.id}`); window.scrollTo({ top: 0 }); }}>
                   <Icon name="chevronLeft" size={16} />
-                  <span><em>{ct("auto.sermon.2c8560c8d5d45089")}</em><b>{prev.title}</b></span>
+                  <span><em>{ct("auto.sermon.2c8560c8d5d45089")}</em><b>{tx(prev.title)}</b></span>
                 </button>
               )}
               <Btn className="side-nav__mid" to="/sermons" size="sm" variant="ghost" iconRight="arrowRight">
                 {ct("auto.sermon.3cc71a29b2a2c648")}</Btn>
               {next && (
                 <button type="button" className="side-nav__btn side-nav__btn--right" onClick={() => { navigate(`/sermons/${next.id}`); window.scrollTo({ top: 0 }); }}>
-                  <span><em>{ct("auto.sermon.b78ac2604966af29")}</em><b>{next.title}</b></span>
+                  <span><em>{ct("auto.sermon.b78ac2604966af29")}</em><b>{tx(next.title)}</b></span>
                   <Icon name="chevronRight" size={16} />
                 </button>
               )}

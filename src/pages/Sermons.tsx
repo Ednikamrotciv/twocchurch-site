@@ -1,4 +1,5 @@
 import React, { useMemo, useState } from "react";
+import { tx } from "../lib/i18n";
 import { SERMONS, SPEAKERS, SERMON_YEARS, sermonsNewestFirst, newestFirst, sermonDate, sermonSource, type Sermon } from "../data/sermons";
 import { ct } from "../data/copy";
 import { img } from "../data/site";
@@ -61,18 +62,18 @@ export function Sermons() {
       />
 
       <Section className="sermon-featured">
-        <SectionHeading eyebrow={ct("sermons.featured.eyebrow")} title={featured.title} lede={`${featured.speaker} · ${fmtDate(sermonDate(featured), "long")}${featured.durationText ? ` · ${featured.durationText}` : ""}`} />
+        <SectionHeading eyebrow={ct("sermons.featured.eyebrow")} title={tx(featured.title)} lede={`${featured.speaker} · ${fmtDate(sermonDate(featured), "long")}${featured.durationText ? ` · ${featured.durationText}` : ""}`} />
         <div className="sermon-featured__grid">
-          <VideoPlayer source={sermonSource(featured)} title={featured.title} compact />
+          <VideoPlayer source={sermonSource(featured)} title={tx(featured.title)} compact />
           <Card className="sermon-featured__side">
             {featured.scripture && <Badge accent="gold">{featured.scripture}</Badge>}
-            {featured.summary && <p>{featured.summary}</p>}
+            {featured.summary && <p>{tx(featured.summary)}</p>}
             {featured.points.length > 0 && (
               <ul className="tick-list tick-list--compact">
                 {featured.points.map((p) => (
                   <li key={p}>
                     <Icon name="check" size={16} />
-                    <span>{p}</span>
+                    <span>{tx(p)}</span>
                   </li>
                 ))}
               </ul>

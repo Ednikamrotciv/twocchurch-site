@@ -2892,3 +2892,79 @@ input, select, textarea { font-size: 1rem !important; }
     display: inline;
   }
 }
+
+/* ==========================================================================
+   LANGUAGE QUESTION — non-English IPs pick their language or English here.
+   ========================================================================== */
+.langask {
+  position: fixed;
+  left: 50%;
+  bottom: max(1rem, env(safe-area-inset-bottom));
+  transform: translateX(-50%);
+  z-index: 1200;
+  width: min(92vw, 380px);
+  padding: 1rem 1.1rem 0.85rem;
+  border-radius: 14px;
+  border: 1px solid rgba(227, 183, 92, 0.4);
+  background: rgba(10, 10, 14, 0.92);
+  color: #f2ecdf;
+  text-align: center;
+  box-shadow: 0 24px 60px -18px rgba(0, 0, 0, 0.8);
+  backdrop-filter: blur(10px);
+}
+.langask p {
+  margin: 0 0 0.7rem;
+  font-size: 0.92rem;
+  line-height: 1.5;
+}
+.langask p b {
+  color: #f6e0a8;
+}
+.langask__row {
+  display: flex;
+  gap: 0.6rem;
+  justify-content: center;
+}
+.langask__go,
+.langask__keep {
+  flex: 1;
+  padding: 0.6rem 0.8rem;
+  border-radius: 999px;
+  font-size: 0.88rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+.langask__go {
+  border: 0;
+  background: #c8202f;
+  color: #fff;
+}
+.langask__keep {
+  border: 1px solid rgba(242, 236, 223, 0.35);
+  background: transparent;
+  color: #f2ecdf;
+}
+.langask__later {
+  margin-top: 0.55rem;
+  border: 0;
+  padding: 0.2rem 0.6rem;
+  background: transparent;
+  color: #8f897f;
+  font-size: 0.8rem;
+  cursor: pointer;
+}
+[data-theme="light"] .langask {
+  background: rgba(255, 253, 248, 0.96);
+  color: #16130d;
+  border-color: rgba(122, 92, 22, 0.35);
+}
+[data-theme="light"] .langask p b {
+  color: #9c1523;
+}
+[data-theme="light"] .langask__keep {
+  border-color: rgba(20, 17, 12, 0.3);
+  color: #16130d;
+}
+[data-theme="light"] .langask__later {
+  color: #7a746b;
+}

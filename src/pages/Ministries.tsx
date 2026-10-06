@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from "react";
+import { tx } from "../lib/i18n";
 import { MINISTRIES, SITE, VALUES, img } from "../data/site";
 import { BRANCHES, DEFAULT_BRANCH_ID } from "../data/branches";
 import { fireToast } from "../lib/hooks";
@@ -86,9 +87,9 @@ export function Ministries() {
           </div>
           {SERVING_TEAMS.map((t) => (
             <div className="serve-table__row" key={t.name}>
-              <span className="serve-table__name">{t.name}</span>
-              <span>{t.need}</span>
-              <span className="muted">{t.slots}</span>
+              <span className="serve-table__name">{tx(t.name)}</span>
+              <span>{tx(t.need)}</span>
+              <span className="muted">{tx(t.slots)}</span>
               <span>
                 <Btn
                   size="sm"
@@ -126,7 +127,7 @@ export function Ministries() {
                   <Select value={form.branch} onChange={(e) => set({ branch: e.target.value })} options={BRANCHES.map((b) => ({ value: b.id, label: `${b.city} (${b.country})` }))} />
                 </Field>
                 <Field label={ct("auto.ministries.7a13bb80b8c58c31")}>
-                  <Select value={form.area} onChange={(e) => set({ area: e.target.value })} options={SERVING_TEAMS.map((t) => ({ value: t.name, label: t.name }))} />
+                  <Select value={form.area} onChange={(e) => set({ area: e.target.value })} options={SERVING_TEAMS.map((t) => ({ value: t.name, label: tx(t.name) }))} />
                 </Field>
                 <Field label={ct("auto.ministries.e7ba164616c3853f")}>
                   <Select
@@ -185,7 +186,7 @@ export function Ministries() {
         <SectionHeading center eyebrow={ct("ministries.faq.eyebrow")} title={ct("ministries.faq.title")} />
         <div className="narrow">
           <Accordion
-            items={SERVING_FAQS.map((f) => ({ q: f.q, a: f.a }))}
+            items={SERVING_FAQS.map((f) => ({ q: tx(f.q), a: tx(f.a) }))}
           />
         </div>
       </Section>

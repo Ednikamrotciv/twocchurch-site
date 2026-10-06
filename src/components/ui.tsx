@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState, type ButtonHTMLAttributes, type ReactNode } from "react";
+import { tx } from "../lib/i18n";
 import { AnimatePresence, motion } from "framer-motion";
 import { EASE, SPRING_SNAPPY, SPRING_SOFT, fold, modalBackdrop, modalPanel, rise, toastCard } from "../lib/motion";
 import { Link } from "../lib/router";
@@ -395,7 +396,7 @@ export function Stat({ value, label, suffix = "", animate = true }: { value: num
         {shown.toLocaleString()}
         {suffix}
       </div>
-      <div className="stat__label">{label}</div>
+      <div className="stat__label">{tx(label)}</div>
     </div>
   );
 }
@@ -496,8 +497,8 @@ export function Tiles({ items, cols = 4 }: { items: { icon?: string; title: stri
                 <Icon name={v.icon} size={22} />
               </span>
             )}
-            <h3>{v.title}</h3>
-            <p>{v.text}</p>
+            <h3>{tx(v.title)}</h3>
+            <p>{tx(v.text)}</p>
           </Card>
         </Reveal>
       ))}

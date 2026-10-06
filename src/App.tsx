@@ -6,7 +6,7 @@ import { ErrorBoundary } from "./components/ErrorBoundary";
 import { startCms, useCmsVersion } from "./lib/cms";
 import { mountShaderBackground } from "./lib/shaderbg";
 import { startVisitorClock, useVisitorClock, useVisitorClockRefresh } from "./lib/visitor";
-import { useI18nTick, ensureI18n, setProtectedValues } from "./lib/i18n";
+import { useI18nTick, ensureI18n, setProtectedValues, i18nAsk, chooseLang, dismissAsk } from "./lib/i18n";
 import { allCopySources } from "./data/copy";
 import { startRates, useRates, useRatesRefresh } from "./lib/rates";
 import { useLiveStream } from "./lib/livestatus";
@@ -87,12 +87,47 @@ export function App() {
   // tools on top. See src/pages/Admin.tsx.
   if (route.editing)
     return (
-      <React.Suspense fallback={null}>
-        <Admin />
-      </React.Suspense>
+      <>
+        <React.Suspense fallback={null}>
+          <Admin />
+        </React.Suspense>
+        <LangAsk />
+      </>
     );
 
-  return <SiteApp key={version} />;
+  return (
+    <>
+      <SiteApp key={version} />
+      <LangAsk />
+    </>
+  );
+}
+
+/* A non-English IP is asked: their own language or English. The whole site —
+   every line the translator carries — follows the answer when it lands. */
+function LangAsk() {
+  useI18nTick();
+  const ask = i18nAsk();
+  if (!ask.show) return null;
+  return (
+    <div className="langask" role="dialog" aria-live="polite" aria-label="Language choice">
+      <p>
+        Read this site in <b>{ask.name}</b> or keep it in English?
+      </p>
+      <div className="langask__row">
+        <button type="button" className="langask__go" onClick={() => chooseLang(ask.lang)}>
+          {ask.name}
+        </button>
+        <button type="button" className="langask__keep" onClick={() => chooseLang("en")}>
+          Keep English
+        </button>
+      </div>
+      <button type="button" className="langask__later" onClick={dismissAsk}>
+        Not now
+      </button>
+    </div>
+  );
+}
 }
 
 function SiteApp() {

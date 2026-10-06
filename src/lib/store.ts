@@ -1,5 +1,6 @@
 import { fireToast } from "./hooks";
 import { ct } from "../data/copy";
+import { currentLang } from "./i18n";
 import { LIVE } from "../data/live";
 import { liveEndedAt, liveNow } from "./livestatus";
 import { COUNTRY_CURRENCY, FALLBACK_RATES } from "../data/currencies";
@@ -303,6 +304,19 @@ export function todayKey(d = new Date(), tz = siteTimezone()) {
 export type DateStyle = "long" | "medium" | "short" | "weekday" | "month";
 
 /** A calendar date as the church sees it (Lagos time unless told otherwise). */
+export function siteLocale(): string | undefined {
+  /* Dates render in the visitor's own chosen language (note 220) — the device
+     is only the fallback before they answer. Every code the popup can pick is
+     already a valid Intl locale ("zh-CN", "nb", …); anything else is English. */
+  try {
+    const l = currentLang();
+    if (l && /^[A-Za-z]{2}(-[A-Za-z]{2})?$/.test(l)) return l;
+    return "en";
+  } catch {
+    return undefined;
+  }
+}
+
 export function fmtDate(input: string | Date | number, style: DateStyle = "medium", tz = siteTimezone()) {
   const d = input instanceof Date ? input : new Date(input);
   if (isNaN(d.getTime())) return "";
@@ -316,7 +330,7 @@ export function fmtDate(input: string | Date | number, style: DateStyle = "mediu
       : style === "month"
       ? { month: "long", year: "numeric" }
       : { month: "short", day: "numeric", year: "numeric" };
-  return d.toLocaleDateString(undefined, { ...opts, timeZone: zoneOr(tz) });
+  return d.toLocaleDateString(siteLocale(), { ...opts, timeZone: zoneOr(tz) });
 }
 
 /** A clock time as the church sees it — used where an instant is shown. */
@@ -327,7 +341,7 @@ export function fmtTime(
 ) {
   const d = input instanceof Date ? input : new Date(input);
   if (isNaN(d.getTime())) return "";
-  return d.toLocaleTimeString(undefined, { ...options, timeZone: zoneOr(tz) });
+  return d.toLocaleTimeString(siteLocale(), { ...options, timeZone: zoneOr(tz) });
 }
 
 export function relativeTime(input: string | Date | number) {
@@ -335,7 +349,7 @@ export function relativeTime(input: string | Date | number) {
   const diff = d.getTime() - Date.now();
   const abs = Math.abs(diff);
   const mins = Math.round(abs / 60000);
-  const rtf = new Intl.RelativeTimeFormat(undefined, { numeric: "auto" });
+  const rtf = new Intl.RelativeTimeFormat(siteLocale(), { numeric: "auto" });
   if (mins < 60) return rtf.format(Math.round(diff / 60000), "minute");
   const hours = Math.round(abs / 3600000);
   if (hours < 24) return rtf.format(Math.round(diff / 3600000), "hour");

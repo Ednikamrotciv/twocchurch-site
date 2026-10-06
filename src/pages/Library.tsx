@@ -1,4 +1,5 @@
 import React, { useState } from "react";
+import { tx } from "../lib/i18n";
 import { Link } from "../lib/router";
 import { SERMONS, sermonDate } from "../data/sermons";
 import { READING_PLAN } from "../data/content";
@@ -69,18 +70,6 @@ export function Library() {
             <span className="stat-card__value">{noteEntries.length}</span>
             <span className="stat-card__label">{ct("auto.library.cdff37ff9b62c03e")}</span>
           </Card>
-          <Card className="stat-card">
-            <span className="stat-card__value">{reading.done.length}/{READING_PLAN.length}</span>
-            <span className="stat-card__label">{ct("auto.library.dd2a215909787e78")}</span>
-          </Card>
-          <Card className="stat-card">
-            <span className="stat-card__value">{prayers.requests.filter((r) => r.answered).length}</span>
-            <span className="stat-card__label">{ct("auto.library.1ea7b400b032a479")}</span>
-          </Card>
-          <Card className="stat-card">
-            <span className="stat-card__value">{fmtMoney(giving.total)}</span>
-            <span className="stat-card__label">{ct("auto.library.b63c08e58538e49c")}</span>
-          </Card>
         </div>
 
         <Tabs
@@ -119,7 +108,7 @@ export function Library() {
                     <Link key={s.id} to={`/sermons/${s.id}`} className="watched-chip">
                       <Icon name="check" size={14} />
                       <span>
-                        <b>{s.title}</b>
+                        <b>{tx(s.title)}</b>
                         <em>{fmtDate(sermonDate(s), "short")}</em>
                       </span>
                     </Link>
@@ -142,7 +131,7 @@ export function Library() {
                       <div className="notes-list__head">
                         <div>
                           {s.scripture && <Badge accent="gold">{s.scripture}</Badge>}
-                          <h3>{s.title}</h3>
+                          <h3>{tx(s.title)}</h3>
                           <p className="muted">
                             {s.speaker} · {fmtDate(sermonDate(s), "medium")}
                           </p>
@@ -150,7 +139,7 @@ export function Library() {
                         <Btn size="sm" variant="ghost" to={`/sermons/${s.id}`} iconRight="arrowRight">
                           {ct("auto.library.eabbe11199a48a90")}</Btn>
                       </div>
-                      <p className="notes-list__body">{lib.notes[s.id]}</p>
+                      <p className="notes-list__body">{tx(lib.notes[s.id])}</p>
                     </Card>
                   </li>
                 ))}
@@ -171,7 +160,7 @@ export function Library() {
                     {prayers.requests.slice(0, 5).map((r) => (
                       <li key={r.id}>
                         <Badge accent={r.answered ? "emerald" : "gold"}>{r.answered ? ct("auto.library.ae2c7da828a58f99") : ct("auto.library.c9057b8997bf1b28")}</Badge>
-                        <span>{r.text.slice(0, 90)}{r.text.length > 90 ? "…" : ""}</span>
+                        <span>{tx(r.text.slice(0, 90))}{r.text.length > 90 ? "…" : ""}</span>
                       </li>
                     ))}
                   </ul>
@@ -188,7 +177,7 @@ export function Library() {
                   <ul className="mini-list">
                     {testimonies.mine.map((t) => (
                       <li key={t.id}>
-                        <Badge accent="crimson">{t.title.slice(0, 30)}</Badge>
+                        <Badge accent="crimson">{tx(t.title.slice(0, 30))}</Badge>
                         <span>{fmtDate(t.createdAt, "short")}</span>
                       </li>
                     ))}
@@ -246,7 +235,7 @@ export function Library() {
                       <li key={g.id}>
                         <b>{fmtMoney(g.amount)}</b>
                         <span>
-                          {g.fund} · {fmtDate(g.createdAt, "short")}
+                          {tx(g.fund)} · {fmtDate(g.createdAt, "short")}
                         </span>
                       </li>
                     ))}

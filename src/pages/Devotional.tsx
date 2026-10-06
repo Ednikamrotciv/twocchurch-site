@@ -1,10 +1,11 @@
 import React, { useState } from "react";
+import { tx } from "../lib/i18n";
 import { Link } from "../lib/router";
 import { MEMORY_VERSES, PRAYER_FOCUS, READING_PLAN, SCRIPTURES } from "../data/content";
 import { img, SITE } from "../data/site";
 import { useReadingPlan } from "../lib/collections";
 import { useLocalState, fireToast } from "../lib/hooks";
-import { KEYS, pickForDay, copyText, whatsappLink, downloadText, fmtDate } from "../lib/store";
+import { KEYS, pickForDay, copyText, whatsappLink, downloadText, fmtDate, todayKey } from "../lib/store";
 import { Badge, Btn, Card, Checkbox, Eyebrow, Icon, Progress, Reveal, Rich, Section, SectionHeading, ShareRow } from "../components/ui";
 import { ct } from "../data/copy";
 import { PageHead } from "../components/layout";
@@ -14,7 +15,9 @@ export function Devotional() {
   const verse = pickForDay(SCRIPTURES, "votd");
   const plan = useReadingPlan();
   const [memorised, setMemorised] = useLocalState<string[]>("wom.memorised", []);
-  const [reflection, setReflection] = useLocalState<string>("wom.reflection." + fmtDate(new Date(), "medium"), "");
+  /* The key is a plain calendar date, never a formatted one — a formatted date
+     moves with the visitor's chosen language and would orphan the saved text. */
+  const [reflection, setReflection] = useLocalState<string>("wom.reflection." + todayKey(), "");
   const [focusIdx, setFocusIdx] = useState(0);
 
   const doneCount = READING_PLAN.filter((d) => plan.done.includes(d.day)).length;
@@ -43,13 +46,13 @@ export function Devotional() {
           <div className="devotional-main">
             <Card className="devotion-today">
               <Eyebrow>{fmtDate(new Date(), "long")}</Eyebrow>
-              <blockquote className="devotion-today__verse">“{verse.text}”</blockquote>
+              <blockquote className="devotion-today__verse">“{tx(verse.text)}”</blockquote>
               <cite>{verse.ref}</cite>
               <p className="muted">{ct("devotional.reflect.text")}</p>
               <div className="btn-row">
-                <Btn size="sm" variant="ghost" icon="copy" onClick={() => copyText(`"${verse.text}" — ${verse.ref}`, ct("auto.devotional.20cc69da3c351693"))}>
+                <Btn size="sm" variant="ghost" icon="copy" onClick={() => copyText(`"${tx(verse.text)}" — ${verse.ref}`, ct("auto.devotional.20cc69da3c351693"))}>
                   {ct("auto.devotional.9aaef367b783a36e")}</Btn>
-                <Btn size="sm" variant="ghost" icon="whatsapp" href={whatsappLink(`"${verse.text}" — ${verse.ref}`)}>
+                <Btn size="sm" variant="ghost" icon="whatsapp" href={whatsappLink(`"${tx(verse.text)}" — ${verse.ref}`)}>
                   {ct("auto.devotional.c7b81a2e44ca0d37")}</Btn>
                 <Btn size="sm" variant="quiet" icon="download" onClick={() => downloadText("today-reflection.txt", `${fmtDate(new Date(), "long")}\n\n"${verse.text}" — ${verse.ref}\n\nREFLECTION\n${reflection}\n`)}>
                   {ct("auto.devotional.2fff9550a9658bf1")}</Btn>
@@ -89,7 +92,7 @@ export function Devotional() {
                       <li key={d.day} className={isDone ? "is-done" : ""}>
                         <Checkbox checked={isDone} onChange={() => plan.toggle(d.day)} label={<b>{d.day}</b>} />
                         <span className="reading-list__ref">{d.reference}</span>
-                        <span className="reading-list__theme">{d.theme}</span>
+                        <span className="reading-list__theme">{tx(d.theme)}</span>
                         <button
                           type="button"
                           className="link-btn"
@@ -125,7 +128,7 @@ export function Devotional() {
                   return (
                     <li key={m.ref} className={known ? "is-done" : ""}>
                       <b>{m.ref}</b>
-                      <span>“{m.text}”</span>
+                      <span>“{tx(m.text)}”</span>
                       <Btn size="sm" variant={known ? "quiet" : "ghost"} icon={known ? "check" : "bookmark"} onClick={() => setMemorised((l) => (known ? l.filter((x) => x !== m.ref) : [...l, m.ref]))}>
                         {known ? ct("auto.devotional.c5c0367a086d50cb") : ct("auto.devotional.b60fe1a3568321ba")}
                       </Btn>
@@ -143,7 +146,7 @@ export function Devotional() {
             <Card className="side-cta">
               <Icon name="fire" size={22} />
               <h3>{ct("devotional.focus.title")}</h3>
-              <p>{pickForDay(PRAYER_FOCUS, "focus2")?.text}</p>
+              <p>{tx(pickForDay(PRAYER_FOCUS, "focus2")?.text || "")}</p>
               <Btn size="sm" variant="ghost" block to="/prayer" icon="prayer">
                 {ct("auto.devotional.eb08149e1a343bb7")}</Btn>
             </Card>
