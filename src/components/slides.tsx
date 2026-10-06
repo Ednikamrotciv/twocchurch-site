@@ -438,7 +438,6 @@ export function AnnouncementSlides({ slides = SLIDES }: { slides?: AnnouncementS
      keys or a tap just lend it speed. */
   const cuboidApi = useRef<CuboidApi | null>(null);
   const count = live.length;
-  const multi = count > 1 && !previewing;
   const stageRef = useRef<HTMLDivElement>(null);
   const swiperRef = useRef<Swiper | null>(null);
   const push3d = (dir: 1 | -1) => {
@@ -466,7 +465,9 @@ export function AnnouncementSlides({ slides = SLIDES }: { slides?: AnnouncementS
      while the office edits. */
   useEffect(() => {
     const el = stageRef.current;
-    if (!el || !multi) return;
+    /* Desktop arrows are the swipe equivalent, so they never hide: the stage
+       exists even with one slide, and the arrows stay wired to it. */
+    if (!el || previewing || !count) return;
     const mark = (root: Element, active: number) => {
       root.querySelectorAll(".swiper-slide").forEach((item, i) => {
         const mine = i === active;
@@ -498,7 +499,7 @@ export function AnnouncementSlides({ slides = SLIDES }: { slides?: AnnouncementS
       swiperRef.current = null;
       sw.destroy(true, true);
     };
-  }, [multi, calm]);
+  }, [previewing, count, calm]);
 
   /* A hold (hover, focus, or touch) freezes swiper's own timer. */
   useEffect(() => {
@@ -511,13 +512,12 @@ export function AnnouncementSlides({ slides = SLIDES }: { slides?: AnnouncementS
 
   const go = (step: number) => {
     const sw = swiperRef.current;
-    if (!sw || !multi) return;
+    if (!sw) return;
     if (step > 0) sw.slideNext();
     else sw.slidePrev();
   };
 
   const onKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
-    if (!multi) return;
     if (e.key === "ArrowLeft") {
       e.preventDefault();
       go(-1);
@@ -558,14 +558,45 @@ export function AnnouncementSlides({ slides = SLIDES }: { slides?: AnnouncementS
             <div
               className="aslides aslides--3d"
               style={shapeVar}
+              onKeyDown={onKeyDown3d}
               role="img"
               aria-label={ct("auto.site.ed1bc718392f9ee1")}
             >
               <StageErrorBoundary fallback={<img className="aslide__photo" src={standIn} alt="" />}>
                 <React.Suspense fallback={null}>
-                  <CuboidSpace3D slides={[]} apiRef={cuboidApi} held={held} />
+                  <CuboidSpace3D slides={[]} apiRef={cuboidApi} held={held} onFace={setFace} />
                 </React.Suspense>
               </StageErrorBoundary>
+              {/* Desktop arrows never hide — they are the swipe equivalent. */}
+              <motion.button
+                type="button"
+                className="aslides__arrow aslides__arrow--prev"
+                onClick={() => push3d(-1)}
+                aria-label={ct("auto.site.f719940ccc0bc69d")}
+                whileTap={{ scale: 0.86 }}
+              >
+                <Icon name="chevronLeft" size={18} />
+              </motion.button>
+              <motion.button
+                type="button"
+                className="aslides__arrow aslides__arrow--next"
+                onClick={() => push3d(1)}
+                aria-label={ct("auto.site.6142ea6c0a3fdf05")}
+                whileTap={{ scale: 0.86 }}
+              >
+                <Icon name="chevronRight" size={18} />
+              </motion.button>
+              <div className="aslides__dots" role="group" aria-label="Slide faces">
+                {[0, 1, 2, 3, 4, 5].map((i) => (
+                  <button
+                    key={i}
+                    type="button"
+                    className={"aslides__dot" + (face === i ? " is-on" : "")}
+                    onClick={() => goTo3d(i)}
+                    aria-label={`Show face ${i + 1} of 6`}
+                  />
+                ))}
+              </div>
             </div>
           </motion.div>
         </div>
@@ -661,39 +692,37 @@ export function AnnouncementSlides({ slides = SLIDES }: { slides?: AnnouncementS
                 <CuboidSpace3D slides={live} apiRef={cuboidApi} held={held} onFace={setFace} />
               </React.Suspense>
             </StageErrorBoundary>
-            {multi ? (
-              <>
-                <motion.button
+            {/* The zones and dots are always present on the 3D stage — desktops
+                without touch need them for every turn. */}
+            <motion.button
+              type="button"
+              className="aslides__arrow aslides__arrow--prev"
+              onClick={() => push3d(-1)}
+              aria-label={ct("auto.site.f719940ccc0bc69d")}
+              whileTap={{ scale: 0.86 }}
+            >
+              <Icon name="chevronLeft" size={18} />
+            </motion.button>
+            <motion.button
+              type="button"
+              className="aslides__arrow aslides__arrow--next"
+              onClick={() => push3d(1)}
+              aria-label={ct("auto.site.6142ea6c0a3fdf05")}
+              whileTap={{ scale: 0.86 }}
+            >
+              <Icon name="chevronRight" size={18} />
+            </motion.button>
+            <div className="aslides__dots" role="group" aria-label="Slide faces">
+              {[0, 1, 2, 3, 4, 5].map((i) => (
+                <button
+                  key={i}
                   type="button"
-                  className="aslides__arrow aslides__arrow--prev"
-                  onClick={() => push3d(-1)}
-                  aria-label={ct("auto.site.f719940ccc0bc69d")}
-                  whileTap={{ scale: 0.86 }}
-                >
-                  <Icon name="chevronLeft" size={18} />
-                </motion.button>
-                <motion.button
-                  type="button"
-                  className="aslides__arrow aslides__arrow--next"
-                  onClick={() => push3d(1)}
-                  aria-label={ct("auto.site.6142ea6c0a3fdf05")}
-                  whileTap={{ scale: 0.86 }}
-                >
-                  <Icon name="chevronRight" size={18} />
-                </motion.button>
-                <div className="aslides__dots" role="group" aria-label="Slide faces">
-                  {[0, 1, 2, 3, 4, 5].map((i) => (
-                    <button
-                      key={i}
-                      type="button"
-                      className={"aslides__dot" + (face === i ? " is-on" : "")}
-                      onClick={() => goTo3d(i)}
-                      aria-label={`Show face ${i + 1} of 6`}
-                    />
-                  ))}
-                </div>
-              </>
-            ) : null}
+                  className={"aslides__dot" + (face === i ? " is-on" : "")}
+                  onClick={() => goTo3d(i)}
+                  aria-label={`Show face ${i + 1} of 6`}
+                />
+              ))}
+            </div>
           </div>
         </motion.div>
       </div>
@@ -737,28 +766,25 @@ export function AnnouncementSlides({ slides = SLIDES }: { slides?: AnnouncementS
             </div>
           </div>
 
-          {multi ? (
-            <>
-              <motion.button
-                type="button"
-                className="aslides__arrow aslides__arrow--prev"
-                onClick={() => go(-1)}
-                aria-label={ct("auto.site.f719940ccc0bc69d")}
-                whileTap={{ scale: 0.86 }}
-              >
-                <Icon name="chevronLeft" size={18} />
-              </motion.button>
-              <motion.button
-                type="button"
-                className="aslides__arrow aslides__arrow--next"
-                onClick={() => go(1)}
-                aria-label={ct("auto.site.6142ea6c0a3fdf05")}
-                whileTap={{ scale: 0.86 }}
-              >
-                <Icon name="chevronRight" size={18} />
-              </motion.button>
-            </>
-          ) : null}
+          {/* Desktop arrows never hide — they are the swipe equivalent. */}
+          <motion.button
+            type="button"
+            className="aslides__arrow aslides__arrow--prev"
+            onClick={() => go(-1)}
+            aria-label={ct("auto.site.f719940ccc0bc69d")}
+            whileTap={{ scale: 0.86 }}
+          >
+            <Icon name="chevronLeft" size={18} />
+          </motion.button>
+          <motion.button
+            type="button"
+            className="aslides__arrow aslides__arrow--next"
+            onClick={() => go(1)}
+            aria-label={ct("auto.site.6142ea6c0a3fdf05")}
+            whileTap={{ scale: 0.86 }}
+          >
+            <Icon name="chevronRight" size={18} />
+          </motion.button>
         </div>
       </motion.div>
     </div>

@@ -6,6 +6,8 @@ import { ErrorBoundary } from "./components/ErrorBoundary";
 import { startCms, useCmsVersion } from "./lib/cms";
 import { mountShaderBackground } from "./lib/shaderbg";
 import { startVisitorClock, useVisitorClock, useVisitorClockRefresh } from "./lib/visitor";
+import { useI18nTick, ensureI18n } from "./lib/i18n";
+import { allCopySources } from "./data/copy";
 import { startRates, useRates, useRatesRefresh } from "./lib/rates";
 import { useLiveStream } from "./lib/livestatus";
 import { nextService, onAir, churchTimezone } from "./lib/store";
@@ -26,6 +28,12 @@ export function App() {
      onto the visitor's own clock in one pass (SPEC note 85). */
   const clock = useVisitorClock();
   useVisitorClockRefresh();
+  /* The visitor's own language, from their IP country — lines swap in as
+     translations land (note 209). */
+  useI18nTick();
+  useEffect(() => {
+    if (clock?.country) void ensureI18n(clock.country, allCopySources());
+  }, [clock?.country, version]);
   /* Today's rates, from the visitor's browser (note 98). */
   useRates();
   useRatesRefresh();

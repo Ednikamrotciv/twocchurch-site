@@ -5474,6 +5474,7 @@
 }
 @media (prefers-reduced-motion: reduce) {
   .aslide { animation: none; transition: none; }
+  .aslides__arrow svg { animation: none; }
   .aslides { transition: none; }
   .aslides-motion { opacity: 1 !important; transform: none !important; }
   .athumb { transition: none; }
@@ -5956,15 +5957,37 @@
 }
 .aslides__arrow--prev { left: 13px; }
 .aslides__arrow--next { right: 13px; }
-/* The 3D zones sit visible-but-quiet over the stage — brighter on hover/focus. */
+/* Each arrow breathes toward its own direction — the icon nudges, not the
+   button, so the stage centring and the tap spring are untouched. */
+.aslides__arrow--prev svg { animation: aslides-nudge-left 1.6s ease-in-out infinite alternate; }
+.aslides__arrow--next svg { animation: aslides-nudge-right 1.6s ease-in-out infinite alternate; }
+@keyframes aslides-nudge-left {
+  from { transform: translateX(1.5px); }
+  to { transform: translateX(-3px); }
+}
+@keyframes aslides-nudge-right {
+  from { transform: translateX(-1.5px); }
+  to { transform: translateX(3px); }
+}
+.aslides__arrow:hover svg,
+.aslides__arrow:focus-visible svg { animation-play-state: paused; }
+/* The 3D zones sit clearly over the stage — unmissable on touchless desktops.
+   Desktop arrows never hide: they are the swipe equivalent, so they stay at
+   full strength instead of fading out. */
 .aslides--3d .aslides__arrow {
-  opacity: 0.65;
-  background: rgba(8, 8, 12, 0.65);
+  opacity: 1;
+  visibility: visible;
+  background: rgba(8, 8, 12, 0.72);
+  border-color: rgba(255, 255, 255, 0.65);
+}
+@media (hover: hover) and (pointer: fine) {
+  .aslides__arrow,
+  .aslides--3d .aslides__arrow {
+    opacity: 1 !important;
+    visibility: visible !important;
+  }
 }
 @media (hover: hover) {
-  .aslides--3d .aslides__arrow {
-    opacity: 0.5;
-  }
   .aslides--3d .aslides__arrow:hover,
   .aslides--3d .aslides__arrow:focus-visible {
     opacity: 1;

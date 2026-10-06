@@ -37,20 +37,21 @@ const TURN_SPEED = (Math.PI * 2) / 26;
 const IDLE_MS = 3 * 60 * 1000;
 
 /* The six faces in the order the side zones walk them. Every step is a short
-   turn (90–120°) and every resting face reads upright — the caps carry an
-   extra half-turn about the viewing axis, without which their words would lie
-   on their side (all six verified numerically: normal to the lens, top edge up). */
+   turn and every resting face reads upright, picture and words (verified
+   against the box geometry's own UVs: each face's texture-top edge maps up). */
 function ringQuats(): THREE.Quaternion[] {
   const P = Math.PI;
   const ax = (x: number, y: number, z: number, a: number) =>
     new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(x, y, z), a);
+  /* Walk order front → top → right → back → left → bottom: every step is
+     short (90–120°), so the box never swings through a flip to get there. */
   return [
     new THREE.Quaternion(), // front
+    ax(1, 0, 0, P / 2), // top, upright
     ax(0, 1, 0, -P / 2), // right
-    ax(0, 0, 1, P).multiply(ax(1, 0, 0, P / 2)), // top, upright
     ax(0, 1, 0, P), // back
-    ax(0, 0, 1, P).multiply(ax(1, 0, 0, -P / 2)), // bottom, upright
     ax(0, 1, 0, P / 2), // left
+    ax(1, 0, 0, -P / 2), // bottom, upright
   ];
 }
 

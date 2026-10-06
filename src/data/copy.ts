@@ -3,6 +3,7 @@
    Titles/buttons locked; `locked` lines unlisted (notes 47-50, 64). Name/logo not here (site.ts/assets). */
 
 import { AUTO_ENTRIES } from "./autocopy";
+import { translatedText } from "../lib/i18n";
 
 export type CopyRole = "button" | "pageTitle" | "sectionTitle";
 export type CopyEntry = { id: string; label: string; value: string; role?: CopyRole; locked?: boolean };
@@ -1174,13 +1175,24 @@ function interpolate(value: string, vars?: Record<string, string | number>): str
 export function ct(id: string, vars?: Record<string, string | number>): string {
   const value = Object.prototype.hasOwnProperty.call(overrides, id) ? overrides[id] : DEFAULTS[id];
   if (value === undefined) return "";
-  return interpolate(value, vars);
+  /* A visitor reading in another language gets the translated line when one
+     has landed; English (or not-yet-translated) reads as before. */
+  const t = translatedText(id, value);
+  return interpolate(t ?? value, vars);
 }
 
 /** The section the office edits this line in, e.g. "copy-home". */
 export function copySectionOf(id: string): string {
   const page = PAGE_OF[id];
   return page ? "copy-" + page : "";
+}
+
+/** Every current [id, resolved text] pair — what the translator travels with. */
+export function allCopySources(): [string, string][] {
+  return Object.keys(DEFAULTS).map((id) => [
+    id,
+    Object.prototype.hasOwnProperty.call(overrides, id) ? overrides[id] : DEFAULTS[id],
+  ]);
 }
 
 /** The shipped wording, for the editor's "put the original back" button. */

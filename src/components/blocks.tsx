@@ -5,6 +5,7 @@ import { useLocalState, fireToast, useNow, useReveal } from "../lib/hooks";
 import { useCmsVersion } from "../lib/cms";
 import { liveAnnouncements, ANNOUNCEMENTS } from "../data/announcements";
 import { ct } from "../data/copy";
+import { tx } from "../lib/i18n";
 import {
   EMBED_REFERRER_POLICY,
   embedSrc,
@@ -37,6 +38,7 @@ import {
   zonedTimeToUtc,
   zoneOr,
   churchTimezone,
+  visitorPlace,
   clockAt,
   clockHere,
   countdownParts,
@@ -1103,11 +1105,13 @@ export function BranchPanel({
 export function Countdown({ target, label }: { target: number; label?: string }) {
   const now = useNow(1000);
   const parts = countdownParts(Math.max(0, target - now.getTime()));
+  /* The units follow the visitor's own language too (the 1d 6h 34m reads
+     French the moment the address does). */
   const units = [
-    { v: parts.days, l: "days" },
-    { v: parts.hours, l: "hrs" },
-    { v: parts.minutes, l: "min" },
-    { v: parts.seconds, l: "sec" },
+    { v: parts.days, l: tx("days") },
+    { v: parts.hours, l: tx("hrs") },
+    { v: parts.minutes, l: tx("min") },
+    { v: parts.seconds, l: tx("sec") },
   ];
   return (
     <div className="countdown" aria-label={label}>
@@ -1129,8 +1133,10 @@ export function NextServiceCard() {
   const info = nextService(SERVICES, now, zone);
   if (!info) return null;
   /* The gathering's name is the church's; the day and time under it are read on
-     the visitor's own clock (SPEC note 85). */
+     the visitor's own clock (SPEC note 85), and the city follows their own IP
+     city too — Lagos reads as London the moment the address moves. */
   const when = clockHere(info.slot.time, info.slot.day, zone);
+  const city = visitorPlace() || HQ.city;
   /* The office's switch or the clock — whichever says we are on air wins. */
   const live = onAir(info);
   return (
@@ -1138,7 +1144,7 @@ export function NextServiceCard() {
       <Eyebrow>{live ? ct("auto.site.06bfee249b41bda5") : ct("auto.site.19d68ad8b3328ba1")}</Eyebrow>
       <h3>{info.slot.name}</h3>
       <p className="muted">
-        {DAY_NAMES[when.day]}{ct("auto.site.ecb64ceed77c7057")}{to12h(when.time)} · {HQ.city}
+        {tx(DAY_NAMES[when.day])}{ct("auto.site.ecb64ceed77c7057")}{to12h(when.time)} · {city}
       </p>
       {live ? (
         <div className="live-now">
