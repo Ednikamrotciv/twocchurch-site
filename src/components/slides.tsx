@@ -19,8 +19,8 @@ import type { CuboidApi } from "./slides3d";
 
 const CuboidSpace3D = React.lazy(() => import("./slides3d").then((m) => ({ default: m.CuboidSpace3D })));
 
-/** How long a slide waits before the space moves to the next one on its own. */
-const ADVANCE_MS = 9000;
+/** How long a slide shows before the space moves to the next one on its own. */
+const ADVANCE_MS = 15000;
 
 /** How small the auto-fit will take a poster's words before it gives up. */
 const FIT_FLOOR = 0.6;

@@ -371,6 +371,9 @@ function readString(charOffset, len) {
 /* ------------------------------------------------------------ durable state */
 
 var REV = 0, AT = 0, BY = "";
+/* The code update the published content was last blessed from (note 249:
+   visitors wait on maintenance until a publish from the newest code). */
+var NOTES = 0;
 var LOG = [];
 /* Set while loading a state stamped with an older history generation: the
    record is forgotten and the clean state is written back at once. */
@@ -422,7 +425,7 @@ function writeHeader() {
 }
 
 function writeMeta() {
-  var meta = JSON.stringify({ by: BY, log: LOG, logGen: LOG_GEN, subs: SUBS, invites: INVITES, totp: TOTP, mainOff: MAIN_OFF, mainHash: MAIN_HASH, pwgen: PWGEN });
+  var meta = JSON.stringify({ by: BY, log: LOG, logGen: LOG_GEN, subs: SUBS, invites: INVITES, totp: TOTP, mainOff: MAIN_OFF, mainHash: MAIN_HASH, pwgen: PWGEN, notes: NOTES });
   META_CHARS = meta.length;
   writeString(meta, BASE_CHARS + SECTION_CHARS);
   /* The header carries META_CHARS: without this, an admin-only change (an
@@ -567,7 +570,9 @@ function loadState() {
     MAIN_OFF = !!(parsed && parsed.mainOff);
     MAIN_HASH = typeof parsed.mainHash === "string" && /^[0-9a-f]{64}$/.test(parsed.mainHash) ? parsed.mainHash : "";
     PWGEN = typeof parsed.pwgen === "number" && parsed.pwgen >= 0 ? Math.floor(parsed.pwgen) : 0;
+    NOTES = typeof parsed.notes === "number" && parsed.notes >= 0 ? Math.floor(parsed.notes) : 0;
   } catch (e) {
+    NOTES = 0;
     BY = "";
     LOG = [];
     SUBS = [];
@@ -722,6 +727,7 @@ self.rpc = {
       rev: REV,
       at: AT,
       by: BY,
+      notes: NOTES,
       sections: "{" + parts.join(",") + "}",
       log: LOG,
       admin: admins.has(info.conn.id),
@@ -1131,7 +1137,8 @@ self.rpc = {
     return ok({});
   },
 
-  /* Patch publish. raw = { by, note, changed: [id], sections: { id: json-or-null } } */
+  /* Patch publish. raw = { by, note, notes, changed: [id], sections } (note 249:
+     notes carries the publishing code's update; empty sections still bless. */
   publish: function (info, raw) {
     if (!admins.has(info.conn.id)) return fail("unauthorized");
     var payload;
@@ -1147,7 +1154,8 @@ self.rpc = {
     for (id in payload.sections) {
       if (Object.prototype.hasOwnProperty.call(payload.sections, id)) ids.push(id);
     }
-    if (!ids.length) return fail("empty");
+    var notes = typeof payload.notes === "number" && payload.notes >= 0 && payload.notes <= 999999 ? Math.floor(payload.notes) : 0;
+    if (!ids.length && !notes) return fail("empty");
     if (ids.length > SLOTS) return fail("too-many");
 
     var i, value;
@@ -1175,6 +1183,7 @@ self.rpc = {
     REV += 1;
     AT = Date.now();
     BY = typeof payload.by === "string" ? payload.by.slice(0, 60) : "";
+    if (notes > NOTES) NOTES = notes;
     var changed = [];
     if (payload.changed && payload.changed.length) {
       for (i = 0; i < payload.changed.length && i < 24; i++) {
@@ -1201,13 +1210,16 @@ self.rpc = {
       var err = setSection(ids[i], payload.sections[ids[i]]);
       if (err) return fail(err);
     }
+    /* A notes-only publish moves no sections, so persist the blessing here. */
+    writeMeta();
+    writeHeader();
 
     try {
       pubsub.publish("content", JSON.stringify({ rev: REV, at: AT, by: BY }));
     } catch (e) {
       /* a missed nudge is harmless: clients refresh on next load */
     }
-    return ok({ rev: REV });
+    return ok({ rev: REV, notes: NOTES });
   },
   /* Forget the publish history. Content is untouched — the next publish
      starts the record again from there. Main admin only. */

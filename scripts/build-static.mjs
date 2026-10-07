@@ -113,4 +113,16 @@ try {
 } catch (err) {
   console.warn("route pages skipped:", err?.message || err);
 }
+/* Stamp the build with its update number (note 248): serve.mjs reads this
+   back and refuses to serve a stale dist silently. */
+try {
+  const src = await readFile(path.join(ROOT, "src", "lib", "hooks.ts"), "utf8");
+  const notes = Number((src.match(/BUILD_NOTES = (\d+)/) || [])[1]) || 0;
+  const d = new Date();
+  const p = (n) => String(n).padStart(2, "0");
+  await writeFile(path.join(OUT, "version.json"), JSON.stringify({ notes, built: `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}` }));
+  console.log(`build stamped: update ${notes}`);
+} catch (err) {
+  console.warn("version.json skipped:", err?.message || err);
+}
 console.log("dist/ ready to upload (the *contents* of dist/ go to the static host)");

@@ -396,12 +396,14 @@ export function Footer() {
 
 export function ScrollTop() {
   /* One button for the whole site (mounted in SiteApp and Admin, so every
-     page carries it): a square ochre arrow like the office sample. It pops up
-     once the visitor has passed two screenfuls, and one tap carries them
+     page carries it): a circle that takes the page theme (note 239). It pops
+     up once the visitor has passed one screenful (note 245), and one tap carries them
      smoothly back to the top. Two independent signals, so no browser or
      embed can silence it: scroll listeners that read every scroller (window,
      document, body), plus a visibility watch on the footer itself (which also
-     covers short pages). `window.__pillState()` reports the live numbers. */
+     covers short pages). The footer is re-resolved after paint, so late
+     content growth can never leave the watch looking at nothing (note 244).
+     `window.__pillState()` reports the live numbers. */
   const [show, setShow] = useState(false);
   useEffect(() => {
     const numbers = () => {
@@ -411,13 +413,14 @@ export function ScrollTop() {
       const client = h.clientHeight || window.innerHeight || 0;
       const full = Math.max(h.scrollHeight || 0, b.scrollHeight || 0);
       return { top, client, full, max: full - client, remaining: full - (top + client) };
-    };
-    /* Two screenfuls down and the button pops up; the footer watch covers
-       short pages that never get that far. */
-    const twoScreens = () => 2 * (window.innerHeight || document.documentElement.clientHeight || 0);
+     };
+    /* One screenful down and the button pops up (note 245: two screenfuls
+       kept it hidden through ordinary scrolling, which read as missing); the
+       footer watch covers short pages that never get that far. */
+    const oneScreen = () => window.innerHeight || document.documentElement.clientHeight || 0;
     const read = () => {
       const n = numbers();
-      setShow(n.max > 200 && (n.top > twoScreens() || n.remaining < 160));
+      setShow(n.max > 200 && (n.top > oneScreen() || n.remaining < 160));
     };
     read();
     window.addEventListener("scroll", read, { passive: true, capture: true });
@@ -438,8 +441,17 @@ export function ScrollTop() {
         : null;
     const foot = document.querySelector("footer.footer");
     if (foot && ob) ob.observe(foot);
+    /* Late content (slow photos, grown lists) can move the footer after this
+       mounted — re-resolve shortly after paint so the watch never guards
+       nothing (note 244). */
+    const recheck = window.setTimeout(() => {
+      const late = document.querySelector("footer.footer");
+      if (late && ob) ob.observe(late);
+      read();
+    }, 1500);
     (window as unknown as { __pillState?: () => object }).__pillState = () => ({ ...numbers() });
     return () => {
+      window.clearTimeout(recheck);
       window.removeEventListener("scroll", read);
       document.removeEventListener("scroll", read);
       window.removeEventListener("resize", read);
@@ -451,10 +463,45 @@ export function ScrollTop() {
       type="button"
       className={"scroll-pill" + (show ? " scroll-pill--visible" : "")}
       aria-label={ct("auto.site.7c04895953a3ea70")}
-      onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })}
+      onClick={() => {
+        /* Every scroller goes home (note 245): window plus the document
+           itself, so embedded or late-grown pages still land on top. */
+        const go = (el: any) => {
+          try {
+            el.scrollTo({ top: 0, behavior: "smooth" });
+          } catch {
+            el.scrollTop = 0;
+          }
+        };
+        go(window);
+        go(document.documentElement);
+        go(document.body);
+      }}
     >
       <Icon name="chevronUp" size={26} />
     </button>
+  );
+}
+
+/* While visitors wait on maintenance (note 249): the header's logo and notice
+   are the whole site — no pages, no footer, no buttons. The office console
+   never renders this. */
+export function MaintenanceSite() {
+  return (
+    <div className="maint">
+      <header className="maint__head">
+        <span className="maint__brand">
+          <img className="maint__logo" src={siteFile(LOGO_MARK)} alt={SITE.name} />
+          <span>{SITE.name}</span>
+        </span>
+        <span className="maint__pill">Maintenance</span>
+      </header>
+      <main className="maint__main">
+        <img className="maint__mark" src={siteFile(LOGO_MARK)} alt="" aria-hidden="true" />
+        <h1>We&rsquo;ll be right back</h1>
+        <p>The site is being updated. Please check back shortly.</p>
+      </main>
+    </div>
   );
 }
 

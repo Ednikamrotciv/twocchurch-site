@@ -35,10 +35,10 @@ export type CuboidApi = {
 const TURN_SPEED = (Math.PI * 2) / 26;
 /** Hands off the box this long and it resumes its default slow revolve. */
 const IDLE_MS = 3 * 60 * 1000;
-/** How long a face's slide waits before the faces turn over to the next one
-    on their own — the flat stage's own rhythm (ADVANCE_MS in ./slides.tsx),
-    so the box and the fallback move as one. */
-const CONTENT_MS = 9000;
+/** A face's slide shows for 15 seconds before the faces turn over to the
+    next one on their own — the flat stage's own rhythm (ADVANCE_MS in
+    ./slides.tsx), so the box and the fallback move as one. */
+const CONTENT_MS = 15000;
 
 /* The four sides in the order the arrows walk them: front → right → back →
    left. Every step is a short quarter-turn of level yaw, and every resting
@@ -202,47 +202,66 @@ function useFaceTextures(slots: FaceSlot[], logoUrl: string): (THREE.Texture | n
      face with translated words (the table fills progressively underneath). */
   useI18nTick();
   const key = currentLang() + "#" + i18nTickN() + "|" + slots.map((s) => [s.url, s.aspect, s.slide?.headline || "", s.slide?.line || "", s.slide?.cta || "", s.slide?.link || ""].join("|")).join("~");
+  /* Seamless turnover (note 240): the new set of faces paints fully offscreen
+     first, then swaps in with ONE state update — the old faces stay up until
+     the last new one is ready, so a slide change never flashes or stalls the
+     revolve. The replaced textures are freed after the swap (never while they
+     are still showing); unmount frees whatever is left. */
   useEffect(() => {
     let alive = true;
-    const made: THREE.Texture[] = [];
-    const paint = (slot: FaceSlot, i: number, photo: HTMLImageElement | null) => {
-      if (!alive) return;
-      const W = slot.aspect > 1.2 ? 1024 : 768;
-      const H = Math.round(W / slot.aspect);
-      let cv = drawFace(slot, photo, W, H, logoUrl);
-      try {
-        /* A tainted canvas throws here — re-paint without the picture. */
-        cv.getContext("2d")?.getImageData(0, 0, 1, 1);
-      } catch {
-        cv = drawFace(slot, null, W, H, logoUrl);
-      }
-      const tex = new THREE.CanvasTexture(cv);
-      tex.colorSpace = THREE.SRGBColorSpace;
-      tex.anisotropy = 4;
-      made.push(tex);
-      setTextures((prev) => {
-        const next = prev.slice();
-        next[i] = tex;
-        return next;
+    const load = (slot: FaceSlot): Promise<HTMLImageElement | null> =>
+      new Promise((resolve) => {
+        if (!slot.url) {
+          resolve(null);
+          return;
+        }
+        const img = new Image();
+        img.crossOrigin = "anonymous";
+        img.onload = () => resolve(img);
+        img.onerror = () => resolve(null);
+        img.src = slot.url;
       });
-    };
-    slots.forEach((slot, i) => {
-      if (!slot.url) {
-        paint(slot, i, null);
+    (async () => {
+      const photos = await Promise.all(slots.map(load));
+      if (!alive) return;
+      const next = slots.map((slot, i) => {
+        const W = slot.aspect > 1.2 ? 1024 : 768;
+        const H = Math.round(W / slot.aspect);
+        let cv = drawFace(slot, photos[i], W, H, logoUrl);
+        try {
+          /* A tainted canvas throws here — re-paint without the picture. */
+          cv.getContext("2d")?.getImageData(0, 0, 1, 1);
+        } catch {
+          cv = drawFace(slot, null, W, H, logoUrl);
+        }
+        const tex = new THREE.CanvasTexture(cv);
+        tex.colorSpace = THREE.SRGBColorSpace;
+        tex.anisotropy = 4;
+        return tex;
+      });
+      if (!alive) {
+        next.forEach((t) => t.dispose());
         return;
       }
-      const img = new Image();
-      img.crossOrigin = "anonymous";
-      img.onload = () => paint(slot, i, img);
-      img.onerror = () => paint(slot, i, null);
-      img.src = slot.url;
-    });
+      setTextures((prev) => {
+        prev.forEach((t) => t?.dispose());
+        return next;
+      });
+    })();
     return () => {
       alive = false;
-      made.forEach((t) => t.dispose());
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [key]);
+  useEffect(
+    () => () => {
+      setTextures((prev) => {
+        prev.forEach((t) => t?.dispose());
+        return prev;
+      });
+    },
+    []
+  );
   return textures;
 }
 
@@ -258,6 +277,9 @@ function Cuboid({ slides, apiRef, held, logo, theme }: { slides: (SlideT | null)
   /* Hands-on until three quiet minutes pass, then the default revolve resumes. */
   const manual = useRef(false);
   const lastAct = useRef(0);
+  /* A tap's handover back to the auto-slide, so quick taps never stack. */
+  const resumeId = useRef(0);
+  useEffect(() => () => window.clearTimeout(resumeId.current), []);
   const touch = () => {
     manual.current = true;
     lastAct.current = performance.now();
@@ -267,18 +289,18 @@ function Cuboid({ slides, apiRef, held, logo, theme }: { slides: (SlideT | null)
     ringPos.current = (ringPos.current + dir + RING.length) % RING.length;
   };
   const settle = () => {
-    touch();
-    /* Nearest resting face — the sign-free match, since q and -q turn alike. */
-    let best = 0;
-    let bestDot = -2;
-    RING.forEach((q, i) => {
-      const d = Math.abs(qCur.current.dot(q));
-      if (d > bestDot) {
-        bestDot = d;
-        best = i;
-      }
-    });
-    ringPos.current = best;
+    /* A tap or click turns the next face to the front at once, then hands
+       straight back to the auto-slide — the stage never sits still. The
+       revolve picks up exactly where the turn lands, so there is no jump. */
+    ringPos.current = (ringPos.current + 1) % RING.length;
+    manual.current = true;
+    lastAct.current = performance.now();
+    window.clearTimeout(resumeId.current);
+    resumeId.current = window.setTimeout(() => {
+      const q = qCur.current;
+      autoYaw.current = 2 * Math.atan2(q.y, q.w);
+      manual.current = false;
+    }, 1200);
   };
   useEffect(() => {
     if (!apiRef) return;

@@ -26,7 +26,8 @@ export async function bakeSeed(rootDir, outPath) {
     } catch { /* no usable seed — write the empty one below */ }
   }
   const rev = typeof res.rev === "number" ? res.rev : 0;
-  await writeFile(target, JSON.stringify({ rev, sections }));
+  const notes = typeof res.notes === "number" ? res.notes : 0;
+  await writeFile(target, JSON.stringify({ rev, notes, sections }));
   console.log(`bake-seed: baked ${ids.length} sections into ${path.relative(rootDir, target)}`);
   /* The recent-services list ships in the same file, so every copy paints the
      same services as the preview (see bake-recent.mjs). Best effort — a missed

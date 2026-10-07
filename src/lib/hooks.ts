@@ -104,6 +104,18 @@ export function useLocalState<T>(key: string, initial: T) {
   return [value, set, reset] as const;
 }
 
+/* Which shipped code is running here — the office can read it in Admin →
+   Tools, and in the browser console as window.__womBuild. Bump NOTES with
+   every SPEC note so a stale deploy is spotted, not guessed (note 244). */
+export const BUILD_NOTES = 249;
+export const BUILD_DATE = "2026-10-07";
+export function buildStamp() {
+  return { notes: BUILD_NOTES, built: BUILD_DATE };
+}
+if (typeof window !== "undefined") {
+  (window as unknown as { __womBuild?: { notes: number; built: string } }).__womBuild = buildStamp();
+}
+
 /* ---------- toasts (module level so any code can fire one) ---------- */
 
 export type ToastKind = "info" | "success" | "error";
@@ -157,14 +169,18 @@ export function useTheme() {
   /* Dark is home and it stays put: the theme only ever changes when the
      visitor taps the sun/moon, and the pick is remembered on this device
      (note 232 — the old 30s auto-flip flashed the chrome light while
-     scrolling, which read as a display error). */
+     scrolling, which read as a display error). A stored value from a damaged
+     or hand-edited save that is not exactly dark or light is thrown out in
+     favour of dark, so the site can never wake up stuck in a half theme
+     (note 244). */
+  const safe = theme === "light" ? "light" : "dark";
   useEffect(() => {
-    document.documentElement.dataset.theme = theme;
+    document.documentElement.dataset.theme = safe;
     const meta = document.querySelector('meta[name="theme-color"]');
-    if (meta) meta.setAttribute("content", theme === "light" ? "#f7f1e4" : "#08080a");
-  }, [theme]);
+    if (meta) meta.setAttribute("content", safe === "light" ? "#f7f1e4" : "#08080a");
+  }, [safe]);
   const toggle = useCallback(() => setTheme((t) => (t === "dark" ? "light" : "dark")), [setTheme]);
-  return { theme, setTheme, toggle };
+  return { theme: safe, setTheme, toggle };
 }
 
 /* ---------- clock ---------- */

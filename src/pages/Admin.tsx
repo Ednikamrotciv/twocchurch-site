@@ -168,6 +168,8 @@ export function Admin() {
   /* Editing takes an online sign-in — there is no offline back door. */
   const canEdit = state.authed;
   const changedIds = cms.pendingSections();
+  /* While visitors wait (note 249), the office sees it here and can lift it. */
+  const maintenance = cms.useMaintenance();
 
   /* Auto-stop watcher lives here so it runs whatever drawer card is open (note 111). */
   useAutoStopLive(canEdit);
@@ -320,6 +322,14 @@ export function Admin() {
     <div className="admin eshell">
       <SkipLink />
       <Header />
+      {maintenance && (
+        <div className="admin__maint" role="status">
+          <span>Visitors see maintenance right now.</span>
+          <button type="button" className="admin__maint-go" onClick={() => setPublishOpen(true)}>
+            Review and publish
+          </button>
+        </div>
+      )}
       <div className="epage" ref={pageRef}>
         <main id="main">{pageNode}</main>
       </div>

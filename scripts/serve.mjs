@@ -1,5 +1,5 @@
 import http from "node:http";
-import { readFile, stat, mkdir, writeFile } from "node:fs/promises";
+import { readFile, stat, mkdir, writeFile, rm } from "node:fs/promises";
 import { gzipSync } from "node:zlib";
 import path from "node:path";
 import { createCmsHost, hashText } from "./cms-local.mjs";
@@ -34,6 +34,28 @@ try {
   process.exit(1);
 }
 console.log(`serving ${DIST} + admin backend  [code ${SITE_VERSION}]`);
+
+/* Which update this folder carries vs what dist/ was built from (note 248):
+   an old dist served by `npm start` can never pass silently again. */
+let SRC_NOTES = 0;
+try {
+  const src = await readFile(path.join(ROOT, "src", "lib", "hooks.ts"), "utf8");
+  SRC_NOTES = Number((src.match(/BUILD_NOTES = (\d+)/) || [])[1]) || 0;
+} catch {
+  /* stamp unreadable — the page stamp still shows */
+}
+let DIST_NOTES = 0;
+try {
+  DIST_NOTES = Number(JSON.parse(await readFile(path.join(DIST, "version.json"), "utf8")).notes) || 0;
+} catch {
+  /* built before version stamps — treated as old */
+}
+if (SRC_NOTES) console.log(`site update ${SRC_NOTES} (Admin > Tools shows the same number)`);
+if (SRC_NOTES && DIST_NOTES && DIST_NOTES < SRC_NOTES) {
+  console.warn(`OLD BUILD: dist/ is update ${DIST_NOTES} but this folder is update ${SRC_NOTES} — run \`npm run build\` before \`npm start\`, or use \`npm run dev\`.`);
+} else if (SRC_NOTES && !DIST_NOTES) {
+  console.warn(`dist/ has no version stamp (built before update stamps) — run \`npm run build\` so dist/ matches update ${SRC_NOTES}.`);
+}
 
 const cms = await (async () => {
   /* Snapshot the published words first (a zip extract cannot touch the
@@ -292,6 +314,85 @@ const server = http.createServer(async (req, res) => {
       return;
     }
 
+    /* Backup restore: puts one embedded upload back under its exact stored
+       name, so restored content points at the same addresses it always did.
+       Same file rules as /__upload; anything outside the server's own naming
+       pattern is refused. Uploads are never deleted by the server — they sit
+       in data/uploads/ until the office removes them by hand. */
+    if (pathname === "/__restore-file" && req.method === "POST") {
+      const ctype = String(req.headers["content-type"] || "").split(";")[0].trim().toLowerCase();
+      if (!ctype.startsWith("image/") && !ctype.startsWith("video/")) {
+        res.writeHead(400, { "cache-control": "no-store" });
+        res.end("bad filetype");
+        return;
+      }
+      const asked = String(url.searchParams.get("name") || "");
+      if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,99}$/.test(asked) || asked.includes("..")) {
+        res.writeHead(400, { "cache-control": "no-store" });
+        res.end("bad name");
+        return;
+      }
+      const chunks = [];
+      let size = 0;
+      let tooBig = false;
+      req.on("data", (chunk) => {
+        if (tooBig) return;
+        size += chunk.length;
+        if (size > 250 * 1024 * 1024) {
+          tooBig = true;
+          req.destroy();
+          return;
+        }
+        chunks.push(chunk);
+      });
+      req.on("end", async () => {
+        if (tooBig) return;
+        try {
+          const dir = path.join(ROOT, "data", "uploads");
+          await mkdir(dir, { recursive: true });
+          await writeFile(path.join(dir, asked), Buffer.concat(chunks));
+          const body = JSON.stringify({ url: "/data/uploads/" + asked, restored: true });
+          res.writeHead(200, { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" });
+          res.end(body);
+        } catch {
+          res.writeHead(500, { "cache-control": "no-store" });
+          res.end("save failed");
+        }
+      });
+      req.on("error", () => {
+        res.writeHead(413, { "cache-control": "no-store" });
+        res.end("too large");
+      });
+      return;
+    }
+
+    /* Delete an upload for good: it leaves data/uploads/ and stops riding in
+       backups afterwards. Same naming guard as the other file endpoints. */
+    if (pathname === "/__delete-file" && req.method === "POST") {
+      const asked = String(url.searchParams.get("name") || "");
+      if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,99}$/.test(asked) || asked.includes("..")) {
+        res.writeHead(400, { "cache-control": "no-store" });
+        res.end("bad name");
+        return;
+      }
+      try {
+        const target = path.join(ROOT, "data", "uploads", asked);
+        const st = await stat(target).catch(() => null);
+        if (!st || !st.isFile()) {
+          res.writeHead(404, { "cache-control": "no-store" });
+          res.end("not found");
+          return;
+        }
+        await rm(target, { force: true });
+        res.writeHead(200, { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" });
+        res.end(JSON.stringify({ deleted: true }));
+      } catch {
+        res.writeHead(500, { "cache-control": "no-store" });
+        res.end("delete failed");
+      }
+      return;
+    }
+
     const rpcMatch = pathname.match(/^\/__cms\/([A-Za-z0-9_]+)$/);    if (rpcMatch && req.method === "POST") {
       const id = url.searchParams.get("conn") || "anon";
       let body = "";
@@ -370,5 +471,5 @@ const server = http.createServer(async (req, res) => {
 });
 
 server.listen(PORT, () => {
-  console.log(`Site + admin backend at http://localhost:${PORT}/  (admin: /admin)`);
+  console.log(`Site + admin backend at http://localhost:${PORT}/  (admin: /admin) — production build, update ${SRC_NOTES || DIST_NOTES || "?"}`);
 });

@@ -20,7 +20,7 @@ import {
 } from "../components/ui";
 import { PageHead } from "../components/layout";
 import { SearchBox, eventDate } from "../components/blocks";
-import { fireToast, useNow } from "../lib/hooks";
+import { fireToast, useNow, BUILD_NOTES, BUILD_DATE } from "../lib/hooks";
 import { readLiveStatus } from "../lib/livestatus";
 import { SITE, SERVICES, img } from "../data/site";
 import { recentLimit } from "../data/live";
@@ -1157,6 +1157,51 @@ async function localHostFile(blob: Blob, filename: string): Promise<string> {
   return base ? base + data.url : data.url;
 }
 
+/* The stored name inside an office-server address, or "" for anything else
+   (bundled photos, pasted links, CDN pictures are not office uploads). */
+function hostedUploadName(url: string): string {
+  const m = /\/data\/uploads\/([A-Za-z0-9][A-Za-z0-9._-]*)/.exec(String(url || ""));
+  return m ? m[1] : "";
+}
+
+/* Delete an office-server upload for good — it leaves data/uploads/ and
+   afterwards simply stops riding in backups. Two-tap confirmed at the call
+   site, because every page using it loses its picture until republished. */
+async function deleteHostFile(name: string): Promise<void> {
+  const base = serverUrl();
+  if (!base && !isLocalHost()) throw new Error("The office server connection is needed to delete it — connect it in the admin console.");
+  const res = await fetch(`${base}/__delete-file?name=${encodeURIComponent(name)}`, { method: "POST" });
+  if (res.status === 404) throw new Error("It is already gone from the office server.");
+  if (!res.ok) throw new Error("It could not be deleted on the server.");
+}
+
+/* The two-tap "delete it from the office" control behind a photo or video.
+   Renders nothing for addresses the office server does not hold. */
+function DeleteUpload({ url, what, onGone }: { url: string; what: string; onGone: () => void }) {
+  const name = hostedUploadName(url);
+  const [busy, setBusy] = useState(false);
+  if (!name) return null;
+  const go = async () => {
+    setBusy(true);
+    try {
+      await deleteHostFile(name);
+      onGone();
+      fireToast(`${what} deleted from the office — publish to take it off the site.`, "success");
+    } catch (err) {
+      fireToast(err instanceof Error ? err.message : "It could not be deleted.", "error");
+    }
+    setBusy(false);
+  };
+  if (busy) return <span className="field__hint">Deleting…</span>;
+  return (
+    <ConfirmIcon
+      onConfirm={go}
+      title={`Delete this ${what.toLowerCase()} from the office server — it stops showing everywhere it is used`}
+      label={`Delete ${what.toLowerCase()} from the office`}
+    />
+  );
+}
+
 /* Phone/computer photos shrink first, then host; `frame: "slide"` re-cuts to the slide frame. */
 
 export function PhotoUpload({ onDone, frame }: { onDone: (url: string) => void; frame?: "slide" }) {
@@ -1275,9 +1320,12 @@ function VideoField({
             <VideoUpload onDone={(made) => onChange(made)} />
             <Input value={url} onChange={(e) => onChange(e.target.value)} placeholder="…or paste the address of a video file" />
             {address && (
-              <Btn size="sm" variant="quiet" icon="trash" onClick={() => onChange("")}>
-                Remove the video
-              </Btn>
+              <div className="btn-row">
+                <Btn size="sm" variant="quiet" icon="trash" onClick={() => onChange("")}>
+                  Remove the video
+                </Btn>
+                <DeleteUpload url={address} what="Video" onGone={() => onChange("")} />
+              </div>
             )}
           </div>
         </div>
@@ -1408,9 +1456,12 @@ function ImageField({
           ) : null}
           {fitError && <p className="admin__upload-error">{fitError}</p>}
           {text && (
-            <Btn size="sm" variant="quiet" icon="trash" onClick={() => onChange("")}>
-              Use the original photo
-            </Btn>
+            <div className="btn-row">
+              <Btn size="sm" variant="quiet" icon="trash" onClick={() => onChange("")}>
+                Use the original photo
+              </Btn>
+              <DeleteUpload url={text} what="Photo" onGone={() => onChange("")} />
+            </div>
           )}
         </div>
       </div>
@@ -1920,10 +1971,11 @@ export function ToolsPage() {
     fireToast(res.ok ? "Rolled back to the previous revision." : `Could not roll back (${res.error}).`, res.ok ? "success" : "error");
   };
 
-  /* Backup: the latest published content as a file the office keeps. */
-  const doBackup = () => {
+  /* Backup: the latest published content and its photos as one file the office keeps. */
+  const doBackup = async () => {
+    setBusy(true);
     try {
-      const text = cms.exportPublished();
+      const text = await cms.exportPublished();
       const d = new Date();
       const p = (n: number) => String(n).padStart(2, "0");
       const name = `world-overcomers-backup-${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}-${p(d.getHours())}${p(d.getMinutes())}.json`;
@@ -1935,28 +1987,43 @@ export function ToolsPage() {
       a.click();
       a.remove();
       window.setTimeout(() => URL.revokeObjectURL(url), 5000);
-      fireToast("Backup downloaded — the latest published content.", "success");
+      let extra = "";
+      try {
+        const files = JSON.parse(text)?.files;
+        const nf = Array.isArray(files) ? files.length : 0;
+        if (nf) extra = ` with ${nf} uploaded ${nf === 1 ? "file" : "files"}`;
+      } catch {
+        /* the file still downloaded — the count is only a nicety */
+      }
+      fireToast(`Backup downloaded — the latest published content${extra}.`, "success");
     } catch {
       fireToast("Could not build the backup.", "error");
     }
+    setBusy(false);
   };
 
-  /* Restore: an uploaded backup returns as a draft — review, then Publish. */
+  /* Restore: an uploaded backup returns as a draft — words and photos — review, then Publish. */
   const restoreRef = useRef<HTMLInputElement>(null);
   const doRestoreFile = async (file: File | undefined) => {
     if (!file) return;
     setBusy(true);
     try {
-      const res = cms.importBackup(await file.text());
+      const res = await cms.importBackup(await file.text());
       if (!res.ok) {
         fireToast(`Could not restore (${res.error}).`, "error");
       } else {
         const n = res.restored?.length || 0;
         const left = res.skipped?.length || 0;
+        const imgs = res.filesRestored || 0;
+        const missed = [...(res.filesMissing || []), ...(res.filesFailed || [])];
+        const imgBit = imgs ? ` ${imgs} uploaded ${imgs === 1 ? "file" : "files"} brought back too.` : "";
+        const missBit = missed.length
+          ? ` ${missed.length} uploaded ${missed.length === 1 ? "file is" : "files are"} missing on the server (${missed.slice(0, 3).join(", ")}${missed.length > 3 ? "…" : ""}).`
+          : "";
         fireToast(
           left
-            ? `Brought back ${n} ${n === 1 ? "section" : "sections"} — review, then Publish. ${left} ${left === 1 ? "section" : "sections"} from the backup no longer exist in this update and ${left === 1 ? "was" : "were"} left out.`
-            : `Brought back ${n} ${n === 1 ? "section" : "sections"} — review, then Publish to put it live.`,
+            ? `Brought back ${n} ${n === 1 ? "section" : "sections"} — review, then Publish. ${left} ${left === 1 ? "section" : "sections"} from the backup no longer exist in this update and ${left === 1 ? "was" : "were"} left out.${imgBit}${missBit}`
+            : `Brought back ${n} ${n === 1 ? "section" : "sections"} — review, then Publish to put it live.${imgBit}${missBit}`,
           "success"
         );
       }
@@ -2004,7 +2071,7 @@ export function ToolsPage() {
           <h4>
             <Icon name="download" size={16} /> Download a backup
           </h4>
-          <p>Saves the latest published content as a file — keep it somewhere safe.</p>
+          <p>Saves the latest published content and its photos as one file — keep it somewhere safe.</p>
           <Btn size="sm" variant="ghost" icon="download" onClick={doBackup} disabled={busy}>
             Back up now
           </Btn>
@@ -2013,7 +2080,7 @@ export function ToolsPage() {
           <h4>
             <Icon name="archive" size={16} /> Restore from a backup
           </h4>
-          <p>Uploads a backup file and brings its content back as a draft — review it, then Publish.</p>
+          <p>Uploads a backup file and brings its content and photos back as a draft — review it, then Publish.</p>
           <input
             ref={restoreRef}
             type="file"
@@ -2024,6 +2091,18 @@ export function ToolsPage() {
           <Btn size="sm" variant="ghost" icon="archive" onClick={() => restoreRef.current?.click()} disabled={busy}>
             {busy ? "Restoring…" : "Restore a backup"}
           </Btn>
+        </Card>
+        <Card className="admin__tool">
+          <h4>
+            <Icon name="info" size={16} /> Which update is running here
+          </h4>
+          {/* The build stamp (note 244): the office reads here — and on the
+              live site in its console — whether the newest fixes have arrived.
+              If this number is lower than the latest zip's, the site host
+              still serves the old copy: rebuild and re-upload dist/. */}
+          <p>
+            Site code: update {BUILD_NOTES} · {BUILD_DATE}. If the live site shows a lower number, it is still serving the old copy.
+          </p>
         </Card>
       </div>
     </div>

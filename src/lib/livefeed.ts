@@ -21,7 +21,7 @@ export function feedSeedUrls(spec: FeedSpec): string[] {
   ];
 }
 
-export type FeedSeed = { rev: number; sections: Record<string, unknown> };
+export type FeedSeed = { rev: number; sections: Record<string, unknown>; notes?: number };
 
 /** True when the fetched seed is worth painting (newer than ours). */
 export function feedIsNewer(seed: unknown, currentRev: number): seed is FeedSeed {

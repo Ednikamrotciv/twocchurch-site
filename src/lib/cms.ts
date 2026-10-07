@@ -12,6 +12,7 @@ import { fireToast } from "./hooks";
 import { createRemoteSocket, initServerUrl, refreshServerUrl, serverOverride, serverUrl, setServerOverride } from "./remoteserver";
 import { applyBakedRecent } from "./recentstreams";
 import { bakedFeedSpec, feedIsNewer, peekSeed, siteFile, type FeedSeed, type FeedSpec } from "./livefeed";
+import { BUILD_NOTES } from "./hooks";
 
 export type Snapshot = Record<string, any>;
 export type CmsStatus = "connecting" | "online" | "offline" | "local";
@@ -27,6 +28,26 @@ const AFTER_SAVE_MAX_AGE_MS = 15 * 60 * 1000;
 const NAME_KEY = "wom.cms.editor";
 const SESSION_KEY = "wom.cms.session";
 const REQUEST_TIMEOUT = 9000;
+
+const NOTES_KEY = "wom.cms.notes";
+/* The code update the live content was last published from (note 249). */
+let publishedNotes = 0;
+function setPublishedNotes(n: unknown) {
+  if (typeof n !== "number" || !Number.isFinite(n) || n <= publishedNotes) return;
+  publishedNotes = Math.floor(n);
+  try {
+    localStorage.setItem(NOTES_KEY, JSON.stringify(publishedNotes));
+  } catch {
+    /* a full store keeps the memory value for this visit */
+  }
+}
+/* True while visitors must wait: new code shipped since the last publish.
+   The office console (#/admin) never waits. A first run (nothing published
+   from any update yet) never waits either. */
+export function useMaintenance(): boolean {
+  useCmsVersion();
+  return publishedNotes > 0 && publishedNotes < BUILD_NOTES;
+}
 
 /* ------------------------------------------------------------------- state */
 
@@ -639,6 +660,7 @@ export async function publishSection(sectionId: string, note: string): Promise<P
   rev = result.rev ?? rev + 1;
   updatedAt = Date.now();
   updatedBy = editorName();
+  setPublishedNotes(BUILD_NOTES);
   overrides[sectionId] = JSON.parse(payload);
   log = [{ rev, at: updatedAt, by: editorName(), role: myRole === "sub" ? "sub" : "main", note: note.slice(0, 160), changed: [sectionId] }, ...log].slice(0, 30);
   delete dirty[sectionId];
@@ -825,6 +847,7 @@ async function applySeedOnce() {
       applyBakedRecent(seed);
       if (seed && seed.sections && typeof seed.sections === "object" && Object.keys(seed.sections).length) {
         rev = typeof seed.rev === "number" ? seed.rev : 0;
+        if (typeof seed.notes === "number") setPublishedNotes(seed.notes);
         applyOverrides(seed.sections);
       }
     }
@@ -851,6 +874,7 @@ async function syncFromFeed() {
     if (!feedIsNewer(seed, rev)) return;
     const live = seed as FeedSeed;
     rev = live.rev;
+    if (typeof live.notes === "number") setPublishedNotes(live.notes);
     applyOverrides(live.sections as Snapshot);
     writeJSON(CACHE_KEY, { rev, overrides });
   } catch {
@@ -901,6 +925,12 @@ export async function startCms() {
     applyOverrides(cached.overrides);
   }
   history = readJSON<any[]>(HISTORY_KEY, []) || [];
+  try {
+    const nn = readJSON<number>(NOTES_KEY, 0);
+    if (typeof nn === "number" && nn > 0) publishedNotes = Math.floor(nn);
+  } catch {
+    publishedNotes = 0;
+  }
   pending = readJSON<Snapshot | null>(PENDING_KEY, null);
   /* The drawer mounts first, so the stored draft arriving late is put on the page (note 83). */
   showDraftIfEditing();
@@ -1229,6 +1259,7 @@ async function syncFromServer() {
   updatedAt = res.at || 0;
   updatedBy = res.by || "";
   log = Array.isArray(res.log) ? res.log : [];
+  if (typeof res.notes === "number") setPublishedNotes(res.notes);
   if (differs) {
     /* First contact with a fresh permanent server: carry over what was published. */
     if (!Object.keys(server).length && Object.keys(overrides).length && !pending && !plannedPublish()) {
@@ -1764,17 +1795,86 @@ export function importSnapshot(text: string): { ok: boolean; error?: string } { 
   }
 }
 
-/* -------------------------------------------------- backup file + restore */
+/* --------------------------------------- backup file + restore (with images) */
+
+type BackupFile = { name: string; type: string; data: string };
+
+/** Every office-server upload the published content points at. Remote links
+    (video pages, stills, pasted addresses, CDN photos) travel as words and
+    need nothing — only /data/uploads/ files live on the office disk. */
+function localUploadNames(content: Snapshot): string[] {
+  const seen = new Set<string>();
+  const re = /\/data\/uploads\/([A-Za-z0-9][A-Za-z0-9._-]*)/g;
+  const text = JSON.stringify(content);
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(text))) seen.add(m[1]);
+  return [...seen];
+}
+
+function guessUploadType(name: string): string {
+  const ext = (name.split(".").pop() || "").toLowerCase();
+  return (
+    ({ jpg: "image/jpeg", jpeg: "image/jpeg", png: "image/png", webp: "image/webp", gif: "image/gif", mp4: "video/mp4", webm: "video/webm", mov: "video/quicktime" } as Record<string, string>)[ext] ||
+    "application/octet-stream"
+  );
+}
+
+function blobToBase64(blob: Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const r = new FileReader();
+    r.onload = () => {
+      const s = String(r.result || "");
+      resolve(s.includes(",") ? s.slice(s.indexOf(",") + 1) : s);
+    };
+    r.onerror = () => reject(r.error);
+    r.readAsDataURL(blob);
+  });
+}
+
+function base64ToBlob(b64: string, type: string): Blob {
+  const bin = atob(b64);
+  const bytes = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  return new Blob([bytes], { type });
+}
 
 /** The latest PUBLISHED content as a downloadable backup — never draft edits.
-    Shaped by this update's own defaults, so it restores cleanly anywhere. */
-export function exportPublished(): string {
+    Every office-server photo/video the content uses rides inside the file, so
+    a restore brings everything back exactly as stored. Uploads are never
+    deleted server-side: they sit in data/uploads/ until the office removes
+    them, and every backup carries copies regardless. */
+export async function exportPublished(): Promise<string> {
+  const content = merge(overrides);
+  const base = serverUrl();
+  const files: BackupFile[] = [];
+  const missingFiles: string[] = [];
+  for (const name of localUploadNames(content)) {
+    try {
+      const res = await fetch((base ? base : "") + "/data/uploads/" + name, { cache: "no-store" });
+      if (!res.ok) throw 0;
+      const blob = await res.blob();
+      if (!blob.size) throw 0;
+      files.push({ name, type: blob.type || guessUploadType(name), data: await blobToBase64(blob) });
+    } catch {
+      missingFiles.push(name);
+    }
+  }
   return JSON.stringify(
-    { site: "world-overcomers", kind: "content-backup", exportedAt: Date.now(), rev, content: merge(overrides) },
+    { site: "world-overcomers", kind: "content-backup", exportedAt: Date.now(), rev, content, files, missingFiles },
     null,
     2
   );
 }
+
+export type ImportResult = {
+  ok: boolean;
+  error?: string;
+  restored?: string[];
+  skipped?: string[];
+  filesRestored?: number;
+  filesFailed?: string[];
+  filesMissing?: string[];
+};
 
 /**
  * Restore an uploaded backup into the draft — review, then Publish to put it
@@ -1782,8 +1882,10 @@ export function exportPublished(): string {
  * cleared is left out (and named, so the office sees what stayed behind).
  * Dropped fields inside kept sections never resurrect either — the merge keeps
  * this update's shape and ignores stored keys it no longer knows.
+ * Embedded uploads are written back under their exact stored names, so the
+ * restored words point at working photos from the first Publish.
  */
-export function importBackup(text: string): { ok: boolean; error?: string; restored?: string[]; skipped?: string[] } {
+export async function importBackup(text: string): Promise<ImportResult> {
   let parsed: any;
   try {
     parsed = JSON.parse(text);
@@ -1813,7 +1915,48 @@ export function importBackup(text: string): { ok: boolean; error?: string; resto
   for (const id of restored) dirty[id] = true;
   persistDraft();
   notify();
-  return { ok: true, restored, skipped };
+  /* The photos ride home: each embedded upload is written back under its
+     exact stored name. Old backups without embedded files still import —
+     their words simply point at whatever the server still holds. */
+  const incoming: BackupFile[] = Array.isArray(parsed?.files) ? parsed.files : [];
+  const filesMissing: string[] = Array.isArray(parsed?.missingFiles)
+    ? parsed.missingFiles.filter((n: any) => typeof n === "string")
+    : [];
+  const filesFailed: string[] = [];
+  let filesRestored = 0;
+  if (incoming.length) {
+    const base = serverUrl();
+    let reachable = !!base;
+    if (!base) {
+      try {
+        const host = window.location?.hostname || "";
+        reachable = host === "localhost" || host === "127.0.0.1" || host === "";
+      } catch {
+        reachable = false;
+      }
+    }
+    if (!reachable) {
+      for (const f of incoming) if (f && typeof f.name === "string") filesFailed.push(f.name);
+    } else {
+      for (const f of incoming) {
+        try {
+          const name = String(f?.name || "");
+          if (!name || typeof f?.data !== "string" || !f.data) throw 0;
+          const type = typeof f?.type === "string" && f.type ? f.type : guessUploadType(name);
+          const res = await fetch(`${base}/__restore-file?name=${encodeURIComponent(name)}`, {
+            method: "POST",
+            headers: { "content-type": type },
+            body: base64ToBlob(f.data, type),
+          });
+          if (!res.ok) throw 0;
+          filesRestored++;
+        } catch {
+          if (f && typeof f.name === "string") filesFailed.push(f.name);
+        }
+      }
+    }
+  }
+  return { ok: true, restored, skipped, filesRestored, filesFailed, filesMissing };
 }
 
 /* ----------------------------------------------------------------- publish */
@@ -1862,6 +2005,9 @@ async function sendPatch(
     size += chars;
   }
   if (current.length) batches.push(current);
+  /* No content changes still syncs the update number, so a Publish click
+     while visitors wait lifts maintenance (note 249). */
+  if (!batches.length) batches.push([]);
 
   const sent: string[] = [];
   let lastRev: number | undefined;
@@ -1874,6 +2020,7 @@ async function sendPatch(
       note: note.slice(0, 160),
       by: editorName(),
       changed: ids,
+      notes: BUILD_NOTES,
       /* Every batch stores its sections, but only the last one records the
          history entry — otherwise one Publish shows up as several rows. */
       quiet: b < batches.length - 1,
@@ -1914,6 +2061,26 @@ export async function publish(note: string, content?: Snapshot): Promise<Publish
 
   if (!changed.length) {
     draft = null;
+    if (publishedNotes >= BUILD_NOTES) {
+      notify();
+      return { ok: true };
+    }
+    /* Visitors are waiting and Publish was clicked with no content changes:
+       bless the current update on the server so maintenance lifts (note 249). */
+    if (!socket || status !== "online") {
+      notify();
+      return { ok: true, local: true };
+    }
+    if (!authed) {
+      const saved = sessionPassword();
+      const res = saved ? await login(saved, true) : ({ ok: false as const });
+      if (!res.ok) return { ok: false, error: "unauthorized" };
+    }
+    const bless = await sendPatch({}, [], note.slice(0, 160));
+    if (!bless.ok) return { ok: false, error: bless.error };
+    rev = bless.rev ?? rev + 1;
+    setPublishedNotes(BUILD_NOTES);
+    writeJSON(CACHE_KEY, { rev, overrides });
     notify();
     return { ok: true };
   }
@@ -1966,6 +2133,7 @@ export async function publish(note: string, content?: Snapshot): Promise<Publish
   rev = result.rev ?? rev + 1;
   updatedAt = Date.now();
   updatedBy = editorName();
+  setPublishedNotes(BUILD_NOTES);
   applyOverrides(overrides, false);
   writeJSON(CACHE_KEY, { rev, overrides });
   log = [{ rev, at: updatedAt, by: editorName(), role: myRole === "sub" ? "sub" : "main", note: payloadNote, changed }, ...log].slice(0, 20);
@@ -2152,6 +2320,7 @@ export async function undoLastPublish(): Promise<PublishResult> {
   history = history.slice(1);
   writeJSON(HISTORY_KEY, history);
   rev = result.rev ?? rev + 1;
+  setPublishedNotes(BUILD_NOTES);
   overrides = clone(entry.overrides || {});
   applyOverrides(overrides, false);
   writeJSON(CACHE_KEY, { rev, overrides });
@@ -2178,6 +2347,7 @@ export async function clearAllOverrides(): Promise<PublishResult> {
   const result = await sendPatch(sections, ids, "Restored the shipped defaults");
   if (!result.ok) return { ok: false, error: result.error };
   rev = result.rev ?? rev + 1;
+  setPublishedNotes(BUILD_NOTES);
   overrides = {};
   applyOverrides({}, false);
   writeJSON(CACHE_KEY, { rev, overrides });

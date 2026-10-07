@@ -2014,14 +2014,14 @@ html {
   background-clip: padding-box;
 }
 [data-theme="light"] html {
-  scrollbar-color: rgba(130, 130, 145, 0.7) transparent;
+  scrollbar-color: rgba(150, 150, 160, 0.85) transparent;
 }
 [data-theme="light"] ::-webkit-scrollbar-thumb {
-  background-color: rgba(130, 130, 145, 0.7);
+  background-color: rgba(150, 150, 160, 0.85);
   background-clip: padding-box;
 }
 [data-theme="light"] ::-webkit-scrollbar-thumb:hover {
-  background-color: rgba(100, 100, 115, 0.9);
+  background-color: rgba(120, 120, 132, 0.9);
   background-clip: padding-box;
 }
 ::-webkit-scrollbar-button {
@@ -2042,9 +2042,9 @@ html {
   width: 0 !important;
   height: 0 !important;
 }
-/* The scroll-to-top button (note 239): a circle that takes the page theme —
+/* The scroll-to-top button (notes 239, 245): a circle that takes the page theme —
    dark glass with a gold chevron by night, light cream with a dark-gold
-   chevron by day. It pops up once two screenfuls are passed; one tap returns
+   chevron by day. It pops up once one screenful is passed; one tap returns
    to the top. */
 .scroll-pill {
   position: fixed;
@@ -2064,7 +2064,9 @@ html {
   pointer-events: none;
   transform: translateY(10px);
   transition: opacity 0.25s ease, transform 0.25s ease;
-  z-index: 150;
+  /* Above every image and text on the page (menus, modals) — only the
+     language popup sits higher. */
+  z-index: 950;
   box-shadow: 0 14px 30px -12px rgba(0, 0, 0, 0.55);
 }
 [data-theme="light"] .scroll-pill {
@@ -2521,20 +2523,12 @@ html {
   max-height: min(74vh, 470px);
   overflow-y: auto;
   overscroll-behavior: contain;
+  /* Inner containers never draw a bar (note 237): the menu scrolls by
+     swipe, wheel and keys with no bar inside it. */
   scrollbar-width: none;
-  scrollbar-color: rgba(227, 183, 92, 0.32) transparent;
 }
 .menu-pop__nav::-webkit-scrollbar {
   display: none;
-}
-
-.menu-pop__nav::-webkit-scrollbar {
-  width: 7px;
-}
-
-.menu-pop__nav::-webkit-scrollbar-thumb {
-  background: rgba(227, 183, 92, 0.3);
-  border-radius: 8px;
 }
 
 .menu-pop__link {
@@ -3271,4 +3265,96 @@ input, select, textarea { font-size: 1rem !important; }
 }
 [data-theme="light"] .langask__later {
   color: #7a746b;
+}
+
+/* Maintenance mode (note 249): the header's logo and notice are the whole
+   site — no pages, no footer, no buttons. Follows the page theme. */
+.maint {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  background: var(--ink);
+  color: var(--text);
+}
+.maint__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.9rem 22px;
+  border-bottom: 1px solid var(--line-2);
+  background: var(--header-bg);
+}
+.maint__brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.6rem;
+  font-family: var(--font-display);
+  font-size: 1.05rem;
+}
+.maint__logo {
+  height: 34px;
+  width: auto;
+}
+.maint__pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.28rem 0.9rem;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: var(--panel-2);
+  color: var(--gold-2);
+  font-size: 0.8rem;
+  letter-spacing: 0.06em;
+}
+.maint__main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.7rem;
+  padding: 3rem 22px;
+  text-align: center;
+}
+.maint__mark {
+  height: 84px;
+  width: auto;
+  opacity: 0.95;
+}
+.maint__main h1 {
+  font-family: var(--font-display);
+  font-size: clamp(1.8rem, 4.5vw, 2.6rem);
+  margin: 0.4rem 0 0;
+}
+.maint__main p {
+  color: var(--muted);
+  margin: 0;
+}
+[data-theme="light"] .maint__pill {
+  color: var(--gold);
+}
+/* The office banner while visitors wait: impossible to miss, one tap to publish. */
+.admin__maint {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  margin: 0.6rem 22px 0;
+  padding: 0.55rem 1rem;
+  border-radius: 12px;
+  border: 1px solid var(--line);
+  background: var(--panel-2);
+  color: var(--text);
+  font-size: 0.88rem;
+}
+.admin__maint-go {
+  flex: none;
+  border-radius: 999px;
+  border: 1px solid var(--gold-ui);
+  background: var(--gold-ui);
+  color: var(--gold-ink);
+  font-weight: 650;
+  padding: 0.35rem 1rem;
+  cursor: pointer;
 }

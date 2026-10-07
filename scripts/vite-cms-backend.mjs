@@ -27,6 +27,15 @@ export function cmsBackend() {
     async configResolved(config) {
       const html = await readFile(path.join(ROOT, "index.html"), "utf8");
       siteVersion = "vite-" + hashText(html);
+      /* Announce the update on every dev boot (note 248): with several
+         extracts on one machine, the terminal names which one is running. */
+      try {
+        const src = await readFile(path.join(ROOT, "src", "lib", "hooks.ts"), "utf8");
+        const n = Number((src.match(/BUILD_NOTES = (\d+)/) || [])[1]) || 0;
+        if (n) console.log(`dev server: site update ${n} (Admin > Tools shows the same number)`);
+      } catch {
+        /* stamp unreadable — the page stamp still shows */
+      }
       try {
         await guardAtBoot(ROOT);
       } catch {

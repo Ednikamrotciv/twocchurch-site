@@ -1,9 +1,9 @@
 import React, { useEffect } from "react";
 import { useRoute, navigate, ADMIN_PREFIX } from "./lib/router";
-import { Header, Footer, ScrollTop, SkipLink } from "./components/layout";
+import { Header, Footer, ScrollTop, SkipLink, MaintenanceSite } from "./components/layout";
 import { Toaster } from "./components/ui";
 import { ErrorBoundary } from "./components/ErrorBoundary";
-import { startCms, useCmsVersion } from "./lib/cms";
+import { startCms, useCmsVersion, useMaintenance } from "./lib/cms";
 import { mountShaderBackground } from "./lib/shaderbg";
 import { startVisitorClock, useVisitorClock, useVisitorClockRefresh } from "./lib/visitor";
 import { useI18nTick, ensureI18n, setProtectedValues, i18nAsk, chooseLang, dismissAsk } from "./lib/i18n";
@@ -24,6 +24,8 @@ const Admin = React.lazy(() => import("./pages/Admin").then((m) => ({ default: m
 export function App() {
   const route = useRoute();
   const version = useCmsVersion();
+  /* New code since the last publish: visitors wait, the office never does. */
+  const maintenance = useMaintenance();
   /* Where the visitor is (their IP's time zone). Reading it here re-renders the
      whole site the moment the answer lands, so every time on the page moves
      onto the visitor's own clock in one pass (SPEC note 85). */
@@ -94,6 +96,10 @@ export function App() {
         <LangAsk />
       </>
     );
+
+  /* Visitors wait on maintenance until the office publishes (note 249) —
+     logo and notice only, nothing else. */
+  if (maintenance) return <MaintenanceSite />;
 
   return (
     <>

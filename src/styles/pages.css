@@ -5957,19 +5957,23 @@
   width: 38px;
   height: 38px;
   border-radius: 50%;
-  border: 1px solid rgba(255, 255, 255, 0.5);
-  background: rgba(8, 8, 12, 0.5);
-  color: #fff;
+  border: 1px solid var(--line);
+  background: rgba(10, 10, 14, 0.86);
+  color: var(--gold-on-dark);
   cursor: pointer;
   backdrop-filter: blur(4px);
-  transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+  box-shadow: 0 14px 30px -12px rgba(0, 0, 0, 0.55);
+  transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease, transform 0.25s ease;
 }
 .aslides__arrow:hover {
-  background: rgba(8, 8, 12, 0.82);
-  border-color: #fff;
+  background: rgba(10, 10, 14, 0.95);
+  border-color: var(--gold-on-dark);
+  transform: translateY(-50%) translateY(-2px);
 }
 .aslides__arrow--prev { left: 13px; }
 .aslides__arrow--next { right: 13px; }
+/* The chevron wears the scroll button's thick gold stroke. */
+.aslides__arrow svg { stroke-width: 2.4; }
 /* Each arrow breathes toward its own direction — the icon nudges, not the
    button, so the stage centring and the tap spring are untouched. */
 .aslides__arrow--prev svg { animation: aslides-nudge-left 1.6s ease-in-out infinite alternate; }
@@ -5990,23 +5994,23 @@
 .aslides--3d .aslides__arrow {
   opacity: 1;
   visibility: visible;
-  background: rgba(8, 8, 12, 0.72);
-  border-color: rgba(255, 255, 255, 0.65);
+  background: rgba(10, 10, 14, 0.86);
+  border-color: var(--line);
 }
-/* The arrows take the page theme with them: a light pill on light pages, the
-   dark glass on dark ones. */
+/* The arrows wear the scroll button's design: dark glass with a gold chevron
+   at night, light cream with a dark-gold chevron by day. */
 [data-theme="light"] .aslides__arrow,
 [data-theme="light"] .aslides--3d .aslides__arrow {
-  background: rgba(255, 253, 247, 0.82);
-  border-color: rgba(58, 44, 16, 0.4);
-  color: #3a2c10;
+  background: rgba(255, 253, 247, 0.94);
+  border-color: rgba(58, 44, 16, 0.3);
+  color: #7a5c14;
 }
 [data-theme="light"] .aslides__arrow:hover,
 [data-theme="light"] .aslides__arrow:focus-visible,
 [data-theme="light"] .aslides--3d .aslides__arrow:hover,
 [data-theme="light"] .aslides--3d .aslides__arrow:focus-visible {
   background: rgba(255, 253, 247, 0.97);
-  border-color: #3a2c10;
+  border-color: #7a5c14;
 }
 @media (hover: hover) and (pointer: fine) {
   .aslides__arrow,

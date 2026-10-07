@@ -6770,3 +6770,52 @@ The scroll button now matches the office sample: a square ochre block (12px corn
 ## 239. Circle scroll button that follows the theme (the office asked)
 
 The square ochre block is now a circle that takes the page theme when it pops up: dark glass with a gold chevron at night, light cream with a dark-gold chevron by day. The thick bouncing white-on-ochre look is gone; the pop-in, chevron bounce and two-screenful trigger are unchanged. Verified: repacked.
+
+## 240. Button above everything; seamless slide turnover (the office asked)
+
+(1) The circle button now sits at z-index 950 — above every image, text, menu and modal on the page (only the temporary language popup is higher) — still fixed bottom-right on every page, popping up past two screenfuls with the footer covering short pages. (2) The rotation hiccup on slide change is fixed at its cause: the old code freed each face texture while it was still showing and swapped faces in one by one, so every turnover flashed. The new set of faces now paints fully offscreen and swaps in with a single update — old faces stay up until the last new one is ready — and replaced textures are freed only after the swap. Verified: edited files parse, repacked.
+
+
+## 241. Tap advances at once; every slide holds 15 seconds (the office asked)
+
+A tap or click on the box now turns the next face to the front immediately and hands straight back to the auto-slide about a second later — the revolve picks up exactly where the turn lands, so there is no jump and the stage never sits still. Each slide shows for 15 seconds, on the 3D stage and the flat fallback alike (CONTENT_MS and ADVANCE_MS both 15s). Verified: edited files parse, repacked.
+
+
+## 242. Backups carry every photo; restore brings them home (the office asked)
+
+The downloaded backup is now words plus pictures in one file: every office-server photo/video the published content points at rides inside as embedded data, and a restore writes each one back under its exact stored name (new `__restore-file` server endpoint, same file rules as uploads, foreign names refused) — so restored words point at working photos from the first Publish, with no re-linking. Anything already missing at backup time, or that fails to write back, is named in the toast. Old backups without embedded files still import; their words point at whatever the server still holds. Untouched: uploads are never deleted server-side (kept in data/uploads/ until the office removes them), and remote links (video pages, stills, pasted addresses) travel as words as before. Verified: edited files parse, repacked.
+
+
+## 243. Admin can delete uploads for good (the office asked)
+
+Uploads now live until the office says otherwise: beside *Use the original photo* and *Remove the video* sits a two-tap *Delete photo/video from the office* control (only on office-server uploads — bundled photos and pasted links never show it). Confirming deletes the file off the office disk via a new `__delete-file` endpoint (same naming guard as the other file endpoints), clears the field, and afterwards the file simply stops riding in backups; publishing takes it off the site everywhere it was used. Verified: edited files parse, repacked.
+
+
+## 244. Build stamp, footer re-resolve, theme coerce (the office asked)
+
+Three guards so a stale or damaged state can never read as a fault again. (1) Admin → Tools carries a *Which update is running here* card showing the shipped update number and date, mirrored on `window.__womBuild` in the browser console — if the live site shows a lower number than the latest zip, the host is still serving the old copy: rebuild and re-upload dist/. (2) The scroll button re-resolves the footer 1.5s after paint, so late content growth can never leave its footer watch guarding nothing. (3) The theme hook coerces any stored value that is not exactly dark or light back to dark, so the site can never wake up stuck in a half theme; manual sun/moon taps still hold and are still remembered. Verified: edited files parse, repacked.
+
+
+## 245. Scroll button shows after one screenful; every scroller goes home (the office asked)
+
+The button stayed hidden through ordinary phone scrolling because it waited for two full screenfuls — which read as missing. It now pops up after one screenful; the near-bottom and footer-watch rules are unchanged, and short pages still never show it. One tap drives window, documentElement and body to the top, so embedded or late-grown pages still land on top. Verified: trigger-matrix harness, edited files parse, repacked, image proof attached.
+
+
+## 246. Scrollbar exactly like the office reference (the office asked)
+
+The page-edge bar now matches the reference shot and nothing else: a thin floating neutral-grey thumb on an invisible track, no arrow buttons, no chunky desktop bar - same slim shape on desktop and mobile (Chromium, Firefox, and phones with their native overlay feel). Light pages carry neutral grey, dark pages pale; inner containers (menu, modals, palette, tab strips, panels) draw no bar at all. Also retired the menu dropdown's leftover gold scrollbar rules, which contradicted its own hidden-bar rule. Verified: CSS sanity check, edited files parse, repacked, image proof attached.
+
+
+## 247. Slide arrows wear the scroll button's design (the office asked)
+
+The slide-area arrows now look like the scroll-up button: dark glass circle with a gold chevron at night, light cream circle with a dark-gold chevron by day, same shadow, same hover lift, thicker chevron stroke. One restyle of `.aslides__arrow` covers all three stages (3D cuboid, flat swiper, spare) in both themes; sizes, positions, directional nudge, tap spring and the small-phone 32px rule are untouched. Verified: CSS sanity check, repacked, image proof attached.
+
+
+## 248. Old copies can never pass silently again (the office asked)
+
+Three guards plus a real bug fix. (1) `npm run dev` announces its update in the terminal on every boot, and `npm start` announces folder update vs dist update - with several extracts on one machine the terminal names which one is running. (2) `npm run build` stamps dist/version.json with the update number; `npm start` compares it and warns loudly when dist is older (`OLD BUILD: dist/ is update X but this folder is update Y - rebuild`), so a stale production build is spoken, not silent. (3) Fixed the delete-upload endpoint: serve.mjs called `rm` without importing it, so every office delete failed - `rm` is now imported and the two-tap delete works on the office server. Verified: edited files parse, repacked.
+
+
+## 249. Maintenance until Publish after an update (the office asked)
+
+Whenever a new update is deployed, visitors see maintenance only - the header's logo and a Maintenance notice, nothing else - while the whole admin console stays active. The first Publish from the new code lifts it everywhere. How: every publish blesses the publishing code's update number (`BUILD_NOTES` rides each patch; the server keeps the highest in its state; seed backups, the live feed and browser caches carry it). The public site compares it with its own code and waits when behind; `#/admin` never waits. A Publish with no content changes still blesses (notes-only sync), so the click always lifts. First-ever runs (nothing published yet) never wait. The admin shell shows `Visitors see maintenance right now` with a Review-and-publish shortcut while it lasts. Verified: edited files parse, maintenance matrix harness, repacked, image proof attached.
