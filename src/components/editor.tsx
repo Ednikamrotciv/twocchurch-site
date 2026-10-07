@@ -1370,7 +1370,7 @@ function ImageField({
   return (
     <Field label={label} hint={def.hint || "Upload a photo from your phone or computer, or paste the address of one."}>
       <div className="admin__imagefield">
-        <span className="admin__imagepreview">{preview ? <img src={preview} alt="" /> : <Icon name="camera" size={18} />}</span>
+        <span className={"admin__imagepreview" + (forSlide ? " admin__imagepreview--slide" : "")}>{preview ? <img src={preview} alt="" /> : <Icon name="camera" size={18} />}</span>
         <div className="admin__imageinputs">
           <p className="admin__imagecaption">{caption}</p>
           <PhotoUpload onDone={(url) => onChange(url)} frame={def.frame} />

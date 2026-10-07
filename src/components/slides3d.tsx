@@ -1,5 +1,6 @@
-/* Announcement slides as a rotating 4-sided stage. Past four, the faces carry
-   the first four. Faces without a picture carry the church logo; with no
+/* Announcement slides as a rotating 4-sided stage. The four faces walk through
+   every announcement on their own (note 227) — past four, the faces turn over
+   to the next ones. Faces without a picture carry the church logo; with no
    slides at all the stage is all logo. Flat swiper fallback in ./slides.tsx. */
 
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -34,6 +35,10 @@ export type CuboidApi = {
 const TURN_SPEED = (Math.PI * 2) / 26;
 /** Hands off the box this long and it resumes its default slow revolve. */
 const IDLE_MS = 3 * 60 * 1000;
+/** How long a face's slide waits before the faces turn over to the next one
+    on their own — the flat stage's own rhythm (ADVANCE_MS in ./slides.tsx),
+    so the box and the fallback move as one. */
+const CONTENT_MS = 9000;
 
 /* The four sides in the order the arrows walk them: front → right → back →
    left. Every step is a short quarter-turn of level yaw, and every resting
@@ -279,7 +284,27 @@ function Cuboid({ slides, apiRef, held, logo, theme }: { slides: (SlideT | null)
     if (!apiRef) return;
     apiRef.current = { push: step, snap: settle };
   }, [apiRef]);
-  const faceSlides = useMemo(() => [0, 1, 2, 3].map((f) => (slides.length ? slides[f % slides.length] : null)), [slides]);
+  /* Four faces but any number of announcements: the faces walk through every
+     slide on their own, no swipe or arrow needed. A tap settles the box onto
+     its nearest face and holds it, but the faces keep turning over — the
+     stage moves like a normal slider even with the box standing still. A
+     hold (hover, focus, touch) freezes the turnover, like the flat stage. */
+  const countSlides = slides.length;
+  const [base, setBase] = useState(0);
+  useEffect(() => {
+    setBase((b) => (countSlides > 0 ? b % countSlides : 0));
+  }, [countSlides]);
+  const heldRef = useRef(held);
+  heldRef.current = held;
+  useEffect(() => {
+    if (countSlides <= 1) return;
+    const id = window.setInterval(() => {
+      if (heldRef.current) return;
+      setBase((b) => (b + 1) % countSlides);
+    }, CONTENT_MS);
+    return () => window.clearInterval(id);
+  }, [countSlides]);
+  const faceSlides = useMemo(() => [0, 1, 2, 3].map((f) => (countSlides > 0 ? slides[(base + f) % countSlides] : null)), [slides, countSlides, base]);
   /* The four sides carry the slides' own content (box material order is
      +x, -x, +y, -y, +z, -z: the caps get no slide and stay plain dark).
      A face with no picture of its own carries the church logo — the stage

@@ -6705,3 +6705,68 @@ Only the granted exceptions stay English now — the church's name, street addre
 ## 226. Service-notes popup downloads instead of linking out (the office asked)
 
 The bottom pill in the *Service notes* notepad on Watch live was a *Notes & discussion* link to the message page — it is now a *Download note* button that downloads the notepad text as a .txt file the moment it is tapped (same per-gathering filename as before). An empty notepad answers with a short "write a note first" toast instead of handing over a blank file. The duplicate small download beside the character count is gone so there is only one download to find. The message-page link is removed from this popup only; the last-message card above it still links to the message. Verified: WatchLive parses, repacked.
+
+
+## 227. Slides turnover, themed arrows, scroll-top pill, slide-field cleanup (the office asked)
+
+Five together. (1) The announcement-slide field *The button goes to* lost its helper line about /visit, /events and full addresses — the label and /visit placeholder stay, the paragraph underneath is gone. (2) The slide picture preview in the editor shows the whole picture in the slide's own 4:3 frame (contain) instead of a cropped cover strip — on phones it used to read as only half the flyer (a full-width 128px strip); desktop shows a 220px frame, phones the full width, both at 4:3. Uploads already re-cut to the 1600x1200 frame on the way up, so the preview now matches what the stage carries. (3) The 3D stage's four faces walk through every announcement on their own every 9 seconds — the flat fallback's rhythm — instead of carrying only the first four; a tap still settles the box onto its nearest face, but the faces keep turning over underneath, so the stage moves like a normal slider with no swipe or arrow. Hover/focus/touch holds freeze the turnover, like the flat stage's pause. (4) The slide arrows take the page theme: light glass pill with dark ink on light pages, the dark glass as before at night. (5) The scroll-to-top pill (already mounted on every page, appearing once scrolled, smooth-scrolls to top on tap) takes the theme too — light glass by day, dark glass by night. Verified: edited files parse, repacked.
+
+
+## 228. Tools-card buttons fit their card (the office asked)
+
+On desktop the *Undo the last publish* button spilled past its card's edge and was clipped there: every `.btn` carries `white-space: nowrap`, and the tools grid columns can run narrower than the words. Tool-card buttons now wrap inside their own card (`max-width: 100%`, normal wrapping, left-aligned) and the cards themselves can shrink to their column (`min-width: 0`). Nothing else moves — labels unchanged. Verified: repacked.
+
+
+## 229. Bottom-only scroll pill; slide button rows out of the admin (the office asked)
+
+(1) The scroll-to-top pill is mounted once in SiteApp, so every public page already carries it — but it used to appear after any scrolling. It now appears only when the page is at its bottom (within ~160px of the foot, on pages tall enough to scroll), and one tap smooth-scrolls to the top. `useScrollProgress` gained an `atBottom` flag for it; the header's own scrolled/progress behaviour is untouched. (2) The announcement-slide editor lost both button rows — *Button words* (with its helper) and *The button goes to* (/visit placeholder). The data model is untouched: slides already carrying button words keep them on the site, and the list's meta line still names them; the office simply cannot add or change them from the admin anymore. Verified: edited files parse, repacked.
+
+
+## 230. Top light streak gone; scroll pill is gold (the office asked)
+
+(1) The thin gold-crimson progress streak fixed to the very top of the page — the light line that grew while scrolling — is removed (element and styles), so nothing flickers over the top bar on scroll. (2) The scroll pill is now solid gold with a dark arrow in both themes (no blur, no theme-tinted glass to lose it against the page), a touch larger with a stronger gold shadow, and renamed to `scroll-pill` so browser content-blocker annoyance filters that hide `to-top` buttons can never swallow it. Behaviour unchanged: every public page carries it, it appears only at the page bottom, one tap returns to the top. Verified: edited files parse, repacked.
+
+
+## 231. Scroll pill animates (the office asked)
+
+The gold pill now pops in with a small spring (rise + scale) each time it arrives at the page bottom, its arrow breathes upward, and a soft gold ring ripples outwards every couple of seconds — all pausing under the finger/hover. Reduced-motion visitors get the still pill: all three animations switch off under `prefers-reduced-motion`. Verified: repacked.
+
+
+## 232. Theme stays put — the flashing top bar (the office asked)
+
+The white flash over the top bar while scrolling was the 30-second showcase cycle flipping the whole site dark ⇄ light on its own (the video caught it sitting in light mode with the pale sticky header). The cycle is removed: dark is home and it holds — the theme now changes only when the visitor taps the sun/moon, and the pick is remembered on the device across loads (the stored pick is no longer wiped on load). The 3D stage and every themed surface still follow manual toggles exactly as before. Verified: edited files parse, repacked.
+
+
+## 233. Self-hosted fonts — full local copy (the office asked)
+
+The site no longer fetches type from Google: all 22 files both families use (Cormorant Garamond 400/500/600/700 + 400/600 italics, Inter 300–700, latin + latin-ext each) live in `src/assets/fonts/`, loaded by 22 `\@font-face` rules at the top of `styles/global.css` with the exact upstream unicode ranges. latin covers French/German/Spanish/Portuguese; latin-ext covers Yoruba/Igbo dotted letters (ẹ ọ ṣ) and the rest. The Google Fonts links are out of index.html, so pages read identically offline or on the office computer with no internet. Everything else online already degrades: no IP answer → church clock + church currency (visitor.ts), no rate feeds → the dated snapshot in data/currencies.ts (rates.ts), no live-check answer → treated as off-air (livestatus.ts). Streams, video stills, maps and share links inherently need the internet and stay remote. Verified: no googleapis reference left, all font files on disk, repacked.
+
+
+## 234. Mobile-like slim scrollbars on desktop (the office asked)
+
+The chunky desktop scrollbar (light track, arrow buttons) is restyled everywhere to the slim mobile look: thin gold thumb on a transparent track, no arrow buttons, matching rules for Chromium (`::-webkit-scrollbar*`) and Firefox (`scrollbar-width: thin`). Verified: repacked.
+
+
+## 235. Scroll pill that cannot miss (the office asked — VS Code check)
+
+The pill missed its cue in the office's own browser, so it no longer trusts a single scroll reading: it now runs two independent signals — scroll listeners on window and document (capture) reading every scroller (window.scrollY, documentElement and body), plus an IntersectionObserver watching the footer itself, which fires no matter which element scrolls or when late content grows the page. Either signal shows the gold pill at the page bottom on every page (public and admin both mount it); short pages still never show it. For the VS Code before-deploy check, `window.__pillState()` in the browser console reports the live scroll numbers (top/client/full/max/remaining). Same code ships to dev and production, so a VS Code `npm run dev` check is the production behaviour. Verified: parses, repacked.
+
+
+## 236. Reference-style scrollbar; arrow-led scroll pill (the office asked)
+
+(1) The scrollbar now matches the reference shot: a thin pale line on a transparent track with no arrow buttons, same slim shape on desktop and mobile (Chromium + Firefox rules; phones keep their native overlay feel). The tone adapts per theme so it stays visible — pale on dark pages, mid-grey on light ones. (2) The scroll pill stays a gold disc (visible in both themes) but the arrow leads: larger arrow (22px) bouncing upward inside the disc, pop-in on arrival, rippling gold ring — all pausing on hover/touch, off under prefers-reduced-motion. Still bottom-only: it appears solely at the page foot on every page. Verified: repacked.
+
+
+## 237. No bars inside containers — page edge only (the office asked)
+
+Only the page itself draws the reference-style thin pale line now: every inner scroll area (menu dropdown, modals, search palette, tab strips, panels) hides its own bar via a global non-root rule, so no bar ever sits inside a container — those areas still scroll by swipe, wheel and keys. The menu dropdown's own gold thin-bar rule is retired too. Verified: repacked.
+
+
+## 238. Sample-style square scroll button, two-screenful trigger (the office asked)
+
+The scroll button now matches the office sample: a square ochre block (12px corners) with a thick white chevron, same in both themes. It pops up with the spring entrance once the visitor has scrolled past two screenfuls, and the chevron bounces upward inside the block while it waits (pausing on hover/touch, off under prefers-reduced-motion). The footer watch stays as the second signal and covers short pages. The old ripple ring is gone — the sample is plain. Verified: repacked.
+
+
+## 239. Circle scroll button that follows the theme (the office asked)
+
+The square ochre block is now a circle that takes the page theme when it pops up: dark glass with a gold chevron at night, light cream with a dark-gold chevron by day. The thick bouncing white-on-ochre look is gone; the pop-in, chevron bounce and two-screenful trigger are unchanged. Verified: repacked.

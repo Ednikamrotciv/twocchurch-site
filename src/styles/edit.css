@@ -48,7 +48,7 @@ img.ed-photo.ed-active {
   outline-offset: 0;
 }
 
-[data-editing] .to-top {
+[data-editing] .scroll-pill {
   bottom: calc(var(--editbar-h) + 1.1rem);
 }
 

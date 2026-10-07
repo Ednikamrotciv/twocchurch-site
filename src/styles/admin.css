@@ -283,6 +283,17 @@
   height: 100%;
   object-fit: cover;
 }
+/* A slide's own picture shows whole, in the slide's own 4:3 frame — never a
+   cropped strip — so the office sees what the stage will carry. */
+.admin__imagepreview--slide {
+  width: 220px;
+  height: auto;
+  aspect-ratio: 4 / 3;
+}
+.admin__imagepreview--slide img {
+  object-fit: contain;
+  background: #14121a;
+}
 .admin__imageinputs {
   flex: 1;
   min-width: 0;
@@ -644,6 +655,7 @@
   display: grid;
   gap: 0.4rem;
   align-content: start;
+  min-width: 0;
 }
 .admin__tool h4 {
   margin: 0;
@@ -662,6 +674,12 @@
 }
 .admin .admin__tool .btn {
   justify-self: start;
+  /* Long labels wrap inside their own card instead of spilling past its
+     edge (desktop tool grid columns can be narrower than the words). */
+  max-width: 100%;
+  white-space: normal;
+  text-align: left;
+  overflow-wrap: break-word;
 }
 .admin .admin__tool--wide {
   grid-column: 1 / -1;
@@ -753,6 +771,13 @@
   .admin__imagepreview {
     width: 100%;
     height: 128px;
+  }
+  /* The slide frame keeps its shape on a phone too — the whole picture, not
+     a cropped strip. */
+  .admin__imagepreview--slide {
+    width: 100%;
+    height: auto;
+    aspect-ratio: 4 / 3;
   }
 }
 

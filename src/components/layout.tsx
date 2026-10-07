@@ -95,7 +95,7 @@ export function SkipLink() {
 export function Header() {
   const { path } = useRoute();
   const { theme, toggle } = useTheme();
-  const { scrolled, progress } = useScrollProgress();
+  const { scrolled } = useScrollProgress();
   const [open, setOpen] = useState(false);
   const [paletteOpen, setPaletteOpen] = useState(false);
   /* Tablets and up get the full desktop nav; only phones collapse to the menu. */
@@ -130,7 +130,6 @@ export function Header() {
 
   return (
     <>
-      <div className="scroll-progress" style={{ transform: `scaleX(${progress})` }} aria-hidden="true" />
       <div className="site-chrome">
       <div className="topbar">
         <div className="container topbar__inner">
@@ -396,15 +395,65 @@ export function Footer() {
 /* ------------------------------------------------------------------ misc chrome */
 
 export function ScrollTop() {
-  const { scrolled } = useScrollProgress();
+  /* One button for the whole site (mounted in SiteApp and Admin, so every
+     page carries it): a square ochre arrow like the office sample. It pops up
+     once the visitor has passed two screenfuls, and one tap carries them
+     smoothly back to the top. Two independent signals, so no browser or
+     embed can silence it: scroll listeners that read every scroller (window,
+     document, body), plus a visibility watch on the footer itself (which also
+     covers short pages). `window.__pillState()` reports the live numbers. */
+  const [show, setShow] = useState(false);
+  useEffect(() => {
+    const numbers = () => {
+      const h = document.documentElement;
+      const b = document.body;
+      const top = window.scrollY || h.scrollTop || b.scrollTop || 0;
+      const client = h.clientHeight || window.innerHeight || 0;
+      const full = Math.max(h.scrollHeight || 0, b.scrollHeight || 0);
+      return { top, client, full, max: full - client, remaining: full - (top + client) };
+    };
+    /* Two screenfuls down and the button pops up; the footer watch covers
+       short pages that never get that far. */
+    const twoScreens = () => 2 * (window.innerHeight || document.documentElement.clientHeight || 0);
+    const read = () => {
+      const n = numbers();
+      setShow(n.max > 200 && (n.top > twoScreens() || n.remaining < 160));
+    };
+    read();
+    window.addEventListener("scroll", read, { passive: true, capture: true });
+    document.addEventListener("scroll", read, { passive: true, capture: true });
+    window.addEventListener("resize", read);
+    const ob =
+      "IntersectionObserver" in window
+        ? new IntersectionObserver(
+            (entries) => {
+              if (entries.some((e) => e.isIntersecting)) {
+                if (numbers().max > 200) setShow(true);
+              } else {
+                read();
+              }
+            },
+            { threshold: 0 }
+          )
+        : null;
+    const foot = document.querySelector("footer.footer");
+    if (foot && ob) ob.observe(foot);
+    (window as unknown as { __pillState?: () => object }).__pillState = () => ({ ...numbers() });
+    return () => {
+      window.removeEventListener("scroll", read);
+      document.removeEventListener("scroll", read);
+      window.removeEventListener("resize", read);
+      ob?.disconnect();
+    };
+  }, []);
   return (
     <button
       type="button"
-      className={"to-top" + (scrolled ? " to-top--visible" : "")}
+      className={"scroll-pill" + (show ? " scroll-pill--visible" : "")}
       aria-label={ct("auto.site.7c04895953a3ea70")}
       onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })}
     >
-      <Icon name="arrowUp" size={18} />
+      <Icon name="chevronUp" size={26} />
     </button>
   );
 }

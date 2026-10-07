@@ -762,20 +762,6 @@ const CORE_SECTIONS: SectionDef[] = [
         hint: "One line: the date, the place, or what it is for.",
       },
       {
-        path: "cta",
-        label: "Button words",
-        type: "text",
-        placeholder: "Read more",
-        hint: "Shown on the button the slide carries, when there is somewhere for it to go.",
-      },
-      {
-        path: "link",
-        label: "The button goes to",
-        type: "text",
-        placeholder: "/visit",
-        hint: "A page of this site (“/visit”, “/events”), or a full web address. Leave it empty and the slide carries no button.",
-      },
-      {
         path: "design",
         label: "Design",
         type: "select",

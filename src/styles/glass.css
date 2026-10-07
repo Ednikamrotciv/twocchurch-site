@@ -442,9 +442,8 @@ body {
     linear-gradient(180deg, rgba(24, 21, 31, 0.94), rgba(11, 10, 16, 0.98));
 }
 
-.to-top {
-  background: rgba(10, 10, 14, 0.6);
-  box-shadow: var(--glass-shadow-sm), var(--glass-inset-sm);
+.scroll-pill {
+  box-shadow: 0 14px 30px -12px rgba(0, 0, 0, 0.55), var(--glass-inset-sm);
 }
 
 .toast {

@@ -5993,6 +5993,21 @@
   background: rgba(8, 8, 12, 0.72);
   border-color: rgba(255, 255, 255, 0.65);
 }
+/* The arrows take the page theme with them: a light pill on light pages, the
+   dark glass on dark ones. */
+[data-theme="light"] .aslides__arrow,
+[data-theme="light"] .aslides--3d .aslides__arrow {
+  background: rgba(255, 253, 247, 0.82);
+  border-color: rgba(58, 44, 16, 0.4);
+  color: #3a2c10;
+}
+[data-theme="light"] .aslides__arrow:hover,
+[data-theme="light"] .aslides__arrow:focus-visible,
+[data-theme="light"] .aslides--3d .aslides__arrow:hover,
+[data-theme="light"] .aslides--3d .aslides__arrow:focus-visible {
+  background: rgba(255, 253, 247, 0.97);
+  border-color: #3a2c10;
+}
 @media (hover: hover) and (pointer: fine) {
   .aslides__arrow,
   .aslides--3d .aslides__arrow {

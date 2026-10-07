@@ -154,12 +154,10 @@ export function useReducedMotion() {
 
 export function useTheme() {
   const [theme, setTheme] = useLocalState<"dark" | "light">("wom.theme", "dark");
-  /* Showcase cycle: dark is home, and the two trade places every 30 seconds —
-     until the visitor picks one, which holds for this load. A reload clears
-     the pick and the cycle resumes. */
-  useEffect(() => {
-    armThemeCycle();
-  }, []);
+  /* Dark is home and it stays put: the theme only ever changes when the
+     visitor taps the sun/moon, and the pick is remembered on this device
+     (note 232 — the old 30s auto-flip flashed the chrome light while
+     scrolling, which read as a display error). */
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
     const meta = document.querySelector('meta[name="theme-color"]');
@@ -167,33 +165,6 @@ export function useTheme() {
   }, [theme]);
   const toggle = useCallback(() => setTheme((t) => (t === "dark" ? "light" : "dark")), [setTheme]);
   return { theme, setTheme, toggle };
-}
-
-/** Every 30s flip dark ⇄ light unless the visitor picked one this load. */
-const THEME_CYCLE_MS = 30_000;
-let themeCycleArmed = false;
-
-function armThemeCycle() {
-  if (themeCycleArmed || typeof window === "undefined") return;
-  themeCycleArmed = true;
-  /* A pick only ever holds for one load: forget it, start at dark, cycle on. */
-  try {
-    localStorage.removeItem("wom.theme");
-  } catch {
-    /* private mode — the cycle below then stands down to protect the default */
-  }
-  publish("wom.theme", "dark");
-  window.setInterval(() => {
-    let manual = true;
-    try {
-      manual = localStorage.getItem("wom.theme") !== null;
-    } catch {
-      manual = true;
-    }
-    if (manual) return;
-    const current = document.documentElement.dataset.theme === "light" ? "light" : "dark";
-    writeStore<"dark" | "light">("wom.theme", current === "dark" ? "light" : "dark");
-  }, THEME_CYCLE_MS);
 }
 
 /* ---------- clock ---------- */
@@ -303,12 +274,16 @@ export function useHotkey(combo: string, handler: (e: KeyboardEvent) => void) {
 export function useScrollProgress() {
   const [progress, setProgress] = useState(0);
   const [scrolled, setScrolled] = useState(false);
+  /* True only when the visitor has reached the foot of the page — the
+     scroll-to-top pill lives on this, so it appears at the bottom only. */
+  const [atBottom, setAtBottom] = useState(false);
   useEffect(() => {
     const onScroll = () => {
       const h = document.documentElement;
       const max = h.scrollHeight - h.clientHeight;
       setProgress(max > 0 ? Math.min(1, h.scrollTop / max) : 0);
       setScrolled(h.scrollTop > 24);
+      setAtBottom(max > 200 && h.scrollHeight - (h.scrollTop + h.clientHeight) < 160);
     };
     onScroll();
     window.addEventListener("scroll", onScroll, { passive: true });
@@ -318,7 +293,7 @@ export function useScrollProgress() {
       window.removeEventListener("resize", onScroll);
     };
   }, []);
-  return { progress, scrolled };
+  return { progress, scrolled, atBottom };
 }
 
 export function useStaticValue<T>(factory: () => T): T {
