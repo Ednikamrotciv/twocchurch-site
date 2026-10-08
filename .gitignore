@@ -5,7 +5,7 @@ bin/
 data/.last-seen
 deploy-hook.txt
 no-auto-share.txt
-maintenance-open.txt
+maintenance-hold.txt
 scratch/
 .tool-output/
 .http-cache/

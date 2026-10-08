@@ -929,23 +929,23 @@ async function applySeedOnce() {
       applyBakedRecent(seed);
       if (seed && seed.sections && typeof seed.sections === "object" && Object.keys(seed.sections).length) {
         rev = typeof seed.rev === "number" ? seed.rev : 0;
+        /* The browser's own memory first (note 281): the seed stamp below
+           persists itself, so immunity must be read before it lands. */
+        const seenBefore = readJSON<number>(NOTES_KEY, 0);
         if (typeof seed.notes === "number") setPublishedNotes(seed.notes);
-        /* Maintenance hold (stamped at build time unless maintenance-open.txt
-           opts out, notes 283-284): while the baked stamp is behind, every visitor waits one update
-           back — desktop and mobile always agree, with no older stamp needed.
-           Once the bake itself carries the publish, every copy opens, flag or
-           no flag, so a forgotten flag file can never block visitors. The live
-           stamp still releases with no rebuild whenever it can reach the copy;
-           a newer stamp is never lowered, so the older-copy path stays intact. */
-        if (
-          seed.hold === true &&
-          publishedNotes <= BUILD_NOTES &&
-          !(typeof seed.notes === "number" && seed.notes >= BUILD_NOTES)
-        ) {
-          publishedNotes = BUILD_NOTES - 1;
-          try {
-            localStorage.setItem(NOTES_KEY, JSON.stringify(publishedNotes));
-          } catch {}
+        /* Maintenance hold (stamped by maintenance-hold.txt at build time): a
+           visitor with no recorded publish is held one update back, so the
+           notice shows until the office publishes — even when the baked stamp
+           is empty. Once the baked stamp itself is caught up (published from this update), fresh visitors are NOT re-held, so a rebuild after publishing releases everyone. A recorded publish is never re-held,
+           so publishing releases visitors with no rebuild; a newer stamp is
+           never lowered, so the older-copy path stays intact. */
+        if (seed.hold === true && publishedNotes < BUILD_NOTES) {
+          if (!(typeof seenBefore === "number" && seenBefore >= BUILD_NOTES)) {
+            publishedNotes = BUILD_NOTES - 1;
+            try {
+              localStorage.setItem(NOTES_KEY, JSON.stringify(publishedNotes));
+            } catch {}
+          }
         }
         applyOverrides(seed.sections);
       }
@@ -958,36 +958,9 @@ async function applySeedOnce() {
 /* Live feed: published words polled from the public repo for standalone copies. */
 let feedSpec: FeedSpec | null | undefined;
 let feedSyncing = false;
-/* A stale tab holding an older build (a desktop caching the shell) heals
-   itself: dist/version.json is stamped with every build, so when it names a
-   newer update than this running code — and the office is not mid-edit here —
-   reload onto the new build. Never loops (the new code equals the stamp) and
-   never interrupts editing. (note 283) */
-async function watchBuildVersion(): Promise<void> {
-  try {
-    const res = await fetch(siteFile("version.json"), { cache: "no-store" });
-    if (!res.ok) return;
-    const v = await res.json().catch(() => null);
-    const n = v && typeof v.notes === "number" ? Math.floor(v.notes) : 0;
-    if (!(n > BUILD_NOTES)) return;
-    try {
-      if (document.documentElement && "editing" in document.documentElement.dataset) return;
-    } catch {}
-    try {
-      if (pendingSections().length) return;
-    } catch {}
-    window.location.reload();
-  } catch {
-    /* version unknown — stay on this build */
-  }
-}
 async function syncFromFeed() {
   if (feedSyncing) return;
-  /* A live socket to an empty backend (fresh/wiped disk: rev 0, no words, no
-     stamp) must not silence the feed — otherwise a waiting copy can never
-     lift while the link is up. Only a server actually serving (rev > 0)
-     stands the feed down. (note 282) */
-  if (typeof socket !== "undefined" && socket && status === "online" && rev > 0) return;
+  if (typeof socket !== "undefined" && socket && status === "online") return;
   feedSyncing = true;
   try {
     if (feedSpec === undefined) feedSpec = await bakedFeedSpec();
@@ -1050,17 +1023,6 @@ export async function startCms() {
   // anything published while offline still flushes; only the old instant-paint
   // is skipped, and the server sync fills the page in behind it.
   await applySeedOnce();
-  /* Stale tabs heal onto new builds (note 283): once now, then every five
-     minutes and whenever the tab comes back into view. */
-  try {
-    void watchBuildVersion();
-    window.setInterval(() => watchBuildVersion().catch(() => {}), 5 * 60 * 1000);
-    document.addEventListener("visibilitychange", () => {
-      if (document.visibilityState === "visible") watchBuildVersion().catch(() => {});
-    });
-  } catch {
-    /* this tab never self-updates */
-  }
   const cached = readJSON<{ rev?: number; overrides?: Snapshot } | null>(CACHE_KEY, null);
   let freshEyes = false;
   try {
@@ -1203,10 +1165,6 @@ function connect() {
       sock.addEventListener?.("close", onClose);
       sock.addEventListener?.("message", onMessage);
       await syncFromServer();
-      /* Server truth first, then the feed fills its gaps (empty backends,
-         fresh publishes): the loop is idempotent and stands down whenever
-         the server is actually serving. (note 282) */
-      startFeed();
       // Restore the admin session for this browser tab, if there is one.
       const saved = sessionPassword();
       if (saved) {

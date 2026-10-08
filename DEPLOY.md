@@ -34,17 +34,14 @@ something similar — build command, output / publish directory):
 
 ## Holding visitors in maintenance
 
-Every deploy holds fresh visitors on the maintenance notice until the office
-publishes — nothing to create, it is the default, and desktop and mobile
-always agree. The hold only bites while the baked stamp is behind the code,
-so a build made after publishing opens straight away on its own. To ship
-unpublished words openly anyway (rare), put an empty file named
-`maintenance-open.txt` beside `package.json`, then build and upload; delete
-it to hold again. It never leaves your computer (git-ignored), so hosts
-rebuilding from git are unaffected either way. A device still showing the
-site after a deploy is holding the old cached copy: it reloads itself onto
-the new build within minutes (never mid-edit), or hard-refresh it
-(Ctrl+Shift+R) to hurry it along.
+New code normally holds visitors by itself (it is newer than the last
+publish), but when there is no older stamp to be newer than — a fresh backend,
+a wiped disk — a deploy would open straight away. To hold visitors until you
+publish anyway, keep the `maintenance-hold.txt` file beside `package.json`,
+then build and upload as usual. Fresh visitors see the maintenance notice;
+publishing from the admin console releases them on the spot, with no rebuild.
+Delete the file when holding should stop — it never leaves your computer
+(git-ignored), so hosts rebuilding from git always ship clean.
 
 ## The update routine
 

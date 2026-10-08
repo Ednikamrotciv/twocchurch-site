@@ -539,10 +539,10 @@ export function MaintenanceSite() {
       </header>
       <main className="maint__main">
         <img className="maint__mark" src={siteFile(LOGO_MARK)} alt="" aria-hidden="true" />
-        <h1>Update {lastPublished > 0 ? lastPublished : BUILD_NOTES} is installed and visitors are waiting.</h1>
-        <p className="maint__restore">
-          Restore your backup, review it, then Publish — the site comes back exactly as it was, with only the
-          new update&rsquo;s changes new.
+        <h1>We&rsquo;ll be right back</h1>
+        <p>The site is being updated. Please check back shortly.</p>
+        <p className="maint__update">
+          Update {BUILD_NOTES} installed{lastPublished > 0 ? ` · last published from update ${lastPublished}` : ""}.
         </p>
         <p className="maint__office">
           Office?&nbsp;<a href={previewTo}>Preview the new site</a>&nbsp;·&nbsp;<Link to="/admin">Open the admin console</Link>

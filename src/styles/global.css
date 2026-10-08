@@ -3359,12 +3359,6 @@ input, select, textarea { font-size: 1rem !important; }
 .maint__main p {
   color: var(--muted);
   margin: 0;
-  max-width: 38rem;
-}
-.maint__restore {
-  color: var(--text);
-  font-size: 1.02rem;
-  line-height: 1.55;
 }
 .maint__update {
   font-size: 0.82rem;
@@ -3401,6 +3395,7 @@ input, select, textarea { font-size: 1rem !important; }
 }
 .admin__maint-go {
   flex: none;
+  white-space: nowrap;
   border-radius: 999px;
   border: 1px solid var(--gold-ui);
   background: var(--gold-ui);
@@ -3415,4 +3410,38 @@ input, select, textarea { font-size: 1rem !important; }
   flex: none;
   flex-wrap: wrap;
   justify-content: flex-end;
+}
+/* Phone: the office banner stacks — text on top, buttons full-width below —
+   so the update line never squeezes beside the buttons. */
+@media (max-width: 640px) {
+  .admin__maint {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0.7rem;
+    margin: 0.6rem 12px 0;
+    padding: 0.8rem 0.9rem;
+    font-size: 0.95rem;
+    line-height: 1.6;
+    overflow-wrap: anywhere;
+  }
+  .admin__maint-btns {
+    flex-direction: column;
+    align-items: stretch;
+    justify-content: stretch;
+  }
+  .admin__maint-go {
+    width: 100%;
+    text-align: center;
+    padding: 0.6rem 1rem;
+  }
+  .maint__main {
+    padding: 2.2rem 18px;
+  }
+  .maint__office {
+    line-height: 1.8;
+    overflow-wrap: anywhere;
+  }
+  .maint__update {
+    overflow-wrap: anywhere;
+  }
 }
