@@ -930,8 +930,8 @@ async function applySeedOnce() {
       if (seed && seed.sections && typeof seed.sections === "object" && Object.keys(seed.sections).length) {
         rev = typeof seed.rev === "number" ? seed.rev : 0;
         if (typeof seed.notes === "number") setPublishedNotes(seed.notes);
-        /* Maintenance hold (stamped by maintenance-hold.txt at build time, note
-           283): while the baked stamp is behind, every visitor waits one update
+        /* Maintenance hold (stamped at build time unless maintenance-open.txt
+           opts out, notes 283-284): while the baked stamp is behind, every visitor waits one update
            back — desktop and mobile always agree, with no older stamp needed.
            Once the bake itself carries the publish, every copy opens, flag or
            no flag, so a forgotten flag file can never block visitors. The live

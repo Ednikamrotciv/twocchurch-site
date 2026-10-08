@@ -1446,6 +1446,54 @@ hr.pblock__div {
 
 /* ------------------------------------------------------------------ narrow */
 
+/* Phones (note 284): the drawer tabs scroll instead of squeezing, item
+   buttons wrap, the office banner stacks with full-width buttons, and modals
+   breathe. */
+@media (max-width: 560px) {
+  .epanel__tabs {
+    overflow-x: auto;
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+  }
+  .epanel__tabs::-webkit-scrollbar {
+    display: none;
+  }
+  .epanel__tab {
+    flex: none;
+  }
+  .pitem__actions {
+    flex-wrap: wrap;
+  }
+  .admin__maint {
+    flex-wrap: wrap;
+    margin: 0.6rem 12px 0;
+  }
+  .admin__maint > span:first-child {
+    flex: 1 1 100%;
+  }
+  .admin__maint-btns {
+    width: 100%;
+  }
+  .admin__maint-go {
+    flex: 1 1 auto;
+  }
+  .modal {
+    padding: 12px;
+  }
+  .modal__head {
+    padding: 1rem 1.1rem 0.5rem;
+  }
+  .modal__head h2 {
+    font-size: 1.3rem;
+  }
+  .modal__body {
+    padding: 0.5rem 1.1rem 1.1rem;
+  }
+  .modal__foot {
+    padding: 0.8rem 1.1rem 1.1rem;
+  }
+}
+
 @media (max-width: 860px) {
   .epanel {
     width: 100%;
