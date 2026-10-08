@@ -423,8 +423,8 @@ export function AnnouncementSlides({ slides = SLIDES }: { slides?: AnnouncementS
   const live = useMemo(() => visibleSlides(slides), [slides, version, tick]);
   const designs = useMemo(() => slideDesigns(live), [live]);
   const [held, setHeld] = useState(false);
-  /* Tap/click hold (note 274): a tap stops the rotation and holds it; three
-     quiet minutes with no action around the box resume with a fresh 15s. */
+  /* Tap/click hold: a tap stops the rotation and holds it; fifteen quiet
+     seconds with no action around the box resume with a fresh 15s. */
   const [userHeld, setUserHeld] = useState(false);
   const userHeldRef = useRef(false);
   userHeldRef.current = userHeld;
@@ -525,6 +525,7 @@ export function AnnouncementSlides({ slides = SLIDES }: { slides?: AnnouncementS
       (swiperRef.current?.autoplay as any)?.stop();
     } catch {}
     window.clearTimeout(resumeTimer.current);
+    /* After a tap the flat display restarts by itself after 15s. */
     resumeTimer.current = window.setTimeout(() => {
       setUserHeld(false);
       userHeldRef.current = false;
@@ -533,7 +534,7 @@ export function AnnouncementSlides({ slides = SLIDES }: { slides?: AnnouncementS
         timer?.stop();
         timer?.start();
       } catch {}
-    }, 3 * 60 * 1000);
+    }, ADVANCE_MS);
   }, [calm]);
   const touchBox = useCallback(() => {
     if (userHeldRef.current) holdBox();

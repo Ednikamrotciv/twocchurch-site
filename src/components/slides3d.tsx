@@ -35,8 +35,9 @@ export type CuboidApi = {
 };
 
 const TURN_SPEED = (Math.PI * 2) / 26;
-/** Hands off the box this long and it resumes its default slow revolve. */
-const IDLE_MS = 3 * 60 * 1000;
+/** Hands off the box this long and it resumes its default slow revolve —
+    15s after a tap, so the display always restarts on its own. */
+const IDLE_MS = 15_000;
 /* Note 280: the rotation itself runs free whenever the box is not held — no
    timer drives it. The 15s rhythm (flat fallback's ADVANCE_MS) only rotates
    WHICH uploads sit on the four faces, one step at a time, so every upload
@@ -295,7 +296,7 @@ function Cuboid({ slides, apiRef, held, logo, theme }: { slides: (SlideT | null)
   const settle = () => {
     /* A tap or click holds the nearest face head-on instead of jumping a full
        step: the box only turns the short remainder, so taps never hiccup.
-       Three quiet minutes resume the revolve where the turn lands. */
+       Fifteen quiet seconds resume the revolve where the turn lands. */
     try {
       const q = qCur.current;
       const yaw = 2 * Math.atan2(q.y, q.w);
@@ -320,19 +321,37 @@ function Cuboid({ slides, apiRef, held, logo, theme }: { slides: (SlideT | null)
     if (!apiRef) return;
     apiRef.current = { push: step, snap: settle, poke: touch };
   }, [apiRef]);
-  /* All uploads take turns on the four faces: the window steps one slide
-     forward every 15s, so with four or fewer every face is steady, and with
-     more each one appears seamlessly in turn. Taps hold only the revolve —
-     the display keeps changing underneath. A hold (hover, focus, touch)
-     freezes the turnover too, like the flat stage, with a fresh 15s after. */
+  /* All uploads take turns on the four faces — but only through the back.
+     With four or fewer every face is steady (each slide has its own face, no
+     turnover, no hiccups). With more, one hidden face at a time turns over to
+     the longest-unseen upload every 15s, so new slides ride in from the back
+     with the revolve's own flow and nothing visible ever pops. Taps hold only
+     the revolve — the display keeps changing underneath. A hold (hover, focus,
+     touch) freezes the turnover too, like the flat stage, with a fresh 15s
+     after. */
   const countSlides = slides.length;
-  const [base, setBase] = useState(0);
+  const [faceIdx, setFaceIdx] = useState<number[]>([0, 1, 2, 3]);
+  const faceIdxRef = useRef<number[]>([0, 1, 2, 3]);
+  faceIdxRef.current = faceIdx;
+  /* Next upload to bring in: always one not currently on any face. */
+  const nextRef = useRef(4);
   useEffect(() => {
-    setBase((b) => (countSlides > 0 ? b % countSlides : 0));
+    if (countSlides <= 0) return;
+    setFaceIdx((prev) => {
+      const clamped = prev.map((v) => ((v % countSlides) + countSlides) % countSlides);
+      /* Four or fewer: each slide owns a face, steady — no turnover needed. */
+      if (countSlides <= 4) {
+        const steady = [0, 1, 2, 3].map((f) => f % countSlides);
+        nextRef.current = countSlides;
+        return steady;
+      }
+      nextRef.current = 4;
+      return clamped;
+    });
   }, [countSlides]);
   const heldRef = useRef(held);
   heldRef.current = held;
-  const faceSlides = useMemo(() => [0, 1, 2, 3].map((f) => (countSlides > 0 ? slides[(base + f) % countSlides] : null)), [slides, countSlides, base]);
+  const faceSlides = useMemo(() => faceIdx.map((si) => (countSlides > 0 ? slides[((si % countSlides) + countSlides) % countSlides] : null)), [slides, countSlides, faceIdx]);
   /* Any hold around the box counts as action: it pushes the 3-minute clock
      and the 15s rhythm out, so hovering a held box keeps it held. */
   useEffect(() => {
@@ -342,7 +361,8 @@ function Cuboid({ slides, apiRef, held, logo, theme }: { slides: (SlideT | null)
     }
   }, [held]);
   useEffect(() => {
-    if (countSlides <= 1) return;
+    /* Four or fewer slides already own every face — steady, nothing turns over. */
+    if (countSlides <= 4) return;
     nextAdvance.current = performance.now() + CONTENT_MS;
     const id = window.setInterval(() => {
       const now = performance.now();
@@ -354,7 +374,32 @@ function Cuboid({ slides, apiRef, held, logo, theme }: { slides: (SlideT | null)
       }
       if (now < nextAdvance.current) return;
       nextAdvance.current = now + CONTENT_MS;
-      setBase((b) => (b + 1) % countSlides);
+      /* Which face is most hidden right now (world dot toward camera is
+         smallest): swap only that one, so the change is never visible. */
+      let hidden = 2;
+      try {
+        const q = qCur.current;
+        const yaw = 2 * Math.atan2(q.y, q.w);
+        const dots = [Math.cos(yaw), -Math.sin(yaw), -Math.cos(yaw), Math.sin(yaw)];
+        hidden = 0;
+        for (let k = 1; k < 4; k++) if (dots[k] < dots[hidden]) hidden = k;
+      } catch {}
+      const onFaces = new Set(faceIdxRef.current.map((v) => ((v % countSlides) + countSlides) % countSlides));
+      let next = nextRef.current;
+      for (let guard = 0; guard < countSlides + 4; guard++) {
+        const cand = ((next % countSlides) + countSlides) % countSlides;
+        if (!onFaces.has(cand)) {
+          next = cand;
+          break;
+        }
+        next += 1;
+      }
+      nextRef.current = next + 1;
+      setFaceIdx((prev) => {
+        const faces = prev.slice();
+        faces[hidden] = ((next % countSlides) + countSlides) % countSlides;
+        return faces;
+      });
     }, 1000);
     return () => window.clearInterval(id);
   }, [countSlides]);
@@ -404,7 +449,7 @@ function Cuboid({ slides, apiRef, held, logo, theme }: { slides: (SlideT | null)
     if (!g) return;
     const delta = Math.min(rawDelta, 0.05);
     if (manual.current && performance.now() - lastAct.current > IDLE_MS) {
-      /* Three quiet minutes: pick the revolve up where the turn landed. The
+      /* Fifteen quiet seconds: pick the revolve up where the turn landed. The
          slide display never stopped, so its clock is untouched. */
       const q = qCur.current;
       autoYaw.current = 2 * Math.atan2(q.y, q.w);

@@ -169,7 +169,6 @@ export function Admin() {
   const canEdit = state.authed;
   const changedIds = cms.pendingSections();
   /* While visitors wait (note 249), the office sees it here and can lift it. */
-  const maintenance = cms.useMaintenance();
   /* An old extract opened by mistake (note 252): say so out loud. */
   const olderCopy = cms.useOlderCopy();
 
@@ -329,25 +328,6 @@ export function Admin() {
           <span>
             This is an old copy (update {BUILD_NOTES} — this browser has already seen update {cms.publishedNotesVersion()}).
             Close it, open the newest extract, and delete the old folder.
-          </span>
-        </div>
-      )}
-      {maintenance && (
-        <div className="admin__maint admin__maint--buttons" role="status">
-          <span className="admin__maint-btns">
-            <button
-              type="button"
-              className="admin__maint-go"
-              onClick={() => {
-                setPanelOpen(true);
-                setPanelMode("tools");
-              }}
-            >
-              Restore a backup
-            </button>
-            <button type="button" className="admin__maint-go" onClick={() => setPublishOpen(true)}>
-              Review and publish
-            </button>
           </span>
         </div>
       )}

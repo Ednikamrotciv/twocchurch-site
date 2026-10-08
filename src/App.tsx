@@ -3,7 +3,7 @@ import { useRoute, navigate, ADMIN_PREFIX } from "./lib/router";
 import { Header, Footer, ScrollTop, SkipLink, MaintenanceSite, PreviewBanner } from "./components/layout";
 import { Toaster } from "./components/ui";
 import { ErrorBoundary } from "./components/ErrorBoundary";
-import { startCms, useCmsVersion, useMaintenance, usePreviewingWhileWaiting, checkStaleBuild } from "./lib/cms";
+import { startCms, useCmsVersion, useCmsReady, useMaintenance, usePreviewingWhileWaiting, checkStaleBuild } from "./lib/cms";
 import { mountShaderBackground } from "./lib/shaderbg";
 import { startVisitorClock, useVisitorClock, useVisitorClockRefresh } from "./lib/visitor";
 import { useI18nTick, ensureI18n, setProtectedValues, i18nAsk, chooseLang, dismissAsk } from "./lib/i18n";
@@ -108,7 +108,10 @@ export function App() {
     );
 
   /* Visitors wait on maintenance until the office publishes (note 249) —
-     logo and notice only, nothing else. */
+     logo and notice only, nothing else. Nothing renders until boot + first
+     sync settle, so a published site never flashes the notice on launch. */
+  const ready = useCmsReady();
+  if (!ready) return null;
   if (maintenance) return <MaintenanceSite />;
 
   return (

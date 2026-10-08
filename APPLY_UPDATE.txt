@@ -27,3 +27,5 @@ LIVE (Render: twocchurch-site.onrender.com)
 
 If desktop ever looks live while mobile waits: desktop is in ?preview=1
 (gold Preview bar) — click Exit preview. Or clear that tab's preview flag.
+
+282c: no maintenance flash after publish — first paint waits for boot + first server sync (blank dark ground meanwhile); returning visitors read their stamp synchronously.

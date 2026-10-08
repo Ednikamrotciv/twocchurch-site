@@ -34,6 +34,13 @@ const NOTES_KEY = "wom.cms.notes";
 const CODEGEN_KEY = "wom.cms.codegen";
 /* The code update the live content was last published from (note 249). */
 let publishedNotes = 0;
+try {
+  const raw = localStorage.getItem(NOTES_KEY);
+  const n = raw === null ? 0 : Number(JSON.parse(raw));
+  if (Number.isFinite(n) && (n as number) > 0) publishedNotes = Math.floor(n as number);
+} catch {
+  /* storage may be blocked — startCms re-reads later */
+}
 /** The update number the running content was last published from (note 250). */
 export function publishedNotesVersion(): number {
   return publishedNotes;
@@ -50,6 +57,7 @@ if (typeof window !== "undefined") {
     preview: maintenancePreview(),
     shouldWait: maintenanceShouldWait(),
     waiting: maintenanceShouldWait() && !maintenancePreview(),
+    ready: bootReady,
   });
 }
 function setPublishedNotes(n: unknown) {
@@ -270,6 +278,29 @@ let starting = false;
 let localOnly = false;
 
 let version = 0;
+/* First-paint gate: false until boot (seed + stamp) AND the first server sync
+   attempt settle — the page renders nothing until then, so a published site
+   never flashes the maintenance notice while the numbers are still loading. */
+let bootReady = false;
+function setBootReady() {
+  if (bootReady) return;
+  bootReady = true;
+  notify();
+}
+function settleInitialSync() {
+  initialSyncPending = false;
+  try {
+    initialSyncResolve?.();
+  } catch {}
+  initialSyncResolve = null;
+}
+export function useCmsReady(): boolean {
+  return useSyncExternalStore(subscribe, () => bootReady);
+}
+/* Resolved once connect()'s first open settles (synced or failed). */
+let initialSyncPending = false;
+let initialSyncDone: Promise<void> = Promise.resolve();
+let initialSyncResolve: (() => void) | null = null;
 let previewing = false;
 let previewBase: Snapshot | null = null;
 /** True while #/admin is open: the pages show the draft, and edits land live. */
@@ -1169,6 +1200,7 @@ export async function startCms() {
     startFeed();
     /* A late-arriving server address is joined with no reload. */
     watchForServer();
+    setBootReady();
     return;
   }
   /* A tab coming back re-reads the server (missed nudges); throttled, never mid-sync. */
@@ -1189,7 +1221,23 @@ export async function startCms() {
   document.addEventListener("visibilitychange", () => {
     if (document.visibilityState === "visible") refocus();
   });
+  /* Hold the first paint until the first sync attempt settles: after a publish
+     the numbers already say live, so no maintenance flash; in the update window
+     they say wait. Never holds longer than the open timeout. */
+  initialSyncPending = true;
+  initialSyncDone = new Promise<void>((res) => {
+    initialSyncResolve = res;
+  });
   connect();
+  try {
+    await Promise.race([
+      initialSyncDone,
+      new Promise<void>((res) => window.setTimeout(() => res(), REQUEST_TIMEOUT + 1000)),
+    ]);
+  } catch {
+  } finally {
+    setBootReady();
+  }
 }
 
 /* Drop a dead socket so the next attempt starts fresh (a kept one blocks retries). */
@@ -1229,7 +1277,10 @@ function openTimeout(ms: number): Promise<void> {
 function connect() {
   if (socket) {
     /* A live connection is kept; a dead one is dropped so this attempt is real. */
-    if (status === "online") return;
+    if (status === "online") {
+      settleInitialSync();
+      return;
+    }
     dropSocket();
   }
   /* No server anywhere: stand alone (and join one quietly if it appears later). */
@@ -1240,6 +1291,7 @@ function connect() {
     notify();
     startFeed();
     watchForServer();
+    settleInitialSync();
     return;
   }
   status = "connecting";
@@ -1253,6 +1305,7 @@ function connect() {
     connNote = String((err as any)?.message || err || "could not open the server").slice(0, 120);
     notify();
     scheduleReconnect();
+    settleInitialSync();
     return;
   }
   socket = sock;
@@ -1266,7 +1319,10 @@ function connect() {
   opened
     .then(async () => {
       /* A dropped socket's late open changes nothing. */
-      if (socket !== sock) return;
+      if (socket !== sock) {
+        settleInitialSync();
+        return;
+      }
       reconnectAttempt = 0;
       status = "online";
       connNote = "";
@@ -1286,16 +1342,21 @@ function connect() {
       // If the editor saved the website for us mid-publish, finish that publish
       // now — this is the permanent server, so the content belongs here.
       await resumePlannedPublish();
+      settleInitialSync();
     })
     .catch((err: any) => {
       /* A dropped attempt's late failure changes nothing. */
-      if (socket !== sock) return;
+      if (socket !== sock) {
+        settleInitialSync();
+        return;
+      }
       socket = null;
       status = "offline";
       connNote = String(err?.message || err || "unreachable").slice(0, 120);
       notify();
       scheduleReconnect();
       console.warn("cms: server unavailable", err?.message || err);
+      settleInitialSync();
     });
 }
 

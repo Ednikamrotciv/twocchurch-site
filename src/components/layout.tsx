@@ -537,11 +537,9 @@ export function PreviewBanner() {
    gets a preview pass plus a door to the console. The office console itself
    never renders this. */
 export function MaintenanceSite() {
-  const route = useRoute();
   /* Auto dark/light on the notice too — no switch button here, it just follows
      the site's own theme (stored choice + automatic switching). */
   useTheme();
-  const previewTo = `${route.path === "/" ? "/" : route.path}?preview=1`;
   return (
     <div className="maint">
       <header className="maint__head">
@@ -555,9 +553,6 @@ export function MaintenanceSite() {
         <img className="maint__mark" src={siteFile(LOGO_MARK)} alt="" aria-hidden="true" />
         <h1>We&rsquo;ll be right back</h1>
         <p>The site is being updated. Please check back shortly.</p>
-        <p className="maint__office">
-          Office?&nbsp;<a href={previewTo}>Preview the new site</a>&nbsp;·&nbsp;<Link to="/admin">Open the admin console</Link>
-        </p>
       </main>
     </div>
   );
