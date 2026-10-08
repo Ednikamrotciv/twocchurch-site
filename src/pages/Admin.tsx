@@ -31,7 +31,7 @@ import { SECTION_DEFS, clone, getPath, photoSectionId, sectionById, sectionIsEve
 import { JOBS, HIT_GROUPS, searchEverything, type Hit, type Job } from "../lib/jobs";
 import { COPY_ROLE_LABELS, copyDefault, copyIsEdited, copyIsLocked, copyIsParagraph, copyLineRows, copySegmentsOf, type CopyRole } from "../data/copy";
 import { PHOTO_SLOTS, bundledPhoto, photoById, photoKeyOf, resolvePhoto } from "../data/photos";
-import { fireToast } from "../lib/hooks";
+import { fireToast, BUILD_NOTES } from "../lib/hooks";
 import { useVisitorClock } from "../lib/visitor";
 import {
   ADMIN_RETURN_MS,
@@ -170,6 +170,8 @@ export function Admin() {
   const changedIds = cms.pendingSections();
   /* While visitors wait (note 249), the office sees it here and can lift it. */
   const maintenance = cms.useMaintenance();
+  /* An old extract opened by mistake (note 252): say so out loud. */
+  const olderCopy = cms.useOlderCopy();
 
   /* Auto-stop watcher lives here so it runs whatever drawer card is open (note 111). */
   useAutoStopLive(canEdit);
@@ -322,12 +324,35 @@ export function Admin() {
     <div className="admin eshell">
       <SkipLink />
       <Header />
+      {olderCopy && (
+        <div className="admin__maint" role="alert">
+          <span>
+            This is an old copy (update {BUILD_NOTES} — this browser has already seen update {cms.publishedNotesVersion()}).
+            Close it, open the newest extract, and delete the old folder.
+          </span>
+        </div>
+      )}
       {maintenance && (
         <div className="admin__maint" role="status">
-          <span>Visitors see maintenance right now.</span>
-          <button type="button" className="admin__maint-go" onClick={() => setPublishOpen(true)}>
-            Review and publish
-          </button>
+          <span>
+            Update {BUILD_NOTES} is installed and visitors are waiting. Restore your backup, review it, then Publish —
+            the site comes back exactly as it was, with only the new update's changes new.
+          </span>
+          <span className="admin__maint-btns">
+            <button
+              type="button"
+              className="admin__maint-go"
+              onClick={() => {
+                setPanelOpen(true);
+                setPanelMode("tools");
+              }}
+            >
+              Restore a backup
+            </button>
+            <button type="button" className="admin__maint-go" onClick={() => setPublishOpen(true)}>
+              Review and publish
+            </button>
+          </span>
         </div>
       )}
       <div className="epage" ref={pageRef}>

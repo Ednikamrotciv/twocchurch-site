@@ -8,6 +8,7 @@
     "start": "node scripts/serve.mjs",
     "dev": "vite",
     "dev:fresh": "vite --force",
+    "clean": "node scripts/clean.mjs",
     "serve": "node scripts/serve.mjs",
     "build": "vite build && node scripts/build-static.mjs",
     "prebuild": "node scripts/fix-perms.mjs",

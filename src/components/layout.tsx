@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { tx } from "../lib/i18n";
 import { Link, navigate, useRoute } from "../lib/router";
-import { useHotkey, useMediaQuery, useScrollProgress, useTheme, useNow, useClickOutside, useBodyLock } from "../lib/hooks";
+import { useHotkey, useMediaQuery, useScrollProgress, useTheme, useNow, useClickOutside, useBodyLock, BUILD_NOTES } from "../lib/hooks";
 import { nextService, onAir, countdownParts, to12h, DAY_SHORT, fmtDate, zoneYear, clockAt, churchTimezone, visitorPlace } from "../lib/store";
 import { SITE, SERVICES, NAV, FOOTER_LINKS, LOGO_MARK } from "../data/site";
 import { siteFile } from "../lib/livefeed";
@@ -395,43 +395,65 @@ export function Footer() {
 /* ------------------------------------------------------------------ misc chrome */
 
 export function ScrollTop() {
-  /* One button for the whole site (mounted in SiteApp and Admin, so every
-     page carries it): a circle that takes the page theme (note 239). It pops
-     up once the visitor has passed one screenful (note 245), and one tap carries them
-     smoothly back to the top. Two independent signals, so no browser or
-     embed can silence it: scroll listeners that read every scroller (window,
-     document, body), plus a visibility watch on the footer itself (which also
-     covers short pages). The footer is re-resolved after paint, so late
-     content growth can never leave the watch looking at nothing (note 244).
-     `window.__pillState()` reports the live numbers. */
+  /* Hide at the top, visible from the middle on (note 269): one button for
+     the whole site, parked bottom-right, one tap carries the visitor smoothly
+     back to the top. Fires at the earlier of half a screen down or the page
+     middle, so long pages show it after the first half-screen and short
+     pages show it at their middle. Pages too short to scroll stay hidden.
+     Force layer: React state is mirrored straight onto the DOM, plus a footer
+     watch and a manual override, so a missed scroll event can never leave it
+     stuck hidden. */
   const [show, setShow] = useState(false);
+  const forced = React.useRef<boolean | null>(null);
   useEffect(() => {
     const numbers = () => {
       const h = document.documentElement;
       const b = document.body;
-      const top = window.scrollY || h.scrollTop || b.scrollTop || 0;
-      const client = h.clientHeight || window.innerHeight || 0;
-      const full = Math.max(h.scrollHeight || 0, b.scrollHeight || 0);
+      const scroller = (document.scrollingElement as HTMLElement) || h;
+      const top = window.scrollY ?? scroller.scrollTop ?? h.scrollTop ?? b.scrollTop ?? 0;
+      const client = window.innerHeight || h.clientHeight || 0;
+      const full = Math.max(h.scrollHeight || 0, b.scrollHeight || 0, scroller.scrollHeight || 0);
       return { top, client, full, max: full - client, remaining: full - (top + client) };
-     };
-    /* One screenful down and the button pops up (note 245: two screenfuls
-       kept it hidden through ordinary scrolling, which read as missing); the
-       footer watch covers short pages that never get that far. */
-    const oneScreen = () => window.innerHeight || document.documentElement.clientHeight || 0;
+    };
+    const apply = (visible: boolean) => {
+      setShow(visible);
+      /* Force trigger: write the class directly too, so even if a render is
+         delayed the button still flips immediately. */
+      const els = document.querySelectorAll(".scroll-pill");
+      els.forEach((el) => el.classList.toggle("scroll-pill--visible", visible));
+    };
     const read = () => {
+      if (forced.current !== null) {
+        apply(forced.current);
+        return numbers();
+      }
       const n = numbers();
-      setShow(n.max > 200 && (n.top > oneScreen() || n.remaining < 160));
+      const halfScreen = (n.client || 800) * 0.5;
+      const pageMiddle = n.max / 2;
+      /* Earlier of the two, so the button is plainly testable: half a screen
+         on long pages, the true middle on short ones. Strictly greater, so
+         the very top (top = 0) always stays hidden. */
+      const threshold = Math.min(halfScreen, pageMiddle);
+      apply(n.max > 200 && n.top > threshold);
+      return n;
     };
     read();
     window.addEventListener("scroll", read, { passive: true, capture: true });
     document.addEventListener("scroll", read, { passive: true, capture: true });
     window.addEventListener("resize", read);
+    /* Late content (slow photos, grown lists) and scrollers that don't fire
+       window scroll events: re-check on a short poll so the pill can never
+       stick hidden. */
+    const poll = window.setInterval(read, 400);
+    /* Second signal: footer visible on a scrollable page forces it on, so a
+       wedged scroll listener still ends visible at the bottom. */
     const ob =
       "IntersectionObserver" in window
         ? new IntersectionObserver(
             (entries) => {
+              if (forced.current !== null) return;
               if (entries.some((e) => e.isIntersecting)) {
-                if (numbers().max > 200) setShow(true);
+                if (numbers().max > 200) apply(true);
               } else {
                 read();
               }
@@ -441,16 +463,23 @@ export function ScrollTop() {
         : null;
     const foot = document.querySelector("footer.footer");
     if (foot && ob) ob.observe(foot);
-    /* Late content (slow photos, grown lists) can move the footer after this
-       mounted — re-resolve shortly after paint so the watch never guards
-       nothing (note 244). */
     const recheck = window.setTimeout(() => {
       const late = document.querySelector("footer.footer");
       if (late && ob) ob.observe(late);
       read();
     }, 1500);
-    (window as unknown as { __pillState?: () => object }).__pillState = () => ({ ...numbers() });
+    (window as unknown as { __pillState?: () => object; __pillForce?: (v: boolean | null) => boolean }).__pillState = () => {
+      const n = numbers();
+      const halfScreen = (n.client || 800) * 0.5;
+      return { ...n, threshold: Math.min(halfScreen, n.max / 2), forced: forced.current };
+    };
+    (window as unknown as { __pillForce?: (v: boolean | null) => boolean }).__pillForce = (v) => {
+      forced.current = v;
+      read();
+      return forced.current === null ? false : forced.current;
+    };
     return () => {
+      window.clearInterval(poll);
       window.clearTimeout(recheck);
       window.removeEventListener("scroll", read);
       document.removeEventListener("scroll", read);
@@ -464,7 +493,7 @@ export function ScrollTop() {
       className={"scroll-pill" + (show ? " scroll-pill--visible" : "")}
       aria-label={ct("auto.site.7c04895953a3ea70")}
       onClick={() => {
-        /* Every scroller goes home (note 245): window plus the document
+        /* Every scroller goes home: window plus the document
            itself, so embedded or late-grown pages still land on top. */
         const go = (el: any) => {
           try {
@@ -483,10 +512,22 @@ export function ScrollTop() {
   );
 }
 
-/* While visitors wait on maintenance (note 249): the header's logo and notice
-   are the whole site — no pages, no footer, no buttons. The office console
+/* While visitors wait on maintenance (notes 249-250): the header's logo and
+   notice are the whole site — no pages, no footer. The notice names the
+   installed update so a stale copy is spotted, not guessed, and the office
+   gets a preview pass plus a door to the console. The office console itself
    never renders this. */
 export function MaintenanceSite() {
+  const route = useRoute();
+  let lastPublished = 0;
+  try {
+    const raw = localStorage.getItem("wom.cms.notes");
+    const n = raw === null ? 0 : Number(JSON.parse(raw));
+    if (Number.isFinite(n) && (n as number) > 0) lastPublished = Math.floor(n as number);
+  } catch {
+    lastPublished = 0;
+  }
+  const previewTo = `${route.path === "/" ? "/" : route.path}?preview=1`;
   return (
     <div className="maint">
       <header className="maint__head">
@@ -500,6 +541,12 @@ export function MaintenanceSite() {
         <img className="maint__mark" src={siteFile(LOGO_MARK)} alt="" aria-hidden="true" />
         <h1>We&rsquo;ll be right back</h1>
         <p>The site is being updated. Please check back shortly.</p>
+        <p className="maint__update">
+          Update {BUILD_NOTES} installed{lastPublished > 0 ? ` · last published from update ${lastPublished}` : ""}.
+        </p>
+        <p className="maint__office">
+          Office?&nbsp;<a href={previewTo}>Preview the new site</a>&nbsp;·&nbsp;<Link to="/admin">Open the admin console</Link>
+        </p>
       </main>
     </div>
   );

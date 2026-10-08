@@ -107,8 +107,8 @@ export function useLocalState<T>(key: string, initial: T) {
 /* Which shipped code is running here — the office can read it in Admin →
    Tools, and in the browser console as window.__womBuild. Bump NOTES with
    every SPEC note so a stale deploy is spotted, not guessed (note 244). */
-export const BUILD_NOTES = 249;
-export const BUILD_DATE = "2026-10-07";
+export const BUILD_NOTES = 277;
+export const BUILD_DATE = "2026-10-08";
 export function buildStamp() {
   return { notes: BUILD_NOTES, built: BUILD_DATE };
 }
@@ -164,22 +164,74 @@ export function useReducedMotion() {
   return useMediaQuery("(prefers-reduced-motion: reduce)");
 }
 
+/* Singleton 30s auto-flip clock (notes 273-276): one ticker for the whole tab,
+   shared by every useTheme caller, so mounting/unmounting the header never
+   spawns extra timers. Default is the switch itself: it flips every 30s. A
+   manual pick locks that mode for the session (auto stops) until a reload,
+   which drops straight back into the 30s switching. */
+let themeAutoId: number | null = null;
+let themeLastChange = 0;
+let themeManualLocked = false;
+let themeBooted = false;
+
 export function useTheme() {
-  const [theme, setTheme] = useLocalState<"dark" | "light">("wom.theme", "dark");
-  /* Dark is home and it stays put: the theme only ever changes when the
-     visitor taps the sun/moon, and the pick is remembered on this device
-     (note 232 — the old 30s auto-flip flashed the chrome light while
-     scrolling, which read as a display error). A stored value from a damaged
-     or hand-edited save that is not exactly dark or light is thrown out in
-     favour of dark, so the site can never wake up stuck in a half theme
-     (note 244). */
+  const [theme, setThemeRaw] = useLocalState<"dark" | "light">("wom.theme", "dark");
+  /* Default is the 30s switching (note 276): a tapped mode stays put for the
+     session (auto off) until a reload returns to the switching. A stored
+     value that is not exactly dark or light is thrown out in favour of dark
+     (note 244). The flip only writes the theme key — header open/menu/scroll
+     state is untouched, so there is no header interference (note 273). */
   const safe = theme === "light" ? "light" : "dark";
   useEffect(() => {
     document.documentElement.dataset.theme = safe;
     const meta = document.querySelector('meta[name="theme-color"]');
     if (meta) meta.setAttribute("content", safe === "light" ? "#f7f1e4" : "#08080a");
   }, [safe]);
-  const toggle = useCallback(() => setTheme((t) => (t === "dark" ? "light" : "dark")), [setTheme]);
+  /* Keep the flip clock in step with real changes (manual or auto). */
+  useEffect(() => {
+    themeLastChange = Date.now();
+  }, [safe]);
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (themeAutoId !== null) return;
+    themeAutoId = 1;
+    /* Fresh page load: unlock and rejoin the 30s switching from wherever the
+       stored mode is (dark if nothing valid is stored). Last session's tap
+       never carries over as a lock. */
+    if (!themeBooted) {
+      themeBooted = true;
+      themeManualLocked = false;
+      themeLastChange = Date.now();
+      try {
+        const cur = readStore<unknown>("wom.theme", "dark");
+        if (cur !== "dark" && cur !== "light") writeStore("wom.theme", "dark");
+      } catch {}
+    }
+    themeAutoId = window.setInterval(() => {
+      if (themeManualLocked) return;
+      if (Date.now() - themeLastChange < 30_000) return;
+      const cur = readStore<"dark" | "light">("wom.theme", "dark");
+      const safeCur = cur === "light" ? "light" : "dark";
+      writeStore("wom.theme", safeCur === "dark" ? "light" : "dark");
+      themeLastChange = Date.now();
+    }, 1000);
+    return () => {};
+  }, []);
+  const lockManual = useCallback(() => {
+    themeManualLocked = true;
+    themeLastChange = Date.now();
+  }, []);
+  const toggle = useCallback(() => {
+    lockManual();
+    setThemeRaw((t) => (t === "dark" ? "light" : "dark"));
+  }, [setThemeRaw, lockManual]);
+  const setTheme = useCallback(
+    (v: "dark" | "light" | ((p: "dark" | "light") => "dark" | "light")) => {
+      lockManual();
+      setThemeRaw(v as any);
+    },
+    [setThemeRaw, lockManual]
+  );
   return { theme: safe, setTheme, toggle };
 }
 

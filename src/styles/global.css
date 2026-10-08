@@ -321,7 +321,13 @@ body {
   font-size: 16.5px;
   line-height: 1.65;
   -webkit-font-smoothing: antialiased;
+  /* Clip, not hidden (note 261): `hidden` forces the body into its own scroll
+     container with a classic gutter the page overlay can never remove — only
+     the thumb may remain, so the document itself must be the scroller. `clip`
+     cuts horizontal overflow the same way without creating a container (and
+     keeps sticky working); browsers without it keep the line above. */
   overflow-x: hidden;
+  overflow-x: clip;
 }
 
 #root {
@@ -1987,45 +1993,69 @@ h2 em {
   left: 0;
 }
 
-/* Slim overlay-style scrollbar like the reference (note 236): a thin pale
-   line on a transparent track, no arrow buttons — same slim shape on desktop
-   and mobile. The tone adapts so it stays visible: pale on dark pages, grey
-   on light ones. */
+/* Minimal floating scrollbar (note 271): only a thin rounded gray handle on
+   the far right, directly against the page background. Track, track-piece,
+   buttons, corner and gutter are fully transparent, so no container or
+   vertical bar ever draws behind it. Overlay where supported, so layout and
+   content width never shift; normal scrolling unchanged. */
 html {
+  overflow-y: auto;
+  overflow-y: overlay;
   scrollbar-width: thin;
-  scrollbar-color: rgba(216, 216, 224, 0.8) transparent;
+  scrollbar-gutter: auto;
+  scrollbar-color: rgba(148, 148, 158, 0.65) transparent;
 }
 ::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
-}
-::-webkit-scrollbar-track {
+  width: 6px;
+  height: 6px;
   background: transparent;
 }
+::-webkit-scrollbar-track,
+::-webkit-scrollbar-track-piece {
+  background: transparent;
+  border: none;
+}
 ::-webkit-scrollbar-thumb {
-  background-color: rgba(216, 216, 224, 0.8);
+  background-color: rgba(148, 148, 158, 0.65);
   border-radius: 999px;
-  border: 2px solid transparent;
-  background-clip: padding-box;
-  min-height: 40px;
+  border: none;
+  min-height: 48px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background-color: rgba(235, 235, 242, 0.95);
-  background-clip: padding-box;
+  background-color: rgba(170, 170, 180, 0.85);
+}
+::-webkit-scrollbar-thumb:active {
+  background-color: rgba(190, 190, 200, 0.9);
 }
 [data-theme="light"] html {
-  scrollbar-color: rgba(150, 150, 160, 0.85) transparent;
+  scrollbar-color: rgba(130, 130, 140, 0.55) transparent;
 }
 [data-theme="light"] ::-webkit-scrollbar-thumb {
-  background-color: rgba(150, 150, 160, 0.85);
-  background-clip: padding-box;
+  background-color: rgba(130, 130, 140, 0.55);
 }
 [data-theme="light"] ::-webkit-scrollbar-thumb:hover {
-  background-color: rgba(120, 120, 132, 0.9);
-  background-clip: padding-box;
+  background-color: rgba(110, 110, 120, 0.7);
 }
-::-webkit-scrollbar-button {
-  display: none;
+[data-theme="light"] ::-webkit-scrollbar-thumb:active {
+  background-color: rgba(90, 90, 100, 0.75);
+}
+::-webkit-scrollbar-button,
+::-webkit-scrollbar-button:single-button,
+::-webkit-scrollbar-button:vertical:decrement,
+::-webkit-scrollbar-button:vertical:increment,
+::-webkit-scrollbar-button:horizontal:decrement,
+::-webkit-scrollbar-button:horizontal:increment,
+::-webkit-scrollbar-button:vertical:start:decrement,
+::-webkit-scrollbar-button:vertical:end:increment {
+  display: none !important;
+  width: 0 !important;
+  height: 0 !important;
+  min-width: 0 !important;
+  min-height: 0 !important;
+  background: transparent !important;
+  border: none !important;
+  padding: 0 !important;
+  margin: 0 !important;
 }
 ::-webkit-scrollbar-corner {
   background: transparent;
@@ -2042,10 +2072,10 @@ html {
   width: 0 !important;
   height: 0 !important;
 }
-/* The scroll-to-top button (notes 239, 245): a circle that takes the page theme —
-   dark glass with a gold chevron by night, light cream with a dark-gold
-   chevron by day. It pops up once one screenful is passed; one tap returns
-   to the top. */
+/* The scroll-to-top button (note 266): hidden at the top, visible from the
+   page middle down — a circle that takes the page theme (dark glass with a
+   gold chevron by night, light cream with a dark-gold chevron by day).
+   One tap returns to the top. */
 .scroll-pill {
   position: fixed;
   right: 18px;
@@ -2907,7 +2937,6 @@ html {
   font-size: 0.78rem;
   color: #8e887f;
 }
-
 .footer__meta {
   display: flex;
   gap: 1.2rem;
@@ -3331,6 +3360,22 @@ input, select, textarea { font-size: 1rem !important; }
   color: var(--muted);
   margin: 0;
 }
+.maint__update {
+  font-size: 0.82rem;
+  letter-spacing: 0.02em;
+  opacity: 0.85;
+}
+.maint__office {
+  font-size: 0.85rem;
+}
+.maint__office a {
+  color: var(--gold-2);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+[data-theme="light"] .maint__office a {
+  color: var(--gold);
+}
 [data-theme="light"] .maint__pill {
   color: var(--gold);
 }
@@ -3357,4 +3402,11 @@ input, select, textarea { font-size: 1rem !important; }
   font-weight: 650;
   padding: 0.35rem 1rem;
   cursor: pointer;
+}
+.admin__maint-btns {
+  display: flex;
+  gap: 0.5rem;
+  flex: none;
+  flex-wrap: wrap;
+  justify-content: flex-end;
 }

@@ -30,8 +30,14 @@ const SESSION_KEY = "wom.cms.session";
 const REQUEST_TIMEOUT = 9000;
 
 const NOTES_KEY = "wom.cms.notes";
+/* Which code update the browser's saved store belongs to (note 253). */
+const CODEGEN_KEY = "wom.cms.codegen";
 /* The code update the live content was last published from (note 249). */
 let publishedNotes = 0;
+/** The update number the running content was last published from (note 250). */
+export function publishedNotesVersion(): number {
+  return publishedNotes;
+}
 function setPublishedNotes(n: unknown) {
   if (typeof n !== "number" || !Number.isFinite(n) || n <= publishedNotes) return;
   publishedNotes = Math.floor(n);
@@ -41,12 +47,76 @@ function setPublishedNotes(n: unknown) {
     /* a full store keeps the memory value for this visit */
   }
 }
+/* The office's preview pass: ?preview=1 (remembered for the visit) shows the
+   new site before it is published, so an update is verifiable first (note 250). */
+const PREVIEW_KEY = "wom.cms.preview";
+function maintenancePreview(): boolean {
+  try {
+    const q = new URLSearchParams(window.location.search || "");
+    if (q.get("preview") === "1") {
+      try {
+        sessionStorage.setItem(PREVIEW_KEY, "1");
+      } catch {}
+      return true;
+    }
+    return sessionStorage.getItem(PREVIEW_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+/** True while a server is (or was) in play: online, offline after contact, a
+    socket waiting, or an address to reach. A copy that never had a server has
+    no visitors to protect, so it never waits (note 250). */
+function serverInvolved(): boolean {
+  if (socket || status === "online" || status === "offline") return true;
+  try {
+    return !!socketFactory();
+  } catch {
+    return false;
+  }
+}
 /* True while visitors must wait: new code shipped since the last publish.
-   The office console (#/admin) never waits. A first run (nothing published
-   from any update yet) never waits either. */
+   Never on a first run (nothing published yet), never on a server-less copy
+   (local dev has no visitors), never on the office's preview pass, and never
+   in the office console (#/admin) — which renders around this (note 250). */
 export function useMaintenance(): boolean {
   useCmsVersion();
-  return publishedNotes > 0 && publishedNotes < BUILD_NOTES;
+  if (publishedNotes <= 0 || publishedNotes >= BUILD_NOTES) return false;
+  if (!serverInvolved()) return false;
+  try {
+    if (maintenancePreview()) return false;
+  } catch {}
+  return true;
+}
+
+/** True while this copy is older than what this browser has already seen
+    (note 252): the office opened an old extract or an old build — the running
+    update is lower than the last-published stamp. The footer already names the
+    old number; Admin says so out loud with the way out. */
+export function useOlderCopy(): boolean {
+  useCmsVersion();
+  return publishedNotes > BUILD_NOTES;
+}
+
+/* Forget everything this browser kept from older copies (note 252): cached
+   words, drafts, history, waiting publishes and the publish stamp — then
+   reload onto the shipped words. The server's published words are untouched.
+   Anything published ONLY on this device while offline is lost with it, so
+   the button carrying this says so before it arms. */
+export function resetLocalCopy(): void {
+  const keys = [CACHE_KEY, DRAFT_KEY, HISTORY_KEY, PENDING_KEY, NOTES_KEY, AFTER_SAVE_KEY];
+  for (const k of keys) {
+    try {
+      localStorage.removeItem(k);
+    } catch {}
+  }
+  try {
+    sessionStorage.removeItem(PREVIEW_KEY);
+  } catch {}
+  publishedNotes = 0;
+  try {
+    window.location.reload();
+  } catch {}
 }
 
 /* ------------------------------------------------------------------- state */
@@ -918,12 +988,24 @@ export async function startCms() {
      something actually lapsed. */
   window.setInterval(() => dropLapsedSlides(true), 30000);
   // Paint instantly; edited sections stay as left; the server syncs over below.
+  // …unless this is a new update's first boot (note 253): a fresh extract opens
+  // on the new code's own words, never on an older copy's cached paint. The
+  // stored draft — the office's own unsaved work — is still adopted above, and
+  // anything published while offline still flushes; only the old instant-paint
+  // is skipped, and the server sync fills the page in behind it.
   await applySeedOnce();
   const cached = readJSON<{ rev?: number; overrides?: Snapshot } | null>(CACHE_KEY, null);
-  if (cached?.overrides) {
+  let freshEyes = false;
+  try {
+    freshEyes = readJSON<number>(CODEGEN_KEY, 0) !== BUILD_NOTES;
+  } catch {
+    freshEyes = true;
+  }
+  if (cached?.overrides && !freshEyes) {
     rev = cached.rev || 0;
     applyOverrides(cached.overrides);
   }
+  if (freshEyes) writeJSON(CODEGEN_KEY, BUILD_NOTES);
   history = readJSON<any[]>(HISTORY_KEY, []) || [];
   try {
     const nn = readJSON<number>(NOTES_KEY, 0);
@@ -2066,8 +2148,11 @@ export async function publish(note: string, content?: Snapshot): Promise<Publish
       return { ok: true };
     }
     /* Visitors are waiting and Publish was clicked with no content changes:
-       bless the current update on the server so maintenance lifts (note 249). */
+       bless the current update so maintenance lifts (note 250: even with no
+       server reachable — a local Publish blesses this copy, the server sync
+       carries it on when the connection returns). */
     if (!socket || status !== "online") {
+      setPublishedNotes(BUILD_NOTES);
       notify();
       return { ok: true, local: true };
     }
@@ -2088,9 +2173,12 @@ export async function publish(note: string, content?: Snapshot): Promise<Publish
   if (!socket || status !== "online") {
     // No server reachable: keep the site working locally and remember the
     // override set so it can be sent the moment the connection returns.
+    // This still blesses the current update on this copy, so a local Publish
+    // lifts maintenance here (note 250).
     rememberHistory();
     overrides = { ...overrides, ...pick(snapshot, changed) };
     applyOverrides(overrides);
+    setPublishedNotes(BUILD_NOTES);
     writeJSON(CACHE_KEY, { rev, overrides });
     pending = clone(overrides);
     writeJSON(PENDING_KEY, pending);
@@ -2336,6 +2424,8 @@ export async function clearAllOverrides(): Promise<PublishResult> {
     rememberHistory();
     overrides = {};
     applyOverrides({}, false);
+    /* A local restore still moves the copy onto this update (note 250). */
+    setPublishedNotes(BUILD_NOTES);
     writeJSON(CACHE_KEY, { rev, overrides });
     localOnly = true;
     notify();

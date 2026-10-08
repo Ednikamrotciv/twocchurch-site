@@ -30,15 +30,16 @@ export type CuboidApi = {
   push: (dir: 1 | -1) => void;
   /** Settle onto the nearest face and hold still (a tap on the box). */
   snap: () => void;
+  /** Any action around the box: stop/hold and restart the 3-minute clock. */
+  poke: () => void;
 };
 
 const TURN_SPEED = (Math.PI * 2) / 26;
 /** Hands off the box this long and it resumes its default slow revolve. */
 const IDLE_MS = 3 * 60 * 1000;
-/** A face's slide shows for 15 seconds before the faces turn over to the
-    next one on their own — the flat stage's own rhythm (ADVANCE_MS in
-    ./slides.tsx), so the box and the fallback move as one. */
-const CONTENT_MS = 15000;
+/* Note 275: the 15s slide rhythm lives on the flat fallback only (ADVANCE_MS
+   in ./slides.tsx). The box itself just revolves whenever it is not held —
+   no timed face turnover here. */
 
 /* The four sides in the order the arrows walk them: front → right → back →
    left. Every step is a short quarter-turn of level yaw, and every resting
@@ -274,12 +275,10 @@ function Cuboid({ slides, apiRef, held, logo, theme }: { slides: (SlideT | null)
   const qTarget = useRef(new THREE.Quaternion());
   const autoYaw = useRef(0);
   const ringPos = useRef(0);
-  /* Hands-on until three quiet minutes pass, then the default revolve resumes. */
+  /* Hands-on until three quiet minutes pass, then the default revolve resumes
+     (note 275: revolve only — the 15s rhythm is flat-fallback only). */
   const manual = useRef(false);
   const lastAct = useRef(0);
-  /* A tap's handover back to the auto-slide, so quick taps never stack. */
-  const resumeId = useRef(0);
-  useEffect(() => () => window.clearTimeout(resumeId.current), []);
   const touch = () => {
     manual.current = true;
     lastAct.current = performance.now();
@@ -289,44 +288,25 @@ function Cuboid({ slides, apiRef, held, logo, theme }: { slides: (SlideT | null)
     ringPos.current = (ringPos.current + dir + RING.length) % RING.length;
   };
   const settle = () => {
-    /* A tap or click turns the next face to the front at once, then hands
-       straight back to the auto-slide — the stage never sits still. The
-       revolve picks up exactly where the turn lands, so there is no jump. */
+    /* A tap or click stops on a face and stays there: no auto handover.
+       Three quiet minutes resume the revolve where the turn lands. */
     ringPos.current = (ringPos.current + 1) % RING.length;
-    manual.current = true;
-    lastAct.current = performance.now();
-    window.clearTimeout(resumeId.current);
-    resumeId.current = window.setTimeout(() => {
-      const q = qCur.current;
-      autoYaw.current = 2 * Math.atan2(q.y, q.w);
-      manual.current = false;
-    }, 1200);
+    touch();
   };
   useEffect(() => {
     if (!apiRef) return;
-    apiRef.current = { push: step, snap: settle };
+    apiRef.current = { push: step, snap: settle, poke: touch };
   }, [apiRef]);
-  /* Four faces but any number of announcements: the faces walk through every
-     slide on their own, no swipe or arrow needed. A tap settles the box onto
-     its nearest face and holds it, but the faces keep turning over — the
-     stage moves like a normal slider even with the box standing still. A
-     hold (hover, focus, touch) freezes the turnover, like the flat stage. */
+  /* Fixed faces: the box shows the first four announcements (logo where a
+     face has no picture). It revolves whenever it is not tapped/held — no
+     timed turnover; the 15s change is the flat fallback's only. */
   const countSlides = slides.length;
-  const [base, setBase] = useState(0);
+  const faceSlides = useMemo(() => [0, 1, 2, 3].map((f) => (countSlides > 0 ? slides[f % countSlides] : null)), [slides, countSlides]);
+  /* Any hold around the box counts as action: it pushes the 3-minute clock
+     out, so hovering a held box keeps it held. */
   useEffect(() => {
-    setBase((b) => (countSlides > 0 ? b % countSlides : 0));
-  }, [countSlides]);
-  const heldRef = useRef(held);
-  heldRef.current = held;
-  useEffect(() => {
-    if (countSlides <= 1) return;
-    const id = window.setInterval(() => {
-      if (heldRef.current) return;
-      setBase((b) => (b + 1) % countSlides);
-    }, CONTENT_MS);
-    return () => window.clearInterval(id);
-  }, [countSlides]);
-  const faceSlides = useMemo(() => [0, 1, 2, 3].map((f) => (countSlides > 0 ? slides[(base + f) % countSlides] : null)), [slides, countSlides, base]);
+    if (held) lastAct.current = performance.now();
+  }, [held]);
   /* The four sides carry the slides' own content (box material order is
      +x, -x, +y, -y, +z, -z: the caps get no slide and stay plain dark).
      A face with no picture of its own carries the church logo — the stage
@@ -372,7 +352,12 @@ function Cuboid({ slides, apiRef, held, logo, theme }: { slides: (SlideT | null)
     const g = group.current;
     if (!g) return;
     const delta = Math.min(rawDelta, 0.05);
-    if (manual.current && performance.now() - lastAct.current > IDLE_MS) manual.current = false;
+    if (manual.current && performance.now() - lastAct.current > IDLE_MS) {
+      /* Three quiet minutes: pick the revolve up where the turn landed. */
+      const q = qCur.current;
+      autoYaw.current = 2 * Math.atan2(q.y, q.w);
+      manual.current = false;
+    }
     if (manual.current) {
       qTarget.current.copy(RING[ringPos.current]);
     } else if (!held) {

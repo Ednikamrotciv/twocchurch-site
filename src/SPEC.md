@@ -6819,3 +6819,78 @@ Three guards plus a real bug fix. (1) `npm run dev` announces its update in the 
 ## 249. Maintenance until Publish after an update (the office asked)
 
 Whenever a new update is deployed, visitors see maintenance only - the header's logo and a Maintenance notice, nothing else - while the whole admin console stays active. The first Publish from the new code lifts it everywhere. How: every publish blesses the publishing code's update number (`BUILD_NOTES` rides each patch; the server keeps the highest in its state; seed backups, the live feed and browser caches carry it). The public site compares it with its own code and waits when behind; `#/admin` never waits. A Publish with no content changes still blesses (notes-only sync), so the click always lifts. First-ever runs (nothing published yet) never wait. The admin shell shows `Visitors see maintenance right now` with a Review-and-publish shortcut while it lasts. Verified: edited files parse, maintenance matrix harness, repacked, image proof attached.
+
+
+## 250. Maintenance can never trap the office again (the office asked)
+
+Update 249's gate hid the whole site in three ordinary office flows, each reading as "I didn't see any changes": (1) a Publish with no server reachable never blessed, so local/dev copies waited forever — every offline Publish path now blesses the running update on its own copy; (2) a server-less copy (`npm run dev` with no office server) showed maintenance although it has no visitors — the gate now only applies when a server is or was in play; (3) there was no way to look at the new site before publishing — `?preview=1` (remembered for the visit) shows it, linked from the maintenance notice itself. The notice also names the installed update and the last published one, and the admin banner shows both numbers, so a stale copy is spotted, not guessed. Verified: edited files parse, repacked.
+
+
+## 251. The running update on the page itself (the office asked)
+
+"Still didn't change" can mean four different copies (old extract, stale dist, cached page, live host), and none of them would say so. The footer bottom-bar carried a quiet `· Update N` on every page, next to the copyright — the number the code was shipped with. (Retired in note 253: the office wanted nothing extra on the page; the console stamp `window.__womBuild` still names the running update.) Verified: edited files parse, repacked.
+
+
+## 252. Clean slate — only the new update stays active (the office asked)
+
+"Still showing the old" had three hiding places, and the new zip was byte-identical to the download, so the old came from the machine, not the file: (1) every extract shares one browser store under the same localhost address, so an old folder's cached words resurface inside the new one; (2) dist/ and Vite caches can serve an older build than the folder; (3) the live host serves whatever was last deployed to it, untouched by any zip. The fixes: Admin → Tools carries a **Clean slate** card that two-tap forgets the browser's old copies (cached words, drafts, history, waiting publishes, publish stamp) and reloads onto the shipped words, and says outright when the open copy itself is older than what the browser has seen; the admin shell shows the same old-copy banner; `npm run clean` (scripts/clean.mjs) wipes dist/ and Vite caches without touching data/; LOCALDEV.md's "one folder, one update" rule says to delete every old extract folder and notes the footer number as the arbiter. (Note 253 retired the Clean slate card and the footer number — the office wanted zero chores and nothing extra on the page. The update procedure is now only: extract, `npm install`, `npm run dev`.) Verified: edited files parse, repacked.
+
+
+## 253. New updates clean up after themselves (the office asked)
+
+No button rituals, nothing extra on the page: a new update's first boot opens on its own words by itself. How: the browser store is stamped with the code update that wrote it (`wom.cms.codegen`); when a boot finds a different update's stamp, it skips the older copy's cached instant-paint and lets the server sync fill the page, then records the new stamp. Same-update restarts behave exactly as before, the office's unsaved draft is still adopted, and anything published while offline still flushes — only the old ghost-paint is gone. The footer number and the Clean slate card are removed; `window.__womBuild` in the console still names the running update, the old-copy admin banner still speaks up if an old folder is opened, and `cms.resetLocalCopy()` stays as a support helper. Verified: edited files parse, repacked.
+
+
+## 254. The update window: restore the backup, then Publish (the office asked)
+
+The standing flow, now explicit in the product: when an update lands, visitors wait on maintenance while the admin stays fully active — that window is for bringing the office's words home. The admin banner says so and offers both doors: **Restore a backup** (opens Tools at the restore card — words and photos return as a draft, normalized to the new update's shape, retired sections named and left out) and **Review and publish**. Publish puts it live and lifts maintenance: the site comes back exactly as it was, with only the new update's changes new. The chain was verified in code: export carries published content plus embedded uploads, import writes photos back under their stored names, publish blesses the new update online and off. LOCALDEV.md carries the four-step recipe (back up → new folder → restore → publish). Verified: edited files parse, repacked.
+
+
+## 255. One dev server only — old folders can't ghost the port (the office asked)
+
+"Whenever I run on VS Code the updates are missing" had a silent cause: Vite's dev server slides to the next free port when 5173 is taken. An older folder's forgotten dev keeps 5173, the new folder lands on 5174, and the browser tab on 5173 keeps showing the old folder forever — no maintenance, no scroll button, no new scrollbar, with nothing saying why. `vite.config.ts` now pins `strictPort: true`: a clash fails loudly ("Port 5173 is already in use") instead of serving old code under your feet. The rule stays: one folder open, one `npm run dev`, old folders deleted. Verified: edited files parse, repacked.
+
+
+## 256. Bar-only scrollbar, pill audit — one implementation everywhere (the office asked)
+
+Full scan for anything that could hide the scroll features: no legacy `.to-top` button or styles ship anywhere (only `scroll-pill` exists, mounted on the site and on `/admin`, same code in dev and in every build — there is no environment branch, so VS Code and deploy render the identical button); the page-edge bar draws only the thumb (transparent track, no arrow buttons, transparent corner, inner areas barless) plus a new `track-piece` rule, because some Chromium builds paint that layer behind the thumb — that was the last place a "container" could come from. Why they still read as missing: while maintenance shows, the public page is the bare notice — nothing scrollable, no footer, no button by design. Finish restore → Publish and both stand on every long page in VS Code and on deploy. Verified: edited files parse, repacked.
+
+
+## 257. Desktop scrollbar floats exactly like the phone's (the office asked)
+
+The phone's bar floats over the page — no gutter, content keeps full width. Desktop Chrome instead reserved a gutter column. `html` now uses `overflow-y: overlay`: on Chromium the desktop bar floats over the content and behaves like the mobile one; Firefox, with no overlay, keeps its native thin bar as the closest equivalent. Thumb, track-piece, buttons and corner stay invisible-or-thumb-only, and inner areas stay barless, so in every engine only the bar draws. Sticky header and scroll measurement are untouched (the document scrolled before, it scrolls now). Verified: edited files parse, repacked.
+
+
+## 259. The page ground reaches the bar — never browser white (the office asked)
+
+Transparent track layers let the browser's own canvas show through wherever a gutter gets composited (classic mode, embeds, overscroll) — a white strip beside the bar. Every layer under the thumb is now painted the page ground itself: scrollbar base, track, track-piece and corner use the theme base, and the Firefox track color does too. The bar still floats exactly like the reference; only the ground changed. Verified: edited files parse, repacked.
+
+
+## 260. Gutter fully gone — only the floating bar remains (the office asked)
+
+The painted ground itself read as a gutter where the bar floats over content. Now every Chromium layer around the thumb is invisible again (scrollbar base, track, track-piece, corner) on top of the overlay, so no strip can render — only the 6px reference thumb floats over the page. Firefox keeps its track painted the page ground through `scrollbar-color`, which is its only layer and never whites out. Verified: edited files parse, repacked.
+
+
+## 261. The document scrolls — only the thumb can remain (the office asked)
+
+"Only the thumb" kept failing because the page wasn't the scroller: `overflow-x: hidden` on `body` forces the body into its own scroll container with a classic gutter, and the `html` overlay rule can never reach a nested scroller. `body` now uses `overflow-x: clip` (same horizontal cut, no container created, sticky untouched; the `hidden` line stays above it for browsers without `clip`). The document itself scrolls again, so the overlay owns the one scrollbar and only the 6px reference thumb draws — nothing beside it, in either theme, in VS Code and in every build. Verified: edited files parse, repacked.
+
+
+## 262. The pill mounts on every screen, maintenance included (the office asked)
+
+Why the button showed in the preview but never in the VS Code run: the preview mockup mounts it unconditionally, while the site mounted it on the site and on `/admin` — but not on the maintenance notice, which is exactly the screen a fresh update shows. No crash, just a missing mount on that one screen. `<ScrollTop />` now renders inside `MaintenanceSite` too: on tall screens it stays parked (nothing to scroll, correct), and on small screens where the notice itself overflows, one tap carries the visitor home like everywhere else. Verified: edited files parse, repacked.
+
+
+## 263. Minimal floating scrollbar in both engines (the office: track and gutter invisible)
+
+The one layer still painting a strip: Firefox's `scrollbar-color` track was `var(--ink)` (note 259's guard), while every Chromium layer was already transparent — so in Firefox a full-height ground strip drew behind the thumb. Both `scrollbar-color` tracks (dark + light) are now `transparent`: only the thin rounded gray handle draws, floating at the very edge directly against the page background. No browser white can show through — the page base lives on `html`, so transparent composites over theme ground. Scrolling behavior, layout, sticky header, and thumb styling unchanged in both engines. Verified: edited files parse, repacked.
+
+
+## 264. Pill off the maintenance notice (the office: only where it can work)
+
+The office doesn't want the button on the maintenance notice — and they're right, a notice that fits one screen has nothing to scroll. Update 262's mount there is reverted: the pill lives on the site and on `/admin`, the two places with real scrolling. Finding it in a VS Code run: open a long page (Sermons), scroll one full screen, and the circle pops up bottom-right; one tap returns to top. If a fresh update opens on the notice instead, click "Preview the new site" on the notice — that's the full new site with the pill — or restore a backup and Publish. Verified: edited files parse, repacked.
+
+
+## 258. Scrollbar exactly like the office reference (the office asked)
+
+The reference shot shows one slim light-grey rounded bar floating at the very edge — no padding ring, no container. The bar is now that: a 6px gutter with a borderless fully-rounded thumb (pale on dark pages, faint black on light ones, darkening on hover, 48px minimum grab), transparent track/track-piece/corner, no arrow buttons, inner areas barless. The scroll-up button is confirmed unconditional: no environment branches exist anywhere in the code, so VS Code and deploy mount the identical pill on the site and on `/admin`, appearing after one screenful (or near the bottom) with a tap home. Verified: edited files parse, repacked.

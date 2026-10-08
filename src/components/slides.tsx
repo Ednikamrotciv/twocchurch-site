@@ -423,6 +423,13 @@ export function AnnouncementSlides({ slides = SLIDES }: { slides?: AnnouncementS
   const live = useMemo(() => visibleSlides(slides), [slides, version, tick]);
   const designs = useMemo(() => slideDesigns(live), [live]);
   const [held, setHeld] = useState(false);
+  /* Tap/click hold (note 274): a tap stops the rotation and holds it; three
+     quiet minutes with no action around the box resume with a fresh 15s. */
+  const [userHeld, setUserHeld] = useState(false);
+  const userHeldRef = useRef(false);
+  userHeldRef.current = userHeld;
+  const resumeTimer = useRef(0);
+  useEffect(() => () => window.clearTimeout(resumeTimer.current), []);
   const previewing = showingAllDesigns();
   /* Read once: flipping the OS setting mid-visit does not rebuild the stage. */
   const [calm] = useState(() => prefersReducedMotion());
@@ -499,18 +506,43 @@ export function AnnouncementSlides({ slides = SLIDES }: { slides?: AnnouncementS
     };
   }, [previewing, count, calm]);
 
-  /* A hold (hover, focus, or touch) freezes swiper's own timer. */
+  /* A hold (hover, focus, touch) or a tap-hold freezes swiper's own timer. */
   useEffect(() => {
     const sw = swiperRef.current;
     const timer = sw && sw.autoplay && !calm ? sw.autoplay : null;
     if (!timer) return;
-    if (held) timer.stop();
+    if (held || userHeld) timer.stop();
     else timer.start();
-  }, [held, calm]);
+  }, [held, userHeld, calm]);
+
+  /* Stop on tap/click/swipe/arrow/key; any action around the box while held
+     pushes the 3-minute quiet wait (and the fresh 15s rhythm) out. */
+  const holdBox = useCallback(() => {
+    if (calm) return;
+    setUserHeld(true);
+    userHeldRef.current = true;
+    try {
+      (swiperRef.current?.autoplay as any)?.stop();
+    } catch {}
+    window.clearTimeout(resumeTimer.current);
+    resumeTimer.current = window.setTimeout(() => {
+      setUserHeld(false);
+      userHeldRef.current = false;
+      try {
+        const timer = swiperRef.current?.autoplay as any;
+        timer?.stop();
+        timer?.start();
+      } catch {}
+    }, 3 * 60 * 1000);
+  }, [calm]);
+  const touchBox = useCallback(() => {
+    if (userHeldRef.current) holdBox();
+  }, [holdBox]);
 
   const go = (step: number) => {
     const sw = swiperRef.current;
     if (!sw) return;
+    holdBox();
     if (step > 0) sw.slideNext();
     else sw.slidePrev();
   };
@@ -518,9 +550,11 @@ export function AnnouncementSlides({ slides = SLIDES }: { slides?: AnnouncementS
   const onKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
     if (e.key === "ArrowLeft") {
       e.preventDefault();
+      touchBox();
       go(-1);
     } else if (e.key === "ArrowRight") {
       e.preventDefault();
+      touchBox();
       go(1);
     }
   };
@@ -642,9 +676,12 @@ export function AnnouncementSlides({ slides = SLIDES }: { slides?: AnnouncementS
             onFocusCapture={() => setHeld(true)}
             onBlurCapture={() => setHeld(false)}
             onKeyDown={onKeyDown3d}
+            onPointerDown={() => cuboidApi.current?.poke?.()}
+            onClick={() => cuboidApi.current?.poke?.()}
             onTouchStart={(e) => {
               touchStart.current = { x: e.touches[0]?.clientX ?? 0, y: e.touches[0]?.clientY ?? 0 };
               setHeld(true);
+              cuboidApi.current?.poke?.();
             }}
             onTouchEnd={(e) => {
               const start = touchStart.current;
@@ -717,11 +754,20 @@ export function AnnouncementSlides({ slides = SLIDES }: { slides?: AnnouncementS
         <div
           className="aslides"
           style={shapeVar}
-          onMouseEnter={() => setHeld(true)}
+          onMouseEnter={() => {
+            setHeld(true);
+            touchBox();
+          }}
           onMouseLeave={() => setHeld(false)}
-          onFocusCapture={() => setHeld(true)}
+          onFocusCapture={() => {
+            setHeld(true);
+            touchBox();
+          }}
           onBlurCapture={() => setHeld(false)}
           onKeyDown={onKeyDown}
+          onPointerDown={() => holdBox()}
+          onClick={() => holdBox()}
+          onTouchStart={() => holdBox()}
           role="region"
           aria-roledescription="carousel"
           aria-label={ct("auto.site.ed1bc718392f9ee1")}
@@ -729,7 +775,10 @@ export function AnnouncementSlides({ slides = SLIDES }: { slides?: AnnouncementS
           <div
             className="aslides__viewport swiper"
             ref={stageRef}
-            onPointerDown={() => setHeld(true)}
+            onPointerDown={() => {
+              setHeld(true);
+              holdBox();
+            }}
             onPointerUp={() => setHeld(false)}
             onPointerCancel={() => setHeld(false)}
           >

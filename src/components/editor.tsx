@@ -20,7 +20,7 @@ import {
 } from "../components/ui";
 import { PageHead } from "../components/layout";
 import { SearchBox, eventDate } from "../components/blocks";
-import { fireToast, useNow, BUILD_NOTES, BUILD_DATE } from "../lib/hooks";
+import { fireToast, useNow } from "../lib/hooks";
 import { readLiveStatus } from "../lib/livestatus";
 import { SITE, SERVICES, img } from "../data/site";
 import { recentLimit } from "../data/live";
@@ -2092,23 +2092,10 @@ export function ToolsPage() {
             {busy ? "Restoring…" : "Restore a backup"}
           </Btn>
         </Card>
-        <Card className="admin__tool">
-          <h4>
-            <Icon name="info" size={16} /> Which update is running here
-          </h4>
-          {/* The build stamp (note 244): the office reads here — and on the
-              live site in its console — whether the newest fixes have arrived.
-              If this number is lower than the latest zip's, the site host
-              still serves the old copy: rebuild and re-upload dist/. */}
-          <p>
-            Site code: update {BUILD_NOTES} · {BUILD_DATE}. If the live site shows a lower number, it is still serving the old copy.
-          </p>
-        </Card>
       </div>
     </div>
   );
 }
-
 
 /* -------------------------------------------------------- authenticator app */
 

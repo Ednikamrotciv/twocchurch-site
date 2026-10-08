@@ -7,7 +7,10 @@ import { cmsBackend } from "./scripts/vite-cms-backend.mjs";
 
 export default defineConfig({
   plugins: [react(), cmsBackend()],
-  server: { port: 5173 },
+  /* One server only (note 255): if an older folder's dev is still holding
+     5173, a new folder must fail loudly — never slide silently onto 5174 while
+     the browser keeps showing the old folder on 5173. */
+  server: { port: 5173, strictPort: true },
   resolve: { dedupe: ["react", "react-dom"] },
   build: {
     chunkSizeWarningLimit: 1200,
