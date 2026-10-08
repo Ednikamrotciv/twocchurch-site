@@ -1143,6 +1143,14 @@ export async function startCms() {
   } catch {
     publishedNotes = 0;
   }
+  /* Desktop saved stamp (forced): a server-backed copy that is behind gets
+     held one update back and persists it, so a fresh desktop (no stamp) waits
+     exactly like a stale phone — the notice survives reloads on both. */
+  try {
+    if (publishedNotes < BUILD_NOTES && serverInvolved()) {
+      setPublishedNotes(BUILD_NOTES - 1);
+    }
+  } catch {}
   pending = readJSON<Snapshot | null>(PENDING_KEY, null);
   /* Boot numbers are final here (seed + stored stamp): bump once so the
      maintenance notice re-evaluates instead of sticking with first paint
