@@ -41,7 +41,10 @@ publish anyway, keep the `maintenance-hold.txt` file beside `package.json`,
 then build and upload as usual. Fresh visitors see the maintenance notice;
 publishing from the admin console releases them on the spot, with no rebuild.
 Delete the file when holding should stop — it never leaves your computer
-(git-ignored), so hosts rebuilding from git always ship clean.
+(git-ignored), so hosts rebuilding from git always ship clean. A desktop still
+showing the site after a deploy is holding the old cached copy: it reloads
+itself onto the new build within minutes (never mid-edit), or hard-refresh it
+(Ctrl+Shift+R) to hurry it along.
 
 ## The update routine
 
