@@ -333,11 +333,7 @@ export function Admin() {
         </div>
       )}
       {maintenance && (
-        <div className="admin__maint" role="status">
-          <span>
-            Update {BUILD_NOTES} is installed{cms.publishedNotesVersion() > 0 ? " \u00b7 last published from update " + cms.publishedNotesVersion() : ""} and visitors are waiting. Restore your backup, review it, then Publish —
-            the site comes back exactly as it was, with only the new update's changes new.
-          </span>
+        <div className="admin__maint admin__maint--buttons" role="status">
           <span className="admin__maint-btns">
             <button
               type="button"

@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { tx } from "../lib/i18n";
 import { Link, navigate, useRoute } from "../lib/router";
-import { useHotkey, useMediaQuery, useScrollProgress, useTheme, useNow, useClickOutside, useBodyLock, BUILD_NOTES } from "../lib/hooks";
+import { useHotkey, useMediaQuery, useScrollProgress, useTheme, useNow, useClickOutside, useBodyLock } from "../lib/hooks";
 import { exitMaintenancePreview } from "../lib/cms";
 import { nextService, onAir, countdownParts, to12h, DAY_SHORT, fmtDate, zoneYear, clockAt, churchTimezone, visitorPlace } from "../lib/store";
 import { SITE, SERVICES, NAV, FOOTER_LINKS, LOGO_MARK } from "../data/site";
@@ -538,21 +538,16 @@ export function PreviewBanner() {
    never renders this. */
 export function MaintenanceSite() {
   const route = useRoute();
-  let lastPublished = 0;
-  try {
-    const raw = localStorage.getItem("wom.cms.notes");
-    const n = raw === null ? 0 : Number(JSON.parse(raw));
-    if (Number.isFinite(n) && (n as number) > 0) lastPublished = Math.floor(n as number);
-  } catch {
-    lastPublished = 0;
-  }
+  /* Auto dark/light on the notice too — no switch button here, it just follows
+     the site's own theme (stored choice + automatic switching). */
+  useTheme();
   const previewTo = `${route.path === "/" ? "/" : route.path}?preview=1`;
   return (
     <div className="maint">
       <header className="maint__head">
         <span className="maint__brand">
           <img className="maint__logo" src={siteFile(LOGO_MARK)} alt={SITE.name} />
-          <span>{SITE.name}</span>
+          <span className="maint__name">{SITE.name}</span>
         </span>
         <span className="maint__pill">Maintenance</span>
       </header>
@@ -560,9 +555,6 @@ export function MaintenanceSite() {
         <img className="maint__mark" src={siteFile(LOGO_MARK)} alt="" aria-hidden="true" />
         <h1>We&rsquo;ll be right back</h1>
         <p>The site is being updated. Please check back shortly.</p>
-        <p className="maint__update">
-          Update {BUILD_NOTES} installed{lastPublished > 0 ? ` · last published from update ${lastPublished}` : ""}.
-        </p>
         <p className="maint__office">
           Office?&nbsp;<a href={previewTo}>Preview the new site</a>&nbsp;·&nbsp;<Link to="/admin">Open the admin console</Link>
         </p>

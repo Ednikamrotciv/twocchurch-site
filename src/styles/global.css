@@ -3454,6 +3454,13 @@ input, select, textarea { font-size: 1rem !important; }
   flex-wrap: wrap;
   justify-content: flex-end;
 }
+/* Maintenance banner with text removed: buttons only, centered. */
+.admin__maint--buttons {
+  justify-content: center;
+}
+.admin__maint--buttons .admin__maint-btns {
+  justify-content: center;
+}
 /* Phone: the office banner stacks — text on top, buttons full-width below —
    so the update line never squeezes beside the buttons. */
 @media (max-width: 640px) {
@@ -3486,5 +3493,9 @@ input, select, textarea { font-size: 1rem !important; }
   }
   .maint__update {
     overflow-wrap: anywhere;
+  }
+  /* Mobile maintenance notice: logo + pill only, no church name. */
+  .maint__name {
+    display: none;
   }
 }

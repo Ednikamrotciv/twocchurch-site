@@ -1,0 +1,29 @@
+APPLY THIS UPDATE (282) — LOCAL + LIVE
+=====================================
+This zip contains ALL fixes in one place:
+- Desktop maintenance now triggers + saves its own stamp (mobile/desktop agree)
+- No update numbers on the visitor maintenance notice
+- Maintenance follows dark/light automatically (no button)
+- Mobile maintenance header: logo + pill only (church name hidden)
+- Admin maintenance banner: buttons only (Restore a backup / Review and publish)
+
+LOCAL (your computer)
+1. In the OLD folder: open #/admin → Tools → Back up now. Keep the file.
+2. Extract THIS zip to a NEW folder (do not extract over the old one).
+3. In the new folder: npm install
+4. npm run dev → http://localhost:5173/  (admin: /admin)
+5. #/admin → Tools → Restore the backup file → Review and publish → Publish.
+   Local lifts to 282. Hard-reload desktop + phone width to verify.
+
+LIVE (Render: twocchurch-site.onrender.com)
+1. Put this code where Render builds it (replace src/, scripts/, index.html,
+   seed.json, vite.config.ts, package.json — keep data/ as-is), commit/push.
+   Render: install npm install, build npm run build, start node scripts/serve.mjs,
+   disk mounted at data.
+2. Confirm https://twocchurch-site.onrender.com/version.json shows {"notes":282}.
+3. Open live /admin → Review and publish → Publish. This blesses 282 and lifts
+   mobile + desktop together (no rebuild needed for this step).
+4. Hard-reload both modes. Console check: window.__maintState().
+
+If desktop ever looks live while mobile waits: desktop is in ?preview=1
+(gold Preview bar) — click Exit preview. Or clear that tab's preview flag.
