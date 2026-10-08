@@ -37,11 +37,11 @@ export type CuboidApi = {
 const TURN_SPEED = (Math.PI * 2) / 26;
 /** Hands off the box this long and it resumes its default slow revolve. */
 const IDLE_MS = 3 * 60 * 1000;
-/* Note 279: the rotation itself runs free whenever the box is not held — no
+/* Note 280: the rotation itself runs free whenever the box is not held — no
    timer drives it. The 15s rhythm (flat fallback's ADVANCE_MS) only rotates
    WHICH uploads sit on the four faces, one step at a time, so every upload
-   displays in turn with no visible jump-cut of the whole stage. Taps hold
-   both the revolve and the turnover; three quiet minutes resume both. */
+   displays in turn. A tap holds the revolve but the slide display keeps
+   changing every 15s underneath; three quiet minutes spin the box back. */
 const CONTENT_MS = 15000;
 
 /* The four sides in the order the arrows walk them: front → right → back →
@@ -278,16 +278,15 @@ function Cuboid({ slides, apiRef, held, logo, theme }: { slides: (SlideT | null)
   const qTarget = useRef(new THREE.Quaternion());
   const autoYaw = useRef(0);
   const ringPos = useRef(0);
-  /* Hands-on until three quiet minutes pass, then revolve + turnover resume
-     together (note 279). */
+  /* A tap holds the revolve; the slide display underneath keeps its own 15s
+     rhythm (note 280), so tapping never resets the slide clock. */
   const manual = useRef(false);
   const lastAct = useRef(0);
-  /* Fresh 15s once the turnover resumes, so the rhythm restarts after a hold. */
+  /* Fresh 15s for the turnover after a hover hold ends (held freezes it). */
   const nextAdvance = useRef(0);
   const touch = () => {
     manual.current = true;
     lastAct.current = performance.now();
-    nextAdvance.current = performance.now() + CONTENT_MS;
   };
   const step = (dir: 1 | -1) => {
     touch();
@@ -323,9 +322,9 @@ function Cuboid({ slides, apiRef, held, logo, theme }: { slides: (SlideT | null)
   }, [apiRef]);
   /* All uploads take turns on the four faces: the window steps one slide
      forward every 15s, so with four or fewer every face is steady, and with
-     more each one appears seamlessly in turn. A tap/click/swipe/arrow holds
-     the turnover (and the revolve); three quiet minutes resume with a fresh
-     15s. A hold (hover, focus, touch) freezes it too, like the flat stage. */
+     more each one appears seamlessly in turn. Taps hold only the revolve —
+     the display keeps changing underneath. A hold (hover, focus, touch)
+     freezes the turnover too, like the flat stage, with a fresh 15s after. */
   const countSlides = slides.length;
   const [base, setBase] = useState(0);
   useEffect(() => {
@@ -347,7 +346,9 @@ function Cuboid({ slides, apiRef, held, logo, theme }: { slides: (SlideT | null)
     nextAdvance.current = performance.now() + CONTENT_MS;
     const id = window.setInterval(() => {
       const now = performance.now();
-      if (heldRef.current || manual.current) {
+      /* Hover-hold freezes the display (fresh 15s after); a tap-hold leaves
+         it running so slides keep changing on the still box (note 280). */
+      if (heldRef.current) {
         nextAdvance.current = now + CONTENT_MS;
         return;
       }
@@ -403,11 +404,11 @@ function Cuboid({ slides, apiRef, held, logo, theme }: { slides: (SlideT | null)
     if (!g) return;
     const delta = Math.min(rawDelta, 0.05);
     if (manual.current && performance.now() - lastAct.current > IDLE_MS) {
-      /* Three quiet minutes: pick the revolve up where the turn landed, fresh 15s. */
+      /* Three quiet minutes: pick the revolve up where the turn landed. The
+         slide display never stopped, so its clock is untouched. */
       const q = qCur.current;
       autoYaw.current = 2 * Math.atan2(q.y, q.w);
       manual.current = false;
-      nextAdvance.current = performance.now() + CONTENT_MS;
     }
     if (manual.current) {
       qTarget.current.copy(RING[ringPos.current]);

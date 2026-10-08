@@ -28,6 +28,46 @@ try {
   console.warn("seed not re-baked:", err?.message || err);
 }
 
+/* Maintenance hold: when `maintenance-hold.txt` sits beside package.json,
+   stamp dist/seed.json with "hold": true, so fresh visitors wait on the
+   maintenance notice until the office publishes — even when no older publish
+   stamp exists to hold them (fresh or wiped backend). Publishing from the
+   admin console releases them; the file never leaves the office
+   (git-ignored), so hosts rebuilding from git always ship clean. Deleting
+   the file strips a previously stamped hold on the next build. */
+let holdVisitors = false;
+try {
+  await stat(path.join(ROOT, "maintenance-hold.txt"));
+  holdVisitors = true;
+} catch {
+  /* no hold file — deploys open as before */
+}
+if (holdVisitors) {
+  try {
+    const seedPath = path.join(OUT, "seed.json");
+    const seed = JSON.parse(await readFile(seedPath, "utf8"));
+    if (seed && typeof seed === "object" && !seed.hold) {
+      await writeFile(seedPath, JSON.stringify({ ...seed, hold: true }));
+      console.log("maintenance hold on: fresh visitors wait until the office publishes (delete maintenance-hold.txt to stop holding)");
+    }
+  } catch (err) {
+    console.warn("maintenance hold skipped:", err?.message || err);
+  }
+} else {
+  try {
+    const seedPath = path.join(OUT, "seed.json");
+    const seed = JSON.parse(await readFile(seedPath, "utf8"));
+    if (seed && typeof seed === "object" && seed.hold) {
+      const next = { ...seed };
+      delete next.hold;
+      await writeFile(seedPath, JSON.stringify(next));
+      console.log("maintenance hold off: deploys open straight away");
+    }
+  } catch {
+    /* no seed to clean */
+  }
+}
+
 /* The live feed address: with a valid publish-feed.txt (a public source repo
    line, or a mirror repo line for private sources), deployed copies read fresh
    words straight off the repo within minutes of a publish — no rebuild needed,

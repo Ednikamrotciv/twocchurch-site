@@ -5,7 +5,7 @@ npm install   # once
 npm run build # → dist/
 ```
 
-Upload the *contents* of `dist/` to any static host — Vercel, Netlify,
+Upload the *contents* of `dist/` to any static file host — Netlify,
 Cloudflare Pages, GitHub Pages, cPanel, an S3 bucket, anywhere that serves
 files. No server and no settings needed: the pages use root-absolute addresses,
 so serve the site from the domain root. Every route (`/admin`, `/sermons`, …)
@@ -16,6 +16,32 @@ refreshes work on any host.
 `scripts/build-static.mjs`, which bakes in the published content (`seed.json`),
 the office-server pointer (`server.json`), the live-feed pointer (`feed.json`),
 the photos, the uploads, and the route pages.
+
+## Host build settings (deploying straight from the repo)
+
+Uploading `dist/` by hand needs nothing, but if the host builds from the repo
+itself, enter these same values in its dashboard (every host calls them
+something similar — build command, output / publish directory):
+
+- Install command: `npm install` (usually already the default)
+- Build command: `npm run build` — the full command, not just the bundler, so
+  the content, the server pointer, and the route pages all get baked in
+- Output / publish directory: `dist`
+- Framework preset: none / static / "other". A one-click framework preset that
+  runs only the bundler would skip the baking step above and ship empty pages.
+- Environment variables: none. The repo builds with the Node version in
+  `.nvmrc`.
+
+## Holding visitors in maintenance
+
+New code normally holds visitors by itself (it is newer than the last
+publish), but when there is no older stamp to be newer than — a fresh backend,
+a wiped disk — a deploy would open straight away. To hold visitors until you
+publish anyway, keep the `maintenance-hold.txt` file beside `package.json`,
+then build and upload as usual. Fresh visitors see the maintenance notice;
+publishing from the admin console releases them on the spot, with no rebuild.
+Delete the file when holding should stop — it never leaves your computer
+(git-ignored), so hosts rebuilding from git always ship clean.
 
 ## The update routine
 

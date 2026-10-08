@@ -929,7 +929,24 @@ async function applySeedOnce() {
       applyBakedRecent(seed);
       if (seed && seed.sections && typeof seed.sections === "object" && Object.keys(seed.sections).length) {
         rev = typeof seed.rev === "number" ? seed.rev : 0;
+        /* The browser's own memory first (note 281): the seed stamp below
+           persists itself, so immunity must be read before it lands. */
+        const seenBefore = readJSON<number>(NOTES_KEY, 0);
         if (typeof seed.notes === "number") setPublishedNotes(seed.notes);
+        /* Maintenance hold (stamped by maintenance-hold.txt at build time): a
+           visitor with no recorded publish is held one update back, so the
+           notice shows until the office publishes — even when the baked stamp
+           is empty or already caught up. A recorded publish is never re-held,
+           so publishing releases visitors with no rebuild; a newer stamp is
+           never lowered, so the older-copy path stays intact. */
+        if (seed.hold === true && publishedNotes <= BUILD_NOTES) {
+          if (!(typeof seenBefore === "number" && seenBefore >= BUILD_NOTES)) {
+            publishedNotes = BUILD_NOTES - 1;
+            try {
+              localStorage.setItem(NOTES_KEY, JSON.stringify(publishedNotes));
+            } catch {}
+          }
+        }
         applyOverrides(seed.sections);
       }
     }
