@@ -46,8 +46,10 @@ if (typeof window !== "undefined") {
     buildNotes: BUILD_NOTES,
     status,
     hasSocket: !!socket,
+    serverInvolved: serverInvolved(),
     preview: maintenancePreview(),
-    waiting: useMaintenance(),
+    shouldWait: maintenanceShouldWait(),
+    waiting: maintenanceShouldWait() && !maintenancePreview(),
   });
 }
 function setPublishedNotes(n: unknown) {
@@ -59,22 +61,64 @@ function setPublishedNotes(n: unknown) {
     /* a full store keeps the memory value for this visit */
   }
 }
-/* The office's preview pass: ?preview=1 (remembered for the visit) shows the
-   new site before it is published, so an update is verifiable first (note 250). */
+/* The office's preview pass: ?preview=1 shows the new site before it is
+   published, so an update is verifiable first (note 250). The grant is
+   remembered for the visit BUT scoped to the update that granted it, so a
+   desktop preview cannot stick around and make one mode look live while
+   another mode (e.g. a phone that never previewed) correctly waits on the
+   maintenance notice. */
 const PREVIEW_KEY = "wom.cms.preview";
+const PREVIEW_NOTES_KEY = "wom.cms.previewNotes";
 function maintenancePreview(): boolean {
   try {
     const q = new URLSearchParams(window.location.search || "");
     if (q.get("preview") === "1") {
       try {
         sessionStorage.setItem(PREVIEW_KEY, "1");
+        sessionStorage.setItem(PREVIEW_NOTES_KEY, String(BUILD_NOTES));
       } catch {}
       return true;
     }
-    return sessionStorage.getItem(PREVIEW_KEY) === "1";
+    if (sessionStorage.getItem(PREVIEW_KEY) !== "1") return false;
+    /* A remembered grant only counts for the update that granted it. */
+    try {
+      const stamped = sessionStorage.getItem(PREVIEW_NOTES_KEY);
+      if (stamped !== null) {
+        const forNotes = Number(stamped);
+        if (!Number.isFinite(forNotes) || Math.floor(forNotes) !== BUILD_NOTES) return false;
+      }
+    } catch {
+      return false;
+    }
+    return true;
   } catch {
     return false;
   }
+}
+/** True while this tab is bypassing maintenance via the office preview pass. */
+export function isMaintenancePreview(): boolean {
+  try {
+    return maintenancePreview();
+  } catch {
+    return false;
+  }
+}
+/** Leave the preview pass: visitors' maintenance notice shows again on this tab. */
+export function exitMaintenancePreview(): void {
+  try {
+    sessionStorage.removeItem(PREVIEW_KEY);
+  } catch {}
+  try {
+    sessionStorage.removeItem(PREVIEW_NOTES_KEY);
+  } catch {}
+  try {
+    const u = new URL(window.location.href);
+    u.searchParams.delete("preview");
+    window.history.replaceState(null, "", u.pathname + (u.searchParams.toString() ? "?" + u.searchParams.toString() : "") + u.hash);
+  } catch {}
+  try {
+    window.location.reload();
+  } catch {}
 }
 /** True while a server is (or was) in play: online, offline after contact, a
     socket waiting, or an address to reach. A copy that never had a server has
@@ -87,18 +131,41 @@ function serverInvolved(): boolean {
     return false;
   }
 }
+/** Pure check without the preview bypass: would visitors wait on this copy?
+    Used for the preview banner, so the office can see that visitors wait. */
+export function maintenanceShouldWait(): boolean {
+  if (publishedNotes <= 0 || publishedNotes >= BUILD_NOTES) return false;
+  if (!serverInvolved()) return false;
+  return true;
+}
 /* True while visitors must wait: new code shipped since the last publish.
    Never on a first run (nothing published yet), never on a server-less copy
    (local dev has no visitors), never on the office's preview pass, and never
-   in the office console (#/admin) — which renders around this (note 250). */
+   in the office console (#/admin) — which renders around this (note 250).
+   FIX (mobile/desktop split): this also subscribes to connection state, so the
+   first-paint answer cannot stick on one device while the server address lands
+   a moment later on another. Both modes re-evaluate from the same inputs. */
 export function useMaintenance(): boolean {
   useCmsVersion();
+  /* Re-render when status/socket changes (notify without a version bump). */
+  useSyncExternalStore(subscribe, () => stateObj);
   if (publishedNotes <= 0 || publishedNotes >= BUILD_NOTES) return false;
   if (!serverInvolved()) return false;
   try {
     if (maintenancePreview()) return false;
   } catch {}
   return true;
+}
+/** True while this tab previews the new site although visitors wait. */
+export function usePreviewingWhileWaiting(): boolean {
+  useCmsVersion();
+  useSyncExternalStore(subscribe, () => stateObj);
+  try {
+    if (!maintenancePreview()) return false;
+  } catch {
+    return false;
+  }
+  return maintenanceShouldWait();
 }
 
 /** True while this copy is older than what this browser has already seen
@@ -107,7 +174,29 @@ export function useMaintenance(): boolean {
     old number; Admin says so out loud with the way out. */
 export function useOlderCopy(): boolean {
   useCmsVersion();
+  useSyncExternalStore(subscribe, () => stateObj);
   return publishedNotes > BUILD_NOTES;
+}
+/* A deployed host can serve a newer bundle than this tab runs (desktop cached
+   the old JS while the phone fetched the new one): the two modes then decide
+   maintenance from different BUILD_NOTES and disagree. When version.json names
+   a newer update, reload once onto it so both modes run the same code. */
+const STALE_RELOAD_KEY = "wom.cms.staleReload";
+export async function checkStaleBuild(): Promise<void> {
+  try {
+    const res = await fetch(siteFile("version.json"), { cache: "no-store" });
+    if (!res.ok) return;
+    const data = await res.json().catch(() => null);
+    const n = Number(data && (data as any).notes);
+    if (!Number.isFinite(n) || n <= BUILD_NOTES) return;
+    try {
+      if (sessionStorage.getItem(STALE_RELOAD_KEY) === String(Math.floor(n))) return;
+      sessionStorage.setItem(STALE_RELOAD_KEY, String(Math.floor(n)));
+    } catch {}
+    window.location.reload();
+  } catch {
+    /* dev runs and hosts without version.json simply skip */
+  }
 }
 
 /* Forget everything this browser kept from older copies (note 252): cached

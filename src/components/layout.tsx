@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import { tx } from "../lib/i18n";
 import { Link, navigate, useRoute } from "../lib/router";
 import { useHotkey, useMediaQuery, useScrollProgress, useTheme, useNow, useClickOutside, useBodyLock, BUILD_NOTES } from "../lib/hooks";
+import { exitMaintenancePreview } from "../lib/cms";
 import { nextService, onAir, countdownParts, to12h, DAY_SHORT, fmtDate, zoneYear, clockAt, churchTimezone, visitorPlace } from "../lib/store";
 import { SITE, SERVICES, NAV, FOOTER_LINKS, LOGO_MARK } from "../data/site";
 import { siteFile } from "../lib/livefeed";
@@ -509,6 +510,24 @@ export function ScrollTop() {
     >
       <Icon name="chevronUp" size={26} />
     </button>
+  );
+}
+
+/* Preview banner (maintenance fix): when this tab bypasses the maintenance
+   notice via ?preview=1 while visitors still wait, say so out loud — otherwise
+   the desktop (previewing) looks live while a phone (never previewed) correctly
+   waits, which reads as "mobile shows maintenance but desktop doesn't". */
+export function PreviewBanner() {
+  return (
+    <div className="previewbar" role="status">
+      <span>
+        Preview — visitors see the maintenance notice.{" "}
+        <Link to="/admin">Open the admin console</Link>
+      </span>
+      <button type="button" className="previewbar__exit" onClick={() => exitMaintenancePreview()}>
+        Exit preview
+      </button>
+    </div>
   );
 }
 

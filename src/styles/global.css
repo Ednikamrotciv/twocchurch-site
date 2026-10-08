@@ -3296,6 +3296,49 @@ input, select, textarea { font-size: 1rem !important; }
   color: #7a746b;
 }
 
+/* Preview banner (maintenance fix): shown on the site only while this tab
+   bypasses maintenance via ?preview=1 and visitors still wait — so a previewing
+   desktop is never mistaken for the live site the phone sees. */
+.previewbar {
+  position: sticky;
+  top: 0;
+  z-index: 200;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.8rem;
+  padding: 0.5rem 22px;
+  background: #2a2103;
+  color: #f5d97a;
+  border-bottom: 1px solid #6b5510;
+  font-size: 0.85rem;
+}
+.previewbar a {
+  color: #ffe9a8;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.previewbar__exit {
+  flex: none;
+  border-radius: 999px;
+  border: 1px solid #f5d97a;
+  background: transparent;
+  color: #ffe9a8;
+  font-weight: 650;
+  padding: 0.3rem 0.9rem;
+  cursor: pointer;
+}
+@media (max-width: 640px) {
+  .previewbar {
+    flex-direction: column;
+    align-items: stretch;
+    text-align: center;
+    padding: 0.6rem 12px;
+  }
+  .previewbar__exit {
+    width: 100%;
+  }
+}
 /* Maintenance mode (note 249): the header's logo and notice are the whole
    site — no pages, no footer, no buttons. Follows the page theme. */
 .maint {

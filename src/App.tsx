@@ -1,9 +1,9 @@
 import React, { useEffect } from "react";
 import { useRoute, navigate, ADMIN_PREFIX } from "./lib/router";
-import { Header, Footer, ScrollTop, SkipLink, MaintenanceSite } from "./components/layout";
+import { Header, Footer, ScrollTop, SkipLink, MaintenanceSite, PreviewBanner } from "./components/layout";
 import { Toaster } from "./components/ui";
 import { ErrorBoundary } from "./components/ErrorBoundary";
-import { startCms, useCmsVersion, useMaintenance } from "./lib/cms";
+import { startCms, useCmsVersion, useMaintenance, usePreviewingWhileWaiting, checkStaleBuild } from "./lib/cms";
 import { mountShaderBackground } from "./lib/shaderbg";
 import { startVisitorClock, useVisitorClock, useVisitorClockRefresh } from "./lib/visitor";
 import { useI18nTick, ensureI18n, setProtectedValues, i18nAsk, chooseLang, dismissAsk } from "./lib/i18n";
@@ -67,9 +67,19 @@ export function App() {
   // page every time the office applies something.
   useEffect(() => {
     startCms();
+    /* If the host serves newer code than this bundle, reload once onto it so
+       mobile and desktop decide maintenance from the same update. */
+    void checkStaleBuild().catch(() => {});
+    const onVis = () => {
+      if (document.visibilityState === "visible") void checkStaleBuild().catch(() => {});
+    };
+    document.addEventListener("visibilitychange", onVis);
     startVisitorClock();
     const unmountShader = mountShaderBackground();
-    return unmountShader;
+    return () => {
+      document.removeEventListener("visibilitychange", onVis);
+      if (typeof unmountShader === "function") (unmountShader as () => void)();
+    };
   }, []);
 
   /* Rates are only worth fetching when the visitor reads in a currency of their
@@ -166,9 +176,11 @@ function SiteApp() {
     return () => window.clearTimeout(id);
   }, []);
 
+  const previewing = usePreviewingWhileWaiting();
   return (
     <>
       <SkipLink />
+      {previewing && <PreviewBanner />}
       <Header />
       <main id="main" key={to}>
         <ErrorBoundary>
