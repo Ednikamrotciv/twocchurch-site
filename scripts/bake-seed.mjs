@@ -26,7 +26,16 @@ export async function bakeSeed(rootDir, outPath) {
     } catch { /* no usable seed — write the empty one below */ }
   }
   const rev = typeof res.rev === "number" ? res.rev : 0;
-  const notes = typeof res.notes === "number" ? res.notes : 0;
+  /* Never wipe the publish stamp with an empty bake (note 279): a backend
+     that reports no notes (or nothing at all) keeps the previous file's
+     stamp, so a deployed copy can still tell it is behind the new code. */
+  let notes = typeof res.notes === "number" && res.notes > 0 ? Math.floor(res.notes) : 0;
+  if (!notes) {
+    try {
+      const prev = JSON.parse(await readFile(target, "utf8"));
+      if (typeof prev?.notes === "number" && prev.notes > 0) notes = Math.floor(prev.notes);
+    } catch { /* no previous stamp — ships 0, a first run never waits */ }
+  }
   await writeFile(target, JSON.stringify({ rev, notes, sections }));
   console.log(`bake-seed: baked ${ids.length} sections into ${path.relative(rootDir, target)}`);
   /* The recent-services list ships in the same file, so every copy paints the

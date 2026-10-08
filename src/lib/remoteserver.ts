@@ -35,8 +35,21 @@ export function setServerOverride(url: string) {
 }
 
 /* The deploy's own address, once — missing on local runs (where the page
-   talks to its own backend directly). */
+   talks to its own backend directly). The build also stamps it into a
+   <meta name="wom-server"> tag (note 279), which is readable synchronously
+   on first paint — no fetch wait, so a deployed copy knows immediately that
+   it is server-backed and the maintenance gate decides correctly. */
+function serverMeta(): string {
+  try {
+    const m = document.querySelector('meta[name="wom-server"]');
+    return normalizeServerUrl(m && m.getAttribute("content"));
+  } catch {
+    return "";
+  }
+}
 async function siteServer(): Promise<string> {
+  const meta = serverMeta();
+  if (meta) return meta;
   try {
     const res = await fetch(siteFile(SITE_FILE), { cache: "no-store" });
     if (!res.ok) return "";
@@ -73,8 +86,11 @@ export async function refreshServerUrl(): Promise<string> {
   }
 }
 
-/** The resolved office address, or "" when this copy stands alone. */
+/** The resolved office address, or "" when this copy stands alone. The baked
+    meta tag is read synchronously (note 279), so even the very first paint
+    on a deployed copy knows it is server-backed. */
 export function serverUrl(): string {
+  if (!cached) cached = serverMeta();
   return cached || serverOverride();
 }
 

@@ -61,6 +61,24 @@ try {
   if (url) {
     await writeFile(path.join(OUT, "server.json"), JSON.stringify({ url }));
     console.log(`office server baked in: ${url} — deployed copies join the shared backend`);
+    /* Stamp the same address as a meta tag in the entry page (note 279): the
+       deployed copy reads it synchronously on first paint, so the
+       maintenance gate knows immediately that it is server-backed instead
+       of flashing live first. Route copies are made from this shell below,
+       so they inherit it. */
+    try {
+      const shellPath = path.join(OUT, "index.html");
+      let shell = await readFile(shellPath, "utf8");
+      if (!shell.includes('name="wom-server"')) {
+        const tag = `<meta name="wom-server" content="${url}">`;
+        if (shell.includes("</head>")) shell = shell.replace("</head>", `  ${tag}\n</head>`);
+        else shell = tag + "\n" + shell;
+        await writeFile(shellPath, shell);
+        console.log("server meta stamped into dist/index.html");
+      }
+    } catch (err) {
+      console.warn("server meta skipped:", err?.message || err);
+    }
   } else if (!lines.length) {
     console.log("no office server in cms-server.txt — deployed copies stand alone (see DEPLOY.md, office server)");
   } else {
