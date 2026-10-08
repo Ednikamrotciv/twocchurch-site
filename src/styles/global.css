@@ -3359,6 +3359,12 @@ input, select, textarea { font-size: 1rem !important; }
 .maint__main p {
   color: var(--muted);
   margin: 0;
+  max-width: 38rem;
+}
+.maint__restore {
+  color: var(--text);
+  font-size: 1.02rem;
+  line-height: 1.55;
 }
 .maint__update {
   font-size: 0.82rem;

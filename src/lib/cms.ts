@@ -960,7 +960,11 @@ let feedSpec: FeedSpec | null | undefined;
 let feedSyncing = false;
 async function syncFromFeed() {
   if (feedSyncing) return;
-  if (typeof socket !== "undefined" && socket && status === "online") return;
+  /* A live socket to an empty backend (fresh/wiped disk: rev 0, no words, no
+     stamp) must not silence the feed — otherwise a waiting copy can never
+     lift while the link is up. Only a server actually serving (rev > 0)
+     stands the feed down. (note 282) */
+  if (typeof socket !== "undefined" && socket && status === "online" && rev > 0) return;
   feedSyncing = true;
   try {
     if (feedSpec === undefined) feedSpec = await bakedFeedSpec();
@@ -1165,6 +1169,10 @@ function connect() {
       sock.addEventListener?.("close", onClose);
       sock.addEventListener?.("message", onMessage);
       await syncFromServer();
+      /* Server truth first, then the feed fills its gaps (empty backends,
+         fresh publishes): the loop is idempotent and stands down whenever
+         the server is actually serving. (note 282) */
+      startFeed();
       // Restore the admin session for this browser tab, if there is one.
       const saved = sessionPassword();
       if (saved) {
