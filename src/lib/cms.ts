@@ -132,24 +132,30 @@ function serverInvolved(): boolean {
   }
 }
 /** Pure check without the preview bypass: would visitors wait on this copy?
-    Used for the preview banner, so the office can see that visitors wait. */
+    Used for the preview banner, so the office can see that visitors wait.
+    FORCED DESKTOP TRIGGER: a server-backed copy with no publish stamp (fresh
+    visitor, wiped store, or server reset to notes 0) still waits — otherwise
+    desktop (fresh) shows the live site while mobile (stale stamp) correctly
+    waits. Server-less copies never wait (no visitors). First Publish lifts. */
 export function maintenanceShouldWait(): boolean {
-  if (publishedNotes <= 0 || publishedNotes >= BUILD_NOTES) return false;
+  if (publishedNotes >= BUILD_NOTES) return false;
+  if (publishedNotes > BUILD_NOTES) return false;
   if (!serverInvolved()) return false;
   return true;
 }
-/* True while visitors must wait: new code shipped since the last publish.
-   Never on a first run (nothing published yet), never on a server-less copy
-   (local dev has no visitors), never on the office's preview pass, and never
-   in the office console (#/admin) — which renders around this (note 250).
-   FIX (mobile/desktop split): this also subscribes to connection state, so the
-   first-paint answer cannot stick on one device while the server address lands
-   a moment later on another. Both modes re-evaluate from the same inputs. */
+/* True while visitors must wait: new code is ahead of the last publish.
+   FORCED DESKTOP TRIGGER: server-backed copies wait even with no stamp yet
+   (fresh desktop), so mobile and desktop agree — otherwise only the stale
+   phone waits. Never on a server-less copy (local dev has no visitors), never
+   on the office's preview pass, and never in the office console (#/admin) —
+   which renders around this (note 250).
+   This also subscribes to connection state, so the first-paint answer cannot
+   stick on one device while the server address lands a moment later. */
 export function useMaintenance(): boolean {
   useCmsVersion();
   /* Re-render when status/socket changes (notify without a version bump). */
   useSyncExternalStore(subscribe, () => stateObj);
-  if (publishedNotes <= 0 || publishedNotes >= BUILD_NOTES) return false;
+  if (publishedNotes >= BUILD_NOTES) return false;
   if (!serverInvolved()) return false;
   try {
     if (maintenancePreview()) return false;
@@ -213,6 +219,12 @@ export function resetLocalCopy(): void {
   }
   try {
     sessionStorage.removeItem(PREVIEW_KEY);
+  } catch {}
+  try {
+    sessionStorage.removeItem(PREVIEW_NOTES_KEY);
+  } catch {}
+  try {
+    sessionStorage.removeItem(STALE_RELOAD_KEY);
   } catch {}
   publishedNotes = 0;
   try {
