@@ -38,6 +38,18 @@ let publishedNotes = 0;
 export function publishedNotesVersion(): number {
   return publishedNotes;
 }
+/* Why the maintenance notice is or isn't showing (note 278): call from the
+   console as window.__maintState() on the deployed copy. */
+if (typeof window !== "undefined") {
+  (window as unknown as { __maintState?: () => object }).__maintState = () => ({
+    publishedNotes,
+    buildNotes: BUILD_NOTES,
+    status,
+    hasSocket: !!socket,
+    preview: maintenancePreview(),
+    waiting: useMaintenance(),
+  });
+}
 function setPublishedNotes(n: unknown) {
   if (typeof n !== "number" || !Number.isFinite(n) || n <= publishedNotes) return;
   publishedNotes = Math.floor(n);
@@ -1014,6 +1026,10 @@ export async function startCms() {
     publishedNotes = 0;
   }
   pending = readJSON<Snapshot | null>(PENDING_KEY, null);
+  /* Boot numbers are final here (seed + stored stamp): bump once so the
+     maintenance notice re-evaluates instead of sticking with first paint
+     (note 278). One extra render, boot only. */
+  version += 1;
   /* The drawer mounts first, so the stored draft arriving late is put on the page (note 83). */
   showDraftIfEditing();
   notify();
@@ -1341,7 +1357,11 @@ async function syncFromServer() {
   updatedAt = res.at || 0;
   updatedBy = res.by || "";
   log = Array.isArray(res.log) ? res.log : [];
+  /* The publish stamp alone can flip the maintenance notice (note 278): it
+     must re-render even when the content itself is unchanged. */
+  const notesBefore = publishedNotes;
   if (typeof res.notes === "number") setPublishedNotes(res.notes);
+  const notesLifted = publishedNotes > notesBefore;
   if (differs) {
     /* First contact with a fresh permanent server: carry over what was published. */
     if (!Object.keys(server).length && Object.keys(overrides).length && !pending && !plannedPublish()) {
@@ -1350,6 +1370,10 @@ async function syncFromServer() {
     }
     applyOverrides(server);
     writeJSON(CACHE_KEY, { rev, overrides });
+  } else if (notesLifted) {
+    /* Content identical but the publish stamp moved (note 278): bump so the
+       maintenance notice re-evaluates instead of sticking with first paint. */
+    version += 1;
   }
   notify();
 }
