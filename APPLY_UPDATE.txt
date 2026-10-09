@@ -1,13 +1,17 @@
-APPLY THIS UPDATE (285) — LOCAL + LIVE
+APPLY THIS UPDATE (286) — LOCAL + LIVE
 =====================================
-This zip contains ALL fixes in one place, including the new video slides:
-- Slide uploads accept videos (mp4/m4v/webm/ogv/ogg/mov) as well as pictures
+This zip contains ALL fixes in one place:
+- FIXES the "Something went wrong / Cannot access before initialization" crash:
+  every page with the slide space failed to render (a hook read-out-of-order
+  in the flat slide timer). Slides render again on the site and in admin.
+- Restore + publish are back in admin as plain buttons with NO banner behind
+  them: while visitors wait, a simple "Restore a backup / Review and publish"
+  row sits under the header (Restore opens Tools, Review opens publish).
 - Videos sit WHOLE in the slide frame on a background drawn from the film's
   own colours — the same fit as picture uploads — and carry the film's colours
 - Videos play on the FLAT slide space with the player's own volume + time-range controls
 - While a flat-face video plays, the 15s slide timer stops; it restarts the moment the video ends (or pauses)
 - The 3D box never plays films — its faces show the film's still whole (or a play mark), words unchanged
-- Office slide editor: video preview with player, no frame re-cut or landscape prompts for videos
 - Backups keep embedding slide videos like photos (200MB per-file guard unchanged)
 
 LOCAL (your computer)
@@ -16,7 +20,7 @@ LOCAL (your computer)
 3. In the new folder: npm install
 4. npm run dev → http://localhost:5173/  (admin: /admin)
 5. #/admin → Tools → Restore the backup file → Review and publish → Publish.
-   Local lifts to 285. Hard-reload desktop + phone width to verify.
+   Local lifts to 286. Hard-reload desktop + phone width to verify.
    Try: upload a short mp4 to an announcement slide, publish, press play on the
    flat slide space — the film must sit whole on its own colours, and the
    rotation must wait until the video ends.
@@ -26,8 +30,8 @@ LIVE (Render: twocchurch-site.onrender.com)
    seed.json, vite.config.ts, package.json — keep data/ as-is), commit/push.
    Render: install npm install, build npm run build, start node scripts/serve.mjs,
    disk mounted at data.
-2. Confirm https://twocchurch-site.onrender.com/version.json shows {"notes":285}.
-3. Open live /admin → Review and publish → Publish. This blesses 285 and lifts
+2. Confirm https://twocchurch-site.onrender.com/version.json shows {"notes":286}.
+3. Open live /admin → Review and publish → Publish. This blesses 286 and lifts
    mobile + desktop together (no rebuild needed for this step).
 4. Hard-reload both modes. Console check: window.__maintState().
 

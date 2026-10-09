@@ -692,17 +692,7 @@ export function AnnouncementSlides({ slides = SLIDES }: { slides?: AnnouncementS
   }, [held, userHeld, videoPlaying, calm]);
 
   /* Stop on tap/click/swipe/arrow/key; any action around the box while held
-     pushes the 3-minute quiet wait (and the fresh 15s rhythm) out. Taps on a
-     film's own controls are the film's business, never the box's. */
-  const holdBoxFrom = useCallback(
-    (target: unknown) => {
-      try {
-        if ((target as HTMLElement)?.closest?.("video")) return;
-      } catch {}
-      holdBox();
-    },
-    [holdBox]
-  );
+     pushes the 3-minute quiet wait (and the fresh 15s rhythm) out. */
   const holdBox = useCallback(() => {
     if (calm) return;
     setUserHeld(true);
@@ -725,6 +715,16 @@ export function AnnouncementSlides({ slides = SLIDES }: { slides?: AnnouncementS
   const touchBox = useCallback(() => {
     if (userHeldRef.current) holdBox();
   }, [holdBox]);
+  /* Taps on a film's own controls are the film's business, never the box's. */
+  const holdBoxFrom = useCallback(
+    (target: unknown) => {
+      try {
+        if ((target as HTMLElement)?.closest?.("video")) return;
+      } catch {}
+      holdBox();
+    },
+    [holdBox]
+  );
 
   const go = (step: number) => {
     const sw = swiperRef.current;

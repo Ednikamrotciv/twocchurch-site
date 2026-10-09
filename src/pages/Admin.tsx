@@ -171,6 +171,9 @@ export function Admin() {
   /* While visitors wait (note 249), the office sees it here and can lift it. */
   /* An old extract opened by mistake (note 252): say so out loud. */
   const olderCopy = cms.useOlderCopy();
+  /* The update window: visitors wait until the office restores + publishes —
+     the two doors back, as plain buttons with no banner behind them. */
+  const waiting = cms.maintenanceShouldWait();
 
   /* Auto-stop watcher lives here so it runs whatever drawer card is open (note 111). */
   useAutoStopLive(canEdit);
@@ -329,6 +332,25 @@ export function Admin() {
             This is an old copy (update {BUILD_NOTES} — this browser has already seen update {cms.publishedNotesVersion()}).
             Close it, open the newest extract, and delete the old folder.
           </span>
+        </div>
+      )}
+      {waiting && (
+        <div className="admin__quickbtns">
+          <Btn
+            size="sm"
+            variant="ghost"
+            icon="archive"
+            onClick={() => {
+              setPanelOpen(true);
+              setPanelMode("tools");
+            }}
+            title="Open Tools at the restore card"
+          >
+            Restore a backup
+          </Btn>
+          <Btn size="sm" icon="check" onClick={() => setPublishOpen(true)} title="Review your changes and publish">
+            Review and publish
+          </Btn>
         </div>
       )}
       <div className="epage" ref={pageRef}>

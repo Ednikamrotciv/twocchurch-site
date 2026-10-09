@@ -3474,9 +3474,27 @@ input, select, textarea { font-size: 1rem !important; }
 .admin__maint--buttons .admin__maint-btns {
   justify-content: center;
 }
+/* Restore + publish, back without the banner: a plain row of buttons with no
+   background, border or panel behind them. */
+.admin__quickbtns {
+  display: flex;
+  justify-content: center;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+  margin: 0.6rem 22px 0;
+  padding: 0;
+  background: transparent;
+  border: 0;
+}
 /* Phone: the office banner stacks — text on top, buttons full-width below —
    so the update line never squeezes beside the buttons. */
 @media (max-width: 640px) {
+  .admin__quickbtns {
+    margin: 0.6rem 12px 0;
+  }
+  .admin__quickbtns > * {
+    flex: 1 1 auto;
+  }
   .admin__maint {
     flex-direction: column;
     align-items: stretch;
