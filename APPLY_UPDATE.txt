@@ -1,30 +1,25 @@
-APPLY THIS UPDATE (298) — LOCAL + LIVE
+APPLY THIS UPDATE (299) — LOCAL + LIVE
 =====================================
 This zip contains ALL fixes in one place:
-- MAIN PHOTOS SECTION REMOVED. The "Main photos" block is gone from the
-  office drawer (Home banner, Home banner for phones, Home page background,
-  Welcome section photo, Worship band, Choir, Church building views,
-  Giving photo). Those pages now show their original photos. Ministries
-  and Leadership photos are untouched and still editable.
-- SLIDES TAKE PICTURES ONLY. The announcement-slide upload no longer takes
-  videos: the picker accepts pictures, pasted links are photo links, and a
-  pasted video link is named as video with no broken preview. Films already
-  published keep playing on the site until the office replaces them with
-  pictures — nothing published was deleted by this update. Delete a video
-  slide and publish to take it off the site.
+- "PUBLISHED VERSION" ROW REMOVED. The "Where things stand" card no longer
+  shows the version number — only Sharing, Last published (when and by
+  whom), and Waiting to publish. Nothing else in that card changed.
+- MAIN PHOTOS SECTION REMOVED (from 298, unchanged). The office drawer no
+  longer offers Main photos; those pages show their original photos.
+  Ministries and Leadership photos still editable.
+- SLIDES TAKE PICTURES ONLY (from 298, unchanged). No video upload for
+  announcement slides; films already live keep playing until replaced.
 - SIGN-OUT KEEPS LAST-PUBLISHED (from 297, unchanged). A changed/retired
-  password still signs tabs out at login, publish and undo — but the
-  sign-out ends the session only. Only a new update or an explicit office
-  delete clears last-published.
+  password still signs tabs out at login, publish and undo — session only.
+  Only a new update or an explicit office delete clears last-published.
 - THE MAINTENANCE NOTICE CANNOT GO MISSING ON UPDATES. Iron rule, unchanged:
   NOTHING blesses a copy except an explicit office action on its own
   server (Review and publish → Publish, the Undo click, the bless, or an
   offline flush) or the live feed. New code always waits on the notice
   until the office publishes — on every update, every copy.
 - A pre-ship verifier lives at src/tools/verify-update.mjs and runs
-  before every update zip (one FAIL blocks the ship) — now also locking
-  the Main-photos removal and the pictures-only slide upload.
-- Everything from 297 and before, unchanged: desktop zoom scales the box;
+  before every update zip (one FAIL blocks the ship).
+- Everything from 298 and before, unchanged: desktop zoom scales the box;
   last-published wins (this zip ships no words); publish replaces outright
   with a ~15-minute server undo; no disk needed on Render; slide rhythm,
   plain Restore/Publish buttons.
@@ -37,20 +32,18 @@ LOCAL (your computer)
 5. BEFORE restoring: the site must show the maintenance notice ("We'll be
    right back") — this update holds until blessed. That check is the point.
 6. #/admin → Tools → Restore the backup file → Review and publish → Publish.
-   Local lifts to 298 and the notice releases. Hard-reload desktop + phone
+   Local lifts to 299 and the notice releases. Hard-reload desktop + phone
    width to verify.
-7. Removal checks: Photos & covers shows Ministries and Leadership only
-   (no Main photos); the Announcement-slides row offers "Upload a picture"
-   with a photo-link box; pasting a video link says slides take pictures
-   only. Home pages show the original banner photos.
+7. Check: "Where things stand" shows no version number — Sharing, Last
+   published, Waiting to publish only.
 
 LIVE (Render: twocchurch-site.onrender.com)
 1. Put this code where Render builds it (replace src/, scripts/, index.html,
    seed.json, vite.config.ts, package.json — keep data/ as-is), commit/push.
    Render: install npm install, build npm run build, start node scripts/serve.mjs.
-2. Confirm https://twocchurch-site.onrender.com/version.json shows {"notes":298}.
+2. Confirm https://twocchurch-site.onrender.com/version.json shows {"notes":299}.
 3. The live site now waits on the maintenance notice until blessed.
-4. Open live /admin → Review and publish → Publish. This blesses 298 and lifts
+4. Open live /admin → Review and publish → Publish. This blesses 299 and lifts
    mobile + desktop together (no rebuild needed for this step).
 5. Hard-reload both modes. Console check: window.__maintState().
 

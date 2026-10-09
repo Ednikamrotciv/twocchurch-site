@@ -572,10 +572,6 @@ export function Dashboard({
               </dd>
             </div>
             <div>
-              <dt>Published version</dt>
-              <dd>{state.rev ? `version ${state.rev}` : "nothing published yet"}</dd>
-            </div>
-            <div>
               <dt>Last published</dt>
               <dd>
                 {cms.timeAgo(state.updatedAt)}
