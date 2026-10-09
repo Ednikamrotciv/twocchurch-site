@@ -69,7 +69,7 @@ export function setChurchTimezone(tz: unknown) {
 export function churchTimezone(): string {
   if (configuredZone) return configuredZone;
   const global = (globalThis as any).churchTimezone;
-  const raw = typeof global === "string" ? global : global && typeof global.evaluateItem === "string" ? global.evaluateItem : "";
+  const raw = typeof global === "string" ? global : "";
   return isValidTimezone(raw) ? (raw as string).trim() : DEFAULT_TIMEZONE;
 }
 
@@ -829,7 +829,7 @@ export function setBaseCurrency(code: unknown) {
 export function baseCurrency(): string {
   if (configuredCurrency) return configuredCurrency;
   const global = (globalThis as any).churchCurrency;
-  const raw = typeof global === "string" ? global : global && typeof global.evaluateItem === "string" ? global.evaluateItem : "";
+  const raw = typeof global === "string" ? global : "";
   return isValidCurrency(raw) ? raw.toUpperCase() : DEFAULT_CURRENCY;
 }
 
