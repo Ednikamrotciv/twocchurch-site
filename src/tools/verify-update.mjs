@@ -1,0 +1,214 @@
+/* verify-update.mjs — the pre-ship gate (note 293).
+   The maintenance notice kept going missing on updates because a blessing
+   leaked through the baked seed / the fallback / the auto-heal, opening new
+   code with no office review. The invariants below lock the fail-safe rule:
+   NOTHING blesses a copy except an explicit office action (publish, undo
+   click, bless, offline flush) on its own server, a feed answer, or the local
+   bless click. Run this before EVERY update zip — a single FAIL blocks the
+   ship, no exceptions.
+   RUN (paste the two lines into an execute_js call):
+     const m = await import(URL.createObjectURL(new Blob(
+       [await fs.readTextFile("src/tools/verify-update.mjs")])));
+     return await m.runAll({ read: (p) => fs.readTextFile(p) });
+   Needs network (esbuild-wasm from esm.sh). Site code must NEVER import this
+   module — it pulls a compiler and runs suites. */
+
+const FILES = [
+  ["scripts/cms-server.js", "js"],
+  ["scripts/seed-fallback.mjs", "js"],
+  ["src/lib/cms.ts", "ts"],
+  ["src/components/editor.tsx", "tsx"],
+  ["src/lib/hooks.ts", "ts"],
+  ["src/components/layout.tsx", "tsx"],
+  ["src/App.tsx", "tsx"],
+  ["APPLY_UPDATE.txt", null],
+];
+
+function has(src, needle) {
+  return src.indexOf(needle) !== -1;
+}
+
+function loadVm(code, state, pub) {
+  const fn = new Function("state", "self", "pubsub", "console", code + "\nreturn self.rpc;");
+  const self = {};
+  return fn(state, self, { publish: pub || function () {} }, console);
+}
+
+function stubAuth(code) {
+  return code
+    .replace(
+      'publish: function (info, raw) {\n    if (!admins.has(info.conn.id)) return fail("unauthorized");',
+      'publish: function (info, raw) {\n    if (false) return fail("unauthorized");'
+    )
+    .replace(
+      'undoPublish: function (info, raw) {\n    if (!admins.has(info.conn.id)) return fail("unauthorized");',
+      'undoPublish: function (info, raw) {\n    if (false) return fail("unauthorized");'
+    );
+}
+
+export async function runAll(fs) {
+  const out = [];
+  const ok = (name, cond, extra) => out.push((cond ? "OK " : "FAIL ") + name + (cond || !extra ? "" : " — " + extra));
+  const text = {};
+  for (const [p] of FILES) text[p] = await fs.read(p);
+
+  /* A. every touched file still parses. */
+  try {
+    const { default: esbuild } = await import("https://esm.sh/esbuild-wasm@0.21.5?bundle");
+    await esbuild.initialize({ wasmURL: "https://esm.sh/esbuild-wasm@0.21.5/esbuild.wasm" });
+    for (const [p, loader] of FILES) {
+      if (!loader) continue; // read-only invariant source, not code
+      try {
+        await esbuild.transform(text[p], { loader });
+        ok("parse " + p, true);
+      } catch (e) {
+        ok("parse " + p, false, String((e && e.message) || e).slice(0, 160));
+      }
+    }
+  } catch (e) {
+    ok("esbuild available", false, String((e && e.message) || e).slice(0, 160));
+  }
+
+  /* B. seed fallback: words yes, blessing never (note 293). */
+  try {
+    const mod = await import(
+      URL.createObjectURL(new Blob([text["scripts/seed-fallback.mjs"]], { type: "text/javascript" }))
+    );
+    const liveEmpty = JSON.stringify({ ok: true, rev: 0, at: 0, by: "", notes: 0, sections: "{}", log: [], admin: false, pwgen: 3 });
+    const seed = { rev: 12, notes: 291, sections: { services: [{ a: 1 }], live: { b: 2 } } };
+    const r = JSON.parse(mod.fallbackGetContent(liveEmpty, seed));
+    ok("fallback seeds words", r.seeded === true && r.rev === 12 && r.pwgen === 3 && JSON.parse(r.sections).live.b === 2);
+    ok("fallback never blesses", r.notes === 0, "notes=" + r.notes);
+    const liveFull = JSON.stringify({ ok: true, rev: 15, sections: JSON.stringify({ x: [1] }), pwgen: 3 });
+    ok("fallback leaves live answers alone", mod.fallbackGetContent(liveFull, seed) === liveFull);
+    ok("fallback leaves failures alone", mod.fallbackGetContent(JSON.stringify({ ok: false }), seed) === JSON.stringify({ ok: false }));
+    ok("fallback leaves garbage alone", mod.fallbackGetContent("not json", seed) === "not json");
+    ok("fallback needs a real seed", mod.fallbackGetContent(liveEmpty, { rev: 0, notes: 0, sections: {} }) === liveEmpty && mod.fallbackGetContent(liveEmpty, null) === liveEmpty);
+    ok("fallback is getContent-only", (await mod.answerWithSeedFallback("publish", liveEmpty, "/", "/")) === liveEmpty);
+  } catch (e) {
+    ok("fallback suite", false, String((e && e.message) || e).slice(0, 200));
+  }
+
+  /* C. content-server VM: publish replaces, one ~15-min undo, then gone. */
+  try {
+    const serverSrc = text["scripts/cms-server.js"];
+    const stubbed = stubAuth(serverSrc);
+    ok("vm test seam stubs both guards", stubbed !== serverSrc);
+    const conn = { id: "t", net: ["local", 0, 0], subscribe() {}, topics: new Set() };
+    const pub = (rpc, sections, extra) =>
+      JSON.parse(rpc.publish({ conn }, JSON.stringify({ sections, by: "office", changed: Object.keys(sections), notes: 291, ...(extra || {}) })));
+    const get = (rpc) => JSON.parse(rpc.getContent({ conn }, ""));
+    const state = new Uint8Array(8 * 1024 * 1024);
+    const rpc = loadVm(stubbed, state);
+    const r1 = pub(rpc, { home: JSON.stringify({ title: "A" }), live: JSON.stringify({ on: true }) }, { first: true });
+    ok("vm publish rev1", r1.ok && r1.rev === 1);
+    ok("vm first-on-empty arms no undo", get(rpc).undoLeft === 0);
+    const rb1 = pub(rpc, { home: JSON.stringify({ title: "B" }) }, { first: true, quiet: true });
+    const rb2 = pub(rpc, { live: JSON.stringify({ on: false }) }, { quiet: false });
+    ok("vm multi-batch publish", rb1.ok && rb2.ok);
+    const g2 = get(rpc);
+    ok("vm second publish arms ~900s", g2.undoLeft > 870 && g2.undoLeft <= 900, "undoLeft=" + g2.undoLeft);
+    const u1 = JSON.parse(rpc.undoPublish({ conn }, JSON.stringify({ by: "office" })));
+    const g3 = get(rpc);
+    const s3 = JSON.parse(g3.sections);
+    ok("vm undo restores whole pre-publish set", u1.ok && s3.home.title === "A" && s3.live.on === true);
+    ok("vm undo consumes the window", g3.undoLeft === 0);
+    const u2 = JSON.parse(rpc.undoPublish({ conn }, ""));
+    ok("vm second undo expired", !u2.ok && u2.err === "expired");
+    /* exactness: ids the previous publish never held leave with the current one. */
+    pub(rpc, { home: JSON.stringify({ title: "C" }) }, { first: true });
+    pub(rpc, { home: JSON.stringify({ title: "D" }), extra: JSON.stringify({ n: 1 }) }, { first: true });
+    JSON.parse(rpc.undoPublish({ conn }, ""));
+    const sx = JSON.parse(get(rpc).sections);
+    ok("vm undo is exact, not a merge", sx.home.title === "C" && !("extra" in sx));
+    /* expiry by time travel, then persistence across reboot. */
+    pub(rpc, { home: JSON.stringify({ title: "E" }) }, { first: true });
+    const realNow = Date.now();
+    try {
+      Date.now = () => realNow + 16 * 60 * 1000;
+      ok("vm window expires (~16 min)", get(rpc).undoLeft === 0);
+      const ue = JSON.parse(rpc.undoPublish({ conn }, ""));
+      ok("vm undo after expiry refused", !ue.ok && ue.err === "expired");
+    } finally {
+      Date.now = () => realNow;
+    }
+    pub(rpc, { home: JSON.stringify({ title: "F" }) }, { first: true });
+    const rpc2 = loadVm(stubbed, state);
+    ok("vm undo survives reboot", JSON.parse(rpc2.getContent({ conn }, "")).undoLeft > 870);
+    const b = JSON.parse(rpc.publish({ conn }, JSON.stringify({ sections: {}, by: "office", changed: [], notes: 291 })));
+    ok("vm bless preserves armed undo", b.ok && get(rpc).undoLeft > 0);
+    const rpcB = loadVm(stubbed, new Uint8Array(8 * 1024 * 1024));
+    JSON.parse(rpcB.publish({ conn }, JSON.stringify({ sections: {}, by: "office", changed: [], notes: 291 })));
+    ok("vm bless on empty arms nothing", JSON.parse(rpcB.getContent({ conn }, "")).undoLeft === 0);
+    const rpc3 = loadVm(stubbed, new Uint8Array(8 * 1024 * 1024));
+    pub(rpc3, { home: JSON.stringify({ title: "G" }) });
+    ok("vm publish without first arms nothing", get(rpc3).undoLeft === 0);
+    /* pristine guards. */
+    const pristine = loadVm(serverSrc, new Uint8Array(8 * 1024 * 1024));
+    const anon = { id: "anon" };
+    const up = JSON.parse(pristine.undoPublish({ conn: anon }, ""));
+    const pp = JSON.parse(pristine.publish({ conn: anon }, JSON.stringify({ sections: {}, changed: [], notes: 0 })));
+    ok("vm auth guards intact", !up.ok && up.err === "unauthorized" && !pp.ok);
+    /* old images (no prev in meta) load fine. */
+    const oldState = new Uint8Array(8 * 1024 * 1024);
+    const rpcO = loadVm(stubbed, oldState);
+    JSON.parse(rpcO.publish({ conn }, JSON.stringify({ sections: { home: JSON.stringify({ t: 1 }) }, by: "o", changed: ["home"], notes: 1 })));
+    {
+      const dv = new DataView(oldState.buffer);
+      const metaChars = dv.getUint32(14, false);
+      const secChars = dv.getUint32(26, false);
+      const base = (34 + 64 * 48) / 2;
+      const u16 = new Uint16Array(oldState.buffer);
+      let meta = "";
+      for (let i = 0; i < metaChars; i++) meta += String.fromCharCode(u16[base + secChars + i]);
+      const m = JSON.parse(meta);
+      delete m.prev;
+      const nm = JSON.stringify(m);
+      for (let i = 0; i < nm.length; i++) u16[base + secChars + i] = nm.charCodeAt(i);
+      dv.setUint32(14, nm.length, false);
+    }
+    const rpcO2 = loadVm(stubbed, oldState);
+    const gg = JSON.parse(rpcO2.getContent({ conn }, ""));
+    ok("vm old-image compat", gg.ok && gg.undoLeft === 0 && JSON.parse(gg.sections).home.t === 1);
+  } catch (e) {
+    ok("vm suite", false, String((e && e.message) || e).slice(0, 200));
+  }
+
+  /* D. blessing invariants — the maintenance gate's fail-safe (note 293). */
+  const cms = text["src/lib/cms.ts"];
+  ok("seed paint never blesses", !has(cms, 'seed.notes === "number") setPublishedNotes'), "applySeedOnce still stamps from the bake");
+  ok("heal never blesses", has(cms, "sendPatch(sections, ids, why, false)"));
+  ok("publish path carries bless flag", has(cms, "notes: bless ? BUILD_NOTES : 0"));
+  ok("undo batch marked first", has(cms, "first: b === 0"));
+  ok("undo countdown exported", has(cms, "export function undoCountdownSec"));
+  ok("canUndo covers server window", has(cms, "undoCountdownSec() > 0"));
+  ok("close keeps the session", !has(cms, "socket = null;\n  authed = false;"), "onClose still signs out on every drop");
+  ok("denial-only session burn", has(cms, 'if (!res.ok && res.error === "denied") clearSession()'));
+  /* E. sign-out keeps last-published (note 297): a changed/retired password
+     still signs tabs out at login, publish and undo — but the session drop
+     must never clear held words, queues or the publish stamp. Only a new
+     update's first boot or an explicit office delete may clear them. */
+  const clearAt = cms.indexOf("function clearSession()");
+  const clearBody = clearAt >= 0 ? cms.slice(clearAt, clearAt + 1200) : "";
+  ok("sign-out keeps words", clearAt >= 0 && has(clearBody, "SESSION_KEY") && has(clearBody, "PWROLE_KEY") && !has(clearBody, "CACHE_KEY") && !has(clearBody, "PENDING_KEY") && !has(clearBody, "NOTES_KEY") && !has(clearBody, "overrides") && !has(clearBody, "publishedNotes") && !has(clearBody, "writeJSON") && !has(clearBody, "applyOverrides"), "clearSession touches stored words");
+  ok("sign-out drops role", has(clearBody, "myRole = null") && has(clearBody, 'myName = ""'));
+  const deniedSignouts = cms.split('error === "denied") clearSession()').length - 1;
+  ok("publish denied signs out", deniedSignouts >= 4, "found " + deniedSignouts);
+  const unauthSignouts = cms.split('err === "unauthorized") clearSession()').length - 1;
+  ok("server denied signs out", unauthSignouts >= 2, "found " + unauthSignouts);
+  const fb = text["scripts/seed-fallback.mjs"];
+  ok("fallback zeroes notes", has(fb, "out.notes = 0"));
+  const srv = text["scripts/cms-server.js"];
+  ok("server undo rpc exists", has(srv, "undoPublish: function (info, raw)"));
+  ok(
+    "server undo rpc guarded",
+    has(srv, "undoPublish: function (info, raw) {\n    if (!admins.has(info.conn.id)) return fail(\"unauthorized\");")
+  );
+  ok("server reports undo window", has(srv, "undoLeft: left") || has(srv, "undoLeft:"));
+  const ed = text["src/components/editor.tsx"];
+  ok("tools card counts down", has(ed, "undoCountdownSec()") && has(ed, "Nothing to undo"));
+  const notes = Number((text["src/lib/hooks.ts"].match(/BUILD_NOTES = (\d+)/) || [])[1]) || 0;
+  const apply = text["APPLY_UPDATE.txt"];
+  ok("update number consistent", notes > 0 && has(apply, `APPLY THIS UPDATE (${notes})`), "hooks=" + notes);
+  return out.join("\n");
+}

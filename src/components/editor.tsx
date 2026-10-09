@@ -1329,7 +1329,7 @@ function VideoField({
       <Field label={label} hint={def.hint}>
         <div className="admin__videofield">
           <span className="admin__videopreview">
-            {address ? <video src={address} controls playsInline preload="metadata" /> : <Icon name="play" size={20} />}
+            {address ? <video src={address} playsInline preload="metadata" muted disablePictureInPicture /> : <Icon name="play" size={20} />}
           </span>
           <div className="admin__videoinputs">
             <VideoUpload onDone={(made) => onChange(made)} />
@@ -1440,7 +1440,7 @@ function ImageField({
         <span className={"admin__imagepreview" + (forSlide ? " admin__imagepreview--slide" : "")}>
           {preview ? (
             isVideo ? (
-              <video src={preview} controls playsInline preload="metadata" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+              <video src={preview} playsInline preload="metadata" muted disablePictureInPicture style={{ width: "100%", height: "100%", objectFit: "cover" }} />
             ) : (
               <img src={preview} alt="" />
             )

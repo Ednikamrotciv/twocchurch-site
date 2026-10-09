@@ -9,6 +9,11 @@
    root seed.json). A restart serves the last deployed words immediately —
    never blank. Uploads already survive the same way (serve.mjs serves
    data/uploads/ out of dist/ when the disk copy is gone).
+   The fallback carries the bake's sections and revision but NEVER its publish
+   stamp (note 293: notes are forced to 0) — a pushed blessing must not open
+   new code with no office review, which is how the maintenance notice kept
+   going missing on updates. The first explicit publish on the restarted
+   server stamps it for real.
    Anything published or uploaded on the live box AFTER that deploy still
    lives on the ephemeral disk only, so a restart lets it go — the durable
    path stays: publish from the office, push, redeploy. A disk is now an
@@ -51,7 +56,8 @@ export function fallbackGetContent(bodyText, seed) {
     const out = { ...ans, ok: true };
     out.sections = JSON.stringify(good.sections);
     out.rev = good.rev;
-    out.notes = good.notes;
+    /* Never the bake's blessing (note 293) — see the header. */
+    out.notes = 0;
     out.seeded = true;
     return JSON.stringify(out);
   } catch {

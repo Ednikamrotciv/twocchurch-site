@@ -889,7 +889,13 @@ export async function publishSection(sectionId: string, note: string): Promise<P
   if (!authed) {
     const saved = sessionPassword();
     const res = saved ? await login(saved, true) : { ok: false as const };
-    if (!res.ok) return { ok: false, error: "unauthorized" };
+    if (!res.ok) {
+      /* A changed/retired password ends the session here (note 297) but
+         keeps every held word, queue entry and stamp — only a new update
+         may clear last-published. */
+      if ((res as any).error === "denied") clearSession();
+      return { ok: false, error: "unauthorized" };
+    }
   }
   rememberHistory();
   const payload = JSON.stringify(value);
@@ -1085,10 +1091,14 @@ async function applySeedOnce() {
       applyBakedRecent(seed);
       if (seed && seed.sections && typeof seed.sections === "object" && Object.keys(seed.sections).length) {
         rev = typeof seed.rev === "number" ? seed.rev : 0;
-        /* The browser's own memory first (note 281): the seed stamp below
+        /* The baked seed paints words but never blesses (note 293): only an
+           explicit publish — on this copy's own server, on the feed, or the
+           local bless click — moves the publish stamp. A pushed blessing used
+           to leak through the bake and open new code with no office review,
+           which is how the maintenance notice kept going missing on updates.
+           The browser's own memory first (note 281): the hold stamp below
            persists itself, so immunity must be read before it lands. */
         const seenBefore = readJSON<number>(NOTES_KEY, 0);
-        if (typeof seed.notes === "number") setPublishedNotes(seed.notes);
         /* Maintenance hold (stamped by maintenance-hold.txt at build time): a
            visitor with no recorded publish is held one update back, so the
            notice shows until the office publishes — even when the baked stamp
@@ -1359,14 +1369,23 @@ function connect() {
       sock.addEventListener?.("message", onMessage);
       await syncFromServer();
       // Restore the admin session for this browser tab, if there is one.
+      // Only an explicit denial ends it (note 296): a hiccup in the re-login
+      // must never burn the saved session, or one bad minute logs the office
+      // out for good. Anything else (offline, rate, transport error) keeps
+      // the session for the next attempt.
       const saved = sessionPassword();
       if (saved) {
         try {
           const res = await login(saved, true);
-          if (!res.ok) clearSession();
-          else await flushPending();
+          if (!res.ok && res.error === "denied") clearSession();
+          else if (res.ok) await flushPending();
         } catch {}
       }
+      // Converge in one pass: the heal above (or another editor) may have
+      // moved the server while this tab was gone.
+      try {
+        await syncFromServer();
+      } catch {}
       // If the editor saved the website for us mid-publish, finish that publish
       // now — this is the permanent server, so the content belongs here.
       await resumePlannedPublish();
@@ -1437,11 +1456,25 @@ function noteServerPwgen(pw: unknown): boolean {
   }
   const hasSession = authed || !!sessionPassword();
   if (hasSession && savedPwRole() !== "sub") {
+    /* A number alone never signs this tab out (note 296): a restarted box
+       reports generation 0 with the default password back, and burning the
+       saved session on that would log the office out on every restart — the
+       re-login below would never even be attempted. The saved session
+       re-proves itself instead: only an explicit denial ends it. */
+    recordPwgen(pw, savedPwRole() || "main");
+    const saved = sessionPassword();
+    if (saved) {
+      notify();
+      login(saved, true)
+        .then((res) => {
+          if (!res.ok && res.error === "denied") {
+            clearSession();
+          }
+        })
+        .catch(() => {});
+      return true;
+    }
     clearSession();
-    myRole = null;
-    myName = "";
-    recordPwgen(pw, "");
-    notify();
     return false;
   }
   recordPwgen(pw, savedPwRole() || "main");
@@ -1527,7 +1560,12 @@ function onMessage(event: any) {
 
 function onClose(event: any) {
   socket = null;
-  authed = false;
+  /* The sign-in survives a dropped connection (note 296): sleep/wake cycles,
+     server restarts and network blips all close the socket, and signing the
+     office out on every one of them — then burning the saved session on a
+     flaky re-login — is how tabs ended up logged out minutes after opening.
+     The reconnect re-proves the saved session; only an explicit denial ends
+     it. Offline work keeps queueing into pending either way. */
   if (event?.code === 4403) {
     // embedding blocked elsewhere is permanent: stay local.
     status = "local";
@@ -1591,15 +1629,19 @@ async function syncFromServer() {
     notify();
     return;
   }
-  rev = serverRev;
-  updatedAt = res.at || 0;
-  updatedBy = res.by || "";
-  log = Array.isArray(res.log) ? res.log : [];
   /* The publish stamp alone can flip the maintenance notice (note 278): it
      must re-render even when the content itself is unchanged. */
   const notesBefore = publishedNotes;
   if (typeof res.notes === "number") setPublishedNotes(res.notes);
   const notesLifted = publishedNotes > notesBefore;
+  /* Version, author and log ride with the content they describe (note 296):
+     an empty answer from a restarted box must not blank "last published"
+     while this tab still holds the words — both hold paths above return
+     first, so reaching here means the answer is live. */
+  rev = serverRev;
+  updatedAt = res.at || 0;
+  updatedBy = res.by || "";
+  log = Array.isArray(res.log) ? res.log : [];
   if (differs) {
     /* An empty server answer must never clear published words (note 289):
        a restarted box with no disk, a fresh deploy — the server comes back
@@ -1645,7 +1687,9 @@ async function healEmptyServer(why = "Office words put back after the server cam
   if (!ids.length) return false;
   const sections: Record<string, string> = {};
   for (const id of ids) sections[id] = JSON.stringify((pending as Snapshot)[id]);
-  const res = await sendPatch(sections, ids, why);
+  /* Heal, never bless (note 293): the words come back, but waiting visitors
+     stay waiting until the office publishes for real. */
+  const res = await sendPatch(sections, ids, why, false);
   if (!res.ok) return false;
   rev = res.rev ?? rev;
   pending = null;
@@ -1675,6 +1719,10 @@ function sessionPassword(): string {
   }
 }
 function clearSession() {
+  /* Sign-out ends the session only (note 297): the saved password goes, the
+     admin flags drop, and the tab re-renders signed out. Held words, queued
+     work and the publish stamp are untouched here — only a new update's
+     first boot or an explicit office delete may clear them. */
   try {
     sessionStorage.removeItem(SESSION_KEY);
   } catch {}
@@ -1682,6 +1730,9 @@ function clearSession() {
     localStorage.removeItem(PWROLE_KEY);
   } catch {}
   authed = false;
+  myRole = null;
+  myName = "";
+  notify();
 }
 
 /* ------------------------------------------------------------------- admin */
@@ -1723,9 +1774,6 @@ export async function login(
 
 export function logout() {
   clearSession();
-  myRole = null;
-  myName = "";
-  notify();
 }
 
 /** Second step of a two-factor sign-in. `password` is only kept for the tab's
@@ -2384,7 +2432,13 @@ const BATCH_SECTIONS = 4;
 async function sendPatch(
   sections: Record<string, string | null>,
   changed: string[],
-  note: string
+  note: string,
+  /* Bless the running update (note 293): true for a deliberate office action
+     (publish, undo click, bless, offline flush) — the server's publish stamp
+     moves to this code and waiting visitors are released. False for the
+     automatic heal that puts words back on an emptied server: the words
+     return but the notice stays until the office really publishes. */
+  bless = true
 ): Promise<{ ok: boolean; error?: string; rev?: number; sent: string[]; failed?: string[] }> {
   const batches: string[][] = [];
   let current: string[] = [];
@@ -2415,7 +2469,7 @@ async function sendPatch(
       note: note.slice(0, 160),
       by: editorName(),
       changed: ids,
-      notes: BUILD_NOTES,
+      notes: bless ? BUILD_NOTES : 0,
       /* Only the first batch snapshots the superseded publish for the
          server-side ~15-minute undo (note 291) — later batches must not
          re-snapshot mid-publish. */
@@ -2431,7 +2485,9 @@ async function sendPatch(
       return { ok: false, error: err?.message || "error", sent, failed: ids };
     }
     if (!res?.ok) {
-      if (res?.err === "unauthorized") authed = false;
+      /* A changed/retired password ends the session here too (note 297) —
+         the held words stay; only a new update may clear last-published. */
+      if (res?.err === "unauthorized") clearSession();
       return { ok: false, error: res?.err || "failed", sent, failed: ids };
     }
     lastRev = res.rev;
@@ -2476,7 +2532,13 @@ export async function publish(note: string, content?: Snapshot): Promise<Publish
     if (!authed) {
       const saved = sessionPassword();
       const res = saved ? await login(saved, true) : ({ ok: false as const });
-      if (!res.ok) return { ok: false, error: "unauthorized" };
+      if (!res.ok) {
+        /* A changed/retired password ends the session here (note 297) but
+           keeps every held word, queue entry and stamp — only a new update
+           may clear last-published. */
+        if ((res as any).error === "denied") clearSession();
+        return { ok: false, error: "unauthorized" };
+      }
     }
     const bless = await sendPatch({}, [], note.slice(0, 160));
     if (!bless.ok) return { ok: false, error: bless.error };
@@ -2519,7 +2581,13 @@ export async function publish(note: string, content?: Snapshot): Promise<Publish
   if (!authed) {
     const saved = sessionPassword();
     const res = saved ? await login(saved, true) : { ok: false as const };
-    if (!res.ok) return { ok: false, error: "unauthorized" };
+    if (!res.ok) {
+      /* A changed/retired password ends the session here (note 297) but
+         keeps every held word, queue entry and stamp — only a new update
+         may clear last-published. */
+      if ((res as any).error === "denied") clearSession();
+      return { ok: false, error: "unauthorized" };
+    }
   }
 
   rememberHistory();
@@ -2704,7 +2772,9 @@ export async function undoLastPublish(): Promise<PublishResult> {
   if (socket && status === "online" && authed && undoCountdownSec() > 0) {
     try {
       const res = JSON.parse(await socket.rpc.undoPublish(JSON.stringify({ by: editorName() })));
-      if (res?.err === "unauthorized") authed = false;
+      /* A changed/retired password ends the session here too (note 297) —
+         the held words stay; only a new update may clear last-published. */
+      if (res?.err === "unauthorized") clearSession();
       if (res?.ok) {
         if (history.length) {
           history = history.slice(1);

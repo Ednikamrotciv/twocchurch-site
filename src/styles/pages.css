@@ -566,6 +566,20 @@
   margin-inline: auto;
 }
 
+/* Desktop page zoom (Ctrl + / Ctrl -) scales the box with the page: a
+   full-bleed vw width is zoom-immune on its own (the viewport shrinks in CSS
+   px as each px grows), so the zoom factor tracked on <html> (--page-zoom,
+   see slides.tsx) lengthens the box instead — width stays full-bleed, height
+   prints bigger/smaller with the rest of the page, no sideways overflow. */
+:root {
+  --page-zoom: 1;
+}
+@media (min-width: 940px) {
+  .split .aslides {
+    aspect-ratio: calc(var(--slide-aspect, 1.3333) / var(--page-zoom, 1));
+  }
+}
+
 @media (min-width: 940px) {
   .split > .container {
     display: block;

@@ -28,6 +28,95 @@ const FIT_FLOOR = 0.6;
 /** Everything a design centres its words on, and the block those words sit in. */
 const TEXT_SELECTOR = ".aslide__headline, .aslide__line, .aslide__action, .aslide__tag, .aslide__orn, .aslide__star, .aslide__diamond, .aslide__num";
 
+/* --------------------------------------------- desktop page-zoom tracking */
+
+/** The zoom factor the tracker publishes on <html> (1 at load). */
+function readPageZoom(): number {
+  try {
+    const raw = window.getComputedStyle(document.documentElement).getPropertyValue("--page-zoom");
+    const z = parseFloat(raw);
+    if (isFinite(z) && z > 0) return Math.min(3, Math.max(0.5, z));
+  } catch {}
+  return 1;
+}
+
+/** Desktop browser zoom (Ctrl + / Ctrl -) changes devicePixelRatio: a
+    full-bleed vw box stays the same physical size while the rest of the page
+    grows, so the announcement box looks zoom-immune. This publishes the zoom
+    factor as --page-zoom on <html> (1 at load); the desktop box height
+    (pages.css) and the slide auto-fit below read it back. */
+function usePageZoomVar() {
+  useEffect(() => {
+    let base = 1;
+    try {
+      base = window.devicePixelRatio || 1;
+    } catch {
+      base = 1;
+    }
+    if (!(base > 0)) base = 1;
+    function apply() {
+      let cur = 1;
+      try {
+        cur = window.devicePixelRatio || 1;
+      } catch {
+        cur = 1;
+      }
+      const z = base > 0 ? cur / base : 1;
+      try {
+        document.documentElement.style.setProperty("--page-zoom", String(Math.min(3, Math.max(0.5, z))));
+      } catch {}
+    }
+    function onDpr() {
+      apply();
+      rearm();
+    }
+    let mq: MediaQueryList | null = null;
+    function rearm() {
+      try {
+        const dpr = window.devicePixelRatio || 1;
+        if (mq) {
+          try {
+            mq.removeEventListener("change", onDpr);
+          } catch {
+            try {
+              (mq as any).removeListener(onDpr);
+            } catch {}
+          }
+        }
+        mq = window.matchMedia(`(resolution: ${dpr}dppx)`);
+        try {
+          mq.addEventListener("change", onDpr);
+        } catch {
+          try {
+            (mq as any).addListener(onDpr);
+          } catch {}
+        }
+      } catch {}
+    }
+    apply();
+    rearm();
+    window.addEventListener("resize", apply);
+    try {
+      window.visualViewport?.addEventListener("resize", apply);
+    } catch {}
+    return () => {
+      window.removeEventListener("resize", apply);
+      try {
+        window.visualViewport?.removeEventListener("resize", apply);
+      } catch {}
+      if (mq) {
+        try {
+          mq.removeEventListener("change", onDpr);
+        } catch {
+          try {
+            (mq as any).removeListener(onDpr);
+          } catch {}
+        }
+      }
+    };
+  }, []);
+}
+
 /* ---------------------------------------------------------------------- colours */
 
 /** The picture's colours, read once per address (poster palette until it lands).
@@ -102,11 +191,23 @@ function paletteVars(p: SlidePalette): React.CSSProperties {
   };
 }
 
-/** A film's own still and its framed ground: one frame captured off the film,
-    then treated exactly like an uploaded picture — whole in the frame, sides
-    poured with its own colours — so a film fits the screen the way uploads
-    do. The flat face plays the film contained over that ground, and the
-    slide's colours are read off the same still. */
+/** A film's own still and its framed ground: one frame captured a few seconds
+    in (3–10s, where the film has started — never the first frame, which is
+    black on most uploads), then treated exactly like an uploaded picture —
+    whole in the frame, sides poured with its own colours — so a film fits
+    the screen the way uploads do. The flat face plays the film contained
+    over that ground, and the slide's colours are read off the same still. */
+/** Where a film's thumbnail is picked: a few seconds in (3–10s), where the
+    film has started — never the first frame, which is black on most uploads.
+    Short films fall back to their middle. */
+function thumbTime(dur: number): number {
+  if (!isFinite(dur) || dur <= 0) return 5;
+  if (dur >= 10.5) return 5;
+  if (dur >= 3.5) return Math.max(3, dur - 0.5);
+  if (dur > 0.7) return dur / 2;
+  return Math.max(0.05, dur * 0.5);
+}
+
 function useVideoFrame(url: string): { poster: string; framed: string } {
   const [frame, setFrame] = useState({ poster: "", framed: "" });
   useEffect(() => {
@@ -143,7 +244,24 @@ function useVideoFrame(url: string): { poster: string; framed: string } {
         }
       })();
     };
-    const timer = window.setTimeout(() => settle(null), 8000);
+    const timer = window.setTimeout(() => {
+      if (done || !alive) return;
+      /* A host that will not seek still gives its current frame — a still
+         from anywhere beats a black face. */
+      try {
+        if (el_ready()) settle(video);
+        else settle(null);
+      } catch {
+        settle(null);
+      }
+    }, 8000);
+    function el_ready(): boolean {
+      try {
+        return video.readyState >= 2 && !!video.videoWidth && !!video.videoHeight;
+      } catch {
+        return false;
+      }
+    }
     video.muted = true;
     try {
       (video as unknown as { playsInline?: boolean }).playsInline = true;
@@ -151,9 +269,9 @@ function useVideoFrame(url: string): { poster: string; framed: string } {
     video.preload = "auto";
     video.crossOrigin = "anonymous";
     video.onerror = () => settle(null);
-    video.onloadeddata = () => {
+    video.onloadedmetadata = () => {
       try {
-        video.currentTime = 0.1;
+        video.currentTime = thumbTime(video.duration);
       } catch {
         settle(video.readyState >= 2 ? video : null);
       }
@@ -206,8 +324,8 @@ export function AnnouncementSlide({
      photo stands in until the office uploads one (see `photoOr`). */
   const original = photoOr(slide.image, "welcome");
   /* A film upload plays as it is — visitors work it with the player's own
-     volume and time-range controls, flat face only (the 3D stage paints a
-     still instead, see slides3d). */
+     volume and time-range controls, flat face only (the 3D stage plays it
+     silently while it turns, see slides3d). */
   const isVideo = isSlideVideoUrl(original);
   /* Films carry their own background: the framed ground cut from the film's
      still (its own colours, like an upload), with the film played whole and
@@ -324,6 +442,15 @@ export function AnnouncementSlide({
       fit = Math.max(FIT_FLOOR, fit - 0.025);
       apply(fit);
     }
+    /* Desktop page zoom scales the words with the rest of the page: the box
+       grows taller by the same factor (see pages.css), so the fit proportions
+       hold while the poster words print bigger/smaller with the zoom. */
+    try {
+      if (el.closest(".split") && window.matchMedia("(min-width: 940px)").matches) {
+        const z = readPageZoom();
+        if (z !== 1) apply(Math.min(3, Math.max(0.5, fit * z)));
+      }
+    } catch {}
   }, []);
 
   useEffect(() => {
@@ -603,6 +730,8 @@ function leaveDesignPreview() {
 }
 
 export function AnnouncementSlides({ slides = SLIDES }: { slides?: AnnouncementSlide[] }) {
+  /* Desktop browser zoom publishes --page-zoom on <html> for the box. */
+  usePageZoomVar();
   const version = useCmsVersion();
   /* A slide's own last moment can pass while the page sits open — re-read the
      list on the half minute, but only when some slide carries a last day. */

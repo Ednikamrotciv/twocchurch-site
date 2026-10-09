@@ -1,47 +1,60 @@
-APPLY THIS UPDATE (291) — LOCAL + LIVE
+APPLY THIS UPDATE (297) — LOCAL + LIVE
 =====================================
 This zip contains ALL fixes in one place:
-- LAST PUBLISHED, NOT LAST UPDATE: this update ships NO words of its own
-  (no stored content file inside) — a fresh folder opens on the last
-  published words (baked seed), never on anything the update carries. A new
-  update refreshes the code only; the words move only when the office
-  publishes. The old stored-words file the previous zips carried is gone
-  from this zip on purpose — do NOT copy a data/cms-state.bin from an old
-  zip into the new folder.
-- PUBLISH DELETES THE PREVIOUS PUBLISH: each publish replaces the live
-  words outright — with one safety net: the superseded publish is kept on
-  the server for about 15 minutes. Tools → Undo the last publish counts
-  down while the window is open, works from any signed-in device, restores
-  the previous publish whole, then clears it off by itself. After the
-  window there is nothing to undo — the old publish is gone off the server.
-- No disk still needed on Render: restarts serve the last deployed words,
-  never blank (a disk only keeps between-deploy live publishes). Keep
-  taking Tools backups either way.
-- Everything from 290 and before, unchanged: published words never clear
-  unless the office deletes them or a new update lands; slide films autoplay
-  silently with their own snapshot first and their own colours behind; tap
-  the box → head-on face waits 15s then slides on, every 15s, rotation back
-  after 3 idle minutes; desktop box at original size, zoom-reactive.
+- SIGN-OUT KEEPS LAST-PUBLISHED. A genuinely changed or retired password
+  still signs tabs out as before — at login, at publish and at undo — but
+  the sign-out now ends the session ONLY. Held words, queued offline work,
+  the cached copy, version/author/log and the publish stamp are untouched;
+  only a new update's first boot or an explicit office delete may clear
+  last-published. The session drop itself (saved password gone, role/name
+  cleared) never paints, caches or rebases anything.
+- STAYING SIGNED IN, STAYING PUBLISHED (from 296, unchanged). Drops, blips
+  and restarts never sign the office out; only an explicit password denial
+  ends a session; a generation mismatch re-proves instead of burning;
+  version/author/log ride with live content, so empty answers blank
+  nothing; reconnect converges in one pass.
+- FILMS PLAY ON THE TURNING BOX, SILENTLY, with 3–10s thumbnails, no
+  black-blank faces, and visitor controls on the visitor flat face only.
+- THE MAINTENANCE NOTICE CANNOT GO MISSING ON UPDATES. Iron rule, unchanged:
+  NOTHING blesses a copy except an explicit office action on its own
+  server (Review and publish → Publish, the Undo click, the bless, or an
+  offline flush) or the live feed. New code always waits on the notice
+  until the office publishes — on every update, every copy.
+- A pre-ship verifier lives at src/tools/verify-update.mjs and runs
+  before every update zip (one FAIL blocks the ship) — now also locking
+  sign-out-keeps-words, publish-denied-signs-out and server-denied-signs-out.
+- Everything from 296 and before, unchanged: desktop zoom scales the box;
+  last-published wins (this zip ships no words); publish replaces outright
+  with a ~15-minute server undo; no disk needed on Render; slide rhythm,
+  plain Restore/Publish buttons.
 
 LOCAL (your computer)
 1. In the OLD folder: open #/admin → Tools → Back up now. Keep the file.
 2. Extract THIS zip to a NEW folder (do not extract over the old one).
-3. In the new folder: npm install
+3. In the new folder: npm install   (no npm notice in this folder)
 4. npm run dev → http://localhost:5173/  (admin: /admin)
-5. #/admin → Tools → Restore the backup file → Review and publish → Publish.
-   Local lifts to 291. Hard-reload desktop + phone width to verify.
-   Try the undo: change a line, Publish, then Tools → Undo the last publish
-   (it shows the minutes left) — the line must go back. Wait out the window
-   (about 15 minutes) and the card must read Nothing to undo.
+5. BEFORE restoring: the site must show the maintenance notice ("We'll be
+   right back") — this update holds until blessed. That check is the point.
+6. #/admin → Tools → Restore the backup file → Review and publish → Publish.
+   Local lifts to 297 and the notice releases. Hard-reload desktop + phone
+   width to verify.
+7. Stay-signed-in check: sign in, leave the tab open 10+ minutes (sleep and
+   wake the machine if you like) — the session, the words and the
+   last-published line must all still be there with no touch.
+8. Sign-out-keeps-words check: with words live, sign out (header logout) —
+   the page must KEEP showing the same published words and last-published
+   line, only the admin drawer locks. Sign back in and publish a small
+   note to confirm the queue is intact.
 
 LIVE (Render: twocchurch-site.onrender.com)
 1. Put this code where Render builds it (replace src/, scripts/, index.html,
    seed.json, vite.config.ts, package.json — keep data/ as-is), commit/push.
    Render: install npm install, build npm run build, start node scripts/serve.mjs.
-2. Confirm https://twocchurch-site.onrender.com/version.json shows {"notes":291}.
-3. Open live /admin → Review and publish → Publish. This blesses 291 and lifts
+2. Confirm https://twocchurch-site.onrender.com/version.json shows {"notes":297}.
+3. The live site now waits on the maintenance notice until blessed.
+4. Open live /admin → Review and publish → Publish. This blesses 297 and lifts
    mobile + desktop together (no rebuild needed for this step).
-4. Hard-reload both modes. Console check: window.__maintState().
+5. Hard-reload both modes. Console check: window.__maintState().
 
 If desktop ever looks live while mobile waits: desktop is in ?preview=1
 (gold Preview bar) — click Exit preview. Or clear that tab's preview flag.

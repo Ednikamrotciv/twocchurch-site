@@ -26,6 +26,41 @@ const FOV = 32;
 const CAM_POS: [number, number, number] = [0, 0.5, 11];
 const TAN_HALF = Math.tan((FOV * Math.PI) / 360);
 
+/** The desktop page-zoom factor (see usePageZoomVar in ./slides): read off
+    <html> so every stage shares one base. One value, two uses — sharper face
+    paint and a sharper canvas while zoomed. */
+function usePageZoomFactor(): number {
+  const [zoom, setZoom] = useState(() => {
+    try {
+      const raw = window.getComputedStyle(document.documentElement).getPropertyValue("--page-zoom");
+      const z = parseFloat(raw);
+      if (isFinite(z) && z > 0) return Math.min(3, Math.max(0.5, z));
+    } catch {}
+    return 1;
+  });
+  useEffect(() => {
+    const read = () => {
+      try {
+        const raw = window.getComputedStyle(document.documentElement).getPropertyValue("--page-zoom");
+        const z = parseFloat(raw);
+        setZoom(isFinite(z) && z > 0 ? Math.min(3, Math.max(0.5, z)) : 1);
+      } catch {}
+    };
+    read();
+    window.addEventListener("resize", read);
+    try {
+      window.visualViewport?.addEventListener("resize", read);
+    } catch {}
+    return () => {
+      window.removeEventListener("resize", read);
+      try {
+        window.visualViewport?.removeEventListener("resize", read);
+      } catch {}
+    };
+  }, []);
+  return zoom;
+}
+
 export type CuboidApi = {
   /** One face-step around the ring (swipe sideways, arrows and keys). */
   push: (dir: 1 | -1) => void;
@@ -104,13 +139,161 @@ function roundRect(ctx: CanvasRenderingContext2D, x: number, y: number, w: numbe
   ctx.closePath();
 }
 
+/** Where a film's thumbnail is picked: a few seconds in (3–10s), where the
+    film has started — never the first frame, which is black on most uploads.
+    Short films fall back to their middle. */
+function thumbTime(dur: number): number {
+  if (!isFinite(dur) || dur <= 0) return 5;
+  if (dur >= 10.5) return 5;
+  if (dur >= 3.5) return Math.max(3, dur - 0.5);
+  if (dur > 0.7) return dur / 2;
+  return Math.max(0.05, dur * 0.5);
+}
+
+/** Dark ground + picture (or logo) for one face. A film sits whole instead —
+    contained on the dark, like an upload in its frame, so nothing crops off. */
+function drawPhotoLayer(
+  ctx: CanvasRenderingContext2D,
+  photo: HTMLImageElement | HTMLVideoElement | HTMLCanvasElement | null,
+  videoSlot: boolean,
+  logoOnly: boolean,
+  W: number,
+  H: number
+) {
+  ctx.fillStyle = "#14121a";
+  ctx.fillRect(0, 0, W, H);
+  if (photo && !logoOnly) {
+    const iw =
+      (photo as HTMLImageElement).naturalWidth ||
+      (photo as HTMLVideoElement).videoWidth ||
+      (photo as HTMLCanvasElement).width ||
+      0;
+    const ih =
+      (photo as HTMLImageElement).naturalHeight ||
+      (photo as HTMLVideoElement).videoHeight ||
+      (photo as HTMLCanvasElement).height ||
+      0;
+    const ia = iw / Math.max(1, ih);
+    const fa = W / H;
+    let dw = W;
+    let dh = H;
+    if (videoSlot) {
+      if (ia > fa) dh = W / ia;
+      else dw = H * ia;
+    } else if (ia > fa) dw = H * ia;
+    else dh = W / ia;
+    ctx.drawImage(photo, (W - dw) / 2, (H - dh) / 2, dw, dh);
+  } else if (photo) {
+    /* The logo, contained and centred. */
+    const s = Math.min(W, H) * 0.62;
+    ctx.drawImage(photo, (W - s) / 2, (H - s) / 2, s, s);
+  }
+}
+
+/**
+ * A film's words as a transparent sheet laid over its moving picture (plus
+ * the play mark while no still could be read). Mirrors the words half of
+ * drawFace — change one, change the other.
+ */
+function paintWordsSheet(
+  slide: SlideT | null,
+  showGlyph: boolean,
+  W: number,
+  H: number
+): HTMLCanvasElement | null {
+  const headline = tx(String(slide?.headline || "").trim());
+  const line = tx(String(slide?.line || "").trim());
+  const cta = tx(String(slide?.cta || "").trim());
+  const link = String(slide?.link || "").trim();
+  const wordless = !headline && !line && !(cta && link);
+  if (wordless && !showGlyph) return null;
+  const cv = document.createElement("canvas");
+  cv.width = W;
+  cv.height = H;
+  const ctx = cv.getContext("2d");
+  if (!ctx) return null;
+  if (showGlyph && !wordless) {
+    /* No still could be read — a play mark over the dark, words below. */
+    const cx = W / 2;
+    const cy = H * 0.32;
+    const r = W * 0.075;
+    ctx.beginPath();
+    ctx.arc(cx, cy, r, 0, Math.PI * 2);
+    ctx.fillStyle = "rgba(232,189,98,0.92)";
+    ctx.fill();
+    ctx.beginPath();
+    ctx.moveTo(cx - r * 0.28, cy - r * 0.42);
+    ctx.lineTo(cx + r * 0.5, cy);
+    ctx.lineTo(cx - r * 0.28, cy + r * 0.42);
+    ctx.closePath();
+    ctx.fillStyle = "#14121a";
+    ctx.fill();
+  }
+  if (wordless) return cv;
+
+  /* Legibility scrim, words over it. */
+  const scrim = ctx.createLinearGradient(0, H * 0.34, 0, H);
+  scrim.addColorStop(0, "rgba(5,5,10,0)");
+  scrim.addColorStop(1, "rgba(5,5,10,0.88)");
+  ctx.fillStyle = scrim;
+  ctx.fillRect(0, 0, W, H);
+
+  const pad = W * 0.08;
+  const maxW = W - pad * 2;
+  ctx.textBaseline = "alphabetic";
+  let y = H - pad;
+  /* The button pill, drawn from the bottom up (visual only — a tap holds). */
+  if (cta && link) {
+    ctx.font = `600 ${Math.round(W * 0.032)}px system-ui, -apple-system, sans-serif`;
+    const label = (cta || "Read more").toUpperCase();
+    const tw = ctx.measureText(label).width;
+    const pw = tw + W * 0.07;
+    const ph = W * 0.062;
+    y -= ph;
+    ctx.fillStyle = "rgba(200,32,47,0.85)";
+    roundRect(ctx, pad, y, pw, ph, ph / 2);
+    ctx.fill();
+    ctx.fillStyle = "#fff";
+    ctx.fillText(label, pad + W * 0.035, y + ph * 0.68);
+    y -= H * 0.035;
+  }
+  if (line) {
+    ctx.font = `400 ${Math.round(W * 0.034)}px system-ui, -apple-system, sans-serif`;
+    const lines = wrapLines(ctx, line, maxW, 2);
+    ctx.fillStyle = "rgba(255,255,255,0.85)";
+    for (let i = lines.length - 1; i >= 0; i--) {
+      y -= W * 0.012;
+      ctx.fillText(lines[i], pad, y);
+      y -= W * 0.042;
+    }
+  }
+  if (headline) {
+    ctx.font = `700 ${Math.round(W * 0.068)}px Georgia, 'Times New Roman', serif`;
+    const lines = wrapLines(ctx, headline, maxW, 3);
+    ctx.fillStyle = "#fff";
+    ctx.shadowColor = "rgba(0,0,0,0.55)";
+    ctx.shadowBlur = W * 0.02;
+    for (let i = lines.length - 1; i >= 0; i--) {
+      y -= W * 0.014;
+      ctx.fillText(lines[i], pad, y);
+      y -= W * 0.08;
+    }
+    ctx.shadowBlur = 0;
+  }
+  /* A gold rule ties the words to the picture. */
+  ctx.fillStyle = "#e8bd62";
+  ctx.fillRect(pad, H - pad - W * 0.008, W * 0.12, Math.max(2, W * 0.008));
+  return cv;
+}
+
 /**
  * Paint one box face: the full-bleed picture with the slide's own headline,
  * line and button words set on it — the same content the flat stage shows,
  * drawn upright so it can never lie on its side. A face with no picture
- * carries the logo; a face with no words is the picture alone. A film is
- * never played on the box — its face carries a still off the film (or a
- * play mark over the dark when no still could be read).
+ * carries the logo; a face with no words is the picture alone. A film plays
+ * on the box while it turns (muted, no controls anywhere near it) — this
+ * paints its resting face from its thumbnail, and the live loop in
+ * useFaceTextures keeps the picture current under an identical words sheet.
  */
 function drawFace(slot: FaceSlot, photo: HTMLImageElement | HTMLVideoElement | null, W: number, H: number, logoUrl: string): HTMLCanvasElement {
   const cv = document.createElement("canvas");
@@ -128,28 +311,7 @@ function drawFace(slot: FaceSlot, photo: HTMLImageElement | HTMLVideoElement | n
   const videoSlot = isSlideVideoUrl(slot.url) && slot.url !== logoUrl;
   const logoOnly = (!photo && !videoSlot) || slot.url === logoUrl;
 
-  ctx.fillStyle = "#14121a";
-  ctx.fillRect(0, 0, W, H);
-  if (photo && !logoOnly) {
-    /* Cover the face with the picture. A film sits whole instead — contained
-       on the dark, like an upload in its frame, so nothing crops off. */
-    const iw = (photo as HTMLImageElement).naturalWidth || (photo as HTMLVideoElement).videoWidth || 0;
-    const ih = (photo as HTMLImageElement).naturalHeight || (photo as HTMLVideoElement).videoHeight || 0;
-    const ia = iw / Math.max(1, ih);
-    const fa = W / H;
-    let dw = W;
-    let dh = H;
-    if (videoSlot) {
-      if (ia > fa) dh = W / ia;
-      else dw = H * ia;
-    } else if (ia > fa) dw = H * ia;
-    else dh = W / ia;
-    ctx.drawImage(photo, (W - dw) / 2, (H - dh) / 2, dw, dh);
-  } else if (photo) {
-    /* The logo, contained and centred. */
-    const s = Math.min(W, H) * 0.62;
-    ctx.drawImage(photo, (W - s) / 2, (H - s) / 2, s, s);
-  }
+  drawPhotoLayer(ctx, photo, videoSlot, logoOnly, W, H);
   if (videoSlot && !photo && !wordless) {
     /* No still could be read — a play mark over the dark, words below. */
     const cx = W / 2;
@@ -227,14 +389,25 @@ function drawFace(slot: FaceSlot, photo: HTMLImageElement | HTMLVideoElement | n
 /**
  * Every face painted with its slide's own content. A tainted picture (one the
  * browser will not share with WebGL) falls back to words on dark — the face
- * still reads, never blanks.
+ * still reads, never blanks. Film faces play while the box turns: silently
+ * (muted loops, no controls), composited under an identical words sheet, so
+ * a face is never a black blank — thumbnail first, live picture when it flows.
  */
-function useFaceTextures(slots: FaceSlot[], logoUrl: string): (THREE.Texture | null)[] {
+function useFaceTextures(
+  slots: FaceSlot[],
+  logoUrl: string
+): { textures: (THREE.Texture | null)[]; playBoxFilms: () => void } {
   const [textures, setTextures] = useState<(THREE.Texture | null)[]>(() => slots.map(() => null));
+  /* Taps and turns restart the muted faces (and unlock them where the browser
+     holds autoplay until the first touch). */
+  const liveRef = useRef<() => void>(() => {});
+  /* A zoomed box stretches its faces bigger — paint them denser so the words
+     stay sharp instead of stretching. */
+  const pageZoom = usePageZoomFactor();
   /* The visitor's language is part of the key: choosing one repaints every
      face with translated words (the table fills progressively underneath). */
   useI18nTick();
-  const key = currentLang() + "#" + i18nTickN() + "|" + slots.map((s) => [s.url, s.aspect, s.slide?.headline || "", s.slide?.line || "", s.slide?.cta || "", s.slide?.link || ""].join("|")).join("~");
+  const key = currentLang() + "#" + i18nTickN() + "|z" + pageZoom.toFixed(2) + "|" + slots.map((s) => [s.url, s.aspect, s.slide?.headline || "", s.slide?.line || "", s.slide?.cta || "", s.slide?.link || ""].join("|")).join("~");
   /* Seamless turnover (note 240): the new set of faces paints fully offscreen
      first, then swaps in with ONE state update — the old faces stay up until
      the last new one is ready, so a slide change never flashes or stalls the
@@ -242,6 +415,26 @@ function useFaceTextures(slots: FaceSlot[], logoUrl: string): (THREE.Texture | n
      are still showing); unmount frees whatever is left. */
   useEffect(() => {
     let alive = true;
+    const timers: number[] = [];
+    const films: HTMLVideoElement[] = [];
+    const tryPlay = (v: HTMLVideoElement) => {
+      try {
+        const p = v.play() as unknown as Promise<void> | undefined;
+        if (p && typeof p.catch === "function") p.catch(() => {});
+      } catch {}
+    };
+    const kick = () => {
+      films.forEach(tryPlay);
+    };
+    const onVis = () => {
+      try {
+        if (!document.hidden) kick();
+      } catch {}
+    };
+    /* Faces showing a film keep its element here, pointed at its thumbnail —
+       the resting paint below reads the still off it, and the live loop after
+       the swap keeps the picture moving under the same words. */
+    const filmEls: { slot: FaceSlot; video: HTMLVideoElement }[] = [];
     const load = (slot: FaceSlot): Promise<HTMLImageElement | HTMLVideoElement | null> =>
       new Promise((resolve) => {
         if (!slot.url) {
@@ -249,38 +442,73 @@ function useFaceTextures(slots: FaceSlot[], logoUrl: string): (THREE.Texture | n
           return;
         }
         if (isSlideVideoUrl(slot.url)) {
-          /* A still off the film itself, read once — never played on the box.
-             Muted and never started, so it costs one frame, not a stream. */
+          /* The film's thumbnail, picked a few seconds in (3–10s) where the
+             film has started — then the element stays on, playing silently on
+             the box while it turns. Muted and looping, so it costs no audio
+             and never runs out. */
           const video = document.createElement("video");
           let done = false;
           const timer = window.setTimeout(() => {
-            if (!done) {
+            if (done) return;
+            /* A host that will not seek still gives its current frame — a
+               thumbnail from anywhere beats a black face. */
+            try {
+              if (video.readyState >= 2 && video.videoWidth && video.videoHeight) {
+                done = true;
+                window.clearTimeout(timer);
+                if (alive) filmEls.push({ slot, video });
+                resolve(video);
+              } else {
+                done = true;
+                window.clearTimeout(timer);
+                resolve(null);
+              }
+            } catch {
               done = true;
-              resolve(video.readyState >= 2 ? video : null);
+              window.clearTimeout(timer);
+              resolve(null);
             }
-          }, 5000);
+          }, 8000);
           const finish = (el: HTMLVideoElement | null) => {
             if (done) return;
             done = true;
             window.clearTimeout(timer);
+            if (el && alive) filmEls.push({ slot, video });
+            if (el && !alive) {
+              try {
+                video.removeAttribute("src");
+                video.load();
+              } catch {}
+            }
             resolve(el);
           };
           video.muted = true;
+          try {
+            (video as unknown as { defaultMuted?: boolean }).defaultMuted = true;
+          } catch {}
+          try {
+            video.volume = 0;
+          } catch {}
+          video.loop = true;
           try {
             (video as unknown as { playsInline?: boolean }).playsInline = true;
           } catch {}
           video.preload = "auto";
           video.crossOrigin = "anonymous";
           video.onerror = () => finish(null);
-          video.onloadeddata = () => {
+          video.onloadedmetadata = () => {
             try {
-              video.currentTime = 0.1;
+              video.currentTime = thumbTime(video.duration);
             } catch {
               finish(video.readyState >= 2 ? video : null);
             }
           };
           video.onseeked = () => finish(video.readyState >= 2 ? video : null);
-          video.src = slot.url;
+          try {
+            video.src = slot.url;
+          } catch {
+            finish(null);
+          }
           return;
         }
         const img = new Image();
@@ -292,17 +520,23 @@ function useFaceTextures(slots: FaceSlot[], logoUrl: string): (THREE.Texture | n
     (async () => {
       const photos = await Promise.all(slots.map(load));
       if (!alive) return;
-      const next = slots.map((slot, i) => {
-        const W = slot.aspect > 1.2 ? 1024 : 768;
+      const painted = slots.map((slot, i) => {
+        const W = Math.round((slot.aspect > 1.2 ? 1024 : 768) * Math.min(2.5, Math.max(1, pageZoom)));
         const H = Math.round(W / slot.aspect);
         let cv = drawFace(slot, photos[i], W, H, logoUrl);
+        let tainted = false;
         try {
           /* A tainted canvas throws here — re-paint without the picture. */
           cv.getContext("2d")?.getImageData(0, 0, 1, 1);
         } catch {
+          tainted = true;
           cv = drawFace(slot, null, W, H, logoUrl);
         }
-        const tex = new THREE.CanvasTexture(cv);
+        return { slot, cv, W, H, tainted };
+      });
+      if (!alive) return;
+      const next = painted.map((p) => {
+        const tex = new THREE.CanvasTexture(p.cv);
         tex.colorSpace = THREE.SRGBColorSpace;
         tex.anisotropy = 4;
         return tex;
@@ -315,9 +549,70 @@ function useFaceTextures(slots: FaceSlot[], logoUrl: string): (THREE.Texture | n
         prev.forEach((t) => t?.dispose());
         return next;
       });
+      /* Films play on the box while it turns — silently, under an identical
+         words sheet. The resting face above already shows the thumbnail, so
+         the picture only ever changes from a still into motion, never into
+         black. A face whose pixels will not share (tainted) keeps its
+         words-on-dark rest and never joins the loop. */
+      painted.forEach((p, i) => {
+        if (p.tainted) return;
+        const found = filmEls.find((f) => f.slot === p.slot);
+        const v = found ? found.video : null;
+        if (!v || v.readyState < 2 || !v.videoWidth || !v.videoHeight) return;
+        const slide = p.slot.slide;
+        const wordless =
+          !tx(String(slide?.headline || "").trim()) &&
+          !tx(String(slide?.line || "").trim()) &&
+          !(tx(String(slide?.cta || "").trim()) && String(slide?.link || "").trim());
+        const sheet = wordless ? null : paintWordsSheet(slide, false, p.W, p.H);
+        const dctx = p.cv.getContext("2d");
+        if (!dctx) return;
+        films.push(v);
+        tryPlay(v);
+        let tries = 0;
+        const timer = window.setInterval(() => {
+          if (!alive) return;
+          try {
+            if (v.paused && tries < 40) {
+              tries++;
+              tryPlay(v);
+            }
+            if (v.readyState >= 2) {
+              drawPhotoLayer(dctx, v, true, false, p.W, p.H);
+              if (sheet) dctx.drawImage(sheet, 0, 0);
+              next[i].needsUpdate = true;
+            }
+          } catch {
+            /* Tainted or lost mid-turn — stop the loop and leave the resting
+               face up. It read a real still, so it never blanks. */
+            window.clearInterval(timer);
+          }
+        }, 100);
+        timers.push(timer);
+      });
+      liveRef.current = kick;
+      window.addEventListener("pointerdown", kick);
+      document.addEventListener("visibilitychange", onVis);
     })();
     return () => {
       alive = false;
+      liveRef.current = () => {};
+      timers.forEach((t) => window.clearInterval(t));
+      try {
+        window.removeEventListener("pointerdown", kick);
+      } catch {}
+      try {
+        document.removeEventListener("visibilitychange", onVis);
+      } catch {}
+      films.forEach((v) => {
+        try {
+          v.pause();
+        } catch {}
+        try {
+          v.removeAttribute("src");
+          v.load();
+        } catch {}
+      });
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [key]);
@@ -330,7 +625,14 @@ function useFaceTextures(slots: FaceSlot[], logoUrl: string): (THREE.Texture | n
     },
     []
   );
-  return textures;
+  return {
+    textures,
+    playBoxFilms: () => {
+      try {
+        liveRef.current();
+      } catch {}
+    },
+  };
 }
 
 function Cuboid({ slides, apiRef, held, logo, theme }: { slides: (SlideT | null)[]; apiRef?: { current: CuboidApi | null }; held?: boolean; logo: string; theme: string }) {
@@ -354,6 +656,11 @@ function Cuboid({ slides, apiRef, held, logo, theme }: { slides: (SlideT | null)
     lastAct.current = performance.now();
     /* The tap's own 15s: the head-on face waits this long, then slides. */
     nextAdvance.current = performance.now() + CONTENT_MS;
+    /* A tap also restarts the muted faces (and unlocks them where the
+       browser holds autoplay until the first touch). */
+    try {
+      fxRef.current.playBoxFilms();
+    } catch {}
   };
   const step = (dir: 1 | -1) => {
     touch();
@@ -495,7 +802,12 @@ function Cuboid({ slides, apiRef, held, logo, theme }: { slides: (SlideT | null)
     const aspects = [SIDE_ASPECT, SIDE_ASPECT, CAP_ASPECT, CAP_ASPECT, SIDE_ASPECT, SIDE_ASPECT];
     return urls.map((url, i) => ({ slide: faces[i], url, aspect: aspects[i] }));
   }, [faceSlides, logo]);
-  const textures = useFaceTextures(slots, logo);
+  const faceFx = useFaceTextures(slots, logo);
+  const textures = faceFx.textures;
+  const fxRef = useRef(faceFx);
+  useEffect(() => {
+    fxRef.current = faceFx;
+  });
   const blank = theme === "light" ? "#d8cdb4" : "#15131d";
   const mats = useMemo(
     () => [0, 1, 2, 3, 4, 5].map(() => new THREE.MeshStandardMaterial({ color: blank, roughness: 0.9, metalness: 0.05 })),
@@ -611,10 +923,12 @@ export function CuboidSpace3D({ slides, apiRef, held }: { slides: SlideT[]; apiR
   }, []);
   const light = theme === "light";
   const logo = useMemo(() => siteFile(LOGO_MARK), []);
+  /* A zoomed box shows its faces bigger — let the canvas render denser too. */
+  const pageZoom = usePageZoomFactor();
   return (
     <div className="aslides__gl">
       <Canvas
-        dpr={[1, 1.75]}
+        dpr={[1, Math.min(3, 1.75 * Math.max(1, pageZoom))]}
         camera={{ fov: FOV, position: CAM_POS }}
         gl={{ antialias: true, alpha: true, preserveDrawingBuffer: true }}
       >
