@@ -6,6 +6,7 @@
 import { readFile, stat, mkdir, writeFile, cp } from "node:fs/promises";
 import path from "node:path";
 import { createCmsHost, hashText } from "./cms-local.mjs";
+import { answerWithSeedFallback } from "./seed-fallback.mjs";
 import { guardAtBoot } from "./backup-data.mjs";
 import { createGeoProxy } from "./geo-proxy.mjs";
 import { MIME } from "./mime.mjs";
@@ -194,11 +195,14 @@ export function cmsBackend() {
             });
             req.on("end", async () => {
               const r = await cms.call(rpcMatch[1], id, body);
+              /* Same no-disk net as scripts/serve.mjs (note 290): an emptied
+                 live store answers getContent from the baked seed. */
+              const outBody = await answerWithSeedFallback(rpcMatch[1], r.body, ROOT, outDir);
               res.writeHead(r.status, {
                 "content-type": "application/json; charset=utf-8",
                 "cache-control": "no-store",
               });
-              res.end(r.body);
+              res.end(outBody);
             });
             return;
           }

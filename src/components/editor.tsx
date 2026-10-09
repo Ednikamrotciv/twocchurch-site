@@ -1999,6 +1999,14 @@ export function ToolsPage() {
     setBusy(false);
     fireToast(res.ok ? "Rolled back to the previous revision." : `Could not roll back (${res.error}).`, res.ok ? "success" : "error");
   };
+  /* The ~15-minute server undo window counts down live while it is open. */
+  const [, setUndoTick] = useState(0);
+  const undoSecs = cms.undoCountdownSec();
+  useEffect(() => {
+    if (undoSecs <= 0) return;
+    const t = window.setInterval(() => setUndoTick((x) => x + 1), 15000);
+    return () => window.clearInterval(t);
+  }, [undoSecs > 0]);
 
   /* Backup: the latest published content and its photos as one file the office keeps. */
   const doBackup = async () => {
@@ -2074,9 +2082,14 @@ export function ToolsPage() {
           <h4>
             <Icon name="arrowLeft" size={16} /> Undo the last publish
           </h4>
-          <p>Puts every section back the way it was before the last publish.</p>
+          <p>
+            Puts every section back the way it was before the last publish.
+            {undoSecs > 0
+              ? ` About ${undoSecs >= 90 ? `${Math.round(undoSecs / 60)} minutes` : `${undoSecs} seconds`} left to undo.`
+              : " The previous publish clears off after about 15 minutes."}
+          </p>
           <Btn size="sm" variant="ghost" icon="arrowLeft" onClick={doRevert} disabled={busy || !state.canUndo}>
-            {busy ? "Rolling back…" : "Undo the last publish"}
+            {busy ? "Rolling back…" : undoSecs > 0 ? "Undo the last publish" : "Nothing to undo"}
           </Btn>
         </Card>
         <Card className="admin__tool">

@@ -375,6 +375,13 @@ var REV = 0, AT = 0, BY = "";
    visitors wait on maintenance until a publish from the newest code). */
 var NOTES = 0;
 var LOG = [];
+/* The publish before this one: {at, rev, sections} — one undo, inside about
+   15 minutes of the publish (note 291). A publish always deletes the one
+   before it as the live words; this copy only lives long enough to take it
+   back, then clears off the server. Kept in the meta blob, so no state-layout
+   change was needed. */
+var PREV = null;
+var UNDO_MS = 15 * 60 * 1000;
 /* Set while loading a state stamped with an older history generation: the
    record is forgotten and the clean state is written back at once. */
 var FRESH_GEN = false;
@@ -424,8 +431,54 @@ function writeHeader() {
   }
 }
 
+/* The previous publish only counts when it is shaped right (note 291) —
+   anything else is forgotten, never restored. */
+function cleanPrev(raw) {
+  if (!raw || typeof raw !== "object") return null;
+  if (typeof raw.at !== "number" || typeof raw.rev !== "number") return null;
+  var secs = raw.sections;
+  if (!secs || typeof secs !== "object") return null;
+  var out = {};
+  var n = 0;
+  for (var id in secs) {
+    if (!Object.prototype.hasOwnProperty.call(secs, id)) continue;
+    if (!/^[a-zA-Z][a-zA-Z0-9-]{0,31}$/.test(id)) return null;
+    var v = secs[id];
+    if (typeof v !== "string" || v.length > MAX_SECTION_CHARS) return null;
+    try {
+      var parsed = JSON.parse(v);
+      if (parsed === null || typeof parsed !== "object") return null;
+    } catch (e) {
+      return null;
+    }
+    out[id] = v;
+    if (++n > SLOTS) return null;
+  }
+  if (!n) return null;
+  return { at: raw.at, rev: Math.floor(raw.rev), sections: out };
+}
+
+/* The previous publish, if still inside its ~15-minute undo window. Expired
+   means forgotten on the spot (lazy expiry: enforced on every read and every
+   write, so nothing expired is ever served or kept). */
+function livePrev(now) {
+  if (!PREV) return null;
+  if (typeof PREV.at !== "number" || now - PREV.at > UNDO_MS) {
+    PREV = null;
+    return null;
+  }
+  return PREV;
+}
+
+function undoLeftSec(now) {
+  var p = livePrev(now);
+  if (!p) return 0;
+  var left = Math.ceil((UNDO_MS - (now - p.at)) / 1000);
+  return left > 0 ? left : 0;
+}
+
 function writeMeta() {
-  var meta = JSON.stringify({ by: BY, log: LOG, logGen: LOG_GEN, subs: SUBS, invites: INVITES, totp: TOTP, mainOff: MAIN_OFF, mainHash: MAIN_HASH, pwgen: PWGEN, notes: NOTES });
+  var meta = JSON.stringify({ by: BY, log: LOG, logGen: LOG_GEN, subs: SUBS, invites: INVITES, totp: TOTP, mainOff: MAIN_OFF, mainHash: MAIN_HASH, pwgen: PWGEN, notes: NOTES, prev: PREV });
   META_CHARS = meta.length;
   writeString(meta, BASE_CHARS + SECTION_CHARS);
   /* The header carries META_CHARS: without this, an admin-only change (an
@@ -571,6 +624,7 @@ function loadState() {
     MAIN_HASH = typeof parsed.mainHash === "string" && /^[0-9a-f]{64}$/.test(parsed.mainHash) ? parsed.mainHash : "";
     PWGEN = typeof parsed.pwgen === "number" && parsed.pwgen >= 0 ? Math.floor(parsed.pwgen) : 0;
     NOTES = typeof parsed.notes === "number" && parsed.notes >= 0 ? Math.floor(parsed.notes) : 0;
+    PREV = cleanPrev(parsed.prev);
   } catch (e) {
     NOTES = 0;
     BY = "";
@@ -581,6 +635,7 @@ function loadState() {
     MAIN_OFF = false;
     MAIN_HASH = "";
     PWGEN = 0;
+    PREV = null;
   }
   SECTIONS = {};
   for (var i = 0; i < INDEX.length; i++) {
@@ -723,6 +778,15 @@ self.rpc = {
     for (var i = 0; i < INDEX.length; i++) {
       parts.push(JSON.stringify(INDEX[i].id) + ":" + SECTIONS[INDEX[i].id]);
     }
+    /* Reading also enforces the undo window (note 291): an expired previous
+       publish clears off the server here if nothing else got to it first. */
+    var now = Date.now();
+    var hadPrev = !!PREV;
+    var left = undoLeftSec(now);
+    if (hadPrev && !PREV) {
+      writeMeta();
+      writeHeader();
+    }
     return ok({
       rev: REV,
       at: AT,
@@ -732,6 +796,7 @@ self.rpc = {
       log: LOG,
       admin: admins.has(info.conn.id),
       pwgen: PWGEN,
+      undoLeft: left,
     });
   },
 
@@ -1178,7 +1243,23 @@ self.rpc = {
       value = payload.sections[ids[i]];
       if (typeof value === "string") free -= value.length * 2;
     }
+    /* The undo snapshot about to be kept (note 291) is a full copy of the
+       live sections — reserve for it when none is kept yet. */
+    if (!PREV) free -= SECTION_CHARS * 2 + 1024;
     if (free < 8192) return fail("no-space");
+
+    /* A publish deletes the previous publish as the live words — but the
+       superseded set is kept for one ~15-minute undo first (note 291). Only
+       the first batch of a multi-batch publish snapshots (the client marks it
+       `first`), so the copy predates the whole publish, not its middle. */
+    var undoSnap = null;
+    if (payload.first === true && ids.length) {
+      var keep = {};
+      for (var k in SECTIONS) {
+        if (Object.prototype.hasOwnProperty.call(SECTIONS, k)) keep[k] = SECTIONS[k];
+      }
+      if (Object.keys(keep).length) undoSnap = { at: 0, rev: REV, sections: keep };
+    }
 
     REV += 1;
     AT = Date.now();
@@ -1210,10 +1291,84 @@ self.rpc = {
       var err = setSection(ids[i], payload.sections[ids[i]]);
       if (err) return fail(err);
     }
+    /* The publish landed whole: the superseded set becomes the undo window. */
+    if (undoSnap) {
+      undoSnap.at = AT;
+      PREV = undoSnap;
+    }
     /* A notes-only publish moves no sections, so persist the blessing here. */
     writeMeta();
     writeHeader();
 
+    try {
+      pubsub.publish("content", JSON.stringify({ rev: REV, at: AT, by: BY }));
+    } catch (e) {
+      /* a missed nudge is harmless: clients refresh on next load */
+    }
+    return ok({ rev: REV, notes: NOTES });
+  },
+  /* Put the previous publish back whole (note 291): one undo, inside about
+     15 minutes of the publish it supersedes. It replaces the current publish
+     outright — a publish always deletes the one before it — and the undo
+     itself consumes the window: afterwards nothing of either is kept. */
+  undoPublish: function (info, raw) {
+    if (!admins.has(info.conn.id)) return fail("unauthorized");
+    var now = Date.now();
+    var prev = livePrev(now);
+    if (!prev) {
+      if (PREV) {
+        PREV = null;
+        writeMeta();
+        writeHeader();
+      }
+      return fail("expired");
+    }
+    var ids = [];
+    var id;
+    for (id in prev.sections) {
+      if (Object.prototype.hasOwnProperty.call(prev.sections, id)) ids.push(id);
+    }
+    /* Sections the previous publish never held leave with the current one —
+       the restore is exact, not a merge. */
+    var cur;
+    for (cur in SECTIONS) {
+      if (
+        Object.prototype.hasOwnProperty.call(SECTIONS, cur) &&
+        !Object.prototype.hasOwnProperty.call(prev.sections, cur)
+      ) {
+        var clr = setSection(cur, null);
+        if (clr) return fail(clr);
+      }
+    }
+    for (var i = 0; i < ids.length; i++) {
+      var err = setSection(ids[i], prev.sections[ids[i]]);
+      if (err) return fail(err);
+    }
+    var by = BY;
+    if (typeof raw === "string" && raw) {
+      try {
+        var asked = JSON.parse(raw);
+        if (asked && typeof asked.by === "string" && asked.by) by = asked.by.slice(0, 60);
+      } catch (e) {
+        /* the stored name stands */
+      }
+    }
+    PREV = null;
+    REV += 1;
+    AT = now;
+    BY = by;
+    var who = adminIds.get(info.conn.id);
+    LOG.unshift({
+      rev: REV,
+      at: AT,
+      by: BY,
+      role: who && who.role === "sub" ? "sub" : "main",
+      note: "Undid the last publish",
+      changed: ids.slice(0, 24),
+    });
+    if (LOG.length > MAX_LOG) LOG.length = MAX_LOG;
+    writeMeta();
+    writeHeader();
     try {
       pubsub.publish("content", JSON.stringify({ rev: REV, at: AT, by: BY }));
     } catch (e) {
@@ -1229,6 +1384,7 @@ self.rpc = {
     BY = "";
     REV = 0;
     AT = 0;
+    PREV = null;
     writeMeta();
     writeHeader();
     return ok({});

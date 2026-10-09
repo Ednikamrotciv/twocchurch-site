@@ -342,8 +342,9 @@ function Cuboid({ slides, apiRef, held, logo, theme }: { slides: (SlideT | null)
   const qTarget = useRef(new THREE.Quaternion());
   const autoYaw = useRef(0);
   const ringPos = useRef(0);
-  /* A tap holds the revolve; the slide display underneath keeps its own 15s
-     rhythm (note 280), so tapping never resets the slide clock. */
+  /* A tap holds the revolve; every tap starts a fresh 15s wait, after which
+     the head-on face slides visibly to the next image (see the turnover
+     below) — and goes on like that until the next tap. */
   const manual = useRef(false);
   const lastAct = useRef(0);
   /* Fresh 15s for the turnover after a hover hold ends (held freezes it). */
@@ -351,6 +352,8 @@ function Cuboid({ slides, apiRef, held, logo, theme }: { slides: (SlideT | null)
   const touch = () => {
     manual.current = true;
     lastAct.current = performance.now();
+    /* The tap's own 15s: the head-on face waits this long, then slides. */
+    nextAdvance.current = performance.now() + CONTENT_MS;
   };
   const step = (dir: 1 | -1) => {
     touch();
@@ -359,8 +362,8 @@ function Cuboid({ slides, apiRef, held, logo, theme }: { slides: (SlideT | null)
   const settle = () => {
     /* A tap or click holds the nearest face head-on instead of jumping a full
        step: the box only turns the short remainder, so taps never hiccup.
-       The faces keep turning over every 15s underneath; three quiet minutes
-       resume the revolve where the turn landed. */
+       After a 15s wait the head-on face slides to the next image, every 15s;
+       three quiet minutes resume the revolve where the turn landed. */
     try {
       const q = qCur.current;
       const yaw = 2 * Math.atan2(q.y, q.w);
@@ -385,14 +388,15 @@ function Cuboid({ slides, apiRef, held, logo, theme }: { slides: (SlideT | null)
     if (!apiRef) return;
     apiRef.current = { push: step, snap: settle, poke: touch };
   }, [apiRef]);
-  /* All uploads take turns on the four faces — but only through the back.
-     With four or fewer every face is steady (each slide has its own face, no
-     turnover, no hiccups). With more, one hidden face at a time turns over to
-     the longest-unseen upload every 15s, so new slides ride in from the back
-     with the revolve's own flow and nothing visible ever pops. Taps hold only
-     the revolve — the display keeps changing underneath. A hold (hover, focus,
-     touch) freezes the turnover too, like the flat stage, with a fresh 15s
-     after. */
+  /* All uploads take turns on the four faces. With four or fewer every face
+     is steady (each slide has its own face). With more, one hidden face at a
+     time turns over to the longest-unseen upload every 15s, so new slides
+     ride in from the back with the revolve's own flow and nothing visible
+     ever pops. A tap holds the revolve — but the head-on face still slides
+     to the next image every 15s (one face-step per wait), going on like that
+     until three quiet minutes hand the box back to the revolve. A hold
+     (hover, focus, touch) freezes it all too, like the flat stage, with a
+     fresh 15s after. */
   const countSlides = slides.length;
   const [faceIdx, setFaceIdx] = useState<number[]>([0, 1, 2, 3]);
   const faceIdxRef = useRef<number[]>([0, 1, 2, 3]);
@@ -425,19 +429,28 @@ function Cuboid({ slides, apiRef, held, logo, theme }: { slides: (SlideT | null)
     }
   }, [held]);
   useEffect(() => {
-    /* Four or fewer slides already own every face — steady, nothing turns over. */
-    if (countSlides <= 4) return;
+    if (countSlides <= 0) return;
     nextAdvance.current = performance.now() + CONTENT_MS;
     const id = window.setInterval(() => {
       const now = performance.now();
       /* Hover-hold freezes the display (fresh 15s after); a tap-hold leaves
-         it running so slides keep changing on the still box (note 280). */
+         the 15s stepping running so the head-on face keeps sliding. */
       if (heldRef.current) {
         nextAdvance.current = now + CONTENT_MS;
         return;
       }
       if (now < nextAdvance.current) return;
       nextAdvance.current = now + CONTENT_MS;
+      if (manual.current) {
+        /* The tapped box has waited its 15s: turn one face-step so the
+           head-on face slides visibly to the next image. Every further 15s
+           without activity turns it again, until three quiet minutes resume
+           the revolve (see useFrame). */
+        ringPos.current = (ringPos.current + 1) % RING.length;
+      }
+      /* Four or fewer slides already own every face — steady, only the tapped
+         stepping above moves between them. */
+      if (countSlides <= 4) return;
       /* Which face is most hidden right now (world dot toward camera is
          smallest): swap only that one, so the change is never visible. */
       let hidden = 2;

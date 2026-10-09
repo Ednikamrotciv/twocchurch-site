@@ -1,18 +1,27 @@
-APPLY THIS UPDATE (286) — LOCAL + LIVE
+APPLY THIS UPDATE (291) — LOCAL + LIVE
 =====================================
 This zip contains ALL fixes in one place:
-- FIXES the "Something went wrong / Cannot access before initialization" crash:
-  every page with the slide space failed to render (a hook read-out-of-order
-  in the flat slide timer). Slides render again on the site and in admin.
-- Restore + publish are back in admin as plain buttons with NO banner behind
-  them: while visitors wait, a simple "Restore a backup / Review and publish"
-  row sits under the header (Restore opens Tools, Review opens publish).
-- Videos sit WHOLE in the slide frame on a background drawn from the film's
-  own colours — the same fit as picture uploads — and carry the film's colours
-- Videos play on the FLAT slide space with the player's own volume + time-range controls
-- While a flat-face video plays, the 15s slide timer stops; it restarts the moment the video ends (or pauses)
-- The 3D box never plays films — its faces show the film's still whole (or a play mark), words unchanged
-- Backups keep embedding slide videos like photos (200MB per-file guard unchanged)
+- LAST PUBLISHED, NOT LAST UPDATE: this update ships NO words of its own
+  (no stored content file inside) — a fresh folder opens on the last
+  published words (baked seed), never on anything the update carries. A new
+  update refreshes the code only; the words move only when the office
+  publishes. The old stored-words file the previous zips carried is gone
+  from this zip on purpose — do NOT copy a data/cms-state.bin from an old
+  zip into the new folder.
+- PUBLISH DELETES THE PREVIOUS PUBLISH: each publish replaces the live
+  words outright — with one safety net: the superseded publish is kept on
+  the server for about 15 minutes. Tools → Undo the last publish counts
+  down while the window is open, works from any signed-in device, restores
+  the previous publish whole, then clears it off by itself. After the
+  window there is nothing to undo — the old publish is gone off the server.
+- No disk still needed on Render: restarts serve the last deployed words,
+  never blank (a disk only keeps between-deploy live publishes). Keep
+  taking Tools backups either way.
+- Everything from 290 and before, unchanged: published words never clear
+  unless the office deletes them or a new update lands; slide films autoplay
+  silently with their own snapshot first and their own colours behind; tap
+  the box → head-on face waits 15s then slides on, every 15s, rotation back
+  after 3 idle minutes; desktop box at original size, zoom-reactive.
 
 LOCAL (your computer)
 1. In the OLD folder: open #/admin → Tools → Back up now. Keep the file.
@@ -20,18 +29,17 @@ LOCAL (your computer)
 3. In the new folder: npm install
 4. npm run dev → http://localhost:5173/  (admin: /admin)
 5. #/admin → Tools → Restore the backup file → Review and publish → Publish.
-   Local lifts to 286. Hard-reload desktop + phone width to verify.
-   Try: upload a short mp4 to an announcement slide, publish, press play on the
-   flat slide space — the film must sit whole on its own colours, and the
-   rotation must wait until the video ends.
+   Local lifts to 291. Hard-reload desktop + phone width to verify.
+   Try the undo: change a line, Publish, then Tools → Undo the last publish
+   (it shows the minutes left) — the line must go back. Wait out the window
+   (about 15 minutes) and the card must read Nothing to undo.
 
 LIVE (Render: twocchurch-site.onrender.com)
 1. Put this code where Render builds it (replace src/, scripts/, index.html,
    seed.json, vite.config.ts, package.json — keep data/ as-is), commit/push.
-   Render: install npm install, build npm run build, start node scripts/serve.mjs,
-   disk mounted at data.
-2. Confirm https://twocchurch-site.onrender.com/version.json shows {"notes":286}.
-3. Open live /admin → Review and publish → Publish. This blesses 286 and lifts
+   Render: install npm install, build npm run build, start node scripts/serve.mjs.
+2. Confirm https://twocchurch-site.onrender.com/version.json shows {"notes":291}.
+3. Open live /admin → Review and publish → Publish. This blesses 291 and lifts
    mobile + desktop together (no rebuild needed for this step).
 4. Hard-reload both modes. Console check: window.__maintState().
 

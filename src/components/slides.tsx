@@ -186,6 +186,8 @@ export function AnnouncementSlide({
   total = 1,
   spotlight = false,
   onVideoState,
+  videoActive,
+  onVideoEnded,
 }: {
   slide: AnnouncementSlide;
   design: SlideDesign;
@@ -195,6 +197,10 @@ export function AnnouncementSlide({
   spotlight?: boolean;
   /** Flat-face films report play/pause/end so the space can hold its 15s rhythm. */
   onVideoState?: (playing: boolean, el?: HTMLVideoElement | null) => void;
+  /** True while this slide sits head-on: its film plays itself, silently. */
+  videoActive?: boolean;
+  /** A film that ran to its end hands the rhythm on at once. */
+  onVideoEnded?: () => void;
 }) {
   /* A slide with no picture of its own still has to look finished: the welcome
      photo stands in until the office uploads one (see `photoOr`). */
@@ -212,6 +218,34 @@ export function AnnouncementSlide({
      palette is the office's own picture and not the mat the frame puts round it. */
   const photo = useSlideFrame(original);
   const palette = useSlidePalette(isVideo ? videoFrame.poster : original);
+  /* The film element (picture slides render none — the ref stays empty). */
+  const videoEl = useRef<HTMLVideoElement | null>(null);
+  const videoActiveRef = useRef(!!videoActive);
+  videoActiveRef.current = !!videoActive;
+  /* A head-on film plays itself, silently — the visitor turns the sound on
+     with the player's own volume control. Anywhere else it sits still on
+     its snapshot, muted, ready for its turn. */
+  useEffect(() => {
+    const el = videoEl.current;
+    if (!el) return;
+    try {
+      el.muted = true;
+      (el as unknown as { defaultMuted?: boolean }).defaultMuted = true;
+    } catch {}
+    if (videoActiveRef.current) {
+      try {
+        const p = el.play() as unknown as Promise<void> | undefined;
+        if (p && typeof p.catch === "function") p.catch(() => {});
+      } catch {}
+    } else {
+      try {
+        el.pause();
+      } catch {}
+      try {
+        el.muted = true;
+      } catch {}
+    }
+  }, [videoActive, original]);
   /* Painted/translated with the visitor's language — every face follows it. */
   const headline = tx(String(slide.headline || "").trim());
   const line = tx(String(slide.line || "").trim());
@@ -353,6 +387,15 @@ export function AnnouncementSlide({
       }
       onVideoState?.(playing, el);
     };
+    /* The film's first screen is its own snapshot; its end slides on at once. */
+    const onEnded = (e: React.SyntheticEvent<HTMLVideoElement>) => {
+      report(false)(e);
+      if (videoActiveRef.current) {
+        try {
+          onVideoEnded?.();
+        } catch {}
+      }
+    };
     return (
       <div
         ref={rootRef}
@@ -364,14 +407,17 @@ export function AnnouncementSlide({
       >
         {videoBg ? <img className="aslide__photo" src={videoBg} alt="" aria-hidden="true" /> : null}
         <video
+          ref={videoEl}
           className="aslide__media aslide__media--fit"
           src={original}
+          poster={videoFrame.poster || undefined}
           controls
+          muted
           playsInline
           preload="metadata"
           onPlay={report(true)}
           onPause={report(false)}
-          onEnded={report(false)}
+          onEnded={onEnded}
           onClick={(e) => e.stopPropagation()}
           onPointerDown={(e) => e.stopPropagation()}
           onTouchStart={(e) => e.stopPropagation()}
@@ -570,6 +616,8 @@ export function AnnouncementSlides({ slides = SLIDES }: { slides?: AnnouncementS
   const live = useMemo(() => visibleSlides(slides), [slides, version, tick]);
   const designs = useMemo(() => slideDesigns(live), [live]);
   const [held, setHeld] = useState(false);
+  const heldRef = useRef(false);
+  heldRef.current = held;
   /* Tap/click hold: a tap stops the rotation and holds it; fifteen quiet
      seconds with no action around the box resume with a fresh 15s. */
   const [userHeld, setUserHeld] = useState(false);
@@ -614,6 +662,8 @@ export function AnnouncementSlides({ slides = SLIDES }: { slides?: AnnouncementS
   const count = live.length;
   const stageRef = useRef<HTMLDivElement>(null);
   const swiperRef = useRef<Swiper | null>(null);
+  /* Which slide the flat face sits on — films play themselves while head-on. */
+  const [activeIdx, setActiveIdx] = useState(0);
   const push3d = (dir: 1 | -1) => {
     cuboidApi.current?.push(dir);
   };
@@ -660,6 +710,7 @@ export function AnnouncementSlides({ slides = SLIDES }: { slides?: AnnouncementS
       on: {
         slideChange(s) {
           mark(s.el, s.activeIndex);
+          setActiveIdx(s.activeIndex);
           /* Films left behind stop — their pause report restarts the rhythm. */
           try {
             const items = s.el.querySelectorAll(".swiper-slide");
@@ -674,6 +725,7 @@ export function AnnouncementSlides({ slides = SLIDES }: { slides?: AnnouncementS
     });
     swiperRef.current = sw;
     mark(el, sw.activeIndex);
+    setActiveIdx(sw.activeIndex);
     return () => {
       swiperRef.current = null;
       sw.destroy(true, true);
@@ -701,12 +753,17 @@ export function AnnouncementSlides({ slides = SLIDES }: { slides?: AnnouncementS
       (swiperRef.current?.autoplay as any)?.stop();
     } catch {}
     window.clearTimeout(resumeTimer.current);
-    /* After a tap the flat display restarts by itself after 15s. */
+    /* After a tap the flat face waits 15s, then slides to the next image —
+       and goes on like that, every 15s, until the next tap. */
     resumeTimer.current = window.setTimeout(() => {
       setUserHeld(false);
       userHeldRef.current = false;
       try {
-        const timer = swiperRef.current?.autoplay as any;
+        const sw = swiperRef.current;
+        /* The 15s wait is over: slide now (unless a hover-hold or a film
+           owns the stage — those keep it still). */
+        if (sw && !heldRef.current && !videoPlayingRef.current) sw.slideNext();
+        const timer = sw?.autoplay as any;
         timer?.stop();
         timer?.start();
       } catch {}
@@ -715,6 +772,23 @@ export function AnnouncementSlides({ slides = SLIDES }: { slides?: AnnouncementS
   const touchBox = useCallback(() => {
     if (userHeldRef.current) holdBox();
   }, [holdBox]);
+  /* A film's end hands the rhythm straight on: slide at once (unless a hold
+     owns the stage), then keep the 15s rhythm going behind it. */
+  const advanceForVideo = useCallback(() => {
+    if (calm) return;
+    const sw = swiperRef.current;
+    if (!sw) return;
+    if (heldRef.current || userHeldRef.current) return;
+    window.clearTimeout(resumeTimer.current);
+    setUserHeld(false);
+    userHeldRef.current = false;
+    try {
+      sw.slideNext();
+      const timer = sw.autoplay as any;
+      timer?.stop();
+      timer?.start();
+    } catch {}
+  }, [calm]);
   /* Taps on a film's own controls are the film's business, never the box's. */
   const holdBoxFrom = useCallback(
     (target: unknown) => {
@@ -973,7 +1047,15 @@ export function AnnouncementSlides({ slides = SLIDES }: { slides?: AnnouncementS
             <div className="swiper-wrapper">
               {live.map((s, i) => (
                 <div className="swiper-slide" key={s.id || i}>
-                  <AnnouncementSlide slide={s} design={designs[i] || "plate"} index={i + 1} total={count} onVideoState={onVideoState} />
+                  <AnnouncementSlide
+                    slide={s}
+                    design={designs[i] || "plate"}
+                    index={i + 1}
+                    total={count}
+                    onVideoState={onVideoState}
+                    videoActive={i === activeIdx && !calm}
+                    onVideoEnded={advanceForVideo}
+                  />
                 </div>
               ))}
             </div>

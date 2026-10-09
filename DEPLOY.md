@@ -98,8 +98,13 @@ A Render Web Service works as the always-on backend:
 
 - Build command: `npm install && npm run build`
 - Start command: `node scripts/serve.mjs`
-- Attach a persistent disk mounted at `data` (it holds `data/cms-state.bin`
-  and `data/uploads/` — without a disk every restart wipes your content).
+- No disk needed: every restart the server re-serves its last deployed words
+  and uploads from the build itself (note 290) — it never comes back blank.
+  A persistent disk mounted at `data` is still a fine optimization (it keeps
+  things published or uploaded on the live box *between* deploys), but without
+  one the worst a restart does is return to the last deploy, never to empty.
+  Either way, keep taking Tools backups: they are the way back if words are
+  ever deleted by hand.
 - Use the paid (non-sleeping) instance type, or the service sleeps and every
   copy works from its last baked words until it wakes.
 

@@ -3,6 +3,7 @@ import { readFile, stat, mkdir, writeFile, rm } from "node:fs/promises";
 import { gzipSync } from "node:zlib";
 import path from "node:path";
 import { createCmsHost, hashText } from "./cms-local.mjs";
+import { answerWithSeedFallback } from "./seed-fallback.mjs";
 import { createGeoProxy } from "./geo-proxy.mjs";
 import { guardAtBoot } from "./backup-data.mjs";
 import { MIME } from "./mime.mjs";
@@ -403,11 +404,14 @@ const server = http.createServer(async (req, res) => {
       });
       req.on("end", async () => {
         const r = await cms.call(rpcMatch[1], id, body);
+        /* No-disk survival (note 290): an emptied live store answers
+           getContent from the baked seed instead of blank. */
+        const outBody = await answerWithSeedFallback(rpcMatch[1], r.body, ROOT, DIST);
         res.writeHead(r.status, {
           "content-type": "application/json; charset=utf-8",
           "cache-control": "no-store",
         });
-        res.end(r.body);
+        res.end(outBody);
       });
       return;
     }

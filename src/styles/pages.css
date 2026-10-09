@@ -5407,14 +5407,6 @@
   display: block;
   max-width: 100%;
 }
-/* Desktop: the box fits the screen height too, so page zoom and the box work
-   side by side instead of the stage overflowing the viewport. */
-@media (min-width: 940px) {
-  .split .aslides {
-    width: min(100%, calc((100vh - 260px) * var(--slide-aspect, 1.3333)), calc(110vw * var(--slide-aspect, 1.3333)));
-    width: min(100%, calc((100svh - 260px) * var(--slide-aspect, 1.3333)), calc(110vw * var(--slide-aspect, 1.3333)));
-  }
-}
 .aslide3d-catcher {
   position: absolute;
   inset: 0;

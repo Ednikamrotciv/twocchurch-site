@@ -1203,8 +1203,11 @@ secret (40 hex chars is fine) for the real thing.
 The bar's **tools** button opens the rest of the toolkit (the drawer's **Status** tab is the other
 way in; its *Tools* button opens the same modal):
 
-- **Undo the last publish** — re-publishes the override set from before the last publish (the last
-  five are remembered in `localStorage`, per browser).
+- **Undo the last publish** — a publish replaces the previous publish outright,
+  but the superseded one is kept on the server for about 15 minutes: the card
+  counts down while the window is open, and afterwards it clears off by
+  itself. Undo works from any signed-in device (this browser's own memory of
+  the previous publish is only the fallback while it is still fresh).
 - **End this session** — signs the admin out: the drawer locks behind the office password again, in
   every mode (SPEC note 138).
 - **Announcements** are a live-feature section: notices dated within the last 21 days and flagged

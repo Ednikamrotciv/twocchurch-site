@@ -253,6 +253,29 @@ let draftLoaded = false;
 let history: { rev: number; at: number; by: string; overrides: Snapshot }[] = [];
 /** Overrides published while the server was unreachable, waiting to be sent. */
 let pending: Snapshot | null = null;
+/* A publish deletes the previous publish — except for one ~15-minute undo
+   window kept on the server (note 291). The server reports the seconds left
+   on every content answer; this tab turns it into a local deadline so the
+   Tools card can count down between syncs. */
+const UNDO_MS = 15 * 60 * 1000;
+let undoUntilAt = 0;
+/** Seconds left to undo the last publish on the server (0 = none). */
+export function undoCountdownSec(): number {
+  if (!undoUntilAt) return 0;
+  const left = Math.ceil((undoUntilAt - Date.now()) / 1000);
+  return left > 0 ? left : 0;
+}
+/* Expired local undo entries are forgotten, like the server forgets its own —
+   an undo older than the window is gone everywhere. */
+function pruneHistory() {
+  if (!history.length) return;
+  const now = Date.now();
+  const kept = history.filter((h) => typeof h?.at === "number" && now - h.at <= UNDO_MS);
+  if (kept.length !== history.length) {
+    history = kept;
+    writeJSON(HISTORY_KEY, history);
+  }
+}
 
 let status: CmsStatus = "connecting";
 /* Why the server is not connected, in the office's own words for the sign-in
@@ -309,6 +332,7 @@ const listeners = new Set<() => void>();
 
 let stateObj = readState();
 function readState() {
+  pruneHistory();
   return {
     version,
     status,
@@ -324,7 +348,7 @@ function readState() {
     hasDraft: !!draft,
     localOnly,
     previewing,
-    canUndo: history.length > 0 && status === "online",
+    canUndo: (history.length > 0 || undoCountdownSec() > 0) && status === "online",
     canUndoEdit: editUndos.length > 0,
     pendingLocal: !!pending,
     editor: editorName(),
@@ -1104,9 +1128,13 @@ async function syncFromFeed() {
     applyBakedRecent(seed);
     if (!feedIsNewer(seed, rev)) return;
     const live = seed as FeedSeed;
+    /* An empty feed must never clear published words either (note 289) — a
+       wiped live box bakes an empty seed until the office heals it. */
+    const liveSections = (live.sections || {}) as Snapshot;
+    if (!Object.keys(liveSections).length && Object.keys(overrides).length) return;
     rev = live.rev;
     if (typeof live.notes === "number") setPublishedNotes(live.notes);
-    applyOverrides(live.sections as Snapshot);
+    applyOverrides(liveSections);
     writeJSON(CACHE_KEY, { rev, overrides });
   } catch {
     /* the feed stays a best effort */
@@ -1539,7 +1567,30 @@ async function syncFromServer() {
     return;
   }
   const serverRev = typeof res.rev === "number" ? res.rev : 0;
+  /* The server's ~15-minute undo window rides every content answer (note 291). */
+  const undoLeft = typeof res.undoLeft === "number" ? Math.max(0, Math.floor(res.undoLeft)) : 0;
+  undoUntilAt = undoLeft > 0 ? Date.now() + undoLeft * 1000 : 0;
   const differs = serverRev !== rev || JSON.stringify(server) !== JSON.stringify(overrides);
+  /* Seeded fallback, older than what this tab holds (note 290): the server
+     restarted without a disk and came back on its last deployed bake, while
+     this tab still carries words published on live AFTER that deploy. Painting
+     the older bake would clear those newer words by itself — so keep showing
+     them, stash them for the server, and let an office tab put them back up
+     (healEmptyServer moves the server forward, never backward). Fresh tabs
+     (nothing held) and newer server answers fall through to the normal path.
+     Deliberate restores are never marked seeded, so they still apply. */
+  if ((res as any).seeded === true && Object.keys(overrides).length && serverRev < rev) {
+    if (pending) pending = { ...clone(pending), ...clone(overrides) };
+    else if (!plannedPublish()) pending = clone(overrides);
+    if (pending) writeJSON(PENDING_KEY, pending);
+    if (authed) {
+      try {
+        await healEmptyServer("Office words put back after the server fell back to its last deploy");
+      } catch {}
+    }
+    notify();
+    return;
+  }
   rev = serverRev;
   updatedAt = res.at || 0;
   updatedBy = res.by || "";
@@ -1550,6 +1601,25 @@ async function syncFromServer() {
   if (typeof res.notes === "number") setPublishedNotes(res.notes);
   const notesLifted = publishedNotes > notesBefore;
   if (differs) {
+    /* An empty server answer must never clear published words (note 289):
+       a restarted box with no disk, a fresh deploy — the server comes back
+       with nothing while this tab still holds what the office published.
+       Painting that emptiness would wipe the site, the cache and the draft
+       on every tab at once. Published words clear only when the office
+       deletes them or a new update lands — so keep showing them, stash them
+       for the server, and put them straight back up from an office tab. */
+    if (!Object.keys(server).length && Object.keys(overrides).length) {
+      if (pending) pending = { ...clone(pending), ...clone(overrides) };
+      else if (!plannedPublish()) pending = clone(overrides);
+      if (pending) writeJSON(PENDING_KEY, pending);
+      if (authed) {
+        try {
+          await healEmptyServer();
+        } catch {}
+      }
+      notify();
+      return;
+    }
     /* First contact with a fresh permanent server: carry over what was published. */
     if (!Object.keys(server).length && Object.keys(overrides).length && !pending && !plannedPublish()) {
       pending = clone(overrides);
@@ -1563,6 +1633,28 @@ async function syncFromServer() {
     version += 1;
   }
   notify();
+}
+
+/** The server came back empty while this tab holds published words: put the
+    whole live set straight back up (values only, never deletions), so one
+    office tab heals the box with no publish click needed. Visitors' tabs
+    simply keep showing their words until then. */
+async function healEmptyServer(why = "Office words put back after the server came back empty"): Promise<boolean> {
+  if (!pending || !socket || status !== "online" || !authed) return false;
+  const ids = Object.keys(pending);
+  if (!ids.length) return false;
+  const sections: Record<string, string> = {};
+  for (const id of ids) sections[id] = JSON.stringify((pending as Snapshot)[id]);
+  const res = await sendPatch(sections, ids, why);
+  if (!res.ok) return false;
+  rev = res.rev ?? rev;
+  pending = null;
+  try {
+    localStorage.removeItem(PENDING_KEY);
+  } catch {}
+  writeJSON(CACHE_KEY, { rev, overrides });
+  notify();
+  return true;
 }
 
 /** Another editor published while this admin has a draft: keep the sections
@@ -2324,6 +2416,10 @@ async function sendPatch(
       by: editorName(),
       changed: ids,
       notes: BUILD_NOTES,
+      /* Only the first batch snapshots the superseded publish for the
+         server-side ~15-minute undo (note 291) — later batches must not
+         re-snapshot mid-publish. */
+      first: b === 0,
       /* Every batch stores its sections, but only the last one records the
          history entry — otherwise one Publish shows up as several rows. */
       quiet: b < batches.length - 1,
@@ -2596,11 +2692,43 @@ export async function flushPending(): Promise<boolean> {
   return true;
 }
 
-/** Roll the whole site back to the override set from the previous publish. */
+/** Roll the whole site back to the override set from the previous publish.
+    The server keeps one previous publish for about 15 minutes (note 291), so
+    an undo from any signed-in device takes back the same publish — the local
+    per-browser entry is only the fallback while it is still fresh. */
 export async function undoLastPublish(): Promise<PublishResult> {
-  const entry = history[0];
-  if (!entry) return { ok: false, error: "nothing-to-undo" };
+  pruneHistory();
   if ((!socket || status !== "online") && !(await ensureOnline())) return { ok: false, error: "offline" };
+
+  /* Server window first: exact, any device, and it consumes the window. */
+  if (socket && status === "online" && authed && undoCountdownSec() > 0) {
+    try {
+      const res = JSON.parse(await socket.rpc.undoPublish(JSON.stringify({ by: editorName() })));
+      if (res?.err === "unauthorized") authed = false;
+      if (res?.ok) {
+        if (history.length) {
+          history = history.slice(1);
+          writeJSON(HISTORY_KEY, history);
+        }
+        rev = typeof res.rev === "number" ? res.rev : rev;
+        undoUntilAt = 0;
+        await syncFromServer().catch(() => {});
+        return { ok: true };
+      }
+      if (res?.err !== "expired") return { ok: false, error: res?.err || "failed" };
+      undoUntilAt = 0;
+    } catch (err: any) {
+      return { ok: false, error: err?.message || "error" };
+    }
+  }
+
+  /* Fallback: this browser's own memory of the previous publish — only while
+     that memory is still inside the same ~15-minute window. */
+  const entry = history[0];
+  if (!entry || Date.now() - entry.at > UNDO_MS) {
+    if (entry) pruneHistory();
+    return { ok: false, error: "nothing-to-undo" };
+  }
 
   const ids: string[] = [];
   const seen: Record<string, true> = {};
