@@ -12,8 +12,8 @@ import { useCmsVersion } from "../lib/cms";
 import { ct } from "../data/copy";
 import { tx } from "../lib/i18n";
 import { loadSlidePalette, paletteFor, type SlidePalette } from "../lib/palette";
-import { SLIDE_FRAME, framedImageSync, framedImageUrl } from "../lib/slideFrame";
-import { SLIDES, SLIDE_DESIGNS, slideDesigns, visibleSlides, slideDesignName, type AnnouncementSlide, type SlideDesign } from "../data/slides";
+import { SLIDE_FRAME, framedImageSync, framedImageUrl, frameLoadedPicture } from "../lib/slideFrame";
+import { SLIDES, SLIDE_DESIGNS, slideDesigns, visibleSlides, slideDesignName, isSlideVideoUrl, type AnnouncementSlide, type SlideDesign } from "../data/slides";
 import { useWebGLAvailable, StageErrorBoundary } from "./stageassist";
 import type { CuboidApi } from "./slides3d";
 
@@ -30,10 +30,16 @@ const TEXT_SELECTOR = ".aslide__headline, .aslide__line, .aslide__action, .aslid
 
 /* ---------------------------------------------------------------------- colours */
 
-/** The picture's colours, read once per address (poster palette until it lands). */
+/** The picture's colours, read once per address (poster palette until it lands).
+    Videos keep the poster palette — their colours are never sampled. */
 function useSlidePalette(url: string): SlidePalette {
-  const [palette, setPalette] = useState(() => paletteFor(url));
+  const video = isSlideVideoUrl(url);
+  const [palette, setPalette] = useState(() => paletteFor(video ? "" : url));
   useEffect(() => {
+    if (video) {
+      setPalette(paletteFor(""));
+      return;
+    }
     let alive = true;
     const known = paletteFor(url);
     setPalette(known);
@@ -47,14 +53,20 @@ function useSlidePalette(url: string): SlidePalette {
     return () => {
       alive = false;
     };
-  }, [url]);
+  }, [url, video]);
   return palette;
 }
 
-/** The picture as the slide shows it: in the frame (cut in-browser when needed). */
+/** The picture as the slide shows it: in the frame (cut in-browser when needed).
+    Videos play as they are — no frame is ever cut from them. */
 function useSlideFrame(url: string): string {
-  const [src, setSrc] = useState(() => framedImageSync(url));
+  const video = isSlideVideoUrl(url);
+  const [src, setSrc] = useState(() => (video ? url : framedImageSync(url)));
   useEffect(() => {
+    if (video) {
+      setSrc(url);
+      return;
+    }
     let alive = true;
     const ready = framedImageSync(url);
     setSrc(ready);
@@ -66,7 +78,7 @@ function useSlideFrame(url: string): string {
     return () => {
       alive = false;
     };
-  }, [url]);
+  }, [url, video]);
   return src;
 }
 
@@ -90,6 +102,77 @@ function paletteVars(p: SlidePalette): React.CSSProperties {
   };
 }
 
+/** A film's own still and its framed ground: one frame captured off the film,
+    then treated exactly like an uploaded picture — whole in the frame, sides
+    poured with its own colours — so a film fits the screen the way uploads
+    do. The flat face plays the film contained over that ground, and the
+    slide's colours are read off the same still. */
+function useVideoFrame(url: string): { poster: string; framed: string } {
+  const [frame, setFrame] = useState({ poster: "", framed: "" });
+  useEffect(() => {
+    setFrame({ poster: "", framed: "" });
+    if (!isSlideVideoUrl(url)) return;
+    let alive = true;
+    let done = false;
+    let ground = "";
+    const video = document.createElement("video");
+    const settle = (el: HTMLVideoElement | null) => {
+      if (done || !alive) return;
+      done = true;
+      window.clearTimeout(timer);
+      (async () => {
+        try {
+          if (!el || el.readyState < 2 || !el.videoWidth || !el.videoHeight) {
+            if (alive) setFrame({ poster: "", framed: "" });
+            return;
+          }
+          const scale = Math.min(1, 640 / el.videoWidth);
+          const cv = document.createElement("canvas");
+          cv.width = Math.max(2, Math.round(el.videoWidth * scale));
+          cv.height = Math.max(2, Math.round(el.videoHeight * scale));
+          const c = cv.getContext("2d");
+          if (!c) throw 0;
+          /* A tainted still (no CORS on the host) throws here — the film
+             keeps the dark ground and the poster palette instead. */
+          c.drawImage(el, 0, 0, cv.width, cv.height);
+          const poster = cv.toDataURL("image/jpeg", 0.72);
+          ground = await frameLoadedPicture(cv);
+          if (alive) setFrame({ poster, framed: ground || poster });
+        } catch {
+          if (alive) setFrame({ poster: "", framed: "" });
+        }
+      })();
+    };
+    const timer = window.setTimeout(() => settle(null), 8000);
+    video.muted = true;
+    try {
+      (video as unknown as { playsInline?: boolean }).playsInline = true;
+    } catch {}
+    video.preload = "auto";
+    video.crossOrigin = "anonymous";
+    video.onerror = () => settle(null);
+    video.onloadeddata = () => {
+      try {
+        video.currentTime = 0.1;
+      } catch {
+        settle(video.readyState >= 2 ? video : null);
+      }
+    };
+    video.onseeked = () => settle(video.readyState >= 2 ? video : null);
+    video.src = url;
+    return () => {
+      alive = false;
+      window.clearTimeout(timer);
+      try {
+        video.removeAttribute("src");
+        video.load();
+      } catch {}
+      if (ground) URL.revokeObjectURL(ground);
+    };
+  }, [url]);
+  return frame;
+}
+
 /* --------------------------------------------------------------------- one slide */
 
 /**
@@ -102,6 +185,7 @@ export function AnnouncementSlide({
   index = 1,
   total = 1,
   spotlight = false,
+  onVideoState,
 }: {
   slide: AnnouncementSlide;
   design: SlideDesign;
@@ -109,14 +193,25 @@ export function AnnouncementSlide({
   total?: number;
   /** The face currently head-on: refit its words when it turns to face out. */
   spotlight?: boolean;
+  /** Flat-face films report play/pause/end so the space can hold its 15s rhythm. */
+  onVideoState?: (playing: boolean, el?: HTMLVideoElement | null) => void;
 }) {
   /* A slide with no picture of its own still has to look finished: the welcome
      photo stands in until the office uploads one (see `photoOr`). */
   const original = photoOr(slide.image, "welcome");
+  /* A film upload plays as it is — visitors work it with the player's own
+     volume and time-range controls, flat face only (the 3D stage paints a
+     still instead, see slides3d). */
+  const isVideo = isSlideVideoUrl(original);
+  /* Films carry their own background: the framed ground cut from the film's
+     still (its own colours, like an upload), with the film played whole and
+     contained over it. Until the still lands the ground stays dark. */
+  const videoFrame = useVideoFrame(original);
+  const videoBg = isVideo ? videoFrame.framed : "";
   /* Shown in the frame; read for its colours as it was photographed, so the
      palette is the office's own picture and not the mat the frame puts round it. */
   const photo = useSlideFrame(original);
-  const palette = useSlidePalette(original);
+  const palette = useSlidePalette(isVideo ? videoFrame.poster : original);
   /* Painted/translated with the visitor's language — every face follows it. */
   const headline = tx(String(slide.headline || "").trim());
   const line = tx(String(slide.line || "").trim());
@@ -238,6 +333,58 @@ export function AnnouncementSlide({
      the picture itself — full-bleed, no empty panel — so it still looks
      finished while the office types. */
   const wordless = !headline && !line && !action;
+  /* A film sits whole in the frame on the ground cut from its own still —
+     the same fit as an upload — with its words in a compact caption across
+     the top, so the player's own volume and time-range bar along the foot
+     stays fully in view and touchable in every design. Taps on the film
+     never count as taps on the box — the film's own play state holds the
+     15s rhythm. */
+  if (isVideo) {
+    const report = (playing: boolean) => (e: React.SyntheticEvent<HTMLVideoElement>) => {
+      e.stopPropagation();
+      const el = e.currentTarget;
+      if (playing) {
+        try {
+          const root = el.closest(".aslides__viewport") || document;
+          root.querySelectorAll("video").forEach((v) => {
+            if (v !== el && !v.paused) v.pause();
+          });
+        } catch {}
+      }
+      onVideoState?.(playing, el);
+    };
+    return (
+      <div
+        ref={rootRef}
+        className={"aslide aslide--" + design + " aslide--video"}
+        data-design={design}
+        data-calm={palette.calm}
+        data-slide={slide.id || undefined}
+        style={paletteVars(palette)}
+      >
+        {videoBg ? <img className="aslide__photo" src={videoBg} alt="" aria-hidden="true" /> : null}
+        <video
+          className="aslide__media aslide__media--fit"
+          src={original}
+          controls
+          playsInline
+          preload="metadata"
+          onPlay={report(true)}
+          onPause={report(false)}
+          onEnded={report(false)}
+          onClick={(e) => e.stopPropagation()}
+          onPointerDown={(e) => e.stopPropagation()}
+          onTouchStart={(e) => e.stopPropagation()}
+        />
+        {!wordless && (
+          <>
+            <span className="aslide__videotop" aria-hidden="true" />
+            <div className="aslide__words aslide__videocap">{words}</div>
+          </>
+        )}
+      </div>
+    );
+  }
   if (wordless) {
     return (
       <div
@@ -430,6 +577,24 @@ export function AnnouncementSlides({ slides = SLIDES }: { slides?: AnnouncementS
   userHeldRef.current = userHeld;
   const resumeTimer = useRef(0);
   useEffect(() => () => window.clearTimeout(resumeTimer.current), []);
+  /* A film playing on the flat face holds the 15s rhythm the same way a tap
+     does — ending or pausing it lets the rhythm go immediately. */
+  const [videoPlaying, setVideoPlaying] = useState(false);
+  const videoPlayingRef = useRef(false);
+  const onVideoState = useCallback((playing: boolean) => {
+    if (playing) {
+      /* A tap-hold must not outlast the film: the film owns the hold now. */
+      window.clearTimeout(resumeTimer.current);
+      setUserHeld(false);
+      userHeldRef.current = false;
+      videoPlayingRef.current = true;
+      setVideoPlaying(true);
+    } else {
+      if (!videoPlayingRef.current) return;
+      videoPlayingRef.current = false;
+      setVideoPlaying(false);
+    }
+  }, []);
   const previewing = showingAllDesigns();
   /* Read once: flipping the OS setting mid-visit does not rebuild the stage. */
   const [calm] = useState(() => prefersReducedMotion());
@@ -495,6 +660,15 @@ export function AnnouncementSlides({ slides = SLIDES }: { slides?: AnnouncementS
       on: {
         slideChange(s) {
           mark(s.el, s.activeIndex);
+          /* Films left behind stop — their pause report restarts the rhythm. */
+          try {
+            const items = s.el.querySelectorAll(".swiper-slide");
+            s.el.querySelectorAll("video").forEach((v) => {
+              const item = v.closest(".swiper-slide");
+              const at = Array.prototype.indexOf.call(items, item);
+              if (at !== s.activeIndex && !v.paused) v.pause();
+            });
+          } catch {}
         },
       },
     });
@@ -506,17 +680,29 @@ export function AnnouncementSlides({ slides = SLIDES }: { slides?: AnnouncementS
     };
   }, [previewing, count, calm]);
 
-  /* A hold (hover, focus, touch) or a tap-hold freezes swiper's own timer. */
+  /* A hold (hover, focus, touch) or a tap-hold freezes swiper's own timer —
+     and so does a film playing on the flat face. The moment the film ends
+     (or pauses) the 15s rhythm starts again at once. */
   useEffect(() => {
     const sw = swiperRef.current;
     const timer = sw && sw.autoplay && !calm ? sw.autoplay : null;
     if (!timer) return;
-    if (held || userHeld) timer.stop();
+    if (held || userHeld || videoPlayingRef.current) timer.stop();
     else timer.start();
-  }, [held, userHeld, calm]);
+  }, [held, userHeld, videoPlaying, calm]);
 
   /* Stop on tap/click/swipe/arrow/key; any action around the box while held
-     pushes the 3-minute quiet wait (and the fresh 15s rhythm) out. */
+     pushes the 3-minute quiet wait (and the fresh 15s rhythm) out. Taps on a
+     film's own controls are the film's business, never the box's. */
+  const holdBoxFrom = useCallback(
+    (target: unknown) => {
+      try {
+        if ((target as HTMLElement)?.closest?.("video")) return;
+      } catch {}
+      holdBox();
+    },
+    [holdBox]
+  );
   const holdBox = useCallback(() => {
     if (calm) return;
     setUserHeld(true);
@@ -766,9 +952,9 @@ export function AnnouncementSlides({ slides = SLIDES }: { slides?: AnnouncementS
           }}
           onBlurCapture={() => setHeld(false)}
           onKeyDown={onKeyDown}
-          onPointerDown={() => holdBox()}
-          onClick={() => holdBox()}
-          onTouchStart={() => holdBox()}
+          onPointerDown={(e) => holdBoxFrom(e.target)}
+          onClick={(e) => holdBoxFrom(e.target)}
+          onTouchStart={(e) => holdBoxFrom(e.target)}
           role="region"
           aria-roledescription="carousel"
           aria-label={ct("auto.site.ed1bc718392f9ee1")}
@@ -776,7 +962,8 @@ export function AnnouncementSlides({ slides = SLIDES }: { slides?: AnnouncementS
           <div
             className="aslides__viewport swiper"
             ref={stageRef}
-            onPointerDown={() => {
+            onPointerDown={(e) => {
+              if ((e.target as HTMLElement)?.closest?.("video")) return;
               setHeld(true);
               holdBox();
             }}
@@ -786,7 +973,7 @@ export function AnnouncementSlides({ slides = SLIDES }: { slides?: AnnouncementS
             <div className="swiper-wrapper">
               {live.map((s, i) => (
                 <div className="swiper-slide" key={s.id || i}>
-                  <AnnouncementSlide slide={s} design={designs[i] || "plate"} index={i + 1} total={count} />
+                  <AnnouncementSlide slide={s} design={designs[i] || "plate"} index={i + 1} total={count} onVideoState={onVideoState} />
                 </div>
               ))}
             </div>

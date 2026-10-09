@@ -513,6 +513,18 @@ export function ScrollTop() {
   );
 }
 
+/* Boot splash: logo only, no words — shown while boot + first sync settle so
+   a published site never flashes the maintenance notice on launch, and an
+   update window never looks missing. */
+export function BootSplash() {
+  useTheme();
+  return (
+    <div className="bootsplash" aria-hidden="true">
+      <img className="bootsplash__mark" src={siteFile(LOGO_MARK)} alt="" />
+    </div>
+  );
+}
+
 /* Preview banner (maintenance fix): when this tab bypasses the maintenance
    notice via ?preview=1 while visitors still wait, say so out loud — otherwise
    the desktop (previewing) looks live while a phone (never previewed) correctly

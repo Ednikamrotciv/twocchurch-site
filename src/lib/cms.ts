@@ -2107,10 +2107,16 @@ function localUploadNames(content: Snapshot): string[] {
 function guessUploadType(name: string): string {
   const ext = (name.split(".").pop() || "").toLowerCase();
   return (
-    ({ jpg: "image/jpeg", jpeg: "image/jpeg", png: "image/png", webp: "image/webp", gif: "image/gif", mp4: "video/mp4", webm: "video/webm", mov: "video/quicktime" } as Record<string, string>)[ext] ||
-    "application/octet-stream"
+    ({
+      jpg: "image/jpeg", jpeg: "image/jpeg", png: "image/png", webp: "image/webp", gif: "image/gif", avif: "image/avif", svg: "image/svg+xml",
+      mp4: "video/mp4", webm: "video/webm", mov: "video/quicktime", m4v: "video/x-m4v", ogv: "video/ogg",
+      mp3: "audio/mpeg", wav: "audio/wav", ogg: "audio/ogg", oga: "audio/ogg", m4a: "audio/mp4", aac: "audio/aac", flac: "audio/flac", opus: "audio/opus", mid: "audio/midi", midi: "audio/midi",
+    } as Record<string, string>)[ext] || "application/octet-stream"
   );
 }
+/** One file is never allowed to sink a whole backup: past this the tab would
+    risk running out of memory while encoding, so it is named, not embedded. */
+const BACKUP_FILE_MAX_BYTES = 200 * 1024 * 1024;
 
 function blobToBase64(blob: Blob): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -2147,6 +2153,10 @@ export async function exportPublished(): Promise<string> {
       if (!res.ok) throw 0;
       const blob = await res.blob();
       if (!blob.size) throw 0;
+      if (blob.size > BACKUP_FILE_MAX_BYTES) {
+        missingFiles.push(name + " (too large: " + Math.round(blob.size / 1048576) + " MB)");
+        continue;
+      }
       files.push({ name, type: blob.type || guessUploadType(name), data: await blobToBase64(blob) });
     } catch {
       missingFiles.push(name);

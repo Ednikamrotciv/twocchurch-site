@@ -5381,7 +5381,7 @@
   inset: 0;
   overflow: hidden;
   cursor: grab;
-  touch-action: pan-y;
+  touch-action: pan-y pinch-zoom;
   perspective: 1400px;
 }
 .aslides__viewport:active { cursor: grabbing; }
@@ -5403,8 +5403,17 @@
   height: 100%;
 }
 .aslides__gl canvas {
-  touch-action: pan-y;
+  touch-action: pan-y pinch-zoom;
   display: block;
+  max-width: 100%;
+}
+/* Desktop: the box fits the screen height too, so page zoom and the box work
+   side by side instead of the stage overflowing the viewport. */
+@media (min-width: 940px) {
+  .split .aslides {
+    width: min(100%, calc((100vh - 260px) * var(--slide-aspect, 1.3333)), calc(110vw * var(--slide-aspect, 1.3333)));
+    width: min(100%, calc((100svh - 260px) * var(--slide-aspect, 1.3333)), calc(110vw * var(--slide-aspect, 1.3333)));
+  }
 }
 .aslide3d-catcher {
   position: absolute;
@@ -5500,6 +5509,57 @@
   object-fit: cover;
   object-position: var(--poster-focus-x) var(--poster-focus-y);
   display: block;
+}
+/* A film on the flat face: full-bleed with the player's own volume and
+   time-range bar along the foot. The words sit in a compact caption across
+   the top, so the controls stay fully in view and touchable in every design.
+   (Films play here only — the 3D stage paints a still instead.) */
+.aslide--video .aslide__media {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: var(--poster-focus-x) var(--poster-focus-y);
+  display: block;
+  background: #000;
+}
+/* The film plays whole and contained over its own framed ground — the same
+   fit as an upload — so nothing is ever cropped off. */
+.aslide--video .aslide__media--fit {
+  object-fit: contain;
+  background: transparent;
+}
+.aslide--video .aslide__videotop {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 0;
+  height: 46%;
+  pointer-events: none;
+  background: linear-gradient(180deg, color-mix(in srgb, var(--poster-ink) 88%, transparent), transparent);
+}
+.aslide--video .aslide__videocap {
+  position: absolute;
+  left: 5%;
+  right: 5%;
+  top: 5%;
+  display: grid;
+  justify-items: center;
+  gap: 0.4em;
+  text-align: center;
+  pointer-events: none;
+}
+.aslide--video .aslide__videocap .aslide__headline {
+  color: var(--poster-accent-2);
+  text-shadow: 0 2px 12px rgba(0, 0, 0, 0.7);
+}
+.aslide--video .aslide__videocap .aslide__line {
+  color: var(--poster-on-ink-soft);
+  text-shadow: 0 1px 8px rgba(0, 0, 0, 0.7);
+}
+.aslide--video .aslide__videocap .aslide__action {
+  pointer-events: auto;
 }
 /* The stand-in photograph when the office has no slides at all: it is a plain
    picture in the box, so it gets the same fill. */

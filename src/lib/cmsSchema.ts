@@ -738,16 +738,17 @@ const CORE_SECTIONS: SectionDef[] = [
     group: "Services & activities",
     icon: "sparkle",
     blurb:
-      "The slide space on the home page. Upload a picture and it becomes a designed slide of its own, with your words on it — every picture is designed differently.",
+      "The slide space on the home page. Upload a picture or a video and it becomes a designed slide of its own, with your words on it — every picture is designed differently. Videos play on the flat slide space with their own volume and time controls.",
     kind: "list",
     idKey: "id",
     fields: [
       {
         path: "image",
-        label: "The picture",
+        label: "The picture or video",
         type: "image",
         frame: "slide",
         emptyNote: "No picture yet — the welcome photo stands in until you upload one.",
+        hint: "Upload a picture or a video. Pictures are fitted to the slide frame; videos sit whole in the frame on a background drawn from the film itself, and play with their own volume and time controls on the site.",
       },
       {
         path: "headline",

@@ -3339,6 +3339,19 @@ input, select, textarea { font-size: 1rem !important; }
     width: 100%;
   }
 }
+/* Boot splash: plain ground + logo while the first sync settles. */
+.bootsplash {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--ink);
+}
+.bootsplash__mark {
+  height: 72px;
+  width: auto;
+  opacity: 0.9;
+}
 /* Maintenance mode (note 249): the header's logo and notice are the whole
    site — no pages, no footer, no buttons. Follows the page theme. */
 .maint {

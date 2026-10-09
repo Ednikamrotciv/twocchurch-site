@@ -334,6 +334,19 @@ export async function framePastedSlide(url: string, quality: number = SLIDE_FRAM
   }
 }
 
+/** Set an already-loaded picture (a canvas, a bitmap, a video still) into the
+    frame — whole, centred, sides poured with its own colours — as an address.
+    "" back when it cannot be cut (callers fall back to the source itself). */
+export async function frameLoadedPicture(pic: Picture, quality: number = SLIDE_FRAME_QUALITY): Promise<string> {
+  try {
+    const canvas = frameCanvas(pic, SLIDE_FRAME.width, SLIDE_FRAME.height);
+    const blob = canvas ? await canvasBlob(canvas, quality) : null;
+    return blob ? URL.createObjectURL(blob) : "";
+  } catch {
+    return "";
+  }
+}
+
 /* ------------------------------------------------------- pictures already on the site */
 
 const framed = new Map<string, string>();

@@ -9,6 +9,7 @@ import * as THREE from "three";
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import { Sparkles } from "@react-three/drei/core/Sparkles";
 import { SLIDE_FRAME } from "../lib/slideFrame";
+import { isSlideVideoUrl } from "../data/slides";
 import { LOGO_MARK } from "../data/site";
 import { siteFile } from "../lib/livefeed";
 import type { AnnouncementSlide as SlideT } from "../data/slides";
@@ -35,9 +36,10 @@ export type CuboidApi = {
 };
 
 const TURN_SPEED = (Math.PI * 2) / 26;
-/** Hands off the box this long and it resumes its default slow revolve —
-    15s after a tap, so the display always restarts on its own. */
-const IDLE_MS = 15_000;
+/** Hands off the box this long and rotation resumes: 3 quiet minutes. The
+    face display itself never waits — it turns over every 15s, even on a
+    tapped (held-still) box, so all uploads keep showing. */
+const IDLE_MS = 3 * 60 * 1000;
 /* Note 280: the rotation itself runs free whenever the box is not held — no
    timer drives it. The 15s rhythm (flat fallback's ADVANCE_MS) only rotates
    WHICH uploads sit on the four faces, one step at a time, so every upload
@@ -106,9 +108,11 @@ function roundRect(ctx: CanvasRenderingContext2D, x: number, y: number, w: numbe
  * Paint one box face: the full-bleed picture with the slide's own headline,
  * line and button words set on it — the same content the flat stage shows,
  * drawn upright so it can never lie on its side. A face with no picture
- * carries the logo; a face with no words is the picture alone.
+ * carries the logo; a face with no words is the picture alone. A film is
+ * never played on the box — its face carries a still off the film (or a
+ * play mark over the dark when no still could be read).
  */
-function drawFace(slot: FaceSlot, photo: HTMLImageElement | null, W: number, H: number, logoUrl: string): HTMLCanvasElement {
+function drawFace(slot: FaceSlot, photo: HTMLImageElement | HTMLVideoElement | null, W: number, H: number, logoUrl: string): HTMLCanvasElement {
   const cv = document.createElement("canvas");
   cv.width = W;
   cv.height = H;
@@ -121,23 +125,47 @@ function drawFace(slot: FaceSlot, photo: HTMLImageElement | null, W: number, H: 
   const cta = tx(String(slide?.cta || "").trim());
   const link = String(slide?.link || "").trim();
   const wordless = !headline && !line && !(cta && link);
-  const logoOnly = !photo || slot.url === logoUrl;
+  const videoSlot = isSlideVideoUrl(slot.url) && slot.url !== logoUrl;
+  const logoOnly = (!photo && !videoSlot) || slot.url === logoUrl;
 
   ctx.fillStyle = "#14121a";
   ctx.fillRect(0, 0, W, H);
   if (photo && !logoOnly) {
-    /* Cover the face with the picture. */
-    const ia = photo.naturalWidth / Math.max(1, photo.naturalHeight);
+    /* Cover the face with the picture. A film sits whole instead — contained
+       on the dark, like an upload in its frame, so nothing crops off. */
+    const iw = (photo as HTMLImageElement).naturalWidth || (photo as HTMLVideoElement).videoWidth || 0;
+    const ih = (photo as HTMLImageElement).naturalHeight || (photo as HTMLVideoElement).videoHeight || 0;
+    const ia = iw / Math.max(1, ih);
     const fa = W / H;
     let dw = W;
     let dh = H;
-    if (ia > fa) dw = H * ia;
+    if (videoSlot) {
+      if (ia > fa) dh = W / ia;
+      else dw = H * ia;
+    } else if (ia > fa) dw = H * ia;
     else dh = W / ia;
     ctx.drawImage(photo, (W - dw) / 2, (H - dh) / 2, dw, dh);
   } else if (photo) {
     /* The logo, contained and centred. */
     const s = Math.min(W, H) * 0.62;
     ctx.drawImage(photo, (W - s) / 2, (H - s) / 2, s, s);
+  }
+  if (videoSlot && !photo && !wordless) {
+    /* No still could be read — a play mark over the dark, words below. */
+    const cx = W / 2;
+    const cy = H * 0.32;
+    const r = W * 0.075;
+    ctx.beginPath();
+    ctx.arc(cx, cy, r, 0, Math.PI * 2);
+    ctx.fillStyle = "rgba(232,189,98,0.92)";
+    ctx.fill();
+    ctx.beginPath();
+    ctx.moveTo(cx - r * 0.28, cy - r * 0.42);
+    ctx.lineTo(cx + r * 0.5, cy);
+    ctx.lineTo(cx - r * 0.28, cy + r * 0.42);
+    ctx.closePath();
+    ctx.fillStyle = "#14121a";
+    ctx.fill();
   }
   if (wordless || logoOnly) return cv;
 
@@ -214,10 +242,45 @@ function useFaceTextures(slots: FaceSlot[], logoUrl: string): (THREE.Texture | n
      are still showing); unmount frees whatever is left. */
   useEffect(() => {
     let alive = true;
-    const load = (slot: FaceSlot): Promise<HTMLImageElement | null> =>
+    const load = (slot: FaceSlot): Promise<HTMLImageElement | HTMLVideoElement | null> =>
       new Promise((resolve) => {
         if (!slot.url) {
           resolve(null);
+          return;
+        }
+        if (isSlideVideoUrl(slot.url)) {
+          /* A still off the film itself, read once — never played on the box.
+             Muted and never started, so it costs one frame, not a stream. */
+          const video = document.createElement("video");
+          let done = false;
+          const timer = window.setTimeout(() => {
+            if (!done) {
+              done = true;
+              resolve(video.readyState >= 2 ? video : null);
+            }
+          }, 5000);
+          const finish = (el: HTMLVideoElement | null) => {
+            if (done) return;
+            done = true;
+            window.clearTimeout(timer);
+            resolve(el);
+          };
+          video.muted = true;
+          try {
+            (video as unknown as { playsInline?: boolean }).playsInline = true;
+          } catch {}
+          video.preload = "auto";
+          video.crossOrigin = "anonymous";
+          video.onerror = () => finish(null);
+          video.onloadeddata = () => {
+            try {
+              video.currentTime = 0.1;
+            } catch {
+              finish(video.readyState >= 2 ? video : null);
+            }
+          };
+          video.onseeked = () => finish(video.readyState >= 2 ? video : null);
+          video.src = slot.url;
           return;
         }
         const img = new Image();
@@ -296,7 +359,8 @@ function Cuboid({ slides, apiRef, held, logo, theme }: { slides: (SlideT | null)
   const settle = () => {
     /* A tap or click holds the nearest face head-on instead of jumping a full
        step: the box only turns the short remainder, so taps never hiccup.
-       Fifteen quiet seconds resume the revolve where the turn lands. */
+       The faces keep turning over every 15s underneath; three quiet minutes
+       resume the revolve where the turn landed. */
     try {
       const q = qCur.current;
       const yaw = 2 * Math.atan2(q.y, q.w);
@@ -449,8 +513,9 @@ function Cuboid({ slides, apiRef, held, logo, theme }: { slides: (SlideT | null)
     if (!g) return;
     const delta = Math.min(rawDelta, 0.05);
     if (manual.current && performance.now() - lastAct.current > IDLE_MS) {
-      /* Fifteen quiet seconds: pick the revolve up where the turn landed. The
-         slide display never stopped, so its clock is untouched. */
+      /* Three quiet minutes: pick the revolve up where the turn landed. The
+         slide display never stopped (15s turnover throughout), so its clock
+         is untouched. */
       const q = qCur.current;
       autoYaw.current = 2 * Math.atan2(q.y, q.w);
       manual.current = false;

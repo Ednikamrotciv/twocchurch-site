@@ -66,6 +66,14 @@ export const SLIDES: AnnouncementSlide[] = [
   },
 ];
 
+/** A slide upload visitors can play: mp4/m4v/webm/ogv/ogg/mov (with ?/# trailers). */
+const SLIDE_VIDEO_FILE = /\.(mp4|m4v|webm|ogv|ogg|mov)(\?|#|$)/i;
+
+/** True when the slide's upload is a video file, not a picture. */
+export function isSlideVideoUrl(input: string): boolean {
+  return SLIDE_VIDEO_FILE.test(String(input || "").trim());
+}
+
 /** The slides the site shows: the ones the office has switched on, that carry something. */
 export function visibleSlides(slides: AnnouncementSlide[] = SLIDES): AnnouncementSlide[] {
   return slides.filter((s) => s && s.active !== false && !isSlideExpired(s) && (String(s.image || "").trim() || String(s.headline || "").trim()));

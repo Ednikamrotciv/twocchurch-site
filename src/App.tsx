@@ -1,6 +1,6 @@
 import React, { useEffect } from "react";
 import { useRoute, navigate, ADMIN_PREFIX } from "./lib/router";
-import { Header, Footer, ScrollTop, SkipLink, MaintenanceSite, PreviewBanner } from "./components/layout";
+import { Header, Footer, ScrollTop, SkipLink, MaintenanceSite, PreviewBanner, BootSplash } from "./components/layout";
 import { Toaster } from "./components/ui";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import { startCms, useCmsVersion, useCmsReady, useMaintenance, usePreviewingWhileWaiting, checkStaleBuild } from "./lib/cms";
@@ -111,7 +111,7 @@ export function App() {
      logo and notice only, nothing else. Nothing renders until boot + first
      sync settle, so a published site never flashes the notice on launch. */
   const ready = useCmsReady();
-  if (!ready) return null;
+  if (!ready) return <BootSplash />;
   if (maintenance) return <MaintenanceSite />;
 
   return (

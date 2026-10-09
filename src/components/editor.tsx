@@ -1204,6 +1204,12 @@ function DeleteUpload({ url, what, onGone }: { url: string; what: string; onGone
 
 /* Phone/computer photos shrink first, then host; `frame: "slide"` re-cuts to the slide frame. */
 
+/** True for a picked file the site plays rather than frames: video MIME or video extension. */
+function isVideoFile(file: File): boolean {
+  if (/^video\//i.test(file.type || "")) return true;
+  return /\.(mp4|m4v|webm|ogv|ogg|mov)$/i.test(String(file.name || "").trim());
+}
+
 export function PhotoUpload({ onDone, frame }: { onDone: (url: string) => void; frame?: "slide" }) {
   const inputRef = useRef<HTMLInputElement | null>(null);
   const [busy, setBusy] = useState(false);
@@ -1214,15 +1220,24 @@ export function PhotoUpload({ onDone, frame }: { onDone: (url: string) => void; 
     setError("");
     setBusy(true);
     try {
-      /* A slide keeps its own resolution: the re-cut sets the size, so the
-         picture goes in at full size and comes out 1600×1200. */
-      const blob = forSlide ? await frameImageBlob(file) : await compressImageBlob(file, 1600, 0.82);
-      const url = await localHostFile(blob, file.name || "photo.jpg");
-      onDone(url);
-      fireToast(
-        forSlide ? "Picture fitted to the slide — publish to put it on the site." : "Photo ready — publish to put it on the site.",
-        "success"
-      );
+      /* Slide videos go up as they are — the frame re-cut is pictures only.
+         Visitors play them on the flat slide space with the player's own
+         volume and time-range controls. */
+      if (forSlide && isVideoFile(file)) {
+        const url = await localHostFile(file, file.name || "slide.mp4");
+        onDone(url);
+        fireToast("Video on the slide — publish to put it on the site.", "success");
+      } else {
+        /* A slide keeps its own resolution: the re-cut sets the size, so the
+           picture goes in at full size and comes out 1600×1200. */
+        const blob = forSlide ? await frameImageBlob(file) : await compressImageBlob(file, 1600, 0.82);
+        const url = await localHostFile(blob, file.name || "photo.jpg");
+        onDone(url);
+        fireToast(
+          forSlide ? "Picture fitted to the slide — publish to put it on the site." : "Photo ready — publish to put it on the site.",
+          "success"
+        );
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -1237,15 +1252,15 @@ export function PhotoUpload({ onDone, frame }: { onDone: (url: string) => void; 
         ref={inputRef}
         className="admin__file"
         type="file"
-        accept="image/*"
-        aria-label={forSlide ? "Choose a picture to fit to the slide" : "Choose a photo to upload"}
+        accept={forSlide ? "image/*,video/mp4,video/webm,video/ogg,video/quicktime,video/*" : "image/*"}
+        aria-label={forSlide ? "Choose a picture or video for the slide" : "Choose a photo to upload"}
         onChange={(e) => {
           const file = e.target.files && e.target.files[0];
           if (file) upload(file);
         }}
       />
       <Btn size="sm" icon="camera" disabled={busy} onClick={() => inputRef.current && inputRef.current.click()}>
-        {busy ? (forSlide ? "Setting your picture…" : "Uploading your photo…") : forSlide ? "Upload a picture" : "Upload a photo"}
+        {busy ? (forSlide ? "Setting your picture…" : "Uploading your photo…") : forSlide ? "Upload a picture or video" : "Upload a photo"}
       </Btn>
       {error && <p className="admin__upload-error">{error}</p>}
     </div>
@@ -1400,12 +1415,16 @@ function ImageField({
   };
 
   /* The agent prompts only for a pasted picture that is not landscape: uploads
-     are already re-cut on the way up, and a framed picture is 1600×1200. */
+     are already re-cut on the way up, and a framed picture is 1600×1200.
+     Videos never prompt — they play as they are. */
+  const isVideo = /\.(mp4|m4v|webm|ogv|ogg|mov)(\?|#|$)/i.test(String(text || "").trim());
   const needsLandscape =
-    forSlide && custom && shape && shape.w > 0 && shape.h > 0 && shape.w < shape.h * 1.1 && agentOff !== preview;
+    forSlide && !isVideo && custom && shape && shape.w > 0 && shape.h > 0 && shape.w < shape.h * 1.1 && agentOff !== preview;
   const squareish = !!shape && shape.w > 0 && shape.h > 0 && Math.abs(shape.w - shape.h) / Math.max(shape.w, shape.h) < 0.12;
 
-  const caption = custom
+  const caption = isVideo
+    ? "Your video is in use — visitors play it on the slide space."
+    : custom
     ? "Your own photo is in use."
     : key
     ? `Using “${chosenLabel}”.`
@@ -1416,19 +1435,29 @@ function ImageField({
     : def.emptyNote || "Nothing set here yet.";
 
   return (
-    <Field label={label} hint={def.hint || "Upload a photo from your phone or computer, or paste the address of one."}>
+    <Field label={label} hint={def.hint || (forSlide ? "Upload a picture or a video from your phone or computer, or paste the address of one." : "Upload a photo from your phone or computer, or paste the address of one.")}>
       <div className="admin__imagefield">
-        <span className={"admin__imagepreview" + (forSlide ? " admin__imagepreview--slide" : "")}>{preview ? <img src={preview} alt="" /> : <Icon name="camera" size={18} />}</span>
+        <span className={"admin__imagepreview" + (forSlide ? " admin__imagepreview--slide" : "")}>
+          {preview ? (
+            isVideo ? (
+              <video src={preview} controls playsInline preload="metadata" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+            ) : (
+              <img src={preview} alt="" />
+            )
+          ) : (
+            <Icon name="camera" size={18} />
+          )}
+        </span>
         <div className="admin__imageinputs">
           <p className="admin__imagecaption">{caption}</p>
           <PhotoUpload onDone={(url) => onChange(url)} frame={def.frame} />
           <Input
             value={custom ? text : ""}
             onChange={(e) => onChange(e.target.value)}
-            placeholder="…or paste a photo link"
-            aria-label="Paste the address of a photo"
+            placeholder={forSlide ? "…or paste a photo or video link" : "…or paste a photo link"}
+            aria-label={forSlide ? "Paste the address of a photo or video" : "Paste the address of a photo"}
           />
-          {forSlide && custom ? (
+          {forSlide && custom && !isVideo ? (
             <Btn size="sm" icon="refresh" disabled={fitting} onClick={fitPasted}>
               {fitting ? "Fitting your picture…" : "Fit to the slide"}
             </Btn>
@@ -1458,9 +1487,9 @@ function ImageField({
           {text && (
             <div className="btn-row">
               <Btn size="sm" variant="quiet" icon="trash" onClick={() => onChange("")}>
-                Use the original photo
+                {isVideo ? "Remove the video" : "Use the original photo"}
               </Btn>
-              <DeleteUpload url={text} what="Photo" onGone={() => onChange("")} />
+              <DeleteUpload url={text} what={isVideo ? "Video" : "Photo"} onGone={() => onChange("")} />
             </div>
           )}
         </div>
