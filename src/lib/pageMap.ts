@@ -18,7 +18,6 @@ const PAGES: PageInfo[] = [
     label: "Home page",
     sections: [
       "copy-home", "copy-site",
-      "photos-main",
       "sermons",
       "testimonyCategories",
       "events",
@@ -33,36 +32,36 @@ const PAGES: PageInfo[] = [
   {
     pattern: "/about",
     label: "About page",
-    sections: ["copy-about", "copy-site", "photos-main", "values", "timeline", "beliefs", "leadership", "photos-leadership", "stats", "faqs"],
+    sections: ["copy-about", "copy-site", "values", "timeline", "beliefs", "leadership", "photos-leadership", "stats", "faqs"],
   },
-  { pattern: "/locations", label: "Locations page", sections: ["copy-locations", "copy-site", "photos-main", "branches", "services"] },
-  { pattern: "/sermons", label: "Watch sermons page", sections: ["copy-sermons", "copy-site", "photos-main", "sermons"] },
+  { pattern: "/locations", label: "Locations page", sections: ["copy-locations", "copy-site", "branches", "services"] },
+  { pattern: "/sermons", label: "Watch sermons page", sections: ["copy-sermons", "copy-site", "sermons"] },
   { pattern: "/sermons/:id", label: "A sermon", sections: ["copy-sermon", "copy-site", "sermons"] },
-  { pattern: "/watch-live", label: "Watch live page", sections: ["copy-live", "copy-site", "photos-main", "live", "services", "sermons", "announcements"] },
-  { pattern: "/events", label: "Events page", sections: ["copy-events", "copy-site", "photos-main", "events", "eventFilters", "announcements"] },
-  { pattern: "/testimonies", label: "Testimonies page", sections: ["copy-testimonies", "copy-site", "photos-main", "testimonyCategories"] },
+  { pattern: "/watch-live", label: "Watch live page", sections: ["copy-live", "copy-site", "live", "services", "sermons", "announcements"] },
+  { pattern: "/events", label: "Events page", sections: ["copy-events", "copy-site", "events", "eventFilters", "announcements"] },
+  { pattern: "/testimonies", label: "Testimonies page", sections: ["copy-testimonies", "copy-site", "testimonyCategories"] },
   {
     pattern: "/giving",
     label: "Giving page",
-    sections: ["copy-giving", "copy-site", "photos-main", "givingFunds", "givingBreakdown", "givingMethods", "bankAccounts", "givingFaqs"],
+    sections: ["copy-giving", "copy-site", "givingFunds", "givingBreakdown", "givingMethods", "bankAccounts", "givingFaqs"],
   },
-  { pattern: "/prayer", label: "Prayer page", sections: ["copy-prayer", "copy-site", "photos-main", "prayerFocus", "prayerCategories", "scriptures"] },
+  { pattern: "/prayer", label: "Prayer page", sections: ["copy-prayer", "copy-site", "prayerFocus", "prayerCategories", "scriptures"] },
   {
     pattern: "/contact",
     label: "Contact page",
-    sections: ["copy-contact", "copy-site", "photos-main", "site", "services", "departments", "contactTopics", "branches", "faqs"],
+    sections: ["copy-contact", "copy-site", "site", "services", "departments", "contactTopics", "branches", "faqs"],
   },
-  { pattern: "/visit", label: "Plan a visit page", sections: ["copy-visit", "copy-site", "photos-main", "services", "branches", "visitExpect", "visitFaqs"] },
-  { pattern: "/devotional", label: "Devotional page", sections: ["copy-devotional", "copy-site", "photos-main", "scriptures", "readingPlan", "memoryVerses"] },
+  { pattern: "/visit", label: "Plan a visit page", sections: ["copy-visit", "copy-site", "services", "branches", "visitExpect", "visitFaqs"] },
+  { pattern: "/devotional", label: "Devotional page", sections: ["copy-devotional", "copy-site", "scriptures", "readingPlan", "memoryVerses"] },
   {
     pattern: "/ministries",
     label: "Ministries page",
-    sections: ["copy-ministries", "copy-site", "photos-main", "photos-ministries", "ministries", "servingTeams", "servingFaqs"],
+    sections: ["copy-ministries", "copy-site", "photos-ministries", "ministries", "servingTeams", "servingFaqs"],
   },
   { pattern: "/library", label: "My library page", sections: ["copy-library", "copy-site"] },
 ];
 
-const FALLBACK: PageInfo = { pattern: "", label: "Church website", sections: ["copy-site", "site", "photos-main"] };
+const FALLBACK: PageInfo = { pattern: "", label: "Church website", sections: ["copy-site", "site"] };
 
 export function pageInfoFor(path: string): PageInfo {
   for (const page of PAGES) {

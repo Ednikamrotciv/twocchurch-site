@@ -103,8 +103,6 @@ export function applyToList<T extends any[]>(target: T, incoming: any, idKey?: s
 /* ------------------------------------------------------------------ photos */
 
 const PHOTO_BLURBS: Record<string, string> = {
-  "Main photos":
-    "The big photos behind the headlines. Upload a photo from your phone or computer, or paste the address of one — whatever you choose shows up everywhere that photo is used.",
   "Ministries & programmes":
     "The photos on the ministries, prayer, devotional and giving pages.",
   "Leadership photos": "The photos of the leadership team on the About page.",
@@ -112,7 +110,6 @@ const PHOTO_BLURBS: Record<string, string> = {
 
 /* Photo sections hide from the Update tab (notes 51, 58, 62); the Photos card still opens them. */
 const PHOTO_SECTION_IDS: Record<string, string> = {
-  "Main photos": "photos-main",
   "Ministries & programmes": "photos-ministries",
   "Leadership photos": "photos-leadership",
 };
@@ -738,17 +735,17 @@ const CORE_SECTIONS: SectionDef[] = [
     group: "Services & activities",
     icon: "sparkle",
     blurb:
-      "The slide space on the home page. Upload a picture or a video and it becomes a designed slide of its own, with your words on it — every picture is designed differently. Videos play on the flat slide space with their own volume and time controls.",
+      "The slide space on the home page. Upload a picture and it becomes a designed slide of its own, with your words on it — every picture is designed differently.",
     kind: "list",
     idKey: "id",
     fields: [
       {
         path: "image",
-        label: "The picture or video",
+        label: "The picture",
         type: "image",
         frame: "slide",
         emptyNote: "No picture yet — the welcome photo stands in until you upload one.",
-        hint: "Upload a picture or a video. Pictures are fitted to the slide frame; videos sit whole in the frame on a background drawn from the film itself, and play with their own volume and time controls on the site.",
+        hint: "Upload a picture. Pictures are fitted to the slide frame (1600×1200).",
       },
       {
         path: "headline",
@@ -1352,7 +1349,7 @@ export function sectionIsEverythingHidden(id: string): boolean {
   return !!def && (!!def.hidden || !!def.everythingHidden);
 }
 
-/** Which photo section holds a given bundled photo, e.g. "hero" → "photos-main". */
+/** Which photo section holds a given bundled photo, e.g. "worshipband" → "photos-ministries". */
 export function photoSectionId(slotKey: string): string {
   const slot = PHOTO_SLOTS.find((s) => s.key === slotKey);
   return slot ? PHOTO_SECTION_IDS[slot.group] || "" : "";

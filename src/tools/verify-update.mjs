@@ -19,6 +19,10 @@ const FILES = [
   ["src/lib/cms.ts", "ts"],
   ["src/components/editor.tsx", "tsx"],
   ["src/lib/hooks.ts", "ts"],
+  ["src/data/photos.ts", "ts"],
+  ["src/lib/cmsSchema.ts", "ts"],
+  ["src/lib/jobs.ts", "ts"],
+  ["src/lib/pageMap.ts", "ts"],
   ["src/components/layout.tsx", "tsx"],
   ["src/App.tsx", "tsx"],
   ["APPLY_UPDATE.txt", null],
@@ -207,6 +211,16 @@ export async function runAll(fs) {
   ok("server reports undo window", has(srv, "undoLeft: left") || has(srv, "undoLeft:"));
   const ed = text["src/components/editor.tsx"];
   ok("tools card counts down", has(ed, "undoCountdownSec()") && has(ed, "Nothing to undo"));
+  /* F. office removals (note 298): the Main-photos section is gone from the
+     drawer (the site shows its original photos), and announcement slides
+     take pictures only. */
+  const ph = text["src/data/photos.ts"];
+  const sc = text["src/lib/cmsSchema.ts"];
+  const jb = text["src/lib/jobs.ts"];
+  const pm = text["src/lib/pageMap.ts"];
+  ok("main photos section gone", !has(ph, '"Main photos"') && !has(sc, '"Main photos"') && !has(jb, "photos-main") && !has(pm, "photos-main"));
+  ok("slide upload pictures only", !has(ed, "isVideoFile") && has(ed, "Upload a picture") && !has(ed, "Upload a picture or video") && !has(ed, "photo or video link"));
+  ok("slide copy pictures only", has(sc, "Upload a picture and it becomes") && !has(sc, "picture or a video"));
   const notes = Number((text["src/lib/hooks.ts"].match(/BUILD_NOTES = (\d+)/) || [])[1]) || 0;
   const apply = text["APPLY_UPDATE.txt"];
   ok("update number consistent", notes > 0 && has(apply, `APPLY THIS UPDATE (${notes})`), "hooks=" + notes);

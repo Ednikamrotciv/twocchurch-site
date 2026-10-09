@@ -14,60 +14,6 @@ export type PhotoSlot = {
 
 export const PHOTO_SLOTS: PhotoSlot[] = [
   {
-    key: "hero",
-    label: "Home banner",
-    where: "The big photo behind the headline on the home page, and the top of the Watch live page.",
-    group: "Main photos",
-  },
-  {
-    key: "hero-mobile",
-    label: "Home banner (phones)",
-    where: "The home page photo on phones only — the office's verse graphic. Change it here without touching the desktop banner.",
-    group: "Main photos",
-  },
-  {
-    key: "hero-faint",
-    label: "Home page background",
-    where: "Laid over the home banner as a faint texture, behind the home page headline only.",
-    group: "Main photos",
-  },
-  {
-    key: "welcome",
-    label: "Welcome section photo",
-    where: "Next to “What you can expect” on the home page, and the top of the Contact page.",
-    group: "Main photos",
-  },
-  {
-    key: "worshipband",
-    label: "Worship band",
-    where: "The top of the Watch sermons and Testimonies pages, and the Worship & media ministry.",
-    group: "Main photos",
-  },
-  {
-    key: "choir",
-    label: "Choir",
-    where: "The top of the Events page, the Women of Worth ministry, and a few branches.",
-    group: "Main photos",
-  },
-  {
-    key: "building",
-    label: "Church building",
-    where: "The top of the Plan a visit page and some branch cards.",
-    group: "Main photos",
-  },
-  {
-    key: "building2",
-    label: "Church building (second view)",
-    where: "The top of the About page and some branch cards.",
-    group: "Main photos",
-  },
-  {
-    key: "giving",
-    label: "Giving / open hands",
-    where: "The top of the Giving page and the Missions ministry.",
-    group: "Main photos",
-  },
-  {
     key: "youth",
     label: "Young people",
     where: "The top of the Ministries page and the Overcomers Youth ministry.",
