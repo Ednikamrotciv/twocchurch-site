@@ -1,28 +1,33 @@
-APPLY THIS UPDATE (299) — LOCAL + LIVE
+APPLY THIS UPDATE (300) — LOCAL + LIVE
 =====================================
-This zip contains ALL fixes in one place:
-- "PUBLISHED VERSION" ROW REMOVED. The "Where things stand" card no longer
-  shows the version number — only Sharing, Last published (when and by
-  whom), and Waiting to publish. Nothing else in that card changed.
-- MAIN PHOTOS SECTION REMOVED (from 298, unchanged). The office drawer no
-  longer offers Main photos; those pages show their original photos.
-  Ministries and Leadership photos still editable.
-- SLIDES TAKE PICTURES ONLY (from 298, unchanged). No video upload for
-  announcement slides; films already live keep playing until replaced.
-- SIGN-OUT KEEPS LAST-PUBLISHED (from 297, unchanged). A changed/retired
-  password still signs tabs out at login, publish and undo — session only.
-  Only a new update or an explicit office delete clears last-published.
-- THE MAINTENANCE NOTICE CANNOT GO MISSING ON UPDATES. Iron rule, unchanged:
-  NOTHING blesses a copy except an explicit office action on its own
-  server (Review and publish → Publish, the Undo click, the bless, or an
-  offline flush) or the live feed. New code always waits on the notice
-  until the office publishes — on every update, every copy.
-- A pre-ship verifier lives at src/tools/verify-update.mjs and runs
-  before every update zip (one FAIL blocks the ship).
-- Everything from 298 and before, unchanged: desktop zoom scales the box;
-  last-published wins (this zip ships no words); publish replaces outright
-  with a ~15-minute server undo; no disk needed on Render; slide rhythm,
-  plain Restore/Publish buttons.
+This zip fixes the false fresh-reset: the site went back to update-mode and
+looked new and fresh even when there was NO new update, clearing the saved
+published. Rule from here on (note 300):
+
+- A NEW, DIFFERENT update: fresh and new. The new code opens on its own
+  words, visitors wait on the maintenance notice until the office restores
+  a backup and Publishes — unchanged.
+- NO new update: the copy REMAINS in the last published. Nothing drags it
+  back to update-mode by itself any more:
+  * the boot no longer manufactures a hold stamp (the forced BUILD-1 write
+    is gone — a missing stamp waits as unreviewed but is never rewritten);
+  * the cached paint is skipped only on a PROVEN new update (a stored
+    codegen that exists and differs) — a missing stamp never means "fresh";
+  * a storage hiccup never zeroes the held stamp; the cache now remembers
+    which update its words were published from, so a returning copy stays
+    live on that publish even before the server answers;
+  * a restarted server (Render free, no disk) serves the bake's publish
+    stamp again instead of forgetting it — visitors stay on the last
+    published, and "Last published (when and by whom)" no longer clears.
+- Only an explicit office delete (the Forget path) clears last-published.
+  Sign-outs, password changes, restarts and rebuilds never do.
+- Everything from 299 and before, unchanged: "Where things stand" shows
+  Sharing / Last published / Waiting to publish only; Main photos stay out
+  of the drawer; slides take pictures only; publish replaces outright with
+  a ~15-minute server undo; no disk needed; slide rhythm, plain
+  Restore/Publish buttons.
+- The pre-ship verifier (src/tools/verify-update.mjs) has a new section G
+  locking this rule — one FAIL blocks the ship. It passed for this zip.
 
 LOCAL (your computer)
 1. In the OLD folder: open #/admin → Tools → Back up now. Keep the file.
@@ -32,20 +37,22 @@ LOCAL (your computer)
 5. BEFORE restoring: the site must show the maintenance notice ("We'll be
    right back") — this update holds until blessed. That check is the point.
 6. #/admin → Tools → Restore the backup file → Review and publish → Publish.
-   Local lifts to 299 and the notice releases. Hard-reload desktop + phone
+   Local lifts to 300 and the notice releases. Hard-reload desktop + phone
    width to verify.
-7. Check: "Where things stand" shows no version number — Sharing, Last
-   published, Waiting to publish only.
+7. Check: reload again with no new update — the site stays on the last
+   published (no notice, published words intact). Console check:
+   window.__maintState() shows publishedNotes 300.
 
 LIVE (Render: twocchurch-site.onrender.com)
 1. Put this code where Render builds it (replace src/, scripts/, index.html,
    seed.json, vite.config.ts, package.json — keep data/ as-is), commit/push.
    Render: install npm install, build npm run build, start node scripts/serve.mjs.
-2. Confirm https://twocchurch-site.onrender.com/version.json shows {"notes":299}.
+2. Confirm https://twocchurch-site.onrender.com/version.json shows {"notes":300}.
 3. The live site now waits on the maintenance notice until blessed.
-4. Open live /admin → Review and publish → Publish. This blesses 299 and lifts
+4. Open live /admin → Review and publish → Publish. This blesses 300 and lifts
    mobile + desktop together (no rebuild needed for this step).
-5. Hard-reload both modes. Console check: window.__maintState().
+5. Hard-reload both modes. A later Render restart must NOT bring the notice
+   back and must NOT clear Last published — that is the fix being shipped.
 
 If desktop ever looks live while mobile waits: desktop is in ?preview=1
 (gold Preview bar) — click Exit preview. Or clear that tab's preview flag.

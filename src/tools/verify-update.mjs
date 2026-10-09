@@ -82,7 +82,10 @@ export async function runAll(fs) {
     const seed = { rev: 12, notes: 291, sections: { services: [{ a: 1 }], live: { b: 2 } } };
     const r = JSON.parse(mod.fallbackGetContent(liveEmpty, seed));
     ok("fallback seeds words", r.seeded === true && r.rev === 12 && r.pwgen === 3 && JSON.parse(r.sections).live.b === 2);
-    ok("fallback never blesses", r.notes === 0, "notes=" + r.notes);
+    ok("fallback recovers the bake stamp (note 300)", r.notes === 291, "notes=" + r.notes);
+    const seed0 = { rev: 5, notes: 0, sections: { services: [{ a: 1 }] } };
+    const r0 = JSON.parse(mod.fallbackGetContent(liveEmpty, seed0));
+    ok("fallback invents no stamp", r0.notes === 0 && r0.seeded === true, "notes=" + r0.notes);
     const liveFull = JSON.stringify({ ok: true, rev: 15, sections: JSON.stringify({ x: [1] }), pwgen: 3 });
     ok("fallback leaves live answers alone", mod.fallbackGetContent(liveFull, seed) === liveFull);
     ok("fallback leaves failures alone", mod.fallbackGetContent(JSON.stringify({ ok: false }), seed) === JSON.stringify({ ok: false }));
@@ -180,7 +183,8 @@ export async function runAll(fs) {
 
   /* D. blessing invariants — the maintenance gate's fail-safe (note 293). */
   const cms = text["src/lib/cms.ts"];
-  ok("seed paint never blesses", !has(cms, 'seed.notes === "number") setPublishedNotes'), "applySeedOnce still stamps from the bake");
+  ok("seed records evidence raise-only", has(cms, "setPublishedNotes((seed as any).notes)"), "applySeedOnce must raise from the bake, never assign");
+  ok("seed hold gated on new code", has(cms, "if (!ranThisBuild) setPublishedNotes(BUILD_NOTES - 1);"), "hold must not manufacture on a build the browser already ran");
   ok("heal never blesses", has(cms, "sendPatch(sections, ids, why, false)"));
   ok("publish path carries bless flag", has(cms, "notes: bless ? BUILD_NOTES : 0"));
   ok("undo batch marked first", has(cms, "first: b === 0"));
@@ -201,7 +205,8 @@ export async function runAll(fs) {
   const unauthSignouts = cms.split('err === "unauthorized") clearSession()').length - 1;
   ok("server denied signs out", unauthSignouts >= 2, "found " + unauthSignouts);
   const fb = text["scripts/seed-fallback.mjs"];
-  ok("fallback zeroes notes", has(fb, "out.notes = 0"));
+  ok("fallback recovers bake stamp", has(fb, "out.notes = good.notes") && !has(fb, "out.notes = 0"));
+
   const srv = text["scripts/cms-server.js"];
   ok("server undo rpc exists", has(srv, "undoPublish: function (info, raw)"));
   ok(
@@ -221,6 +226,17 @@ export async function runAll(fs) {
   ok("main photos section gone", !has(ph, '"Main photos"') && !has(sc, '"Main photos"') && !has(jb, "photos-main") && !has(pm, "photos-main"));
   ok("slide upload pictures only", !has(ed, "isVideoFile") && has(ed, "Upload a picture") && !has(ed, "Upload a picture or video") && !has(ed, "photo or video link"));
   ok("slide copy pictures only", has(sc, "Upload a picture and it becomes") && !has(sc, "picture or a video"));
+  /* G. last-published survives without a new update (note 300): the site went
+     back to update-mode and looked fresh with no new update because the boot
+     manufactured a hold stamp, skipped the cached paint on unproven codegen,
+     wiped the stamp on storage errors, and the server forgot its stamp on
+     restart. None of those may come back. */
+  ok("no manufactured hold stamp", !has(cms, "if (publishedNotes < BUILD_NOTES && serverInvolved())"), "the forced BUILD_NOTES-1 boot write is back");
+  ok("boot never zeroes the stamp", has(cms, "Raise-only, never wipe (note 300)"), "a storage failure must keep the in-memory stamp");
+  ok("proven-new codegen gate", has(cms, "function storedCodegenProvesNewUpdate()") && has(cms, "const freshEyes = storedCodegenProvesNewUpdate();"), "only a stored codegen that exists and differs is a new update");
+  ok("cache carries its publish update", has(cms, "function writeCache()") && has(cms, "notes: publishedNotes") && !has(cms, "writeJSON(CACHE_KEY, { rev, overrides })"), "every cache write must stamp its update");
+  ok("cache stamp adopted as evidence", has(cms, 'typeof cached.notes === "number") setPublishedNotes(cached.notes)'), "a returning copy stays on its last publish");
+  ok("offline flush blesses", has(cms, "An offline flush is a deliberate office publish"), "flushPending must move the stamp like any publish");
   const notes = Number((text["src/lib/hooks.ts"].match(/BUILD_NOTES = (\d+)/) || [])[1]) || 0;
   const apply = text["APPLY_UPDATE.txt"];
   ok("update number consistent", notes > 0 && has(apply, `APPLY THIS UPDATE (${notes})`), "hooks=" + notes);

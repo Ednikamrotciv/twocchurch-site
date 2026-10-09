@@ -69,6 +69,32 @@ function setPublishedNotes(n: unknown) {
     /* a full store keeps the memory value for this visit */
   }
 }
+/* Last-published is a high-water mark of witnessed publishes (note 300): it
+   only ever moves UP — from an explicit office action on this copy (publish,
+   undo click, offline flush), a server answer, the live feed, the baked seed,
+   or the browser's own cache — and it is NEVER manufactured downwards. Only
+   a proven new update (stored codegen exists and differs) changes what the
+   copy shows, and only an explicit office delete (resetLocalCopy) clears the
+   stamp. So a copy that has seen a publish stays on that publish until a new
+   different update lands — it can never fall back to update-mode by itself. */
+/** True only when the browser proves the running code is a NEW update: a
+    stored codegen exists AND differs. A missing or unreadable stamp proves
+    nothing (fresh profile is not a new update), so it must never skip the
+    cached paint or manufacture a hold. */
+function storedCodegenProvesNewUpdate(): boolean {
+  try {
+    const cg = readJSON<number>(CODEGEN_KEY, 0);
+    return typeof cg === "number" && cg > 0 && Math.floor(cg) !== BUILD_NOTES;
+  } catch {
+    return false;
+  }
+}
+/** The instant paint, stamped with the update its words were published from
+    (note 300) — so a returning copy stays live on its last publish even
+    before (or without) the first server answer. */
+function writeCache() {
+  writeJSON(CACHE_KEY, { rev, overrides, notes: publishedNotes });
+}
 /* The office's preview pass: ?preview=1 shows the new site before it is
    published, so an update is verifiable first (note 250). The grant is
    remembered for the visit BUT scoped to the update that granted it, so a
@@ -141,22 +167,22 @@ function serverInvolved(): boolean {
 }
 /** Pure check without the preview bypass: would visitors wait on this copy?
     Used for the preview banner, so the office can see that visitors wait.
-    FORCED DESKTOP TRIGGER: a server-backed copy with no publish stamp (fresh
-    visitor, wiped store, or server reset to notes 0) still waits — otherwise
-    desktop (fresh) shows the live site while mobile (stale stamp) correctly
-    waits. Server-less copies never wait (no visitors). First Publish lifts. */
+    The stamp is only ever witnessed evidence (note 300) — never manufactured
+    — so waiting here means a publish was actually seen from an older update
+    (or nothing was ever published on a server-backed copy: fresh visitor,
+    wiped store, or a server reset to notes 0 — still unreviewed, still
+    waits). Server-less copies never wait (no visitors). A publish lifts. */
 export function maintenanceShouldWait(): boolean {
   if (publishedNotes >= BUILD_NOTES) return false;
-  if (publishedNotes > BUILD_NOTES) return false;
   if (!serverInvolved()) return false;
   return true;
 }
 /* True while visitors must wait: new code is ahead of the last publish.
-   FORCED DESKTOP TRIGGER: server-backed copies wait even with no stamp yet
-   (fresh desktop), so mobile and desktop agree — otherwise only the stale
-   phone waits. Never on a server-less copy (local dev has no visitors), never
-   on the office's preview pass, and never in the office console (#/admin) —
-   which renders around this (note 250).
+   Server-backed copies with no witnessed publish yet wait too (note 300: a
+   zero stamp is "nothing proven", not "behind" — but an unreviewed copy all
+   the same), so mobile and desktop agree. Never on a server-less copy (local
+   dev has no visitors), never on the office's preview pass, and never in the
+   office console (#/admin) — which renders around this (note 250).
    This also subscribes to connection state, so the first-paint answer cannot
    stick on one device while the server address lands a moment later. */
 export function useMaintenance(): boolean {
@@ -217,7 +243,8 @@ export async function checkStaleBuild(): Promise<void> {
    words, drafts, history, waiting publishes and the publish stamp — then
    reload onto the shipped words. The server's published words are untouched.
    Anything published ONLY on this device while offline is lost with it, so
-   the button carrying this says so before it arms. */
+   the button carrying this says so before it arms. This is the explicit
+   office delete (note 300) — the ONLY path that clears last-published. */
 export function resetLocalCopy(): void {
   const keys = [CACHE_KEY, DRAFT_KEY, HISTORY_KEY, PENDING_KEY, NOTES_KEY, AFTER_SAVE_KEY];
   for (const k of keys) {
@@ -877,7 +904,7 @@ export async function publishSection(sectionId: string, note: string): Promise<P
     rememberHistory();
     overrides = { ...overrides, [sectionId]: value };
     applyOverrides(overrides);
-    writeJSON(CACHE_KEY, { rev, overrides });
+    writeCache();
     pending = { ...(pending || {}), [sectionId]: value };
     writeJSON(PENDING_KEY, pending);
     localOnly = true;
@@ -891,8 +918,8 @@ export async function publishSection(sectionId: string, note: string): Promise<P
     const res = saved ? await login(saved, true) : { ok: false as const };
     if (!res.ok) {
       /* A changed/retired password ends the session here (note 297) but
-         keeps every held word, queue entry and stamp — only a new update
-         may clear last-published. */
+         keeps every held word, queue entry and stamp — only an explicit
+         office delete may clear last-published (note 300). */
       if ((res as any).error === "denied") clearSession();
       return { ok: false, error: "unauthorized" };
     }
@@ -910,7 +937,7 @@ export async function publishSection(sectionId: string, note: string): Promise<P
   delete dirty[sectionId];
   persistDraft();
   applyOverrides(overrides);
-  writeJSON(CACHE_KEY, { rev, overrides });
+  writeCache();
   notify();
   return { ok: true };
 }
@@ -1091,26 +1118,41 @@ async function applySeedOnce() {
       applyBakedRecent(seed);
       if (seed && seed.sections && typeof seed.sections === "object" && Object.keys(seed.sections).length) {
         rev = typeof seed.rev === "number" ? seed.rev : 0;
-        /* The baked seed paints words but never blesses (note 293): only an
-           explicit publish — on this copy's own server, on the feed, or the
-           local bless click — moves the publish stamp. A pushed blessing used
-           to leak through the bake and open new code with no office review,
-           which is how the maintenance notice kept going missing on updates.
+        /* The baked seed paints words and reports its bake-time publish stamp
+           as evidence (note 300) — raised, never lowered — but never blesses
+           beyond what was truly published: only an explicit publish on this
+           copy's own server, on the feed, or a local publish moves the stamp
+           to the running update. A pushed stamp used to leak through the bake
+           and open new code with no office review, which is how the
+           maintenance notice kept going missing on updates. A bake stamped
+           from the running update (or newer) therefore releases at once,
+           while an older bake still means wait.
            The browser's own memory first (note 281): the hold stamp below
            persists itself, so immunity must be read before it lands. */
+        if (typeof (seed as any).notes === "number") setPublishedNotes((seed as any).notes);
         const seenBefore = readJSON<number>(NOTES_KEY, 0);
         /* Maintenance hold (stamped by maintenance-hold.txt at build time): a
            visitor with no recorded publish is held one update back, so the
            notice shows until the office publishes — even when the baked stamp
            is empty. Once the baked stamp itself is caught up (published from this update), fresh visitors are NOT re-held, so a rebuild after publishing releases everyone. A recorded publish is never re-held,
            so publishing releases visitors with no rebuild; a newer stamp is
-           never lowered, so the older-copy path stays intact. */
+           never lowered, so the older-copy path stays intact.
+           The hold is only manufactured when the running code is new (note
+           300): proven by an older stored codegen, or unprovable either way
+           (no record — a fresh browser meets every build as new). A browser
+           that already ran THIS build never gets a manufactured stamp — with
+           no new update its last-published stands until the server or the
+           feed says otherwise. */
         if (seed.hold === true && publishedNotes < BUILD_NOTES) {
           if (!(typeof seenBefore === "number" && seenBefore >= BUILD_NOTES)) {
-            publishedNotes = BUILD_NOTES - 1;
+            let ranThisBuild = false;
             try {
-              localStorage.setItem(NOTES_KEY, JSON.stringify(publishedNotes));
-            } catch {}
+              const cg = readJSON<number>(CODEGEN_KEY, 0);
+              ranThisBuild = typeof cg === "number" && Math.floor(cg) === BUILD_NOTES;
+            } catch {
+              ranThisBuild = false;
+            }
+            if (!ranThisBuild) setPublishedNotes(BUILD_NOTES - 1);
           }
         }
         applyOverrides(seed.sections);
@@ -1145,7 +1187,7 @@ async function syncFromFeed() {
     rev = live.rev;
     if (typeof live.notes === "number") setPublishedNotes(live.notes);
     applyOverrides(liveSections);
-    writeJSON(CACHE_KEY, { rev, overrides });
+    writeCache();
   } catch {
     /* the feed stays a best effort */
   } finally {
@@ -1193,33 +1235,48 @@ export async function startCms() {
   // anything published while offline still flushes; only the old instant-paint
   // is skipped, and the server sync fills the page in behind it.
   await applySeedOnce();
-  const cached = readJSON<{ rev?: number; overrides?: Snapshot } | null>(CACHE_KEY, null);
-  let freshEyes = false;
-  try {
-    freshEyes = readJSON<number>(CODEGEN_KEY, 0) !== BUILD_NOTES;
-  } catch {
-    freshEyes = true;
-  }
+  const cached = readJSON<{ rev?: number; overrides?: Snapshot; notes?: number } | null>(CACHE_KEY, null);
+  // Paint instantly; edited sections stay as left; the server syncs over below.
+  // …on a PROVEN new update's first boot only (note 300: the stored codegen
+  // exists and differs — note 253): a fresh extract opens on the new code's
+  // own words, never on an older copy's cached paint. A missing or unreadable
+  // codegen proves nothing — the cached paint (the last published) stays, so
+  // the site can never look new and fresh without a new update. The stored
+  // draft — the office's own unsaved work — is still adopted above, and
+  // anything published while offline still flushes; only the old instant-paint
+  // is skipped on a proven new update, and the server sync fills the page in
+  // behind it.
+  const freshEyes = storedCodegenProvesNewUpdate();
   if (cached?.overrides && !freshEyes) {
     rev = cached.rev || 0;
     applyOverrides(cached.overrides);
   }
-  if (freshEyes) writeJSON(CODEGEN_KEY, BUILD_NOTES);
+  /* The cache remembers which update its words were published from (note 300):
+     a returning copy's own evidence of last-published — raised like any other
+     witness, so it stays live on that publish even before (or without) the
+     first server answer. Older than the running code it still means wait. */
+  if (cached && typeof cached.notes === "number") setPublishedNotes(cached.notes);
+  try {
+    if (readJSON<number>(CODEGEN_KEY, 0) !== BUILD_NOTES) writeJSON(CODEGEN_KEY, BUILD_NOTES);
+  } catch {
+    /* the codegen stamp is best-effort; the paint above already decided */
+  }
   history = readJSON<any[]>(HISTORY_KEY, []) || [];
   try {
     const nn = readJSON<number>(NOTES_KEY, 0);
-    if (typeof nn === "number" && nn > 0) publishedNotes = Math.floor(nn);
+    /* Raise-only, never wipe (note 300): a transient storage failure keeps the
+       in-memory stamp — only a proven new update or an explicit office delete
+       may move last-published backwards, and neither does so here. */
+    if (typeof nn === "number" && nn > publishedNotes) publishedNotes = Math.floor(nn);
   } catch {
-    publishedNotes = 0;
+    /* storage unreadable — the in-memory stamp stands */
   }
-  /* Desktop saved stamp (forced): a server-backed copy that is behind gets
-     held one update back and persists it, so a fresh desktop (no stamp) waits
-     exactly like a stale phone — the notice survives reloads on both. */
-  try {
-    if (publishedNotes < BUILD_NOTES && serverInvolved()) {
-      setPublishedNotes(BUILD_NOTES - 1);
-    }
-  } catch {}
+  /* No manufactured stamp (note 300 — the forced hold is gone): a copy that
+     is behind already waits on its witnessed stamp, and a copy with no stamp
+     waits as unreviewed until the server or the feed reports the publish.
+     Writing BUILD_NOTES - 1 here used to drag every stamp-less copy — fresh
+     desktop, wiped store, slow server — back into update-mode with no new
+     update, and persist it. The gate now decides from evidence alone. */
   pending = readJSON<Snapshot | null>(PENDING_KEY, null);
   /* Boot numbers are final here (seed + stored stamp): bump once so the
      maintenance notice re-evaluates instead of sticking with first paint
@@ -1668,7 +1725,7 @@ async function syncFromServer() {
       writeJSON(PENDING_KEY, pending);
     }
     applyOverrides(server);
-    writeJSON(CACHE_KEY, { rev, overrides });
+    writeCache();
   } else if (notesLifted) {
     /* Content identical but the publish stamp moved (note 278): bump so the
        maintenance notice re-evaluates instead of sticking with first paint. */
@@ -1696,7 +1753,7 @@ async function healEmptyServer(why = "Office words put back after the server cam
   try {
     localStorage.removeItem(PENDING_KEY);
   } catch {}
-  writeJSON(CACHE_KEY, { rev, overrides });
+  writeCache();
   notify();
   return true;
 }
@@ -1721,8 +1778,8 @@ function sessionPassword(): string {
 function clearSession() {
   /* Sign-out ends the session only (note 297): the saved password goes, the
      admin flags drop, and the tab re-renders signed out. Held words, queued
-     work and the publish stamp are untouched here — only a new update's
-     first boot or an explicit office delete may clear them. */
+     work and the publish stamp are untouched here — only an explicit office
+     delete (resetLocalCopy) may clear them (note 300). */
   try {
     sessionStorage.removeItem(SESSION_KEY);
   } catch {}
@@ -2486,7 +2543,8 @@ async function sendPatch(
     }
     if (!res?.ok) {
       /* A changed/retired password ends the session here too (note 297) —
-         the held words stay; only a new update may clear last-published. */
+         the held words stay; only an explicit office delete may clear
+         last-published (note 300). */
       if (res?.err === "unauthorized") clearSession();
       return { ok: false, error: res?.err || "failed", sent, failed: ids };
     }
@@ -2534,8 +2592,8 @@ export async function publish(note: string, content?: Snapshot): Promise<Publish
       const res = saved ? await login(saved, true) : ({ ok: false as const });
       if (!res.ok) {
         /* A changed/retired password ends the session here (note 297) but
-           keeps every held word, queue entry and stamp — only a new update
-           may clear last-published. */
+           keeps every held word, queue entry and stamp — only an explicit
+           office delete may clear last-published (note 300). */
         if ((res as any).error === "denied") clearSession();
         return { ok: false, error: "unauthorized" };
       }
@@ -2544,7 +2602,7 @@ export async function publish(note: string, content?: Snapshot): Promise<Publish
     if (!bless.ok) return { ok: false, error: bless.error };
     rev = bless.rev ?? rev + 1;
     setPublishedNotes(BUILD_NOTES);
-    writeJSON(CACHE_KEY, { rev, overrides });
+    writeCache();
     notify();
     return { ok: true };
   }
@@ -2558,7 +2616,7 @@ export async function publish(note: string, content?: Snapshot): Promise<Publish
     overrides = { ...overrides, ...pick(snapshot, changed) };
     applyOverrides(overrides);
     setPublishedNotes(BUILD_NOTES);
-    writeJSON(CACHE_KEY, { rev, overrides });
+    writeCache();
     pending = clone(overrides);
     writeJSON(PENDING_KEY, pending);
     localOnly = true;
@@ -2583,8 +2641,8 @@ export async function publish(note: string, content?: Snapshot): Promise<Publish
     const res = saved ? await login(saved, true) : { ok: false as const };
     if (!res.ok) {
       /* A changed/retired password ends the session here (note 297) but
-         keeps every held word, queue entry and stamp — only a new update
-         may clear last-published. */
+         keeps every held word, queue entry and stamp — only an explicit
+         office delete may clear last-published (note 300). */
       if ((res as any).error === "denied") clearSession();
       return { ok: false, error: "unauthorized" };
     }
@@ -2597,7 +2655,7 @@ export async function publish(note: string, content?: Snapshot): Promise<Publish
       // Part of the patch landed; keep the site consistent with what is stored.
       rev = result.rev ?? rev;
       applyOverrides(overrides, false);
-      writeJSON(CACHE_KEY, { rev, overrides });
+      writeCache();
       notify();
     }
     return { ok: false, error: result.error };
@@ -2608,7 +2666,7 @@ export async function publish(note: string, content?: Snapshot): Promise<Publish
   updatedBy = editorName();
   setPublishedNotes(BUILD_NOTES);
   applyOverrides(overrides, false);
-  writeJSON(CACHE_KEY, { rev, overrides });
+  writeCache();
   log = [{ rev, at: updatedAt, by: editorName(), role: myRole === "sub" ? "sub" : "main", note: payloadNote, changed }, ...log].slice(0, 20);
   draft = null;
   dirty = {};
@@ -2634,7 +2692,7 @@ export async function clearLog(): Promise<{ ok: boolean; error?: string }> {
   rev = 0;
   updatedAt = 0;
   updatedBy = "";
-  writeJSON(CACHE_KEY, { rev, overrides });
+  writeCache();
   notify();
   return { ok: true };
 }
@@ -2749,11 +2807,14 @@ export async function flushPending(): Promise<boolean> {
   const res = await sendPatch(sections, ids, `Offline changes published (${ids.length} section${ids.length === 1 ? "" : "s"})`);
   if (!res.ok) return false;
   rev = res.rev ?? rev;
+  /* An offline flush is a deliberate office publish (note 293): it blesses
+     the running update like any other publish (note 300). */
+  setPublishedNotes(BUILD_NOTES);
   pending = null;
   try {
     localStorage.removeItem(PENDING_KEY);
   } catch {}
-  writeJSON(CACHE_KEY, { rev, overrides });
+  writeCache();
   applyOverrides(overrides);
   log = [{ rev, at: Date.now(), by: editorName(), role: myRole === "sub" ? "sub" : "main", note: "Offline changes published", changed: ids }, ...log].slice(0, 30);
   notify();
@@ -2773,7 +2834,8 @@ export async function undoLastPublish(): Promise<PublishResult> {
     try {
       const res = JSON.parse(await socket.rpc.undoPublish(JSON.stringify({ by: editorName() })));
       /* A changed/retired password ends the session here too (note 297) —
-         the held words stay; only a new update may clear last-published. */
+         the held words stay; only an explicit office delete may clear
+         last-published (note 300). */
       if (res?.err === "unauthorized") clearSession();
       if (res?.ok) {
         if (history.length) {
@@ -2830,7 +2892,7 @@ export async function undoLastPublish(): Promise<PublishResult> {
   setPublishedNotes(BUILD_NOTES);
   overrides = clone(entry.overrides || {});
   applyOverrides(overrides, false);
-  writeJSON(CACHE_KEY, { rev, overrides });
+  writeCache();
   await syncFromServer().catch(() => {});
   return { ok: true };
 }
@@ -2845,7 +2907,7 @@ export async function clearAllOverrides(): Promise<PublishResult> {
     applyOverrides({}, false);
     /* A local restore still moves the copy onto this update (note 250). */
     setPublishedNotes(BUILD_NOTES);
-    writeJSON(CACHE_KEY, { rev, overrides });
+    writeCache();
     localOnly = true;
     notify();
     return { ok: true, local: true };
@@ -2859,7 +2921,7 @@ export async function clearAllOverrides(): Promise<PublishResult> {
   setPublishedNotes(BUILD_NOTES);
   overrides = {};
   applyOverrides({}, false);
-  writeJSON(CACHE_KEY, { rev, overrides });
+  writeCache();
   notify();
   return { ok: true };
 }
