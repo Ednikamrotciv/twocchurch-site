@@ -3,6 +3,7 @@ import { readFile, stat, mkdir, writeFile, rm } from "node:fs/promises";
 import { gzipSync } from "node:zlib";
 import path from "node:path";
 import { createCmsHost, hashText } from "./cms-local.mjs";
+import { pushOnce as pushOnceToGit, persistMode, hostKind } from "./auto-push.mjs";
 import { answerWithSeedFallback } from "./seed-fallback.mjs";
 import { createGeoProxy } from "./geo-proxy.mjs";
 import { guardAtBoot } from "./backup-data.mjs";
@@ -57,6 +58,15 @@ if (SRC_NOTES && DIST_NOTES && DIST_NOTES < SRC_NOTES) {
 } else if (SRC_NOTES && !DIST_NOTES) {
   console.warn(`dist/ has no version stamp (built before update stamps) — run \`npm run build\` so dist/ matches update ${SRC_NOTES}.`);
 }
+
+/* Publish durability (note 302): Render free sleeps and wipes the live store,
+   so live publishes die with the nap unless they reach git first. */
+const PERSIST = persistMode();
+const HOST = hostKind();
+if (PERSIST === "token") console.log("publish durability: token push on — live publishes reach git and survive sleep");
+else if (PERSIST === "ephemeral") {
+  console.warn("publish durability: EPHEMERAL — this box forgets live publishes when it sleeps. Set GITHUB_TOKEN (free PAT, Contents write on this repo), or mount a disk and set PERSIST_OK=1, or publish from the office computer. See DEPLOY.md.");
+} else console.log(`publish durability: ${PERSIST}`);
 
 const cms = await (async () => {
   /* Snapshot the published words first (a zip extract cannot touch the
@@ -406,7 +416,18 @@ const server = http.createServer(async (req, res) => {
         const r = await cms.call(rpcMatch[1], id, body);
         /* No-disk survival (note 290): an emptied live store answers
            getContent from the baked seed instead of blank. */
-        const outBody = await answerWithSeedFallback(rpcMatch[1], r.body, ROOT, DIST);
+        let outBody = await answerWithSeedFallback(rpcMatch[1], r.body, ROOT, DIST);
+        /* Note 302: tell browsers whether this backend survives sleep. */
+        try {
+          if (rpcMatch[1] === "getContent") {
+            const ans = JSON.parse(outBody);
+            if (ans && ans.ok === true && !ans.persist) {
+              ans.persist = PERSIST;
+              ans.host = HOST;
+              outBody = JSON.stringify(ans);
+            }
+          }
+        } catch { /* the live answer stands unwrapped */ }
         res.writeHead(r.status, {
           "content-type": "application/json; charset=utf-8",
           "cache-control": "no-store",
@@ -467,24 +488,24 @@ const server = http.createServer(async (req, res) => {
       res.end(body);
       return;
     }
-    /* Update stamp + baked content pointers (note 302): always fresh, so a
-       normal reload right after an update sees the new numbers at once — a
-       cached version.json is how the notice looked "vanished" until Ctrl+Shift+R. */
-    const base = path.basename(file);
-    if (base === "version.json" || base === "seed.json" || base === "server.json" || base === "feed.json") {
-      res.writeHead(200, {
-        "content-type": mime,
-        "content-length": body.length,
-        "cache-control": "no-store",
-      });
-      res.end(body);
-      return;
-    }
     sendBody(req, res, body, mime, st.size + "-" + Math.round(st.mtimeMs));
   } catch {
     res.writeHead(500);
     res.end("server error");
   }
+});
+
+/* Render sends SIGTERM before sleep/stop: push the latest publish to git while
+   there is still time (note 302, best effort inside a 20s cap — the box may
+   die mid-push, and the regular post-save push already covers most cases). */
+process.on("SIGTERM", () => {
+  (async () => {
+    try {
+      await Promise.race([pushOnceToGit(ROOT), new Promise((r) => setTimeout(r, 20000))]);
+    } catch { /* dying anyway */ } finally {
+      process.exit(0);
+    }
+  })();
 });
 
 server.listen(PORT, () => {

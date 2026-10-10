@@ -183,42 +183,4 @@ try {
 } catch (err) {
   console.warn("version.json skipped:", err?.message || err);
 }
-/* Entry files are never cached (note 302): without this, static hosts serve
-   a stale index.html / version.json after an update, so visitors keep running
-   the old bundle and never see the maintenance notice until a hard refresh.
-   Netlify + Cloudflare Pages read _headers; Apache/cPanel hosts read
-   .htaccess. Hashed JS/CSS under assets/ stay cached (their names change on
-   every build). */
-try {
-  const headers =
-`# note 302 — entry files always fresh, hashed assets cacheable.
-/index.html
-  Cache-Control: no-store, must-revalidate
-/*/index.html
-  Cache-Control: no-store, must-revalidate
-/404.html
-  Cache-Control: no-store, must-revalidate
-/version.json
-  Cache-Control: no-store, must-revalidate
-/seed.json
-  Cache-Control: no-store, must-revalidate
-/server.json
-  Cache-Control: no-store, must-revalidate
-/feed.json
-  Cache-Control: no-store, must-revalidate
-`;
-  await writeFile(path.join(OUT, "_headers"), headers);
-  const htaccess =
-`<IfModule mod_headers.c>
-  # note 302 — entry files always fresh (see _headers for Netlify/Cloudflare)
-  <FilesMatch "^(index\\.html|404\\.html|version\\.json|seed\\.json|server\\.json|feed\\.json)$">
-    Header set Cache-Control "no-store, must-revalidate"
-  </FilesMatch>
-</IfModule>
-`;
-  await writeFile(path.join(OUT, ".htaccess"), htaccess);
-  console.log("cache headers written (_headers + .htaccess): entry files never cached");
-} catch (err) {
-  console.warn("cache headers skipped:", err?.message || err);
-}
 console.log("dist/ ready to upload (the *contents* of dist/ go to the static host)");

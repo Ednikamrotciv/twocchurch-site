@@ -58,6 +58,7 @@ if (typeof window !== "undefined") {
     shouldWait: maintenanceShouldWait(),
     waiting: maintenanceShouldWait() && !maintenancePreview(),
     ready: bootReady,
+    persist,
   });
 }
 function setPublishedNotes(n: unknown) {
@@ -87,6 +88,24 @@ function storedCodegenProvesNewUpdate(): boolean {
     return typeof cg === "number" && cg > 0 && Math.floor(cg) !== BUILD_NOTES;
   } catch {
     return false;
+  }
+}
+/* First sight of this build (fix 301b, ported to 302): the stored codegen is
+   missing or names a different update. A stamp that arrives with the deploy —
+   the baked seed, the browser cache, the live feed — then paints words but
+   must never bless: it rode in with the shipment (a local publish baked or
+   committed before the push), not with a publish on the server running this
+   build, so honoring it opens the new code with no office review and the
+   maintenance notice goes missing. Only the server's own answer blesses on
+   first sight. Captured once per boot (before the codegen stamp is written
+   below), so late feed reads keep the boot's verdict. */
+let bootFirstSight = false;
+function storedCodegenFirstSight(): boolean {
+  try {
+    const cg = readJSON<number>(CODEGEN_KEY, 0);
+    return !(typeof cg === "number" && cg > 0) || Math.floor(cg) !== BUILD_NOTES;
+  } catch {
+    return true;
   }
 }
 /** The instant paint, stamped with the update its words were published from
@@ -191,16 +210,6 @@ export function useMaintenance(): boolean {
   useCmsVersion();
   /* Re-render when status/socket changes (notify without a version bump). */
   useSyncExternalStore(subscribe, () => stateObj);
-  /* Note 302: a known newer update waits even on this (older) bundle — a
-     stale tab never paints live from cached code while the host has moved on.
-     Server-less copies still never wait (note 250): with no backend there is
-     no publish step to wait for — they just reload onto the new bundle. */
-  if (staleNewerNotes > BUILD_NOTES && serverInvolved()) {
-    try {
-      if (maintenancePreview()) return false;
-    } catch {}
-    return true;
-  }
   /* Note 301: a corrupt stamp is unreviewed, never published. */
   const held = typeof publishedNotes === "number" && Number.isFinite(publishedNotes) ? Math.floor(publishedNotes) : 0;
   if (held >= BUILD_NOTES) return false;
@@ -234,103 +243,71 @@ export function useOlderCopy(): boolean {
 /* A deployed host can serve a newer bundle than this tab runs (desktop cached
    the old JS while the phone fetched the new one): the two modes then decide
    maintenance from different BUILD_NOTES and disagree. When version.json names
-   a newer update, reload onto it so both modes run the same code — with a
-   NORMAL reload, never a hard refresh (note 302). The old one-shot session
-   guard is gone on purpose: it trapped tabs on the old bundle when the first
-   reload still served cached files, which is exactly how the notice looked
-   "vanished" until Ctrl+Shift+R. Reloads are now retryable (a few attempts
-   inside a few minutes), cache-busted, and while a newer update is known this
-   copy waits on maintenance instead of painting live. */
+   a newer update, reload once onto it so both modes run the same code. */
 const STALE_RELOAD_KEY = "wom.cms.staleReload";
-const STALE_MAX_TRIES = 5;
-const STALE_WINDOW_MS = 10 * 60 * 1000;
-/* The newest update version.json has named (0 = none known yet). */
-let staleNewerNotes = 0;
-let staleCheckSettled = false;
-let staleCheckRunning: Promise<void> | null = null;
-function readStaleAttempts(): { notes: number; at: number; tries: number } | null {
+/* How many times this session already retried a reload that still landed
+   behind (a cache or edge served the old bundle again). Bounded, per build. */
+const STALE_RETRIES_KEY = "wom.cms.staleRetries";
+let staleRetryTimer = 0;
+/* Reload once onto a named newer build (note 302b): the session flag keeps
+   one build to one reload, and if the tab is STILL behind afterwards the
+   reload served stale code — so retry a few times, spaced out, each retry
+   re-proving the server is still newer first. No update ever needs a hand
+   hard-reload again. */
+function reloadOntoBuild(n: number): void {
+  const name = String(Math.floor(n));
   try {
-    const raw = sessionStorage.getItem(STALE_RELOAD_KEY);
-    if (!raw) return null;
-    const p = JSON.parse(raw);
-    if (!p || typeof p.notes !== "number" || typeof p.at !== "number" || typeof p.tries !== "number") return null;
-    return p;
+    if (sessionStorage.getItem(STALE_RELOAD_KEY) === name) {
+      const tries = Number(sessionStorage.getItem(STALE_RETRIES_KEY + ":" + name)) || 0;
+      if (tries < 3 && !staleRetryTimer) {
+        try {
+          sessionStorage.setItem(STALE_RETRIES_KEY + ":" + name, String(tries + 1));
+        } catch {}
+        staleRetryTimer = window.setTimeout(() => {
+          staleRetryTimer = 0;
+          void checkStaleBuild();
+        }, 10000);
+      }
+      return;
+    }
+    sessionStorage.setItem(STALE_RELOAD_KEY, name);
+  } catch {}
+  window.location.reload();
+}
+export async function checkStaleBuild(): Promise<void> {
+  try {
+    const res = await fetch(siteFile("version.json"), { cache: "no-store" });
+    if (!res.ok) return;
+    const data = await res.json().catch(() => null);
+    const n = Number(data && (data as any).notes);
+    if (!Number.isFinite(n) || n <= BUILD_NOTES) return;
+    reloadOntoBuild(n);
   } catch {
-    return null;
+    /* dev runs and hosts without version.json simply skip */
   }
 }
-/** True while version.json names a newer update than this bundle (note 302):
-    visitors wait on maintenance until the reload lands them on the new code. */
-export function isStaleWaiting(): boolean {
-  return staleNewerNotes > BUILD_NOTES;
-}
-/** True once the first version.json check has settled (found newer or not). */
-export function isStaleCheckSettled(): boolean {
-  return staleCheckSettled;
-}
-/** Re-render hook for the stale-build gate (settled + waiting). */
-export function useStaleBuild(): { settled: boolean; waiting: boolean } {
-  useCmsVersion();
-  useSyncExternalStore(subscribe, () => stateObj);
-  return { settled: staleCheckSettled, waiting: isStaleWaiting() };
-}
-export function checkStaleBuild(): Promise<void> {
-  if (staleCheckRunning) return staleCheckRunning;
-  staleCheckRunning = (async () => {
-    try {
-      /* Cache-buster + no-store headers: an intermediate cache must never
-         answer this with the previous update's number. */
-      const sep = siteFile("version.json").includes("?") ? "&" : "?";
-      const res = await fetch(siteFile("version.json") + sep + "t=" + Date.now(), {
-        cache: "no-store",
-        headers: { pragma: "no-cache", "cache-control": "no-cache" },
-      });
-      if (!res.ok) return;
-      const data = await res.json().catch(() => null);
-      const n = Number(data && (data as any).notes);
-      if (!Number.isFinite(n) || n <= BUILD_NOTES) {
-        if (staleNewerNotes) {
-          staleNewerNotes = 0;
-          version += 1;
-          notify();
-        }
-        return;
-      }
-      staleNewerNotes = Math.floor(n);
-      /* Bump so the maintenance notice re-evaluates at once instead of
-         sticking with first paint — the old bundle waits, it never plays live. */
-      version += 1;
-      notify();
-      /* Retryable guard: a few attempts inside a few minutes, then stop
-         reloading but KEEP waiting (maintenance stays, no live flash, no
-         infinite loop). A reload that still serves the old bundle retries. */
-      try {
-        const now = Date.now();
-        const prev = readStaleAttempts();
-        if (prev && prev.notes === staleNewerNotes && now - prev.at < STALE_WINDOW_MS && prev.tries >= STALE_MAX_TRIES) return;
-        const tries = prev && prev.notes === staleNewerNotes && now - prev.at < STALE_WINDOW_MS ? prev.tries + 1 : 1;
-        const at = prev && prev.notes === staleNewerNotes && now - prev.at < STALE_WINDOW_MS ? prev.at : now;
-        try {
-          sessionStorage.setItem(STALE_RELOAD_KEY, JSON.stringify({ notes: staleNewerNotes, at, tries }));
-        } catch {}
-      } catch {}
-      /* Warm the entry document past the HTTP cache, then reload onto it. */
-      try {
-        await fetch(window.location.href, { cache: "reload" } as RequestInit);
-      } catch {}
-      window.location.reload();
-    } catch {
-      /* dev runs and hosts without version.json simply skip */
-    } finally {
-      if (!staleCheckSettled) {
-        staleCheckSettled = true;
-        notify();
-      }
-    }
-  })().finally(() => {
-    staleCheckRunning = null;
+/* Tabs update themselves (note 302b): version.json is re-checked every minute
+   while visible, on focus, on bfcache restore, and when the browser comes
+   back online — boot and tab-switch alone missed tabs that sat open through
+   a deploy. Started once per boot from startCms. Drafts, queues and stamps
+   all live in storage, so an auto-reload loses no office work. */
+let buildWatchStarted = false;
+function startBuildWatch(): void {
+  if (buildWatchStarted) return;
+  buildWatchStarted = true;
+  window.setInterval(() => {
+    if (document.visibilityState !== "visible") return;
+    void checkStaleBuild().catch(() => {});
+  }, 60000);
+  window.addEventListener("focus", () => {
+    void checkStaleBuild().catch(() => {});
   });
-  return staleCheckRunning;
+  window.addEventListener("pageshow", () => {
+    void checkStaleBuild().catch(() => {});
+  });
+  window.addEventListener("online", () => {
+    void checkStaleBuild().catch(() => {});
+  });
 }
 
 /* Forget everything this browser kept from older copies (note 252): cached
@@ -396,6 +373,16 @@ function pruneHistory() {
     history = kept;
     writeJSON(HISTORY_KEY, history);
   }
+}
+
+/** Whether the connected backend survives a restart (note 302): "" = unknown
+    (dev/office computer on a local disk — durable), "token"/"disk"/"local" =
+    durable, "ephemeral" = Render free with no token — live publishes die on
+    sleep. Set only from the getContent answer, never guessed. */
+let persist = "";
+/** This backend's durability stamp, for the Tools warning. */
+export function backendPersist(): string {
+  return persist;
 }
 
 let status: CmsStatus = "connecting";
@@ -468,6 +455,7 @@ function readState() {
     dirty: !!draft && hasChanges(),
     hasDraft: !!draft,
     localOnly,
+    persist,
     previewing,
     canUndo: (history.length > 0 || undoCountdownSec() > 0) && status === "online",
     canUndoEdit: editUndos.length > 0,
@@ -1225,7 +1213,12 @@ async function applySeedOnce() {
            persists itself, so immunity must be read before it lands. */
         /* Note 301: immunity is the browser's own memory BEFORE the bake lands. */
         const seenBefore = readJSON<number>(NOTES_KEY, 0);
-        if (typeof (seed as any).notes === "number") setPublishedNotes((seed as any).notes);
+        /* Fix 301b, ported to 302 — first sight trusts the server only: a bake
+           stamped at or above this build rode in with the deploy, so its words
+           paint but its stamp is not witnessed until the server confirms it. An
+           older bake is still evidence worth raising (it cannot release this
+           build). The server sync below stays authoritative either way. */
+        if (typeof (seed as any).notes === "number" && (!bootFirstSight || Math.floor((seed as any).notes) < BUILD_NOTES)) setPublishedNotes((seed as any).notes);
         /* Maintenance hold (stamped by maintenance-hold.txt at build time): a
            visitor with no recorded publish is held one update back, so the
            notice shows until the office publishes — even when the baked stamp
@@ -1280,7 +1273,10 @@ async function syncFromFeed() {
     const liveSections = (live.sections || {}) as Snapshot;
     if (!Object.keys(liveSections).length && Object.keys(overrides).length) return;
     rev = live.rev;
-    if (typeof live.notes === "number") setPublishedNotes(live.notes);
+    /* Fix 301b, ported to 302 — first sight trusts the server only (same as
+       the baked seed above): a mirrored stamp at or above this build rode out
+       with a local publish, not with a publish on the server running this build. */
+    if (typeof live.notes === "number" && (!bootFirstSight || Math.floor(live.notes) < BUILD_NOTES)) setPublishedNotes(live.notes);
     applyOverrides(liveSections);
     writeCache();
   } catch {
@@ -1307,6 +1303,26 @@ export async function startCms() {
   /* Which shared store, if any: the local backend, or the office
      server this copy was pointed at (deploy config or admin console). */
   await initServerUrl().catch(() => {});
+  /* Fix 301b, ported to 302 — capture first sight before the codegen stamp is
+     written below, and drop a poisoned memory: a remembered stamp at or above
+     this build from a browser that never ran this build is not evidence — it
+     rode in with an earlier deploy that opened without review. Only an upgrade
+     or a fresh profile is reset; a downgrade keeps its memory for the
+     older-copy path. The server's first answer then decides, so a genuinely
+     published build lifts with no maintenance flash (first paint already waits
+     for that sync). */
+  bootFirstSight = storedCodegenFirstSight();
+  try {
+    const cgPre = readJSON<number>(CODEGEN_KEY, 0);
+    const cgNum = typeof cgPre === "number" && Number.isFinite(cgPre) ? Math.floor(cgPre) : 0;
+    if ((!cgNum || cgNum < BUILD_NOTES) && publishedNotes >= BUILD_NOTES) {
+      publishedNotes = 0;
+      try {
+        localStorage.setItem(NOTES_KEY, JSON.stringify(0));
+      } catch {}
+    }
+  } catch {}
+  startBuildWatch();
 
   /* Read the stored draft first: applying the cache below writes a draft, which would bury it. */
   const storedDraft = readJSON<{ rev: number; content: Snapshot; dirty?: Record<string, true> } | null>(DRAFT_KEY, null);
@@ -1349,8 +1365,11 @@ export async function startCms() {
   /* The cache remembers which update its words were published from (note 300):
      a returning copy's own evidence of last-published — raised like any other
      witness, so it stays live on that publish even before (or without) the
-     first server answer. Older than the running code it still means wait. */
-  if (cached && typeof cached.notes === "number") setPublishedNotes(cached.notes);
+     first server answer. Older than the running code it still means wait.
+     Fix 301b, ported to 302: on first sight the cache is a shipped memory like
+     the seed — its words still paint (below), but a stamp at or above this
+     build is not witnessed until the server confirms it. */
+  if (cached && typeof cached.notes === "number" && (!bootFirstSight || Math.floor(cached.notes) < BUILD_NOTES)) setPublishedNotes(cached.notes);
   try {
     if (readJSON<number>(CODEGEN_KEY, 0) !== BUILD_NOTES) writeJSON(CODEGEN_KEY, BUILD_NOTES);
   } catch {
@@ -1749,6 +1768,16 @@ async function syncFromServer() {
   if (!res?.ok) return;
   /* A changed office password signs this tab's old session out by itself. */
   noteServerPwgen(res.pwgen);
+  /* Note 302: the backend names its own durability — the Tools card warns on "ephemeral". */
+  if (typeof (res as any).persist === "string" && (res as any).persist) persist = (res as any).persist;
+  /* Note 302b: the backend names the update it runs. A tab on older code
+     reloads onto the deploy by itself (guarded: once per build per session,
+     never when this tab is already newer — the older-copy path explains that
+     instead). Content answers ride POST, which no edge caches, so this signal
+     works even where version.json is momentarily stale. */
+  if (typeof (res as any).build === "number" && Math.floor((res as any).build) > BUILD_NOTES) {
+    reloadOntoBuild(Math.floor((res as any).build));
+  }
   let server: Snapshot = {};
   try {
     server = res.sections ? JSON.parse(res.sections) : {};

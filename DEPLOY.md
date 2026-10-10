@@ -98,15 +98,38 @@ A Render Web Service works as the always-on backend:
 
 - Build command: `npm install && npm run build`
 - Start command: `node scripts/serve.mjs`
-- No disk needed: every restart the server re-serves its last deployed words
-  and uploads from the build itself (note 290) — it never comes back blank.
-  A persistent disk mounted at `data` is still a fine optimization (it keeps
-  things published or uploaded on the live box *between* deploys), but without
-  one the worst a restart does is return to the last deploy, never to empty.
-  Either way, keep taking Tools backups: they are the way back if words are
+
+### Render free: make publishes survive sleep (note 302, 5 minutes, free)
+
+Render free sleeps and wipes the live store: without the setup below, anything
+published on the live box dies with the nap and the site falls back to the
+last deploy — words revert and visitors wait on maintenance as if a new update
+had landed. The server pushes every save to git seconds later, but pushing
+needs a login it does not have until you give it one:
+
+1. GitHub → Settings → Developer settings → Personal access tokens →
+   Fine-grained tokens → Generate new token → this repo only → Contents
+   read + write → Generate. Copy it.
+2. Render dashboard → your service → Environment → add `GITHUB_TOKEN`
+   (paste the token) → Save (restarts the service).
+3. Done — no code changes. Publish once and check the Render logs for
+   `auto-deploy: new words pushed`. From here on a sleep keeps the words:
+   the next boot clones back what the nap wiped.
+
+While the token is missing the server says so on every boot (`publish
+durability: EPHEMERAL`) and the Tools card warns with these same steps. Two
+alternatives need no token: mount a Render disk at `data/` and set
+`PERSIST_OK=1`, or publish from the office computer only (its words deploy
+by themselves within minutes).
+
+- With the token (or a disk), a restart re-serves the latest words and uploads
+  from git, never blank. Without either, the worst a restart does is return to
+  the last deploy, never to empty — but live-only publishes are lost, so set
+  the token above.
+- Either way, keep taking Tools backups: they are the way back if words are
   ever deleted by hand.
-- Use the paid (non-sleeping) instance type, or the service sleeps and every
-  copy works from its last baked words until it wakes.
+- The free instance type sleeps; every copy works from its last baked words
+  until it wakes. The paid (non-sleeping) type skips the naps.
 
 Then put the service's `https://xxx.onrender.com` URL alone in
 `cms-server.txt`, commit, push, and rebuild the static site once.

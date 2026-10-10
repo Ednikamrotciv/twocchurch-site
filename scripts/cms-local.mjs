@@ -69,11 +69,40 @@ export async function createCmsHost(rootDir) {
      nothing old can override the new code yet no content is lost.
      Same-version restarts keep everything. */
   const scriptHash = hashText(scriptSrc);
+  /* Which update this folder's code carries (fix 301b, ported to 302): the
+     server holds a shipped stamp below it on the first boot of new code, so a
+     stamp that rode in with the deploy can never release the build it ships
+     with — and every content answer names the running update so older tabs
+     reload onto the deploy by themselves (note 302b). */
+  let srcNotes = 0;
+  try {
+    const hooksSrc = await readFile(path.join(rootDir, "src", "lib", "hooks.ts"), "utf8");
+    srcNotes = Number((hooksSrc.match(/BUILD_NOTES = (\d+)/) || [])[1]) || 0;
+  } catch { /* stamp unreadable — the hold below sleeps, as before */ }
   const versionPath = path.join(dataDir, "cms-version.txt");
   let prevHash = "";
+  let prevNotes = 0;
+  let prevKnown = false;
   try {
-    prevHash = (await readFile(versionPath, "utf8")).trim();
+    const rawVer = (await readFile(versionPath, "utf8")).trim();
+    try {
+      const pv = JSON.parse(rawVer);
+      if (pv && typeof pv.hash === "string") {
+        prevHash = pv.hash;
+        prevNotes = Number(pv.notes) || 0;
+        prevKnown = true;
+      } else {
+        prevHash = rawVer;
+      }
+    } catch {
+      prevHash = rawVer;
+    }
   } catch { /* first run */ }
+  /* New code = a new server script, a new update number, a first run, or a
+     marker from before update numbers were tracked (one hold check, then the
+     new marker format makes later boots stable). Same script + same update =
+     a restart, which keeps everything. */
+  const newCode = !prevHash || prevHash !== scriptHash || (srcNotes > 0 && (!prevKnown || prevNotes !== srcNotes));
   const statePath = path.join(dataDir, "cms-state.bin");
   const state = new Uint8Array(STATE_SIZE);
   let saveTimer = null;
@@ -96,7 +125,7 @@ export async function createCmsHost(rootDir) {
     }
   }
   try {
-    await writeFile(versionPath, scriptHash + "\n");
+    await writeFile(versionPath, JSON.stringify({ hash: scriptHash, notes: srcNotes }) + "\n");
   } catch { /* best-effort */ }
 
   function saveSoon() {
@@ -169,7 +198,7 @@ export async function createCmsHost(rootDir) {
   };
 
   const selfObj = {};
-  const sandbox = { state, pubsub, self: selfObj, console };
+  const sandbox = { state, pubsub, self: selfObj, console, __WOM_NEW_CODE: newCode, __WOM_RUNNING_NOTES: srcNotes };
   vm.createContext(sandbox);
   vm.runInContext(scriptSrc, sandbox, { filename: "cms-server.js" });
   const rpc = selfObj.rpc || {};

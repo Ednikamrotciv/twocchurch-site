@@ -108,7 +108,7 @@ export function useLocalState<T>(key: string, initial: T) {
    Tools, and in the browser console as window.__womBuild. Bump NOTES with
    every SPEC note so a stale deploy is spotted, not guessed (note 244). */
 export const BUILD_NOTES = 302;
-export const BUILD_DATE = "2026-10-10";
+export const BUILD_DATE = "2026-10-11";
 export function buildStamp() {
   return { notes: BUILD_NOTES, built: BUILD_DATE };
 }
