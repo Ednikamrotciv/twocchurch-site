@@ -2521,6 +2521,23 @@
   flex: 1;
 }
 
+/* Mobile: stack the serve button above its privacy note so neither squeezes. */
+@media (max-width: 640px) {
+  .prayer-form__foot {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0.9rem;
+  }
+  .prayer-form__foot .btn {
+    width: 100%;
+  }
+  .prayer-form__foot .muted {
+    flex: none;
+    width: 100%;
+    line-height: 1.55;
+  }
+}
+
 .prayer-success {
   border: 1px solid var(--line);
   border-radius: var(--radius-lg);
@@ -3277,37 +3294,49 @@
 .newsletter {
   display: grid;
   gap: 1rem;
-  padding: clamp(1.2rem, 3vw, 1.8rem);
+  grid-template-columns: 1fr;
+  text-align: center;
+  padding: clamp(1.4rem, 3vw, 1.8rem);
   border: 1px solid var(--line);
   border-radius: var(--radius-lg);
   background: var(--panel);
 }
 
-@media (min-width: 800px) {
-  .newsletter {
-    grid-template-columns: 1fr auto;
-    align-items: center;
-  }
-  .newsletter--done {
-    grid-template-columns: auto 1fr;
-  }
+.newsletter__text b {
+  font-size: 1.05rem;
+}
+
+.newsletter__text p {
+  margin: 0.35rem auto 0;
+  font-size: 0.9rem;
+  max-width: 46ch;
 }
 
 .newsletter__row {
   display: flex;
   gap: 0.6rem;
-  align-items: flex-start;
+  align-items: center;
+  width: 100%;
+  max-width: 520px;
+  margin-inline: auto;
 }
 
 .newsletter__row .field {
   margin: 0;
   flex: 1;
+  min-width: 0;
+  text-align: left;
+}
+
+.newsletter__row .btn {
+  flex: none;
 }
 
 .newsletter--done {
   display: flex;
   gap: 1rem;
   align-items: center;
+  text-align: left;
   border-color: rgba(107, 211, 164, 0.4);
 }
 
@@ -3316,9 +3345,22 @@
   flex: none;
 }
 
-.newsletter__text p {
-  margin: 0.2rem 0 0;
-  font-size: 0.86rem;
+/* Mobile: stack the newsletter input + button so they never squeeze side-by-side. */
+@media (max-width: 640px) {
+  .newsletter__row {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .newsletter__row > * {
+    min-width: 0;
+  }
+  .newsletter__row .field {
+    flex: none;
+    width: 100%;
+  }
+  .newsletter__row .btn {
+    width: 100%;
+  }
 }
 
 .newsletter-inline {

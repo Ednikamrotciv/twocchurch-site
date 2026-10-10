@@ -5,7 +5,6 @@ const w = window as any;
 const pick = (name: string, fallback: string) => {
   const v = w[name];
   if (typeof v === "string" && v.trim()) return v.trim();
-  if (v && typeof v.evaluateItem === "string" && v.evaluateItem.trim()) return v.evaluateItem.trim();
   return fallback;
 };
 
