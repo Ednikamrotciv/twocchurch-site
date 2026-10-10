@@ -245,8 +245,8 @@ export async function runAll(fs) {
   ok("blank never blesses", has(cms, "a blank answer can never bless"), "empty server answers must run before the stamp");
   ok("new generation unreviewed", has(srv, "NOTES = 0; // note 301"), "history generation change must reset the publish stamp");
   const layout = text["src/components/layout.tsx"];
-  ok("notice names updates", has(layout, "maint__update") && has(layout, "last published update"), "notice must name installed + last published");
-  ok("notice keeps office doors", has(layout, "Preview the new site") && has(layout, "?preview=1") && has(layout, "Open the admin console"), "notice must link preview + admin console");
+  const maintBlock = layout.slice(layout.indexOf("export function MaintenanceSite()"), layout.indexOf("export function PageHead("));
+  ok("notice stays bare", maintBlock.length > 100 && !has(maintBlock, "maint__update") && !has(maintBlock, "Preview the new site") && !has(maintBlock, "Open the admin console") && has(maintBlock, "right back"), "office wants logo + message only, no update line or links");
   const notes = Number((text["src/lib/hooks.ts"].match(/BUILD_NOTES = (\d+)/) || [])[1]) || 0;
   const apply = text["APPLY_UPDATE.txt"];
   ok("update number consistent", notes > 0 && has(apply, `APPLY THIS UPDATE (${notes})`), "hooks=" + notes);

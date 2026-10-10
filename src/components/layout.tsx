@@ -1,8 +1,8 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { tx } from "../lib/i18n";
 import { Link, navigate, useRoute } from "../lib/router";
-import { useHotkey, useMediaQuery, useScrollProgress, useTheme, useNow, useClickOutside, useBodyLock, BUILD_NOTES } from "../lib/hooks";
-import { exitMaintenancePreview, publishedNotesVersion, useCmsVersion } from "../lib/cms";
+import { useHotkey, useMediaQuery, useScrollProgress, useTheme, useNow, useClickOutside, useBodyLock } from "../lib/hooks";
+import { exitMaintenancePreview } from "../lib/cms";
 import { nextService, onAir, countdownParts, to12h, DAY_SHORT, fmtDate, zoneYear, clockAt, churchTimezone, visitorPlace } from "../lib/store";
 import { SITE, SERVICES, NAV, FOOTER_LINKS, LOGO_MARK } from "../data/site";
 import { siteFile } from "../lib/livefeed";
@@ -544,17 +544,12 @@ export function PreviewBanner() {
 }
 
 /* While visitors wait on maintenance (notes 249-250): the header's logo and
-   notice are the whole site — no pages, no footer. The notice names the
-   installed update so a stale copy is spotted, not guessed, and the office
-   gets a preview pass plus a door to the console. The office console itself
-   never renders this. */
+   notice are the whole site — no pages, no footer, no links. The office
+   console itself never renders this. */
 export function MaintenanceSite() {
   /* Auto dark/light on the notice too — no switch button here, it just follows
      the site's own theme (stored choice + automatic switching). */
   useTheme();
-  /* Re-render the moment Publish lifts maintenance (note 278). */
-  useCmsVersion();
-  const last = publishedNotesVersion();
   return (
     <div className="maint">
       <header className="maint__head">
@@ -568,12 +563,6 @@ export function MaintenanceSite() {
         <img className="maint__mark" src={siteFile(LOGO_MARK)} alt="" aria-hidden="true" />
         <h1>We&rsquo;ll be right back</h1>
         <p>The site is being updated. Please check back shortly.</p>
-        <p className="maint__update">
-          Update {BUILD_NOTES} installed · {last > 0 ? <>last published update {last}</> : <>nothing published yet</>}
-        </p>
-        <p className="maint__office">
-          <a href="?preview=1">Preview the new site</a> · <Link to="/admin">Open the admin console</Link>
-        </p>
       </main>
     </div>
   );

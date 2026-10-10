@@ -31,8 +31,7 @@ LOCAL (your computer)
 3. In the new folder: npm install
 4. npm run dev → http://localhost:5173/  (admin: /admin)
 5. BEFORE restoring: the site must show the maintenance notice ("We'll be
-   right back") with "Update 301 installed · last published update ..." plus
-   "Preview the new site" and "Open the admin console" — this update holds
+   right back", logo + message only, no links) — this update holds
    until blessed. That check is the point.
 6. #/admin → Tools → Restore the backup file → Review and publish → Publish.
    Local lifts to 301 and the notice releases. Hard-reload desktop + phone
