@@ -1355,6 +1355,12 @@ function ImageField({
   const forSlide = def.frame === "slide";
   const [fitting, setFitting] = useState(false);
   const [fitError, setFitError] = useState("");
+  /* A dead address (an upload that no longer resolves) shows the camera
+     placeholder instead of a torn preview — every upload, every size. */
+  const [imgError, setImgError] = useState(false);
+  useEffect(() => {
+    setImgError(false);
+  }, [preview]);
   /* The agent reads the picture's own shape, so it can prompt exactly when the
      picture is not landscape. */
   const [shape, setShape] = useState<{ w: number; h: number } | null>(null);
@@ -1421,8 +1427,8 @@ function ImageField({
     <Field label={label} hint={def.hint || (forSlide ? "Upload a picture from your phone or computer, or paste the address of one." : "Upload a photo from your phone or computer, or paste the address of one.")}>
       <div className="admin__imagefield">
         <span className={"admin__imagepreview" + (forSlide ? " admin__imagepreview--slide" : "")}>
-          {preview && !slideVideoLink ? (
-            <img src={preview} alt="" />
+          {preview && !slideVideoLink && !imgError ? (
+            <img src={preview} alt="" draggable={false} onError={() => setImgError(true)} />
           ) : (
             <Icon name="camera" size={18} />
           )}

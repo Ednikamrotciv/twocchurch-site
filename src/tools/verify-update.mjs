@@ -30,6 +30,7 @@ const FILES = [
   ["scripts/vite-cms-backend.mjs", "js"],
   ["scripts/bake-seed.mjs", "js"],
   ["index.html", null],
+  ["src/styles/admin.css", null],
   ["APPLY_UPDATE.txt", null],
 ];
 
@@ -231,6 +232,13 @@ export async function runAll(fs) {
   ok("main photos section gone", !has(ph, '"Main photos"') && !has(sc, '"Main photos"') && !has(jb, "photos-main") && !has(pm, "photos-main"));
   ok("slide upload pictures only", !has(ed, "isVideoFile") && has(ed, "Upload a picture") && !has(ed, "Upload a picture or video") && !has(ed, "photo or video link"));
   ok("slide copy pictures only", has(sc, "Upload a picture and it becomes") && !has(sc, "picture or a video"));
+  /* Upload previews can never tear or shift (photo #302/#303 fix): the image
+     fills its frame by absolute positioning on phone and desktop, video
+     previews the same, and a dead address falls back to the placeholder. */
+  const previewCss = text["src/styles/admin.css"];
+  ok("upload previews fill unbreakably", has(previewCss, ".admin__imagepreview img") && has(previewCss, "position: absolute") && has(previewCss, "object-fit: cover"), "a shifted/torn photo must be impossible by construction");
+  ok("video previews fill unbreakably", has(previewCss, ".admin__videopreview video") && has(previewCss, "position: absolute"));
+  ok("dead uploads fall back to placeholder", has(ed, "imgError") && has(ed, "onError={() => setImgError(true)}"), "a dead address must show the camera, never a torn frame");
   /* G. last-published survives without a new update (note 300): the site went
      back to update-mode and looked fresh with no new update because the boot
      manufactured a hold stamp, skipped the cached paint on unproven codegen,
@@ -271,6 +279,7 @@ export async function runAll(fs) {
   ok("app re-checks while open", has(app, "setInterval") && has(app, "checkStaleBuild"));
   ok("pre-bundle gate in the entry page", has(html, "wom.cms.notes") && has(html, "/version.json?t=") && has(html, "right back"), "the notice must paint before React boots");
   ok("entry gate yields to preview", has(html, 'q.get("preview") === "1"'), "the office preview must bypass the early notice");
+  ok("entry gate never touches admin", has(html, 'ap === "/admin"'), "the notice belongs to the visitors' site only");
   ok("static hosts never cache the entry", has(staticBuild, "_headers") && has(staticBuild, ".htaccess") && has(staticBuild, "no-store, must-revalidate"));
   ok("server never caches the stamp", has(serve, 'base === "version.json"'), "a cached version.json hides the update");
   ok("dev bake keeps the stamp", has(backend, "notes, sections"), "a notes-less seed holds a published deploy on maintenance");

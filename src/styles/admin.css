@@ -267,6 +267,7 @@
   gap: 0.55rem;
 }
 .admin__imagepreview {
+  position: relative;
   flex: none;
   display: grid;
   place-items: center;
@@ -278,7 +279,14 @@
   background: var(--panel-2);
   color: var(--faint);
 }
+/* The photo always fills its frame exactly — every upload, phone and desktop:
+   absolutely positioned, so no aspect ratio, inline gap or grid quirk can ever
+   leave it torn or shifted inside the frame. */
 .admin__imagepreview img {
+  position: absolute;
+  top: 0;
+  left: 0;
+  display: block;
   width: 100%;
   height: 100%;
   object-fit: cover;
@@ -376,6 +384,7 @@
   gap: 0.55rem;
 }
 .admin__videopreview {
+  position: relative;
   display: grid;
   place-items: center;
   width: 100%;
@@ -388,6 +397,10 @@
   color: var(--faint);
 }
 .admin__videopreview video {
+  position: absolute;
+  top: 0;
+  left: 0;
+  display: block;
   width: 100%;
   height: 100%;
   object-fit: contain;

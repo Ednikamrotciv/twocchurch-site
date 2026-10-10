@@ -51,6 +51,13 @@
       try {
         if (window.sessionStorage && window.sessionStorage.getItem("wom.cms.preview") === "1") return;
       } catch (e) {}
+      /* The office console is never gated (note 303): the maintenance notice
+         belongs to the visitors' site only — /admin must always boot straight
+         into the console, even mid-update. */
+      try {
+        var ap = window.location.pathname || "/";
+        if (ap === "/admin" || ap.indexOf("/admin/") === 0) return;
+      } catch (e) {}
       var stored = 0;
       try {
         var raw = window.localStorage ? window.localStorage.getItem("wom.cms.notes") : null;
