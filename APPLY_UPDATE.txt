@@ -1,28 +1,33 @@
-APPLY THIS UPDATE (301) — LOCAL + LIVE
+APPLY THIS UPDATE (302) — LOCAL + LIVE
 =====================================
-This zip locks maintenance so it can never vanish again. Rule from here on (note 301):
+This update fixes the vanishing maintenance notice for good. Symptom it kills:
+after an update, visitors saw the live site instead of the notice, and only a
+hard refresh (Ctrl+Shift+R) brought the notice back. Rule from here on
+(notes 301 + 302):
 
 - A NEW, DIFFERENT update: fresh and new. The new code opens on its own
   words, visitors wait on the maintenance notice until the office restores
-  a backup and Publishes — unchanged, now hardened:
-  * a corrupt stamp (NaN, negative, unreadable) waits as unreviewed, never
-    reads as published;
-  * seed immunity is the browser's own memory BEFORE the bake lands;
-  * a blank server answer can never bless or clear — the empty guard runs
-    before the publish stamp is adopted;
-  * a new history generation on the server is unreviewed (stamp reset) —
-    visitors wait until the office publishes;
-  * the notice itself keeps its update line + office doors (Preview the new
-    site, Open the admin console), so the window never looks missing.
-- NO new update: the copy REMAINS in the last published (note 300,
+  a backup and Publishes — unchanged from 301, plus the notice can no longer
+  be skipped by cached files:
+  * a normal reload is enough — no hard refresh, ever. The entry page
+    (index.html), version.json, seed.json, server.json and feed.json are
+    never cached anywhere (static hosts get _headers + .htaccess, the office
+    server sends no-store), the version check is cache-busted, stale reloads
+    retry instead of trapping on the old bundle, the app holds the boot
+    splash until the version check settles, and an inline gate in index.html
+    paints the notice before React even boots.
+  * everything 301 locked still holds: a corrupt stamp waits, seed immunity
+    is pre-bake memory, blank answers never bless, a new history generation
+    is unreviewed, and the notice stays logo + message only.
+- NO new update: the copy REMAINS on the last published (note 300,
   unchanged). Only an explicit office delete (the Forget path) clears
   last-published. Sign-outs, password changes, restarts and rebuilds never do.
 - Only an explicit office action lifts maintenance: publish, undo click,
   bless, offline flush (online or local). Heal never blesses. The feed, the
   baked seed, the server answer and the browser cache are witnessed evidence
   only — raise-only, never manufactured.
-- Everything from 300 and before, unchanged.
-- The pre-ship verifier has a new section H locking this rule — one FAIL
+- Everything from 301 and before, unchanged.
+- The pre-ship verifier has a new section I locking this fix — one FAIL
   blocks the ship. It passed for this zip.
 
 LOCAL (your computer)
@@ -32,23 +37,25 @@ LOCAL (your computer)
 4. npm run dev → http://localhost:5173/  (admin: /admin)
 5. BEFORE restoring: the site must show the maintenance notice ("We'll be
    right back", logo + message only, no links) — this update holds
-   until blessed. That check is the point.
+   until blessed. That check is the point. A plain reload must show it;
+   no hard refresh needed.
 6. #/admin → Tools → Restore the backup file → Review and publish → Publish.
-   Local lifts to 301 and the notice releases. Hard-reload desktop + phone
-   width to verify.
+   Local lifts to 302 and the notice releases. Reload desktop + phone
+   width to verify (plain reloads).
 7. Check: reload again with no new update — the site stays on the last
    published (no notice, published words intact). Console check:
-   window.__maintState() shows publishedNotes 301.
+   window.__maintState() shows publishedNotes 302.
 
 LIVE (Render: twocchurch-site.onrender.com)
 1. Put this code where Render builds it (replace src/, scripts/, index.html,
    seed.json, vite.config.ts, package.json — keep data/ as-is), commit/push.
    Render: install npm install, build npm run build, start node scripts/serve.mjs.
-2. Confirm https://twocchurch-site.onrender.com/version.json shows {"notes":301}.
-3. The live site now waits on the maintenance notice until blessed.
-4. Open live /admin → Review and publish → Publish. This blesses 301 and lifts
+2. Confirm https://twocchurch-site.onrender.com/version.json shows {"notes":302}.
+3. The live site now waits on the maintenance notice until blessed — verify
+   with a PLAIN reload (Ctrl+Shift+R must NOT be needed).
+4. Open live /admin → Review and publish → Publish. This blesses 302 and lifts
    mobile + desktop together (no rebuild needed for this step).
-5. Hard-reload both modes. A later Render restart must NOT bring the notice
+5. Plain-reload both modes. A later Render restart must NOT bring the notice
    back and must NOT clear Last published — that is still the rule.
 
 If desktop ever looks live while mobile waits: desktop is in ?preview=1

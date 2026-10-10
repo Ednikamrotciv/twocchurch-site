@@ -191,6 +191,16 @@ export function useMaintenance(): boolean {
   useCmsVersion();
   /* Re-render when status/socket changes (notify without a version bump). */
   useSyncExternalStore(subscribe, () => stateObj);
+  /* Note 302: a known newer update waits even on this (older) bundle — a
+     stale tab never paints live from cached code while the host has moved on.
+     Server-less copies still never wait (note 250): with no backend there is
+     no publish step to wait for — they just reload onto the new bundle. */
+  if (staleNewerNotes > BUILD_NOTES && serverInvolved()) {
+    try {
+      if (maintenancePreview()) return false;
+    } catch {}
+    return true;
+  }
   /* Note 301: a corrupt stamp is unreviewed, never published. */
   const held = typeof publishedNotes === "number" && Number.isFinite(publishedNotes) ? Math.floor(publishedNotes) : 0;
   if (held >= BUILD_NOTES) return false;
@@ -224,23 +234,103 @@ export function useOlderCopy(): boolean {
 /* A deployed host can serve a newer bundle than this tab runs (desktop cached
    the old JS while the phone fetched the new one): the two modes then decide
    maintenance from different BUILD_NOTES and disagree. When version.json names
-   a newer update, reload once onto it so both modes run the same code. */
+   a newer update, reload onto it so both modes run the same code — with a
+   NORMAL reload, never a hard refresh (note 302). The old one-shot session
+   guard is gone on purpose: it trapped tabs on the old bundle when the first
+   reload still served cached files, which is exactly how the notice looked
+   "vanished" until Ctrl+Shift+R. Reloads are now retryable (a few attempts
+   inside a few minutes), cache-busted, and while a newer update is known this
+   copy waits on maintenance instead of painting live. */
 const STALE_RELOAD_KEY = "wom.cms.staleReload";
-export async function checkStaleBuild(): Promise<void> {
+const STALE_MAX_TRIES = 5;
+const STALE_WINDOW_MS = 10 * 60 * 1000;
+/* The newest update version.json has named (0 = none known yet). */
+let staleNewerNotes = 0;
+let staleCheckSettled = false;
+let staleCheckRunning: Promise<void> | null = null;
+function readStaleAttempts(): { notes: number; at: number; tries: number } | null {
   try {
-    const res = await fetch(siteFile("version.json"), { cache: "no-store" });
-    if (!res.ok) return;
-    const data = await res.json().catch(() => null);
-    const n = Number(data && (data as any).notes);
-    if (!Number.isFinite(n) || n <= BUILD_NOTES) return;
-    try {
-      if (sessionStorage.getItem(STALE_RELOAD_KEY) === String(Math.floor(n))) return;
-      sessionStorage.setItem(STALE_RELOAD_KEY, String(Math.floor(n)));
-    } catch {}
-    window.location.reload();
+    const raw = sessionStorage.getItem(STALE_RELOAD_KEY);
+    if (!raw) return null;
+    const p = JSON.parse(raw);
+    if (!p || typeof p.notes !== "number" || typeof p.at !== "number" || typeof p.tries !== "number") return null;
+    return p;
   } catch {
-    /* dev runs and hosts without version.json simply skip */
+    return null;
   }
+}
+/** True while version.json names a newer update than this bundle (note 302):
+    visitors wait on maintenance until the reload lands them on the new code. */
+export function isStaleWaiting(): boolean {
+  return staleNewerNotes > BUILD_NOTES;
+}
+/** True once the first version.json check has settled (found newer or not). */
+export function isStaleCheckSettled(): boolean {
+  return staleCheckSettled;
+}
+/** Re-render hook for the stale-build gate (settled + waiting). */
+export function useStaleBuild(): { settled: boolean; waiting: boolean } {
+  useCmsVersion();
+  useSyncExternalStore(subscribe, () => stateObj);
+  return { settled: staleCheckSettled, waiting: isStaleWaiting() };
+}
+export function checkStaleBuild(): Promise<void> {
+  if (staleCheckRunning) return staleCheckRunning;
+  staleCheckRunning = (async () => {
+    try {
+      /* Cache-buster + no-store headers: an intermediate cache must never
+         answer this with the previous update's number. */
+      const sep = siteFile("version.json").includes("?") ? "&" : "?";
+      const res = await fetch(siteFile("version.json") + sep + "t=" + Date.now(), {
+        cache: "no-store",
+        headers: { pragma: "no-cache", "cache-control": "no-cache" },
+      });
+      if (!res.ok) return;
+      const data = await res.json().catch(() => null);
+      const n = Number(data && (data as any).notes);
+      if (!Number.isFinite(n) || n <= BUILD_NOTES) {
+        if (staleNewerNotes) {
+          staleNewerNotes = 0;
+          version += 1;
+          notify();
+        }
+        return;
+      }
+      staleNewerNotes = Math.floor(n);
+      /* Bump so the maintenance notice re-evaluates at once instead of
+         sticking with first paint — the old bundle waits, it never plays live. */
+      version += 1;
+      notify();
+      /* Retryable guard: a few attempts inside a few minutes, then stop
+         reloading but KEEP waiting (maintenance stays, no live flash, no
+         infinite loop). A reload that still serves the old bundle retries. */
+      try {
+        const now = Date.now();
+        const prev = readStaleAttempts();
+        if (prev && prev.notes === staleNewerNotes && now - prev.at < STALE_WINDOW_MS && prev.tries >= STALE_MAX_TRIES) return;
+        const tries = prev && prev.notes === staleNewerNotes && now - prev.at < STALE_WINDOW_MS ? prev.tries + 1 : 1;
+        const at = prev && prev.notes === staleNewerNotes && now - prev.at < STALE_WINDOW_MS ? prev.at : now;
+        try {
+          sessionStorage.setItem(STALE_RELOAD_KEY, JSON.stringify({ notes: staleNewerNotes, at, tries }));
+        } catch {}
+      } catch {}
+      /* Warm the entry document past the HTTP cache, then reload onto it. */
+      try {
+        await fetch(window.location.href, { cache: "reload" } as RequestInit);
+      } catch {}
+      window.location.reload();
+    } catch {
+      /* dev runs and hosts without version.json simply skip */
+    } finally {
+      if (!staleCheckSettled) {
+        staleCheckSettled = true;
+        notify();
+      }
+    }
+  })().finally(() => {
+    staleCheckRunning = null;
+  });
+  return staleCheckRunning;
 }
 
 /* Forget everything this browser kept from older copies (note 252): cached

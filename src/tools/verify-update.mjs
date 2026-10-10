@@ -25,6 +25,10 @@ const FILES = [
   ["src/lib/pageMap.ts", "ts"],
   ["src/components/layout.tsx", "tsx"],
   ["src/App.tsx", "tsx"],
+  ["scripts/build-static.mjs", "js"],
+  ["scripts/serve.mjs", "js"],
+  ["scripts/vite-cms-backend.mjs", "js"],
+  ["index.html", null],
   ["APPLY_UPDATE.txt", null],
 ];
 
@@ -247,6 +251,28 @@ export async function runAll(fs) {
   const layout = text["src/components/layout.tsx"];
   const maintBlock = layout.slice(layout.indexOf("export function MaintenanceSite()"), layout.indexOf("export function PageHead("));
   ok("notice stays bare", maintBlock.length > 100 && !has(maintBlock, "maint__update") && !has(maintBlock, "Preview the new site") && !has(maintBlock, "Open the admin console") && has(maintBlock, "right back"), "office wants logo + message only, no update line or links");
+  /* I. no hard refresh ever again (note 302): after an update a NORMAL reload
+     must land visitors on the maintenance notice until the office publishes.
+     The one-shot stale guard trapped tabs on the old bundle (Ctrl+Shift+R to
+     escape); a cached version.json / index.html hid the update entirely; and
+     the app painted live before the version check settled. */
+  const app = text["src/App.tsx"];
+  const html = text["index.html"];
+  const staticBuild = text["scripts/build-static.mjs"];
+  const serve = text["scripts/serve.mjs"];
+  const backend = text["scripts/vite-cms-backend.mjs"];
+  ok("stale reload retried, never one-shot", has(cms, "STALE_MAX_TRIES") && !has(cms, "sessionStorage.getItem(STALE_RELOAD_KEY) === String"), "the one-shot guard traps tabs on old code");
+  ok("stale fetch cache-busted", has(cms, '"t=" + Date.now()'), "version.json must bypass every cache");
+  ok("stale bundle waits, never plays live", has(cms, "staleNewerNotes > BUILD_NOTES"), "old code must show maintenance once an update is known");
+  ok("stale gate exported", has(cms, "export function useStaleBuild()"));
+  ok("app holds splash for the version check", has(app, "useStaleBuild()") && has(app, "!stale.settled"), "live must not paint before the check settles");
+  ok("app waits while stale", has(app, "stale.waiting || maintenance"));
+  ok("app re-checks while open", has(app, "setInterval") && has(app, "checkStaleBuild"));
+  ok("pre-bundle gate in the entry page", has(html, "wom.cms.notes") && has(html, "/version.json?t=") && has(html, "right back"), "the notice must paint before React boots");
+  ok("entry gate yields to preview", has(html, 'q.get("preview") === "1"'), "the office preview must bypass the early notice");
+  ok("static hosts never cache the entry", has(staticBuild, "_headers") && has(staticBuild, ".htaccess") && has(staticBuild, "no-store, must-revalidate"));
+  ok("server never caches the stamp", has(serve, 'base === "version.json"'), "a cached version.json hides the update");
+  ok("dev bake keeps the stamp", has(backend, "notes, sections"), "a notes-less seed holds a published deploy on maintenance");
   const notes = Number((text["src/lib/hooks.ts"].match(/BUILD_NOTES = (\d+)/) || [])[1]) || 0;
   const apply = text["APPLY_UPDATE.txt"];
   ok("update number consistent", notes > 0 && has(apply, `APPLY THIS UPDATE (${notes})`), "hooks=" + notes);

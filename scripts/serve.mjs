@@ -467,6 +467,19 @@ const server = http.createServer(async (req, res) => {
       res.end(body);
       return;
     }
+    /* Update stamp + baked content pointers (note 302): always fresh, so a
+       normal reload right after an update sees the new numbers at once — a
+       cached version.json is how the notice looked "vanished" until Ctrl+Shift+R. */
+    const base = path.basename(file);
+    if (base === "version.json" || base === "seed.json" || base === "server.json" || base === "feed.json") {
+      res.writeHead(200, {
+        "content-type": mime,
+        "content-length": body.length,
+        "cache-control": "no-store",
+      });
+      res.end(body);
+      return;
+    }
     sendBody(req, res, body, mime, st.size + "-" + Math.round(st.mtimeMs));
   } catch {
     res.writeHead(500);

@@ -80,7 +80,17 @@ export function cmsBackend() {
           const r = await cms.call("getContent", "bake", "");
           const res = JSON.parse(r.body);
           const sections = res && res.sections ? JSON.parse(res.sections) : {};
-          await writeFile(path.join(outDir, "seed.json"), JSON.stringify({ rev: typeof res.rev === "number" ? res.rev : 0, sections }));
+          /* Carry the publish stamp like bake-seed.mjs does (note 302): a
+             notes-less seed would read as "nothing ever published" and hold
+             even a fully-published deploy on maintenance until the next bake. */
+          let notes = typeof res.notes === "number" && res.notes > 0 ? Math.floor(res.notes) : 0;
+          if (!notes) {
+            try {
+              const prev = JSON.parse(await readFile(path.join(outDir, "seed.json"), "utf8"));
+              if (typeof prev?.notes === "number" && prev.notes > 0) notes = Math.floor(prev.notes);
+            } catch {}
+          }
+          await writeFile(path.join(outDir, "seed.json"), JSON.stringify({ rev: typeof res.rev === "number" ? res.rev : 0, notes, sections }));
           console.log(`baked ${Object.keys(sections).length} published sections into seed.json`);
         }
       } catch (err) {

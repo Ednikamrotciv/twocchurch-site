@@ -3,7 +3,7 @@ import { useRoute, navigate, ADMIN_PREFIX } from "./lib/router";
 import { Header, Footer, ScrollTop, SkipLink, MaintenanceSite, PreviewBanner, BootSplash } from "./components/layout";
 import { Toaster } from "./components/ui";
 import { ErrorBoundary } from "./components/ErrorBoundary";
-import { startCms, useCmsVersion, useCmsReady, useMaintenance, usePreviewingWhileWaiting, checkStaleBuild } from "./lib/cms";
+import { startCms, useCmsVersion, useCmsReady, useMaintenance, usePreviewingWhileWaiting, useStaleBuild, checkStaleBuild } from "./lib/cms";
 import { mountShaderBackground } from "./lib/shaderbg";
 import { startVisitorClock, useVisitorClock, useVisitorClockRefresh } from "./lib/visitor";
 import { useI18nTick, ensureI18n, setProtectedValues, i18nAsk, chooseLang, dismissAsk } from "./lib/i18n";
@@ -67,17 +67,28 @@ export function App() {
   // page every time the office applies something.
   useEffect(() => {
     startCms();
-    /* If the host serves newer code than this bundle, reload once onto it so
-       mobile and desktop decide maintenance from the same update. */
+    /* If the host serves newer code than this bundle, reload onto it so
+       mobile and desktop decide maintenance from the same update (note 302:
+       retried with a normal reload — never a hard refresh — and re-checked
+       while the tab stays open, so an update that lands later still takes). */
     void checkStaleBuild().catch(() => {});
     const onVis = () => {
       if (document.visibilityState === "visible") void checkStaleBuild().catch(() => {});
     };
+    const onOnline = () => {
+      void checkStaleBuild().catch(() => {});
+    };
+    const poll = window.setInterval(() => {
+      void checkStaleBuild().catch(() => {});
+    }, 60_000);
     document.addEventListener("visibilitychange", onVis);
+    window.addEventListener("online", onOnline);
     startVisitorClock();
     const unmountShader = mountShaderBackground();
     return () => {
       document.removeEventListener("visibilitychange", onVis);
+      window.removeEventListener("online", onOnline);
+      window.clearInterval(poll);
       if (typeof unmountShader === "function") (unmountShader as () => void)();
     };
   }, []);
@@ -107,12 +118,15 @@ export function App() {
       </>
     );
 
-  /* Visitors wait on maintenance until the office publishes (note 249) —
+  /* Visitors wait on maintenance until the office publishes (notes 249, 302) —
      logo and notice only, nothing else. Nothing renders until boot + first
-     sync settle, so a published site never flashes the notice on launch. */
+     sync AND the first version check settle, so a published site never flashes
+     the notice on launch — and a stale bundle never flashes live before it
+     reloads onto the update. */
   const ready = useCmsReady();
-  if (!ready) return <BootSplash />;
-  if (maintenance) return <MaintenanceSite />;
+  const stale = useStaleBuild();
+  if (!ready || !stale.settled) return <BootSplash />;
+  if (stale.waiting || maintenance) return <MaintenanceSite />;
 
   return (
     <>
