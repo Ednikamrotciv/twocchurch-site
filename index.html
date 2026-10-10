@@ -36,4 +36,53 @@
     document.body.appendChild(banner);
   }, 20000);
 </script>
+<script>
+  /* Pre-bundle maintenance gate (note 302): the JS bundle may be stale or
+     still compiling when an update lands — this paints the maintenance notice
+     BEFORE React boots, so visitors never see live words from cached code and
+     never need a hard refresh. It decides from the same stamp the app uses
+     (localStorage wom.cms.notes vs the host's version.json), does nothing when
+     published, and yields to React the moment it mounts. Skipped for the
+     office preview pass (?preview=1), which the app itself bypasses. */
+  (function () {
+    try {
+      var q = new URLSearchParams(window.location.search || "");
+      if (q.get("preview") === "1") return;
+      try {
+        if (window.sessionStorage && window.sessionStorage.getItem("wom.cms.preview") === "1") return;
+      } catch (e) {}
+      var stored = 0;
+      try {
+        var raw = window.localStorage ? window.localStorage.getItem("wom.cms.notes") : null;
+        var n = raw === null ? 0 : Number(JSON.parse(raw));
+        if (Number.isFinite(n) && n > 0) stored = Math.floor(n);
+      } catch (e) {}
+      fetch("/version.json?t=" + Date.now(), {
+        cache: "no-store",
+        headers: { pragma: "no-cache", "cache-control": "no-cache" },
+      })
+        .then(function (res) {
+          if (!res || !res.ok) return null;
+          return res.json().catch(function () { return null; });
+        })
+        .then(function (data) {
+          try {
+            var latest = Number(data && data.notes);
+            if (!Number.isFinite(latest) || latest <= 0) return;
+            window.__womStaleBoot = { latest: Math.floor(latest), stored: stored, waiting: stored < Math.floor(latest) };
+            if (stored >= Math.floor(latest)) return;
+            var root = document.getElementById("root");
+            if (!root || root.hasChildNodes()) return;
+            root.innerHTML =
+              '<div style="min-height:100vh;min-height:100dvh;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:1rem;background:#07070a;color:#f5f0e6;font-family:Georgia,serif;text-align:center;padding:2rem;">' +
+              '<img src="/src/assets/logo-mark.png" alt="" aria-hidden="true" style="width:72px;height:72px;object-fit:contain;" onerror="this.style.display=\'none\'">' +
+              "<h1 style=\"margin:0;font-size:2rem;font-weight:600;\">We&rsquo;ll be right back</h1>" +
+              '<p style="margin:0;max-width:34rem;line-height:1.6;opacity:0.85;">The site is being updated. Please check back shortly.</p>' +
+              "</div>";
+          } catch (e) {}
+        })
+        .catch(function () {});
+    } catch (e) {}
+  })();
+</script>
 <script type="module" src="/src/main.tsx"></script>

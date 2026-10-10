@@ -626,23 +626,6 @@ function loadState() {
     PWGEN = typeof parsed.pwgen === "number" && parsed.pwgen >= 0 ? Math.floor(parsed.pwgen) : 0;
     NOTES = typeof parsed.notes === "number" && parsed.notes >= 0 ? Math.floor(parsed.notes) : 0;
     PREV = cleanPrev(parsed.prev);
-    /* A shipped stamp must never release the build it ships with (fix 301b,
-       ported to 302): on the first boot of new code the host names the running
-       update. A stamp at or above it then can only have ridden in with the
-       deploy (a committed store, a baked image) — never a publish on this
-       server, which has not served this code before — so it is held one update
-       back until the office publishes for real. Sections stay; only the stamp
-       is held. Same-build restarts are untouched, so they stay live. The flags
-       are host-provided and optional: under older hosts (and the ship
-       verifier's harness) they are simply absent and this block sleeps. */
-    try {
-      if (typeof __WOM_NEW_CODE !== "undefined" && __WOM_NEW_CODE &&
-          typeof __WOM_RUNNING_NOTES === "number" && __WOM_RUNNING_NOTES > 0 &&
-          NOTES >= __WOM_RUNNING_NOTES) {
-        NOTES = __WOM_RUNNING_NOTES - 1;
-        writeMeta();
-      }
-    } catch (e) {}
   } catch (e) {
     NOTES = 0;
     BY = "";
@@ -810,10 +793,6 @@ self.rpc = {
       at: AT,
       by: BY,
       notes: NOTES,
-      /* Note 302b: the update this server runs — older tabs reload onto the
-         deploy by themselves. 0 under older hosts (unknown); clients ignore
-         anything but a strictly newer number. */
-      build: (typeof __WOM_RUNNING_NOTES !== "undefined" && typeof __WOM_RUNNING_NOTES === "number" && __WOM_RUNNING_NOTES > 0 ? Math.floor(__WOM_RUNNING_NOTES) : 0),
       sections: "{" + parts.join(",") + "}",
       log: LOG,
       admin: admins.has(info.conn.id),

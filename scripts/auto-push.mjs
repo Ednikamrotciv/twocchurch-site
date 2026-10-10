@@ -16,60 +16,6 @@ import { pushMirror } from "./feed-mirror.mjs";
    git checkout, or when there is no remote to push to. */
 
 const DELAY_MS = 120000;
-/* Sleeps die fast: on Render the box can nap a minute after a publish, so the
-   persist push goes out in seconds there instead of minutes (note 302). */
-const RENDER_DELAY_MS = 15000;
-
-/* Durable publishes on hosts with no disk (note 302): Render free sleeps and
-   wipes data/cms-state.bin — a publish made on the live box dies with the nap
-   and the site falls back to the last deploy, looking like a new update. When
-   a token is configured the server commits + pushes after every save, so the
-   publish is in git before the nap and the next boot clones it back. Free: a
-   fine-grained GitHub PAT (Contents read + write on this repo only) as
-   GITHUB_TOKEN (WOM_GIT_TOKEN and GIT_TOKEN also work). The token never
-   leaves the server and is never logged. */
-function pushToken() {
-  if (typeof process === "undefined" || !process.env) return "";
-  return String(process.env.GITHUB_TOKEN || process.env.WOM_GIT_TOKEN || process.env.GIT_TOKEN || "").trim();
-}
-function onRenderHost() {
-  if (typeof process === "undefined" || !process.env) return false;
-  return !!(process.env.RENDER || process.env.RENDER_SERVICE_ID);
-}
-/** How this backend survives a restart: token-pushed, local disk, or wiped. */
-export function persistMode() {
-  if (pushToken()) return "token";
-  if (!onRenderHost()) return "local";
-  if (typeof process !== "undefined" && process.env && process.env.PERSIST_OK === "1") return "disk";
-  return "ephemeral";
-}
-/** "render" on Render, else "other" — rides the getContent answer for __maintState. */
-export function hostKind() {
-  return onRenderHost() ? "render" : "other";
-}
-/** Branch to push to: Render names it, else the checkout does. "" = unknown. */
-async function pushBranch(rootDir) {
-  try {
-    if (typeof process !== "undefined" && process.env && process.env.RENDER_GIT_BRANCH) {
-      const b = String(process.env.RENDER_GIT_BRANCH).trim();
-      if (b) return b;
-    }
-    const b = await run("git", ["rev-parse", "--abbrev-ref", "HEAD"], rootDir);
-    const name = String(b.out || "").trim();
-    if (b.code === 0 && name && name !== "HEAD") return name;
-  } catch { /* unknown — the caller says so instead of guessing */ }
-  return "";
-}
-/** Origin URL with the token embedded for the push only (never stored, never logged). */
-async function authedPushUrl(rootDir) {
-  const token = pushToken();
-  if (!token) return null;
-  const remote = await run("git", ["remote", "get-url", "origin"], rootDir);
-  const url = String(remote.out || "").trim();
-  if (remote.code !== 0 || !url) return null;
-  if (/^https:\/\/github\.com\//i.test(url)) return url.replace(/^https:\/\//i, () => "https://x-access-token:" + token + "@");
-  return null; // ssh or non-github remotes: a token cannot authenticate these
-}
 
 let runner = null;
 let hookSender = null;
@@ -133,15 +79,8 @@ async function pushOnce(rootDir) {
       return { skipped: repo.reason };
     }
     const dirty = await run("git", ["status", "--porcelain", "--", "data", "seed.json"], rootDir);
-    if (dirty.code !== 0) {
-      if (onRenderHost()) console.warn("auto-deploy: git status failed at runtime — live publishes here die on sleep; publish from the office computer instead (see DEPLOY.md)");
-      return { skipped: "git status failed" };
-    }
+    if (dirty.code !== 0) return { skipped: "git status failed" };
     if (!dirty.out.trim()) return { skipped: "nothing new to deploy" };
-    const branch = await pushBranch(rootDir);
-    const authed = await authedPushUrl(rootDir);
-    if (pushToken() && !authed) console.warn("auto-deploy: a token is set but origin is not an https github URL — token cannot authenticate this remote");
-    if (pushToken() && authed && !branch) console.warn("auto-deploy: a token is set but the branch is unknown — falling back to a plain push, which needs its own login");
     const bake = await run("node", ["scripts/bake-seed.mjs"], rootDir);
     if (bake.code !== 0) {
       console.warn("auto-deploy: could not bake the new words — will retry after the next publish");
@@ -152,15 +91,11 @@ async function pushOnce(rootDir) {
     const again = await run("git", ["status", "--porcelain", "--", "data", "seed.json"], rootDir);
     if (!again.out.trim()) return { skipped: "nothing new to deploy" };
     const day = new Date().toISOString().slice(0, 16).replace("T", " ");
-    /* Identity inline (not global): hosts like Render have no git identity. */
-    const commit = await run("git", ["-c", "user.name=WOM Office", "-c", "user.email=office@localhost", "commit", "-m", `content update ${day}`, "--quiet"], rootDir);
+    const commit = await run("git", ["commit", "-m", `content update ${day}`, "--quiet"], rootDir);
     if (commit.code !== 0) return { skipped: "git commit failed" };
-    let push;
-    if (authed && branch) push = await run("git", ["push", "--quiet", authed, `HEAD:${branch}`], rootDir);
-    else push = await run("git", ["push", "--quiet"], rootDir);
+    const push = await run("git", ["push", "--quiet"], rootDir);
     if (push.code !== 0) {
-      if (onRenderHost() && !pushToken()) console.warn("auto-deploy: push failed and no token is set — on Render free, set GITHUB_TOKEN or live publishes die on sleep (see DEPLOY.md)");
-      else console.warn("auto-deploy: push failed (offline, or the login expired) — the words are safe here and will go out after the next publish");
+      console.warn("auto-deploy: push failed (offline, or the login expired) — the words are safe here and will go out after the next publish");
       return { skipped: "git push failed" };
     }
     console.log("auto-deploy: new words pushed — the live site updates itself in a few minutes");
@@ -221,7 +156,7 @@ export function notePublished(rootDir, delayMs) {
   if (timers.has(rootDir)) clearTimeout(timers.get(rootDir));
   timers.set(
     rootDir,
-    setTimeout(() => pushOnce(rootDir), delayMs == null ? (onRenderHost() ? RENDER_DELAY_MS : DELAY_MS) : delayMs)
+    setTimeout(() => pushOnce(rootDir), delayMs == null ? DELAY_MS : delayMs)
   );
 }
 

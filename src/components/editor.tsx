@@ -2056,22 +2056,6 @@ export function ToolsPage() {
       {state.role === "main" && <ChangePassword />}
       {state.role === "main" && <SubAdmins />}
       {state.role === "sub" && <MainSigninState />}
-      {/* Note 302: Render free sleeps and wipes live publishes — say so here,
-          where the office works, with the free fix beside it. */}
-      {state.persist === "ephemeral" && (
-        <Card className="admin__tool">
-          <h4>
-            <Icon name="alert" size={16} /> This server forgets publishes when it sleeps
-          </h4>
-          <p>
-            This backend runs on Render free with nowhere to keep live publishes: anything published here is wiped
-            on the next sleep and the site falls back to the last deploy. Fix it free in five minutes — a
-            fine-grained GitHub token (Contents read + write on this repo only) as <b>GITHUB_TOKEN</b> in the
-            Render dashboard (Environment), then Restart. Until then, publish from the office computer instead —
-            its words deploy by themselves.
-          </p>
-        </Card>
-      )}
       <div className="admin__toolgrid">
         <Card className="admin__tool">
           <h4>

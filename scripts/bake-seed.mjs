@@ -36,7 +36,22 @@ export async function bakeSeed(rootDir, outPath) {
       if (typeof prev?.notes === "number" && prev.notes > 0) notes = Math.floor(prev.notes);
     } catch { /* no previous stamp — ships 0, a first run never waits */ }
   }
-  await writeFile(target, JSON.stringify({ rev, notes, sections }));
+  /* The publish history rides the same bake (note 303): Render's free tier
+     wipes the live store on every sleep, and the stamp alone is not enough —
+     without the history every wake cleared "Last published" in the admin
+     console. Kept across empty bakes like the stamp above. */
+  let log = Array.isArray(res.log) ? res.log.slice(0, 20) : [];
+  let by = typeof res.by === "string" ? res.by.slice(0, 60) : "";
+  let at = typeof res.at === "number" ? res.at : 0;
+  if (!log.length && !by && !at) {
+    try {
+      const prev = JSON.parse(await readFile(target, "utf8"));
+      if (Array.isArray(prev?.log)) log = prev.log.slice(0, 20);
+      if (typeof prev?.by === "string") by = prev.by.slice(0, 60);
+      if (typeof prev?.at === "number") at = prev.at;
+    } catch { /* no previous history — ships empty */ }
+  }
+  await writeFile(target, JSON.stringify({ rev, notes, sections, log, by, at }));
   console.log(`bake-seed: baked ${ids.length} sections into ${path.relative(rootDir, target)}`);
   /* The recent-services list ships in the same file, so every copy paints the
      same services as the preview (see bake-recent.mjs). Best effort — a missed

@@ -1,61 +1,76 @@
-APPLY THIS UPDATE (302) — LOCAL + LIVE
+APPLY THIS UPDATE (303) — LOCAL + LIVE
 =====================================
-This update fixes Render free wiping live publishes (note 302). Until now a
-publish made on the live box lived on the nap-powered disk only: the next
-sleep wiped it and the site fell back to the last deploy — content reverted
-AND the publish stamp dropped, so visitors waited on maintenance as if a new
-update had landed. From here on:
+This update ends the Render-free-sleep problem: every sleep used to wipe the
+live publish (words, stamp AND history), so the site looked like a brand-new
+update — maintenance notice for fresh visitors, empty "Last published" in the
+admin — until the office published again. From here on (notes 301–303):
 
-- Every save pushes itself to git seconds later (15s on Render, 2 min on the
-  office computer), WITH a token when one is configured — so the publish is
-  in the repo before the nap and the next boot clones it back.
-- Render warns before sleep (SIGTERM): one last push attempt inside a 20s cap.
-- Every content answer carries the backend's durability (token / disk /
-  local / ephemeral — see window.__maintState().persist), and the Tools card
-  warns while still ephemeral, with the free fix beside it.
-- One-time free setup (5 minutes): GitHub → Settings → Developer settings →
-  Personal access tokens → Fine-grained → this repo only → Contents read +
-  write → Generate. Render dashboard → Environment → add GITHUB_TOKEN →
-  Restart. No code changes after that — publishes just survive.
-- Alternatives (no token): mount a Render disk at data/ and set PERSIST_OK=1,
-  or publish from the office computer only (its words deploy by themselves).
+- The bake carries the whole publish: words + stamp + history (log/by/at).
+  A wake re-serves the last publish exactly as it was — visitors stay live,
+  "Last published" stays put, no office action needed. Sleep all it wants.
+- The standing rules are unchanged and still locked by the verifier:
+  * a NEW, DIFFERENT update holds on maintenance until the office publishes
+    (plain reload is enough — never a hard refresh, note 302);
+  * with NO new update the copy remains on the last published (note 300);
+  * only an explicit office action lifts maintenance (note 301).
+- Publish LOCALLY from now on (this is the durable path):
+  * office publishes carry the disk, the git login and the auto-push. About
+    two minutes after a local publish, data/ + seed.json commit and push by
+    themselves, Render rebuilds, and the new bake (words+stamp+history) goes
+    live on its own.
+  * a publish on LIVE /admin between deploys still works, but it lives on
+    Render's ephemeral disk only — the next sleep lets it go. Use live
+    publish only as a stopgap; then publish the same words locally so the
+    next bake keeps them.
+  * because of the above, the old "bless on live /admin" step is no longer
+    part of the routine — skip it unless the bake missed (see check 8).
+- The pre-ship verifier has a new section J locking this fix — one FAIL
+  blocks the ship. It passed for this zip.
 
 LOCAL (your computer)
 1. In the OLD folder: open #/admin → Tools → Back up now. Keep the file.
 2. Extract THIS zip to a NEW folder (do not extract over the old one).
 3. In the new folder: npm install
-4. npm run dev → http://localhost:5173/  (admin: /admin)
+4. Use `npm run dev` for local work (http://localhost:5173/, admin: /admin).
+   Do NOT run `npm start` on the office machine: sharing ships ON in this
+   folder, and a local `npm start` would re-point cms-server.txt at this
+   machine's tunnel (the live site must keep pointing at Render).
 5. BEFORE restoring: the site must show the maintenance notice ("We'll be
-   right back", logo + message only, no links) — this update holds
-   until blessed. That check is the point.
+   right back", logo + message only) — this update holds until blessed.
+   A plain reload must show it; no hard refresh needed.
 6. #/admin → Tools → Restore the backup file → Review and publish → Publish.
-   Local lifts to 302 and the notice releases. Reload desktop + phone
-   width to verify (a normal reload is enough — tabs now update
-   themselves; no hard-reload needed).
-7. Check: reload again with no new update — the site stays on the last
+   Local lifts to 303 and the notice releases. Reload desktop + phone
+   width to verify (plain reloads).
+7. Wait ~2–3 minutes, then check `git log --oneline -3`: you must see a
+   "content update …" commit. If not, the auto-push failed (offline, or the
+   login expired) — push by hand: bake first (`npm run bake-seed`), then
+   `git add -A -- data seed.json && git commit -m "content update" && git push`.
+   WITHOUT this push the live bake goes stale and a live wake waits on
+   maintenance again — this push is the whole fix working.
+8. Check: reload again with no new update — the site stays on the last
    published (no notice, published words intact). Console check:
-   window.__maintState() shows publishedNotes 302.
+   window.__maintState() shows publishedNotes 303.
 
 LIVE (Render: twocchurch-site.onrender.com)
-1. Add GITHUB_TOKEN in the Render dashboard (Environment) — see above.
-   (Skip only if a disk is mounted at data/ with PERSIST_OK=1 set.)
-2. Put this code where Render builds it (replace src/, scripts/, index.html,
+1. Put this code where Render builds it (replace src/, scripts/, index.html,
    seed.json, vite.config.ts, package.json — keep data/ as-is), commit/push.
    Render: install npm install, build npm run build, start node scripts/serve.mjs.
-3. Confirm https://twocchurch-site.onrender.com/version.json shows {"notes":302}.
-4. The live site now waits on the maintenance notice until blessed. If it was
-   wiped by sleep before, this is also the recovery: the notice is correct,
-   the words come back with your backup. Even if a stamp from the local
-   publish rode in with the deploy, the new build still holds until you
-   publish here — a shipped stamp can never open it (fix 301b).
-5. Open live /admin → Tools → Restore the backup file → Review and publish →
-   Publish. This blesses 302 and lifts mobile + desktop together (no rebuild
-   needed for this step). The push to git follows within seconds — check the
-   Render logs for "auto-deploy: new words pushed".
-6. Reload both modes (normal reload — tabs left open update themselves
-   within a minute, no hard-reload needed). From here on a Render sleep must NOT revert words
-   and must NOT bring the notice back — that is the fix being shipped. Verify
-   by sleeping the service (or waiting for a nap) and reloading.
+2. Confirm https://twocchurch-site.onrender.com/version.json shows {"notes":303}.
+3. Push the step-7 content commit if you have not already (the bake must be
+   from 303 or newer — a bake stamped 302 or older still waits, by design).
+   Render rebuilds on the push by itself.
+4. The live site now waits on the maintenance notice until the publish lands
+   through the bake — verify with a PLAIN reload on desktop + phone width.
+   No live /admin publish needed this time; only use it if the bake missed.
+5. Sleep test (optional, proves the fix): in the Render dashboard, restart
+   the service (or just wait for it to sleep). The site must stay live with
+   "Last published" intact — no notice, no re-publish. If the notice shows,
+   the bake is stale: do step 7 first, then test again.
+6. Optional but recommended on free Render: a free keep-awake ping
+   (e.g. UptimeRobot, every 5 minutes, to
+   https://twocchurch-site.onrender.com/version.json) skips the 30–60s cold
+   boot after a sleep. Harmless either way now — sleep loses nothing — it
+   only makes first loads faster.
 
 If desktop ever looks live while mobile waits: desktop is in ?preview=1
 (gold Preview bar) — click Exit preview. Or clear that tab's preview flag.

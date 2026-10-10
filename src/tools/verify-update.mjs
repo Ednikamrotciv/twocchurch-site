@@ -15,7 +15,6 @@
 
 const FILES = [
   ["scripts/cms-server.js", "js"],
-  ["scripts/cms-local.mjs", "js"],
   ["scripts/seed-fallback.mjs", "js"],
   ["src/lib/cms.ts", "ts"],
   ["src/components/editor.tsx", "tsx"],
@@ -26,8 +25,11 @@ const FILES = [
   ["src/lib/pageMap.ts", "ts"],
   ["src/components/layout.tsx", "tsx"],
   ["src/App.tsx", "tsx"],
+  ["scripts/build-static.mjs", "js"],
   ["scripts/serve.mjs", "js"],
-  ["scripts/auto-push.mjs", "js"],
+  ["scripts/vite-cms-backend.mjs", "js"],
+  ["scripts/bake-seed.mjs", "js"],
+  ["index.html", null],
   ["APPLY_UPDATE.txt", null],
 ];
 
@@ -238,7 +240,7 @@ export async function runAll(fs) {
   ok("boot never zeroes the stamp", has(cms, "Raise-only, never wipe (note 300)"), "a storage failure must keep the in-memory stamp");
   ok("proven-new codegen gate", has(cms, "function storedCodegenProvesNewUpdate()") && has(cms, "const freshEyes = storedCodegenProvesNewUpdate();"), "only a stored codegen that exists and differs is a new update");
   ok("cache carries its publish update", has(cms, "function writeCache()") && has(cms, "notes: publishedNotes") && !has(cms, "writeJSON(CACHE_KEY, { rev, overrides })"), "every cache write must stamp its update");
-  ok("cache stamp adopted as evidence", has(cms, 'Math.floor(cached.notes) < BUILD_NOTES)) setPublishedNotes(cached.notes)'), "a returning copy stays on its last publish");
+  ok("cache stamp adopted as evidence", has(cms, 'typeof cached.notes === "number") setPublishedNotes(cached.notes)'), "a returning copy stays on its last publish");
   ok("offline flush blesses", has(cms, "An offline flush is a deliberate office publish"), "flushPending must move the stamp like any publish");
   /* H. maintenance can never vanish again (note 301): a corrupt stamp waits,
      seed immunity is pre-bake memory, blank answers never bless, a new history
@@ -250,39 +252,63 @@ export async function runAll(fs) {
   const layout = text["src/components/layout.tsx"];
   const maintBlock = layout.slice(layout.indexOf("export function MaintenanceSite()"), layout.indexOf("export function PageHead("));
   ok("notice stays bare", maintBlock.length > 100 && !has(maintBlock, "maint__update") && !has(maintBlock, "Preview the new site") && !has(maintBlock, "Open the admin console") && has(maintBlock, "right back"), "office wants logo + message only, no update line or links");
-  /* I. live publishes survive Render free sleep (note 302): the box pushes to
-     git with a token seconds after each save, stamps every answer with its own
-     durability, and the Tools card warns while still ephemeral. */
-  const ap = text["scripts/auto-push.mjs"];
-  ok("token push", has(ap, "x-access-token:") && (has(ap, "GITHUB_TOKEN") || has(ap, "WOM_GIT_TOKEN")), "server must push with a token, never logged");
-  ok("render-short delay", has(ap, "RENDER_DELAY_MS"), "Render must push in seconds, not minutes");
-  ok("commit identity inline", has(ap, "user.name=WOM Office"), "hosts have no git identity configured");
-  ok("persist mode exported", has(ap, "export function persistMode()"), "serve + banner need one source");
-  const sv = text["scripts/serve.mjs"];
-  ok("answers stamped", has(sv, "ans.persist = PERSIST"), "getContent must carry durability");
-  ok("sleep flush", has(sv, "SIGTERM"), "Render warns before sleep — push while there is time");
-  ok("cms tracks durability", has(cms, "backendPersist") && has(cms, "res as any).persist"), "banner + __maintState need the stamp");
-  ok("tools warns while ephemeral", has(ed, "forgets publishes when it sleeps") && has(ed, "GITHUB_TOKEN"), "office must meet the fix where they work");
+  /* I. no hard refresh ever again (note 302): after an update a NORMAL reload
+     must land visitors on the maintenance notice until the office publishes.
+     The one-shot stale guard trapped tabs on the old bundle (Ctrl+Shift+R to
+     escape); a cached version.json / index.html hid the update entirely; and
+     the app painted live before the version check settled. */
+  const app = text["src/App.tsx"];
+  const html = text["index.html"];
+  const staticBuild = text["scripts/build-static.mjs"];
+  const serve = text["scripts/serve.mjs"];
+  const backend = text["scripts/vite-cms-backend.mjs"];
+  ok("stale reload retried, never one-shot", has(cms, "STALE_MAX_TRIES") && !has(cms, "sessionStorage.getItem(STALE_RELOAD_KEY) === String"), "the one-shot guard traps tabs on old code");
+  ok("stale fetch cache-busted", has(cms, '"t=" + Date.now()'), "version.json must bypass every cache");
+  ok("stale bundle waits, never plays live", has(cms, "staleNewerNotes > BUILD_NOTES"), "old code must show maintenance once an update is known");
+  ok("stale gate exported", has(cms, "export function useStaleBuild()"));
+  ok("app holds splash for the version check", has(app, "useStaleBuild()") && has(app, "!stale.settled"), "live must not paint before the check settles");
+  ok("app waits while stale", has(app, "stale.waiting || maintenance"));
+  ok("app re-checks while open", has(app, "setInterval") && has(app, "checkStaleBuild"));
+  ok("pre-bundle gate in the entry page", has(html, "wom.cms.notes") && has(html, "/version.json?t=") && has(html, "right back"), "the notice must paint before React boots");
+  ok("entry gate yields to preview", has(html, 'q.get("preview") === "1"'), "the office preview must bypass the early notice");
+  ok("static hosts never cache the entry", has(staticBuild, "_headers") && has(staticBuild, ".htaccess") && has(staticBuild, "no-store, must-revalidate"));
+  ok("server never caches the stamp", has(serve, 'base === "version.json"'), "a cached version.json hides the update");
+  ok("dev bake keeps the stamp", has(backend, "notes, sections"), "a notes-less seed holds a published deploy on maintenance");
+  /* J. free-host sleep is harmless (note 303): Render's free tier wipes the
+     live store on every sleep, which used to clear the admin publish
+     (sections, stamp AND history) so the site looked like a new update until
+     the office published again. The bake now carries the publish history
+     with the stamp, and the fallback serves all of it — a wake re-serves the
+     last publish with its history, no office action needed. */
+  const bake = text["scripts/bake-seed.mjs"];
+  ok("bake carries the history", has(bake, "note 303") && has(bake, "log, by, at"), "a stamp-only bake clears Last published on every wake");
+  ok("dev bake carries the history", has(backend, "note 303"));
+  ok("fallback serves the history", has(fb, "out.log = good.log"), "words without history still clear Last published");
+  try {
+    const modJ = await import(
+      URL.createObjectURL(new Blob([text["scripts/seed-fallback.mjs"]], { type: "text/javascript" }))
+    );
+    const wiped = JSON.stringify({ ok: true, rev: 0, at: 0, by: "", notes: 0, sections: "{}", log: [], admin: false, pwgen: 3 });
+    const baked = {
+      rev: 15,
+      notes: 303,
+      sections: { home: JSON.stringify({ title: "Live words" }) },
+      log: [{ rev: 15, at: 1700000000000, by: "office", note: "Sunday update", changed: ["home"] }],
+      by: "office",
+      at: 1700000000000,
+    };
+    const w = JSON.parse(modJ.fallbackGetContent(wiped, baked));
+    ok("wake re-serves words+stamp+history", w.seeded === true && w.rev === 15 && w.notes === 303 && JSON.parse(JSON.parse(w.sections).home).title === "Live words" && w.log.length === 1 && w.log[0].note === "Sunday update" && w.by === "office" && w.at === 1700000000000, "a wake must restore the whole publish");
+    const bare = JSON.parse(modJ.fallbackGetContent(wiped, { rev: 4, notes: 0, sections: { home: JSON.stringify({ t: 1 }) } }));
+    ok("history-less bake stays safe", bare.seeded === true && Array.isArray(bare.log) && bare.log.length === 0 && bare.by === "" && bare.at === 0);
+    const liveFull = JSON.stringify({ ok: true, rev: 16, at: 1, by: "office", notes: 303, sections: JSON.stringify({ home: JSON.stringify({ title: "Newer" }) }), log: [{ rev: 16 }], admin: false, pwgen: 3 });
+    const lf = JSON.parse(modJ.fallbackGetContent(liveFull, baked));
+    ok("fallback leaves a live store alone", lf.sections !== undefined && JSON.parse(JSON.parse(lf.sections).home).title === "Newer" && lf.seeded !== true, "a healthy store must never be overlaid");
+  } catch (e) {
+    ok("wake suite", false, String((e && e.message) || e).slice(0, 200));
+  }
   const notes = Number((text["src/lib/hooks.ts"].match(/BUILD_NOTES = (\d+)/) || [])[1]) || 0;
   const apply = text["APPLY_UPDATE.txt"];
   ok("update number consistent", notes > 0 && has(apply, `APPLY THIS UPDATE (${notes})`), "hooks=" + notes);
-  /* J. a shipped stamp can never open a new build (fix 301b, ported) + tabs
-     update themselves (note 302b): the local publish rides to the host inside
-     the artifacts, and open tabs used to sit on old code until a hand
-     hard-reload. */
-  ok("first sight trusts server only", has(cms, "function storedCodegenFirstSight()") && has(cms, "bootFirstSight = storedCodegenFirstSight()"), "boot must capture first sight before the codegen stamp lands");
-  ok("shipped seed stamp gated", has(cms, "(!bootFirstSight || Math.floor((seed as any).notes) < BUILD_NOTES)"), "baked words paint but do not bless on first sight");
-  ok("shipped cache stamp gated", has(cms, "(!bootFirstSight || Math.floor(cached.notes) < BUILD_NOTES)"), "cached words paint but do not bless on first sight");
-  ok("shipped feed stamp gated", has(cms, "(!bootFirstSight || Math.floor(live.notes) < BUILD_NOTES)"), "mirrored words paint but do not bless on first sight");
-  ok("poisoned memory dropped on upgrade", has(cms, "cgNum < BUILD_NOTES") && has(cms, "publishedNotes = 0;"), "a stamp remembered from an unrun build is not evidence");
-  ok("server holds shipped stamp", has(srv, "__WOM_NEW_CODE") && has(srv, "__WOM_RUNNING_NOTES") && has(srv, "NOTES = __WOM_RUNNING_NOTES - 1"), "first boot of new code holds a shipped stamp one back");
-  const host = text["scripts/cms-local.mjs"];
-  ok("host names running update", has(host, "__WOM_RUNNING_NOTES: srcNotes") && has(host, "BUILD_NOTES = ("), "the server must know which update it runs");
-  ok("host flags first boot of new code", has(host, "__WOM_NEW_CODE: newCode") && has(host, "const newCode = !prevHash"), "restarts keep everything, new code holds");
-  ok("host tracks update in marker", has(host, "notes: srcNotes"), "src-only updates must count as new code");
-  ok("update watch polls", has(cms, "function startBuildWatch()") && has(cms, "pageshow") && has(cms, "60000"), "open tabs must notice a deploy by themselves");
-  ok("stale reload retries", has(cms, "STALE_RETRIES_KEY") && has(cms, "function reloadOntoBuild"), "a reload that lands behind must retry, bounded");
-  ok("server names its build", has(srv, "__WOM_RUNNING_NOTES > 0"), "content answers must carry the running update");
-  ok("older tab reloads onto deploy", has(cms, "Math.floor((res as any).build) > BUILD_NOTES") && has(cms, "reloadOntoBuild(Math.floor((res as any).build))"), "POST answers are never edge-cached");
   return out.join("\n");
 }
