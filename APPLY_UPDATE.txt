@@ -1,58 +1,56 @@
-APPLY THIS UPDATE (300) — LOCAL + LIVE
+APPLY THIS UPDATE (301) — LOCAL + LIVE
 =====================================
-This zip fixes the false fresh-reset: the site went back to update-mode and
-looked new and fresh even when there was NO new update, clearing the saved
-published. Rule from here on (note 300):
+This zip locks maintenance so it can never vanish again. Rule from here on (note 301):
 
 - A NEW, DIFFERENT update: fresh and new. The new code opens on its own
   words, visitors wait on the maintenance notice until the office restores
-  a backup and Publishes — unchanged.
-- NO new update: the copy REMAINS in the last published. Nothing drags it
-  back to update-mode by itself any more:
-  * the boot no longer manufactures a hold stamp (the forced BUILD-1 write
-    is gone — a missing stamp waits as unreviewed but is never rewritten);
-  * the cached paint is skipped only on a PROVEN new update (a stored
-    codegen that exists and differs) — a missing stamp never means "fresh";
-  * a storage hiccup never zeroes the held stamp; the cache now remembers
-    which update its words were published from, so a returning copy stays
-    live on that publish even before the server answers;
-  * a restarted server (Render free, no disk) serves the bake's publish
-    stamp again instead of forgetting it — visitors stay on the last
-    published, and "Last published (when and by whom)" no longer clears.
-- Only an explicit office delete (the Forget path) clears last-published.
-  Sign-outs, password changes, restarts and rebuilds never do.
-- Everything from 299 and before, unchanged: "Where things stand" shows
-  Sharing / Last published / Waiting to publish only; Main photos stay out
-  of the drawer; slides take pictures only; publish replaces outright with
-  a ~15-minute server undo; no disk needed; slide rhythm, plain
-  Restore/Publish buttons.
-- The pre-ship verifier (src/tools/verify-update.mjs) has a new section G
-  locking this rule — one FAIL blocks the ship. It passed for this zip.
+  a backup and Publishes — unchanged, now hardened:
+  * a corrupt stamp (NaN, negative, unreadable) waits as unreviewed, never
+    reads as published;
+  * seed immunity is the browser's own memory BEFORE the bake lands;
+  * a blank server answer can never bless or clear — the empty guard runs
+    before the publish stamp is adopted;
+  * a new history generation on the server is unreviewed (stamp reset) —
+    visitors wait until the office publishes;
+  * the notice itself keeps its update line + office doors (Preview the new
+    site, Open the admin console), so the window never looks missing.
+- NO new update: the copy REMAINS in the last published (note 300,
+  unchanged). Only an explicit office delete (the Forget path) clears
+  last-published. Sign-outs, password changes, restarts and rebuilds never do.
+- Only an explicit office action lifts maintenance: publish, undo click,
+  bless, offline flush (online or local). Heal never blesses. The feed, the
+  baked seed, the server answer and the browser cache are witnessed evidence
+  only — raise-only, never manufactured.
+- Everything from 300 and before, unchanged.
+- The pre-ship verifier has a new section H locking this rule — one FAIL
+  blocks the ship. It passed for this zip.
 
 LOCAL (your computer)
 1. In the OLD folder: open #/admin → Tools → Back up now. Keep the file.
 2. Extract THIS zip to a NEW folder (do not extract over the old one).
-3. In the new folder: npm install   (no npm notice in this folder)
+3. In the new folder: npm install
 4. npm run dev → http://localhost:5173/  (admin: /admin)
 5. BEFORE restoring: the site must show the maintenance notice ("We'll be
-   right back") — this update holds until blessed. That check is the point.
+   right back") with "Update 301 installed · last published update ..." plus
+   "Preview the new site" and "Open the admin console" — this update holds
+   until blessed. That check is the point.
 6. #/admin → Tools → Restore the backup file → Review and publish → Publish.
-   Local lifts to 300 and the notice releases. Hard-reload desktop + phone
+   Local lifts to 301 and the notice releases. Hard-reload desktop + phone
    width to verify.
 7. Check: reload again with no new update — the site stays on the last
    published (no notice, published words intact). Console check:
-   window.__maintState() shows publishedNotes 300.
+   window.__maintState() shows publishedNotes 301.
 
 LIVE (Render: twocchurch-site.onrender.com)
 1. Put this code where Render builds it (replace src/, scripts/, index.html,
    seed.json, vite.config.ts, package.json — keep data/ as-is), commit/push.
    Render: install npm install, build npm run build, start node scripts/serve.mjs.
-2. Confirm https://twocchurch-site.onrender.com/version.json shows {"notes":300}.
+2. Confirm https://twocchurch-site.onrender.com/version.json shows {"notes":301}.
 3. The live site now waits on the maintenance notice until blessed.
-4. Open live /admin → Review and publish → Publish. This blesses 300 and lifts
+4. Open live /admin → Review and publish → Publish. This blesses 301 and lifts
    mobile + desktop together (no rebuild needed for this step).
 5. Hard-reload both modes. A later Render restart must NOT bring the notice
-   back and must NOT clear Last published — that is the fix being shipped.
+   back and must NOT clear Last published — that is still the rule.
 
 If desktop ever looks live while mobile waits: desktop is in ?preview=1
 (gold Preview bar) — click Exit preview. Or clear that tab's preview flag.

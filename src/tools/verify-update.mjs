@@ -237,6 +237,16 @@ export async function runAll(fs) {
   ok("cache carries its publish update", has(cms, "function writeCache()") && has(cms, "notes: publishedNotes") && !has(cms, "writeJSON(CACHE_KEY, { rev, overrides })"), "every cache write must stamp its update");
   ok("cache stamp adopted as evidence", has(cms, 'typeof cached.notes === "number") setPublishedNotes(cached.notes)'), "a returning copy stays on its last publish");
   ok("offline flush blesses", has(cms, "An offline flush is a deliberate office publish"), "flushPending must move the stamp like any publish");
+  /* H. maintenance can never vanish again (note 301): a corrupt stamp waits,
+     seed immunity is pre-bake memory, blank answers never bless, a new history
+     generation is unreviewed, and the notice keeps its update line + office doors. */
+  ok("corrupt stamp waits", (cms.split("corrupt stamp is unreviewed").length - 1) >= 2, "gates must sanitize the stamp");
+  ok("seed immunity pre-bake", cms.indexOf("const seenBefore = readJSON<number>(NOTES_KEY, 0);") < cms.indexOf("setPublishedNotes((seed as any).notes)"), "seenBefore must be read before the bake lands");
+  ok("blank never blesses", has(cms, "a blank answer can never bless"), "empty server answers must run before the stamp");
+  ok("new generation unreviewed", has(srv, "NOTES = 0; // note 301"), "history generation change must reset the publish stamp");
+  const layout = text["src/components/layout.tsx"];
+  ok("notice names updates", has(layout, "maint__update") && has(layout, "last published update"), "notice must name installed + last published");
+  ok("notice keeps office doors", has(layout, "Preview the new site") && has(layout, "?preview=1") && has(layout, "Open the admin console"), "notice must link preview + admin console");
   const notes = Number((text["src/lib/hooks.ts"].match(/BUILD_NOTES = (\d+)/) || [])[1]) || 0;
   const apply = text["APPLY_UPDATE.txt"];
   ok("update number consistent", notes > 0 && has(apply, `APPLY THIS UPDATE (${notes})`), "hooks=" + notes);

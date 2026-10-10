@@ -173,7 +173,9 @@ function serverInvolved(): boolean {
     wiped store, or a server reset to notes 0 — still unreviewed, still
     waits). Server-less copies never wait (no visitors). A publish lifts. */
 export function maintenanceShouldWait(): boolean {
-  if (publishedNotes >= BUILD_NOTES) return false;
+  /* Note 301: a corrupt stamp is unreviewed, never published — wait when server-backed. */
+  const held = typeof publishedNotes === "number" && Number.isFinite(publishedNotes) ? Math.floor(publishedNotes) : 0;
+  if (held >= BUILD_NOTES) return false;
   if (!serverInvolved()) return false;
   return true;
 }
@@ -189,7 +191,9 @@ export function useMaintenance(): boolean {
   useCmsVersion();
   /* Re-render when status/socket changes (notify without a version bump). */
   useSyncExternalStore(subscribe, () => stateObj);
-  if (publishedNotes >= BUILD_NOTES) return false;
+  /* Note 301: a corrupt stamp is unreviewed, never published. */
+  const held = typeof publishedNotes === "number" && Number.isFinite(publishedNotes) ? Math.floor(publishedNotes) : 0;
+  if (held >= BUILD_NOTES) return false;
   if (!serverInvolved()) return false;
   try {
     if (maintenancePreview()) return false;
@@ -1129,8 +1133,9 @@ async function applySeedOnce() {
            while an older bake still means wait.
            The browser's own memory first (note 281): the hold stamp below
            persists itself, so immunity must be read before it lands. */
-        if (typeof (seed as any).notes === "number") setPublishedNotes((seed as any).notes);
+        /* Note 301: immunity is the browser's own memory BEFORE the bake lands. */
         const seenBefore = readJSON<number>(NOTES_KEY, 0);
+        if (typeof (seed as any).notes === "number") setPublishedNotes((seed as any).notes);
         /* Maintenance hold (stamped by maintenance-hold.txt at build time): a
            visitor with no recorded publish is held one update back, so the
            notice shows until the office publishes — even when the baked stamp
@@ -1686,15 +1691,28 @@ async function syncFromServer() {
     notify();
     return;
   }
+  /* Note 301: a blank answer can never bless and never clear — the empty
+     guard runs BEFORE the publish stamp is adopted, so only a live answer
+     moves maintenance. */
+  if (!Object.keys(server).length && Object.keys(overrides).length) {
+    if (pending) pending = { ...clone(pending), ...clone(overrides) };
+    else if (!plannedPublish()) pending = clone(overrides);
+    if (pending) writeJSON(PENDING_KEY, pending);
+    if (authed) {
+      try {
+        await healEmptyServer();
+      } catch {}
+    }
+    notify();
+    return;
+  }
   /* The publish stamp alone can flip the maintenance notice (note 278): it
-     must re-render even when the content itself is unchanged. */
+     must re-render even when the content itself is unchanged. Reaching here
+     means the answer is live (note 296) — the seeded + empty holds above
+     already returned. */
   const notesBefore = publishedNotes;
   if (typeof res.notes === "number") setPublishedNotes(res.notes);
   const notesLifted = publishedNotes > notesBefore;
-  /* Version, author and log ride with the content they describe (note 296):
-     an empty answer from a restarted box must not blank "last published"
-     while this tab still holds the words — both hold paths above return
-     first, so reaching here means the answer is live. */
   rev = serverRev;
   updatedAt = res.at || 0;
   updatedBy = res.by || "";
@@ -1706,7 +1724,9 @@ async function syncFromServer() {
        Painting that emptiness would wipe the site, the cache and the draft
        on every tab at once. Published words clear only when the office
        deletes them or a new update lands — so keep showing them, stash them
-       for the server, and put them straight back up from an office tab. */
+       for the server, and put them straight back up from an office tab.
+       (Handled above before the stamp: reaching here with an empty server
+       means this tab holds nothing, so the defaults stand.) */
     if (!Object.keys(server).length && Object.keys(overrides).length) {
       if (pending) pending = { ...clone(pending), ...clone(overrides) };
       else if (!plannedPublish()) pending = clone(overrides);

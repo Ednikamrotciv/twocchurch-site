@@ -609,6 +609,7 @@ function loadState() {
     if (parsed.logGen !== LOG_GEN) {
       LOG = [];
       BY = "";
+      NOTES = 0; // note 301: a new history generation is unreviewed — visitors wait until the office publishes
       REV = 0;
       AT = 0;
       FRESH_GEN = true;
