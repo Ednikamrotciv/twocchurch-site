@@ -1,19 +1,35 @@
-APPLY THIS UPDATE (303) — LOCAL + LIVE
+APPLY THIS UPDATE (306) — LOCAL + LIVE
 =====================================
-This update ends the Render-free-sleep problem: every sleep used to wipe the
-live publish (words, stamp AND history), so the site looked like a brand-new
-update — maintenance notice for fresh visitors, empty "Last published" in the
-admin — until the office published again. From here on (notes 301–303):
+This is the 303 line (which already contains every 302 fix) as a new
+update: 302 + 303 combined, so the maintenance notice is always available
+on every new update — it holds until the office publishes, and only then
+lifts:
 
-- The bake carries the whole publish: words + stamp + history (log/by/at).
-  A wake re-serves the last publish exactly as it was — visitors stay live,
-  "Last published" stays put, no office action needed. Sleep all it wants.
-- The standing rules are unchanged and still locked by the verifier:
+- 302 (no hard refresh, ever): after an update a PLAIN reload lands every
+  visitor on the maintenance notice until the office publishes. Stale
+  reloads retry instead of trapping on the old bundle, the version check
+  is cache-busted with no-store, the app holds the boot splash until the
+  version check settles and waits while a newer update is known even on
+  the old bundle, and an inline gate in index.html paints the notice
+  before React boots. Entry files (index.html, version.json, seed.json,
+  server.json, feed.json) are never cached anywhere (dist/_headers +
+  dist/.htaccess for static hosts, no-store on the office server).
+- The notice belongs to the visitors' site ONLY: the inline gate never
+  touches /admin, and the app's console path never renders it — the
+  office console always boots straight in, even mid-update.
+- 303 (sleep is harmless): the bake carries the whole publish — words +
+  stamp + history (log/by/at) — in bake-seed.mjs and the dev closeBundle
+  alike, and the no-disk fallback serves all of it (still marked seeded,
+  so newer live-only words heal forward). A Render free sleep/wake
+  re-serves the last publish exactly as it was: visitors stay live,
+  "Last published" stays put, zero office action.
+- Standing rules, unchanged and verifier-locked:
   * a NEW, DIFFERENT update holds on maintenance until the office publishes
-    (plain reload is enough — never a hard refresh, note 302);
-  * with NO new update the copy remains on the last published (note 300);
-  * only an explicit office action lifts maintenance (note 301).
-- Publish LOCALLY from now on (this is the durable path):
+    (plain reload is enough — never a hard refresh);
+  * with NO new update the copy remains on the last published;
+  * only an explicit office action lifts maintenance (publish, undo click,
+    bless, offline flush). Heal never blesses.
+- Publish LOCALLY from now on (the durable path):
   * office publishes carry the disk, the git login and the auto-push. About
     two minutes after a local publish, data/ + seed.json commit and push by
     themselves, Render rebuilds, and the new bake (words+stamp+history) goes
@@ -22,9 +38,9 @@ admin — until the office published again. From here on (notes 301–303):
     Render's ephemeral disk only — the next sleep lets it go. Use live
     publish only as a stopgap; then publish the same words locally so the
     next bake keeps them.
-  * because of the above, the old "bless on live /admin" step is no longer
-    part of the routine — skip it unless the bake missed (see check 8).
-- The pre-ship verifier has a new section J locking this fix — one FAIL
+  * the old "bless on live /admin" step is no longer part of the routine —
+    skip it unless the bake missed (see check 8).
+- The pre-ship verifier (sections G+H+I+J) locks all of this — one FAIL
   blocks the ship. It passed for this zip.
 
 LOCAL (your computer)
@@ -37,9 +53,10 @@ LOCAL (your computer)
    machine's tunnel (the live site must keep pointing at Render).
 5. BEFORE restoring: the site must show the maintenance notice ("We'll be
    right back", logo + message only) — this update holds until blessed.
-   A plain reload must show it; no hard refresh needed.
+   A plain reload must show it; no hard refresh needed. The admin console
+   (/admin) must NOT show it — it boots straight into the console.
 6. #/admin → Tools → Restore the backup file → Review and publish → Publish.
-   Local lifts to 303 and the notice releases. Reload desktop + phone
+   Local lifts to 306 and the notice releases. Reload desktop + phone
    width to verify (plain reloads).
 7. Wait ~2–3 minutes, then check `git log --oneline -3`: you must see a
    "content update …" commit. If not, the auto-push failed (offline, or the
@@ -49,19 +66,20 @@ LOCAL (your computer)
    maintenance again — this push is the whole fix working.
 8. Check: reload again with no new update — the site stays on the last
    published (no notice, published words intact). Console check:
-   window.__maintState() shows publishedNotes 303.
+   window.__maintState() shows publishedNotes 306.
 
 LIVE (Render: twocchurch-site.onrender.com)
 1. Put this code where Render builds it (replace src/, scripts/, index.html,
    seed.json, vite.config.ts, package.json — keep data/ as-is), commit/push.
    Render: install npm install, build npm run build, start node scripts/serve.mjs.
-2. Confirm https://twocchurch-site.onrender.com/version.json shows {"notes":303}.
+2. Confirm https://twocchurch-site.onrender.com/version.json shows {"notes":306}.
 3. Push the step-7 content commit if you have not already (the bake must be
-   from 303 or newer — a bake stamped 302 or older still waits, by design).
+   from 306 or newer — a bake stamped 305 or older still waits, by design).
    Render rebuilds on the push by itself.
 4. The live site now waits on the maintenance notice until the publish lands
    through the bake — verify with a PLAIN reload on desktop + phone width.
-   No live /admin publish needed this time; only use it if the bake missed.
+   The live admin console stays clear throughout. No live /admin publish
+   needed this time; only use it if the bake missed.
 5. Sleep test (optional, proves the fix): in the Render dashboard, restart
    the service (or just wait for it to sleep). The site must stay live with
    "Last published" intact — no notice, no re-publish. If the notice shows,
