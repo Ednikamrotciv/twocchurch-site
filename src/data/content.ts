@@ -430,9 +430,9 @@ export const PRAYER_FOCUS = [
 
 /** What a first-time visitor can expect, step by step. */
 export const VISIT_EXPECT = [
-  { icon: "people", title: "A greeter at the door", text: "Someone will meet you, show you where to go and answer any question you have." },
-  { icon: "book", title: "About two hours", text: "Worship and prayer, a Bible message, and a short time of ministry at the altar." },
-  { icon: "kids", title: "Children are welcome", text: "Kingdom Kids runs during both Sunday services with secure check-in." },
+  { icon: "people", title: "A greeter at the door", text: "Someone will meet you, show you where to go and answer any question you have — including where the toilets are." },
+  { icon: "book", title: "About two hours", text: "Worship and prayer, a Bible message, and a short time of ministry at the altar. Leave whenever you need to." },
+  { icon: "kids", title: "Children are welcome", text: "Kingdom Kids runs during both Sunday services with secure check-in. Children are also welcome to stay with you." },
   { icon: "ticket", title: "Nothing to pay", text: "There is no entry fee and no pressure to give. An offering basket is passed for those who want to participate." },
   { icon: "heart", title: "Dress as you are", text: "Some wear suits, some wear jeans. God looks at the heart and so do we." },
   { icon: "prayer", title: "Prayer if you want it", text: "At the end of every service our pastors pray with anyone who comes forward — quietly, briefly and without fuss." },
