@@ -114,6 +114,11 @@ async function pushOnce(rootDir) {
       return { skipped: "git push failed" };
     }
     console.log("auto-deploy: new words pushed — the live site updates itself in a few minutes");
+    try {
+      watchLiveCatchUp(rootDir);
+    } catch {
+      /* the push already went out — watching is best effort */
+    }
     await fireDeployHook(rootDir);
     /* Private source repo? The public mirror (if configured) carries the
        snapshot out to every copy within minutes. Best effort, like the hook. */
@@ -129,6 +134,74 @@ async function pushOnce(rootDir) {
   } catch (err) {
     console.warn("auto-deploy skipped:", err?.message || err);
     return { skipped: "error" };
+  }
+}
+
+/* Live catch-up watch (note 310): a push is only half the trip — the host
+   still has to rebuild before a sleep is harmless. After every successful
+   push, poll the live version.json until its update number catches the
+   just-baked seed, then say so; if it never catches up, say that loudly
+   instead, with the by-hand fix. A stale live bake is exactly how "sleep
+   affects last published" happens, and until now nothing reported it. */
+const catchUpTimers = new Map();
+const catchUpWant = new Map();
+async function watchLiveCatchUp(rootDir) {
+  try {
+    const raw = await readFile(path.join(rootDir, "cms-server.txt"), "utf8").catch(() => "");
+    const live = String(raw).split(/\r?\n/).map((l) => l.trim()).filter((l) => l && !l.startsWith("#"))[0] || "";
+    if (!/^https?:\/\/[^/\s]+$/i.test(live)) return;
+    const seed = JSON.parse(await readFile(path.join(rootDir, "seed.json"), "utf8").catch(() => "{}"));
+    const want = typeof seed?.notes === "number" ? Math.floor(seed.notes) : 0;
+    if (!want) return;
+    /* A newer push while a watch is running just raises the bar. */
+    catchUpWant.set(rootDir, want);
+    if (catchUpTimers.has(rootDir)) return;
+    let tries = 0;
+    const tick = async () => {
+      tries += 1;
+      const bar = catchUpWant.get(rootDir) || 0;
+      try {
+        const ctrl = typeof AbortController !== "undefined" ? new AbortController() : null;
+        const timer = ctrl ? setTimeout(() => ctrl.abort(), 30000) : 0;
+        try {
+          const res = await fetch(live.replace(/\/+$/, "") + "/version.json", {
+            cache: "no-store",
+            signal: ctrl ? ctrl.signal : undefined,
+          });
+          if (res && res.ok) {
+            const v = await res.json().catch(() => null);
+            const notes = v && typeof v.notes === "number" ? Math.floor(v.notes) : 0;
+            if (bar && notes >= bar) {
+              console.log(`live is on update ${notes} — the last publish is sleep-safe`);
+              catchUpTimers.delete(rootDir);
+              catchUpWant.delete(rootDir);
+              return;
+            }
+          }
+        } finally {
+          if (timer) clearTimeout(timer);
+        }
+      } catch {
+        /* offline or host asleep — keep watching a while longer */
+      }
+      if (tries >= 15) {
+        catchUpTimers.delete(rootDir);
+        console.warn(
+          `live has not caught up to update ${bar || want} after the push (still serving older) — a sleep now would bring back the older publish. ` +
+          `Check the host dashboard that it rebuilt on the push (Render: Deploys tab), or deploy by hand, then reload the live site once.`
+        );
+        catchUpWant.delete(rootDir);
+        return;
+      }
+      const t = setTimeout(() => void tick(), 60000);
+      if (t && typeof t.unref === "function") try { t.unref(); } catch { /* long-lived backends stay up anyway */ }
+      catchUpTimers.set(rootDir, t);
+    };
+    const first = setTimeout(() => void tick(), 180000);
+    if (first && typeof first.unref === "function") try { first.unref(); } catch {}
+    catchUpTimers.set(rootDir, first);
+  } catch {
+    /* the push already went out — watching is best effort */
   }
 }
 

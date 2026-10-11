@@ -5,7 +5,7 @@
 import { useEffect, useRef, useState } from "react";
 import { LIVE } from "../data/live";
 import { parseYoutubeId } from "./embed";
-import { liveTarget } from "./livestatus";
+import { channelLiveUrl, liveTarget } from "./livestatus";
 import { readStore, writeStore } from "./hooks";
 import { serverUrl } from "./remoteserver";
 
@@ -463,7 +463,7 @@ export function useRecentServices({ soon = false, liveNow = false }: { soon?: bo
      YouTube can take a minute or two to publish the recording (see
      `askForRecentServices`). */
   const burstRef = useRef(0);
-  const target = String(LIVE.youtubeChannel || "").trim();
+  const target = channelLiveUrl(LIVE.youtubeChannel || "") || channelLiveUrl(LIVE.youtubeId || "");
 
   soonRef.current = soon;
   liveNowRef.current = liveNow;

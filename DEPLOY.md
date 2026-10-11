@@ -107,12 +107,16 @@ A Render Web Service works as the always-on backend:
   ever deleted by hand.
 - Use the paid (non-sleeping) instance type, or the service sleeps and every
   copy works from its last baked words until it wakes.
-- Free tier sleeps — and that is fine now (notes 303–309): sleep wipes the live
+- Free tier sleeps — and that is fine now (notes 303–310): sleep wipes the live
   store, but the wake re-serves the last publish whole (words, stamp AND
   history) from the deploy's own bake, so visitors stay live and "Last
   published" stays put with no office action. The one rule: publish LOCALLY
   (the office computer has the disk, the git login and the auto-push), and let
-  the push + rebuild carry each publish to Render. A publish on live /admin
+  the push + rebuild carry each publish to Render — then wait for the
+  terminal's "live is on update N — the last publish is sleep-safe" line
+  (note 310: every push is followed until the live version.json catches up,
+  and warns loudly if it never does). Until that line, the live bake is still
+  the older publish, and a sleep would bring it back. A publish on live /admin
   between deploys works but lives on the ephemeral disk only — the next sleep
   lets it go, so always publish the same words locally afterwards. Optional:
   a free keep-awake ping (e.g. UptimeRobot every 5 minutes to

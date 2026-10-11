@@ -9,7 +9,7 @@ import { startVisitorClock, useVisitorClock, useVisitorClockRefresh } from "./li
 import { useI18nTick, ensureI18n, setProtectedValues, i18nAsk, chooseLang, dismissAsk } from "./lib/i18n";
 import { allCopySources } from "./data/copy";
 import { startRates, useRates, useRatesRefresh } from "./lib/rates";
-import { useLiveStream } from "./lib/livestatus";
+import { useLiveStream, facebookTarget } from "./lib/livestatus";
 import { nextService, onAir, churchTimezone } from "./lib/store";
 import { useNow } from "./lib/hooks";
 import { SERVICES } from "./data/site";
@@ -61,7 +61,9 @@ export function App() {
      a gathering is on the clock, or one starts within the next three quarters
      of an hour. */
   const expecting = !!gathering && (onAir(gathering) || gathering.msUntil < 45 * 60 * 1000);
-  useLiveStream(expecting);
+  /* Facebook too when the office set its link (note 310): a Facebook-only
+     broadcast is otherwise invisible to the whole site, not just this page. */
+  useLiveStream(expecting, !!facebookTarget());
 
   // Load the published content once; the version counter then re-renders the
   // page every time the office applies something.

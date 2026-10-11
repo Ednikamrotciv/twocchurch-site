@@ -1,25 +1,48 @@
-APPLY THIS UPDATE (309) — LOCAL + LIVE
+APPLY THIS UPDATE (312) — LOCAL + LIVE
 =====================================
-This update removes the "Pull from live now" card: every Publish now folds
-live's newer words in by itself. Symptom it kills: keeping live and local in
-step needed a hand button in Tools — now Publish does it on every click.
-What changed (note 309):
+The YouTube half of the livestream fix: a channel-only YouTube setup now
+plays the moment the service is on air (through the channel's own live
+embed), the Watch-on-YouTube button follows the channel when no link is set,
+and a freshly pasted channel is re-checked at once instead of waiting out
+the quiet timer. (310 fixed the same wait for a set Facebook link; 312 does
+it for a set YouTube channel. Backups still hit the joined disk and the push
+is still followed until live catches up.)
+What changed (notes 310 + 312):
 
-- Pressing Publish (whole site, or one section) first folds live's newer words
-  into what goes out: sections the office did not touch take live's words
-  (uploads fetched home, a toast names what came home), sections the office
-  edited keep the office's. The fold shares the 308 guards — never across a
-  newer update (apply the zip on local first), never from a fallback bake,
-  ties and older go to the local publish — and it never fails a publish:
-  anything unclear publishes exactly as before.
-- Tools → "Pull from live now" is gone; the Publish dialog says the fold
-  happens. The background half is unchanged: while an office tab is open and
-  signed in, a live publish newer than the office copy still saves itself here
-  within about a minute (toast confirms, uploads included).
-- Office backends name their live address (`/__live-url` from
-  cms-server.txt, on `npm run dev` and `npm start` alike). The live box
-  answers empty — it IS live, so its tabs never pull. No live address, no
-  fold; visitors' tabs never poll.
+- Livestream plays when it starts. The Watch page (and the site-wide on-air
+  answer) now asks Facebook too when its link is set — a Facebook-only
+  broadcast used to be invisible everywhere, so the clock never left. And
+  when the site is on air (switch or schedule) with a stream link set, the
+  link plays at once — unless the check affirmatively says the stream is
+  down, in which case the waiting clock stays (a stale link never plays as
+  live). A detected broadcast whose page gives no id yet plays through the
+  channel's own live embed instead of the clock.
+- YouTube channel-only plays too (note 312). 310 played a set stream link at
+  once on air — but only the link counted, so a YouTube setup with just the
+  channel pasted still sat on the clock until the check answered, and a new
+  channel waited out the quiet timer. Now the channel counts as a set link:
+  on-air + channel plays the channel's live embed at once (still never when
+  the check affirmatively says off), the platform list carries YouTube in the
+  on-air window, the Watch-on-YouTube button opens the channel's /live page
+  when no video id is set, and any new address is re-checked at once.
+- Forgiving addresses, same fields. Channel pasted in the stream-link field
+  is watched as the channel; a video link pasted in the channel field is
+  watched as the video; a channel page as a "video id" no longer becomes a
+  garbage id no player could open. The three fields (stream link, channel,
+  Facebook link) are unchanged and still edited in Live stream — paste
+  whichever form you have.
+- Files go to the joined disk. Backup export/import and the live backfill
+  used serverUrl(), which on `npm start` names the live site (stamped from
+  cms-server.txt) while the socket — and the disk — are local: restored
+  photos/videos landed on live's short memory and the local disk stayed
+  empty, while the toast reported success. They now use the joined backend
+  (local disk when a same-origin server is injected, else the office
+  address), so a live backup restored on local shows its photos/videos.
+- The push is followed to live. After "new words pushed", the terminal now
+  watches the live version.json until it catches the baked update ("live is
+  on update N — the last publish is sleep-safe") — or warns loudly if it
+  never does, with the by-hand fix. Publish locally, wait for the
+  sleep-safe line, and sleep cannot touch last-published.
 - Local → live is unchanged: publish locally, the bake + commit + push go
   out by themselves in ~2 minutes, Render rebuilds, the bake carries the
   whole publish (words + stamp + history + uploads).
@@ -46,13 +69,20 @@ LOCAL (your computer)
 6. Bring your words home: #/admin → Tools → Restore the backup file → review
    → Publish. The Publish itself folds in anything newer on the live site
    (untouched sections follow live, your edits win, uploads come home), so
-   there is no second step anymore.
-   Local lifts to 309 and the notice releases. Reload desktop + phone
+   there is no second step anymore. Restored photos/videos land on THIS
+   disk now (the 310 fix) — check a photo field after publishing.
+   Local lifts to 312 and the notice releases. Reload desktop + phone
    width to verify (plain reloads).
 7. From here the sync is automatic both ways: publish on LOCAL and the
    bake + push carry it to live in a few minutes (watch the terminal for
    "auto-deploy: new words pushed", then `git log --oneline -3` shows the
-   content commit); publish on LIVE and the signed-in office copy saves it
+   content commit) — then wait for the follow-up line "live is on update N
+   — the last publish is sleep-safe" (the 310 watch: it polls the live
+   version.json until the rebuild lands). If instead it warns that live
+   has not caught up, open the host dashboard (Render: Deploys tab) and
+   get the rebuild through — UNTIL THEN a sleep would bring back the older
+   publish, so treat the warning as a job, not a note; publish on LIVE and
+   the signed-in office copy saves it
    by itself within about a minute (toast confirms, uploads included) — or
    it folds into the next local Publish, whichever comes first — and the
    deploy carries it back out on the next cycle. WITHOUT the step-7
@@ -60,15 +90,15 @@ LOCAL (your computer)
    again — if the terminal reports a bake/push problem it now says why.
 8. Check: reload again with no new update — the site stays on the last
    published (no notice, published words intact). Console check:
-   window.__maintState() shows publishedNotes 309.
+   window.__maintState() shows publishedNotes 312.
 
 LIVE (Render: twocchurch-site.onrender.com)
 1. Put this code where Render builds it (replace src/, scripts/, index.html,
    seed.json, vite.config.ts, package.json — keep data/ as-is), commit/push.
    Render: install npm install, build npm run build, start node scripts/serve.mjs.
-2. Confirm https://twocchurch-site.onrender.com/version.json shows {"notes":309}.
+2. Confirm https://twocchurch-site.onrender.com/version.json shows {"notes":312}.
 3. Push the step-7 content commit if you have not already (the bake must be
-   from 309 or newer — a bake stamped 308 or older still waits, by design).
+   from 312 or newer — a bake stamped 311 or older still waits, by design).
    Render rebuilds on the push by itself.
 4. The live site now waits on the maintenance notice until the publish lands
    through the bake — verify with a PLAIN reload on desktop + phone width,

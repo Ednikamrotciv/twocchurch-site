@@ -1397,10 +1397,12 @@ function diffAgainstLive(liveSections: Snapshot): { ids: string[]; patch: Record
 async function backfillUploadsFrom(fromBase: string, content: Snapshot = overrides): Promise<{ restored: number; failed: string[] }> {
   let restored = 0;
   const failed: string[] = [];
+  /* To the joined backend (note 310), like the restore above. */
+  const up = backendBase();
   for (const name of localUploadNames(content)) {
     let here = false;
     try {
-      const res = await fetch("/data/uploads/" + name, { cache: "no-store" });
+      const res = await fetch(up + "/data/uploads/" + name, { cache: "no-store" });
       here = res.ok;
     } catch {
       here = false;
@@ -1411,7 +1413,7 @@ async function backfillUploadsFrom(fromBase: string, content: Snapshot = overrid
       if (!res.ok) throw 0;
       const blob = await res.blob();
       if (!blob.size || blob.size > BACKUP_FILE_MAX_BYTES) throw 0;
-      const put = await fetch("/__restore-file?name=" + encodeURIComponent(name), {
+      const put = await fetch(up + "/__restore-file?name=" + encodeURIComponent(name), {
         method: "POST",
         headers: { "content-type": blob.type || guessUploadType(name) },
         body: blob,
@@ -2779,6 +2781,22 @@ function base64ToBlob(b64: string, type: string): Blob {
   return new Blob([bytes], { type });
 }
 
+/** The backend this tab is actually joined to (note 310): a same-origin office
+    server when one is injected (local runs serve their own disk), else the
+    configured office address. File doors (backup export/import, upload
+    backfill) must use THIS — serverUrl() alone points at the live site on
+    `npm start` (its meta is stamped from cms-server.txt), which sent restored
+    photos/videos to live's short memory instead of the local disk while
+    reporting success. */
+function backendBase(): string {
+  try {
+    if (typeof (window as any).createServerSocket === "function") return "";
+  } catch {
+    /* no window — no local backend */
+  }
+  return serverUrl();
+}
+
 /** The latest PUBLISHED content as a downloadable backup — never draft edits.
     Every office-server photo/video the content uses rides inside the file, so
     a restore brings everything back exactly as stored. Uploads are never
@@ -2786,7 +2804,9 @@ function base64ToBlob(b64: string, type: string): Blob {
     them, and every backup carries copies regardless. */
 export async function exportPublished(): Promise<string> {
   const content = merge(overrides);
-  const base = serverUrl();
+  /* From the joined backend (note 310): on `npm start` serverUrl() names the
+     live site while the socket — and the disk — are local. */
+  const base = backendBase();
   const files: BackupFile[] = [];
   const missingFiles: string[] = [];
   for (const name of localUploadNames(content)) {
@@ -2870,7 +2890,9 @@ export async function importBackup(text: string): Promise<ImportResult> {
   const filesFailed: string[] = [];
   let filesRestored = 0;
   if (incoming.length) {
-    const base = serverUrl();
+    /* To the joined backend (note 310): restoring to serverUrl() on `npm start`
+       writes live's short memory while this disk stays empty. */
+    const base = backendBase();
     let reachable = !!base;
     if (!base) {
       try {

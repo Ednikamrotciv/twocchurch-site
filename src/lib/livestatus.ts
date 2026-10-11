@@ -4,7 +4,7 @@
 
 import { useEffect, useSyncExternalStore } from "react";
 import { LIVE } from "../data/live";
-import { parseYoutubeId } from "./embed";
+import { channelIdFrom, parseYoutubeId } from "./embed";
 import { readStore, writeStore } from "./hooks";
 import { serverUrl } from "./remoteserver";
 
@@ -43,22 +43,35 @@ const EMPTY: LiveStatus = { state: "unset", platform: "", videoId: "", title: ""
 
 /* --------------------------------------------------------------- the target */
 
+/** The channel's /live page from whatever the office pasted (handle, id or
+    link) — "" when it is not channel-shaped at all. */
+export function channelLiveUrl(input: string): string {
+  const raw = String(input || "").trim();
+  if (!raw) return "";
+  /* Handle, id or link — each becomes the channel's /live page. */
+  const id = channelIdFrom(raw);
+  if (id) return `https://www.youtube.com/channel/${id}/live`;
+  const at = /youtube\.com\/@([\w.-]+)/i.exec(raw) || /^@([\w.-]+)$/.exec(raw);
+  if (at) return `https://www.youtube.com/@${at[1]}/live`;
+  const legacy = /youtube\.com\/(?:c|user)\/([\w.-]+)/i.exec(raw);
+  if (legacy) return `https://www.youtube.com/${/\/user\//i.test(raw) ? "user" : "c"}/${legacy[1]}/live`;
+  if (/^[\w.-]+$/.test(raw)) return `https://www.youtube.com/@${raw}/live`;
+  return "";
+}
+
 /** Where to ask: the channel when set (its /live follows every broadcast), else the link. */
 export function liveTarget(): { url: string; kind: "channel" | "video" } | null {
-  const raw = String(LIVE.youtubeChannel || "").trim();
-  if (raw) {
-    /* Handle, id or link — each becomes the channel's /live page. */
-    const id = /(UC[\w-]{20,24})/.exec(raw);
-    if (id) return { url: `https://www.youtube.com/channel/${id[1]}/live`, kind: "channel" };
-    const at = /youtube\.com\/@([\w.-]+)/i.exec(raw) || /^@([\w.-]+)$/.exec(raw);
-    if (at) return { url: `https://www.youtube.com/@${at[1]}/live`, kind: "channel" };
-    const legacy = /youtube\.com\/(?:c|user)\/([\w.-]+)/i.exec(raw);
-    if (legacy) return { url: `https://www.youtube.com/${/\/user\//i.test(raw) ? "user" : "c"}/${legacy[1]}/live`, kind: "channel" };
-    if (/^[\w.-]+$/.test(raw)) return { url: `https://www.youtube.com/@${raw}/live`, kind: "channel" };
-    return null;
-  }
+  const channel = channelLiveUrl(LIVE.youtubeChannel || "");
+  if (channel) return { url: channel, kind: "channel" };
+  /* Forgiving both ways (note 310): a video link pasted in the channel field
+     still works, and a channel pasted in the stream-link field is read as the
+     channel instead of being ignored. */
+  const channelVideo = parseYoutubeId(LIVE.youtubeChannel || "");
+  if (channelVideo) return { url: `https://www.youtube.com/watch?v=${channelVideo}`, kind: "video" };
   const video = parseYoutubeId(LIVE.youtubeId || "");
   if (video) return { url: `https://www.youtube.com/watch?v=${video}`, kind: "video" };
+  const linkChannel = channelLiveUrl(LIVE.youtubeId || "");
+  if (linkChannel) return { url: linkChannel, kind: "channel" };
   return null;
 }
 
@@ -442,10 +455,12 @@ export function watchLiveStream(opts: { soon?: boolean; facebook?: boolean } = {
   const first = watchers.size === 0;
   watchers.add(watcher);
   if (first) startPolling();
-  /* A caller who needs more than the poller is doing (Facebook, or the short
-     cadence once a service comes on the clock) has this second asked rather
-     than waiting out the quiet-week timer. */
-  else if (watcher.facebook || (watcher.soon && Date.now() - lastCheckAt > SOON_MS)) schedule(600);
+  /* A caller who needs more than the poller is doing has this second asked
+     rather than waiting out the quiet-week timer: Facebook, the short cadence
+     once a service comes on the clock — or a new YouTube address the office
+     just pasted (note 312: the check sat on the old answer for up to three
+     quiet minutes while the new channel went live). */
+  else if (watcher.facebook || targetSignature() !== lastTarget || (watcher.soon && Date.now() - lastCheckAt > SOON_MS)) schedule(600);
   return () => {
     watchers.delete(watcher);
     if (!watchers.size) stopPolling();
