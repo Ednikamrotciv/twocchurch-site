@@ -2,7 +2,9 @@
    both traps, note 112) via the office-server proxy (no CORS). A bot-walled /live page can name the
    broadcast without playing it (note 322) — the check then follows the Live tab's video to its watch
    page, whose on-air chrome (`Live` indicator + `watching now`, measured on a real service) is the
-   answer — before calling anything off. Cached, re-checked on a timer; failures read
+   answer — before calling anything off. Named videos are only suggestions
+   (note 324): each is verified on its own watch page, since the first id on a
+   channel page may be an ad or a related upload. Cached, re-checked on a timer; failures read
    "unknown". Ended broadcasts are remembered for auto-stop; Facebook only ever confirms. */
 
 import { useEffect, useSyncExternalStore } from "react";
@@ -124,7 +126,11 @@ export function parseLivePage(html: string, pageUrl = ""): { read: boolean; live
   const fromUrl = /(?:watch\?v=|\/live\/|\/embed\/|\/v\/|youtu\.be\/)([\w-]{11})/.exec(String(pageUrl || ""));
   const canonical = /<link rel="canonical" href="https:\/\/www\.youtube\.com\/watch\?v=([\w-]{11})"/.exec(text);
   const details = /"videoDetails":\{[^}]*?"videoId":"([\w-]{11})"/.exec(text);
-  const any = /"videoId":"([\w-]{11})"/.exec(text);
+  /* No bare first-`videoId` fallback (note 324): a channel page is a grab-bag
+     of ads, autoplay and related videos, so the first id in it is whoever
+     YouTube put first this fetch — it once steered the player to an unrelated
+     upload mid-service. An unnamed page stays unnamed; channel pages name
+     their candidates through `channelCandidateIds` instead. */
   const meta = /<meta name="title" content="([^"]*)"/.exec(text);
   const videoTitle = /"videoDetails":\{[^}]*?"title":"((?:[^"\\]|\\.)*)"/.exec(text);
   const overlayTitle = /"playerOverlayVideoDetailsRenderer":\{"title":\{"simpleText":"((?:[^"\\]|\\.)*)"/.exec(text);
@@ -135,7 +141,7 @@ export function parseLivePage(html: string, pageUrl = ""): { read: boolean; live
   return {
     read,
     live: true,
-    videoId: fromUrl?.[1] || canonical?.[1] || details?.[1] || any?.[1] || "",
+    videoId: fromUrl?.[1] || canonical?.[1] || details?.[1] || "",
     title: decodeEntities(headline),
   };
 }
@@ -151,6 +157,25 @@ export function channelLiveVideoId(html: string): string {
   return /"url":"\/watch\?v=([\w-]{11})"/.exec(seg)?.[1] || /"videoId":"([\w-]{11})"/.exec(seg)?.[1] || "";
 }
 
+/** Candidate videos named by a channel page, best first (note 324): the Live
+    tab's video when there is one, then every linked video by how often the
+    page names it. This only ORDERS the asking — each candidate is verified on
+    its own watch page by `resolveYoutube`, because the page that names them
+    is a grab-bag and the first id in it must never be taken as the
+    broadcast. */
+export function channelCandidateIds(html: string, limit = 3): string[] {
+  const text = String(html || "");
+  const ids: string[] = [];
+  const push = (id: string) => {
+    if (id && ids.indexOf(id) < 0 && ids.length < limit) ids.push(id);
+  };
+  push(channelLiveVideoId(text));
+  const freq = new Map<string, number>();
+  for (const w of text.matchAll(/\/watch\?v=([\w-]{11})/g)) freq.set(w[1], (freq.get(w[1]) || 0) + 1);
+  for (const [id] of [...freq.entries()].sort((a, b) => b[1] - a[1])) push(id);
+  return ids;
+}
+
 /** Answer YouTube for a fetched channel/watch page (note 322): when the page
     is readable but carries no live marker and the target is a channel, the
     Live tab's video is asked on its own watch page before anything is called
@@ -161,19 +186,30 @@ async function resolveYoutube(
 ): Promise<{ state: LiveState; videoId: string; title: string }> {
   const off = { state: "off" as const, videoId: "", title: "" };
   const parsed = parseLivePage(html, target.url);
-  if (parsed.live) return { state: "live" as const, videoId: parsed.videoId, title: parsed.title };
+  /* A direct hit already names its video (player marker, canonical link, or
+     the asked watch address) — nothing more to ask. */
+  if (parsed.live && parsed.videoId) return { state: "live" as const, videoId: parsed.videoId, title: parsed.title };
   if (!parsed.read) return { state: "unknown" as const, videoId: "", title: "" };
-  if (target.kind === "channel") {
-    const vid = channelLiveVideoId(html);
-    if (!vid) return off;
+  if (target.kind !== "channel") return off;
+  /* Otherwise the page only SUGGESTS videos (note 324) — the Live tab's, then
+     the most named — and each suggestion is asked on its own watch page. The
+     first one that is on air is the broadcast; videos that answer `off` are
+     skipped, not trusted, because the page that named them may be the
+     grab-bag. Only when every named video is accounted for does the answer
+     settle — and a channel page that itself carries on-air chrome no candidate
+     confirmed stays `unknown`, never `off`, rather than ending a service. */
+  const cands = channelCandidateIds(html);
+  if (!cands.length) return off;
+  for (const vid of cands) {
     const watchUrl = `https://www.youtube.com/watch?v=${vid}`;
     const watchHtml = await fetchPage(watchUrl);
-    if (watchHtml === null) return { state: "unknown" as const, videoId: "", title: "" };
+    if (watchHtml === null) continue;
     const watch = parseLivePage(watchHtml, watchUrl);
-    if (watch.live) return { state: "live" as const, videoId: watch.videoId || vid, title: watch.title };
-    if (!watch.read) return { state: "unknown" as const, videoId: "", title: "" };
+    if (watch.live && (watch.videoId || vid)) {
+      return { state: "live" as const, videoId: watch.videoId || vid, title: watch.title };
+    }
   }
-  return off;
+  return parsed.live ? { state: "unknown" as const, videoId: "", title: "" } : off;
 }
 
 /** Facebook can only confirm a broadcast (two markers); never trusts "off". */

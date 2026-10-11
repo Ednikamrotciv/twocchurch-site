@@ -17,7 +17,9 @@
    never point the site at nothing again. Section P (note 322) locks the
    live follow: the Live tab's video is asked on its watch page before
    anything is called off, on-air chrome is read there, traps stay shut and
-   unreadable pages stay unknown. Run this
+   unreadable pages stay unknown. Section Q (note 324) locks verified
+   candidates: no bare first-id fallback, ordered suggestions each asked on
+   its watch page. Run this
    before EVERY update zip — a single FAIL blocks the
    ship, no exceptions.
    RUN (paste the two lines into an execute_js call):
@@ -490,6 +492,42 @@ export async function runAll(fs) {
     ok("Live tab names its video", tabIdFn(tabHtml) === VID && tabIdFn('ytInitialData{"a":1} "title":"Videos","selected":true') === "", "the follow needs the tab's id, and nothing when the tab is empty");
   } catch (e) {
     ok("live-follow suite", false, String((e && e.message) || e).slice(0, 200));
+  }
+  /* Q. suggestions are verified, never trusted (note 324): no bare first-id
+     fallback anywhere — a channel page only orders candidates (Live tab,
+     then most-linked) and each is asked on its own watch page. */
+  ok("no bare first-id fallback", !has(live, "const any ="), "the first videoId on a channel page may be an ad — it must never steer the player");
+  ok("candidates are ordered", has(live, "channelCandidateIds") && has(live, "channelCandidateIds(html)"), "the Live tab's video first, then the most-linked");
+  try {
+    const eb4 = await import("https://esm.sh/esbuild-wasm@0.21.5?bundle");
+    try {
+      await eb4.default.initialize({ wasmURL: "https://esm.sh/esbuild-wasm@0.21.5/esbuild.wasm" });
+    } catch {
+      /* already initialized above — transform works regardless */
+    }
+    const tc2 = await eb4.default.transform(live, { loader: "ts", format: "cjs" });
+    const stubReq2 = (id) => {
+      if (id === "react") return { useEffect: () => {}, useSyncExternalStore: () => ({}) };
+      if (id === "./hooks") return { readStore: (k, fb) => fb, writeStore: () => true };
+      return {};
+    };
+    const liveMod2 = { exports: {} };
+    new Function("module", "exports", "require", tc2.code)(liveMod2, liveMod2.exports, stubReq2);
+    const parseFn2 = liveMod2.exports.parseLivePage;
+    const candsFn = liveMod2.exports.channelCandidateIds;
+    const WRONG = "AAAAAAAAAAA";
+    const RIGHT = "BBBBBBBBBBB";
+    const grabBag =
+      'ytInitialData{"x":1} "videoId":"' + WRONG + '" "liveIndicatorText":{"simpleText":"Live"} "9,999"," watching now" ' +
+      '"dateText":{"simpleText":"Started streaming 2 hours ago"} ' +
+      ("/watch?v=" + RIGHT + " ").repeat(5) + "/watch?v=" + WRONG;
+    const named = parseFn2(grabBag, "https://www.youtube.com/@church/live");
+    ok("grab-bag names nothing", named.read === true && named.live === true && named.videoId === "", "on-air chrome means live, but no id may be guessed from it");
+    const cands = candsFn(grabBag);
+    ok("grab-bag ordered right", cands.length >= 2 && cands[0] === RIGHT && cands.indexOf(WRONG) > 0, "the most-linked video asks first, the misleading first id last");
+    ok("empty page names nothing", candsFn('ytInitialData{"x":1}').length === 0, "no suggestions means off, not a guess");
+  } catch (e) {
+    ok("verify-candidates suite", false, String((e && e.message) || e).slice(0, 200));
   }
   const notes = Number((text["src/lib/hooks.ts"].match(/BUILD_NOTES = (\d+)/) || [])[1]) || 0;
   const apply = text["APPLY_UPDATE.txt"];
