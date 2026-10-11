@@ -1,4 +1,4 @@
-APPLY THIS UPDATE (310) — LOCAL + LIVE
+APPLY THIS UPDATE (316) — LOCAL + LIVE
 =====================================
 This update makes live immediate: the moment the broadcast starts on the
 YouTube channel, the site shows it and the waiting clock vanishes — on the
@@ -6,7 +6,7 @@ live site and on local runs alike. Symptom it kills: starting the stream on
 YouTube took minutes to reach the Watch page (the on-air check asked every
 45s on the clock / 3min off it, waited out a freshness window on open, and
 never re-asked when the channel was retyped), so the ticking clock sat on
-screen long after the service was up. What changed (note 310):
+screen long after the service was up. What changed (note 316):
 
 - The fast cadence is now 20s (was 45s), quiet-week 90s (was 3min). The Watch
   page checks AT ONCE on open and stays fast whether or not a gathering is on
@@ -47,13 +47,13 @@ LOCAL (your computer)
    A plain reload must show it; no hard refresh needed. The admin console
    (/admin) must NOT show it — it boots straight into the console.
    (Coming from 305: same steps — backup in the old folder first, then a NEW
-   folder for 310, restore, publish. The restore carries all words across the
+   folder for 316, restore, publish. The restore carries all words across the
    jump; the first publish also folds in anything newer on the live site.)
 6. Bring your words home: #/admin → Tools → Restore the backup file → review
    → Publish. The Publish itself folds in anything newer on the live site
    (untouched sections follow live, your edits win, uploads come home), so
    there is no second step.
-   Local lifts to 310 and the notice releases. Reload desktop + phone
+   Local lifts to 316 and the notice releases. Reload desktop + phone
    width to verify (plain reloads).
 7. Live check (local): open /watch-live, then start the broadcast on the
    YouTube channel (or retype the channel in the console and publish). The
@@ -74,15 +74,15 @@ LOCAL (your computer)
    between changes nothing.
 9. Check: reload again with no new update — the site stays on the last
    published (no notice, published words intact). Console check:
-   window.__maintState() shows publishedNotes 310.
+   window.__maintState() shows publishedNotes 316.
 
 LIVE (Render: twocchurch-site.onrender.com)
 1. Put this code where Render builds it (replace src/, scripts/, index.html,
    seed.json, vite.config.ts, package.json — keep data/ as-is), commit/push.
    Render: install npm install, build npm run build, start node scripts/serve.mjs.
-2. Confirm https://twocchurch-site.onrender.com/version.json shows {"notes":310}.
+2. Confirm https://twocchurch-site.onrender.com/version.json shows {"notes":316}.
 3. Push the step-8 content commit if you have not already (the bake must be
-   from 310 or newer — a bake stamped 309 or older still waits, by design).
+   from 316 or newer — a bake stamped 315 or older still waits, by design).
    Render rebuilds on the push by itself.
 4. The live site now waits on the maintenance notice until the publish lands
    through the bake — verify with a PLAIN reload on desktop + phone width,
