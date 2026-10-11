@@ -1,30 +1,36 @@
-APPLY THIS UPDATE (307) — LOCAL + LIVE
+APPLY THIS UPDATE (308) — LOCAL + LIVE
 =====================================
-This update fixes the local → live chain, so a local publish carries
-everything to live and stays there. Symptom it kills: after publishing
-locally the terminal said "auto-deploy: could not bake the new words",
-uploads/photos from a live backup did not come home on local, and the
-live site behaved like a new update again after every Render sleep.
-What changed (note 307):
+This update finishes the two-way sync: anything published on live is saved
+on the office copy by itself, anything published on local reaches live
+through the deploy — no direction is ever lost. Symptom it kills: a
+publish done on live /admin stayed on live's short memory only. The next
+sleep wiped it, and the office copy never saw it at all.
+What changed (note 308):
 
-- The dev backend (`npm run dev`) now accepts backup restores and photo
-  deletes exactly like the office server (`/__restore-file`,
-  `/__delete-file`, same naming guards). Before, a live backup restored
-  on local lost every embedded photo/video (the dev server had no door
-  for them), and the office photo delete failed on local.
-- A failed bake now says WHY in the terminal (the bake's own first error
-  lines) instead of failing silently — plus how to fix it now
-  (`npm run bake-seed` by hand). The bake also runs on the exact node
-  that runs the backend (no more bare-`node`-missing-from-PATH failures),
-  fails loudly without ever wiping a good seed.json, and a failed push
-  now names the usual suspect: a video in data/uploads/ near/over the
-  host's 100 MB file limit looks exactly like a login failure.
+- While an office tab is open and signed in, a live publish newer than the
+  office copy publishes itself straight onto the office backend (same bless,
+  history and log as a hand publish, toast to say so) with its uploads
+  fetched home. Conservative by design: never across a newer update (apply
+  the zip on local first), never over unsaved draft work, never from a
+  fallback bake (only a fresh copy may be restored from the bake, and only
+  by hand), and ties go to the durable path — rev counters are per-store,
+  so the wall clock arbitrates and only a strictly newer live publish wins.
+- Tools → "Pull from live now" lands live's words as a draft — review, then
+  Publish — the backup-restore shape the office already knows (refuses to
+  overwrite unsaved changes; uploads come home; retired sections are named
+  and left out).
+- Office backends name their live address (`/__live-url` from
+  cms-server.txt, on `npm run dev` and `npm start` alike). The live box
+  answers empty — it IS live, so its tabs never pull. No live address, no
+  pull; visitors' tabs never poll.
+- Local → live is unchanged: publish locally, the bake + commit + push go
+  out by themselves in ~2 minutes, Render rebuilds, the bake carries the
+  whole publish (words + stamp + history + uploads).
 - Unchanged and still locked: every new update holds on maintenance until
   the office publishes (plain reload, /admin clear); with no new update
   the copy stays on the last published; only an explicit office action
-  lifts maintenance; sleep/wake re-serves the last publish whole
-  (words + stamp + history) once the bake is fresh.
-- The pre-ship verifier has a new section K locking this fix — one FAIL
+  lifts maintenance; sleep/wake re-serves the last publish whole.
+- The pre-ship verifier has a new section L locking this fix — one FAIL
   blocks the ship. It passed for this zip.
 
 LOCAL (your computer)
@@ -39,40 +45,39 @@ LOCAL (your computer)
    right back", logo + message only) — this update holds until blessed.
    A plain reload must show it; no hard refresh needed. The admin console
    (/admin) must NOT show it — it boots straight into the console.
-6. #/admin → Tools → Restore the backup file → check the toast names the
-   photos/videos brought home (filesRestored) → Review and publish →
-   Publish. Local lifts to 307 and the notice releases, uploads showing.
-   Reload desktop + phone width to verify (plain reloads).
-7. Watch the terminal ~2 minutes after publishing. You must see EITHER
-   "auto-deploy: new words pushed" OR "auto-deploy is off (reason)". If
-   you see "could not bake", it now says WHY — run `npm run bake-seed`
-   by hand and read its error, fix it, publish again. Then check
-   `git log --oneline -3`: you must see a "content update …" commit. If
-   not, push by hand: bake first (`npm run bake-seed`), then
-   `git add -A -- data seed.json && git commit -m "content update" && git push`.
-   WITHOUT this push the live bake goes stale and a live wake waits on
-   maintenance again.
-8. If the push fails, check data/uploads/ for videos near/over 100 MB
-   (the host refuses them) — the terminal now says so. Shrink the file,
-   publish again.
-9. Check: reload again with no new update — the site stays on the last
+6. Bring your words home EITHER way (they are the same words):
+   (a) #/admin → Tools → Restore the backup file → Review and publish →
+       Publish; OR (b) sign in, then Tools → Pull from live now → review →
+       Publish (live's words AND photos land as a draft).
+   Local lifts to 308 and the notice releases. Reload desktop + phone
+   width to verify (plain reloads).
+7. From here the sync is automatic both ways: publish on LOCAL and the
+   bake + push carry it to live in a few minutes (watch the terminal for
+   "auto-deploy: new words pushed", then `git log --oneline -3` shows the
+   content commit); publish on LIVE and the signed-in office copy saves it
+   by itself within about a minute (toast confirms, uploads included) and
+   pushes it back out to the deploy on the next cycle. WITHOUT the step-7
+   push the live bake goes stale and a live wake waits on maintenance
+   again — if the terminal reports a bake/push problem it now says why.
+8. Check: reload again with no new update — the site stays on the last
    published (no notice, published words intact). Console check:
-   window.__maintState() shows publishedNotes 307.
+   window.__maintState() shows publishedNotes 308.
 
 LIVE (Render: twocchurch-site.onrender.com)
 1. Put this code where Render builds it (replace src/, scripts/, index.html,
    seed.json, vite.config.ts, package.json — keep data/ as-is), commit/push.
    Render: install npm install, build npm run build, start node scripts/serve.mjs.
-2. Confirm https://twocchurch-site.onrender.com/version.json shows {"notes":307}.
+2. Confirm https://twocchurch-site.onrender.com/version.json shows {"notes":308}.
 3. Push the step-7 content commit if you have not already (the bake must be
-   from 307 or newer — a bake stamped 306 or older still waits, by design).
+   from 308 or newer — a bake stamped 307 or older still waits, by design).
    Render rebuilds on the push by itself.
 4. The live site now waits on the maintenance notice until the publish lands
    through the bake — verify with a PLAIN reload on desktop + phone width,
    uploads/photos/videos showing. The live admin console stays clear
-   throughout and keeps "Last published". No live /admin publish needed;
-   only use it as a stopgap (it lives on the ephemeral disk only — always
-   publish the same words locally afterwards).
+   throughout and keeps "Last published". A live /admin publish now also
+   lands on the office copy by itself (about a minute, while the office is
+   signed in) — but still publish the same words locally afterwards when
+   you can: the ephemeral disk forgets, the office folder remembers.
 5. Sleep test (optional, proves the fix): in the Render dashboard, restart
    the service (or just wait for it to sleep). The site must stay live with
    "Last published" intact — no notice, no re-publish. If the notice shows,

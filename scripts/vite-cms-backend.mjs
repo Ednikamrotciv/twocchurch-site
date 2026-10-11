@@ -351,6 +351,26 @@ export function cmsBackend() {
             return;
           }
 
+          /* Live address for the two-way sync (note 308): office copies ask this
+             door where "live" is (the first origin in cms-server.txt). */
+          if (pathname === "/__live-url" && req.method === "GET") {
+            let live = "";
+            try {
+              const raw = await readFile(path.join(ROOT, "cms-server.txt"), "utf8").catch(() => "");
+              const first = String(raw).split(/\r?\n/).map((l) => l.trim()).filter((l) => l && !l.startsWith("#"))[0] || "";
+              const clean = first.replace(/\/+$/, "");
+              if (/^https?:\/\/[^/\s]+$/i.test(clean)) live = clean;
+            } catch { /* standalone — no live address */ }
+            const body = JSON.stringify({ url: live });
+            res.writeHead(200, {
+              "content-type": "application/json; charset=utf-8",
+              "content-length": Buffer.byteLength(body),
+              "cache-control": "no-store",
+            });
+            res.end(body);
+            return;
+          }
+
           if ((pathname === "/__geo" || pathname === "/__rates") && req.method === "GET") {
             if (pathname === "/__geo") await geoProxy.handleGeo(req, res);
             else await geoProxy.handleRates(req, res);

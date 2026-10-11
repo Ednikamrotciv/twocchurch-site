@@ -107,7 +107,7 @@ A Render Web Service works as the always-on backend:
   ever deleted by hand.
 - Use the paid (non-sleeping) instance type, or the service sleeps and every
   copy works from its last baked words until it wakes.
-- Free tier sleeps — and that is fine now (notes 303–307): sleep wipes the live
+- Free tier sleeps — and that is fine now (notes 303–308): sleep wipes the live
   store, but the wake re-serves the last publish whole (words, stamp AND
   history) from the deploy's own bake, so visitors stay live and "Last
   published" stays put with no office action. The one rule: publish LOCALLY

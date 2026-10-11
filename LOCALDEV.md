@@ -61,3 +61,20 @@ npm start       # serves dist/ + the backend (or double-click start.bat)
 Leave that running on the always-on machine. Content is stored in
 `data/cms-state.bin` (created on first publish — keep that file to keep your
 content); photo/video uploads land in `data/uploads/`.
+
+## Two-way sync with live (note 308)
+
+Publishing works from either side and neither side loses:
+
+- **Local → live:** publish locally and the bake + commit + push go out by
+  themselves in ~2 minutes (terminal says "auto-deploy: new words pushed"),
+  then Render rebuilds. A few minutes, no commands.
+- **Live → local:** while an office tab is open and signed in, a live
+  publish newer than the office copy saves itself here within about a
+  minute (toast confirms, uploads included). By hand any time: Admin →
+  Tools → **Pull from live now** brings live's words and photos as a draft —
+  review, then Publish.
+- Safety: never across a newer update (apply the new zip on local first),
+  never over unsaved draft work, never from a fallback bake except a fresh
+  restore by hand, and ties go to the local publish. The live box itself
+  never pulls.

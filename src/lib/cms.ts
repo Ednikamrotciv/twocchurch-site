@@ -1301,6 +1301,300 @@ function startFeed() {
   window.addEventListener("online", () => syncFromFeed().catch(() => {}));
 }
 
+/* ------------------------- two-way sync with live (note 308): live → local.
+   Local → live already rides the auto-deploy (bake → commit → push → rebuild,
+   a few minutes). This is the other half, so nothing published in either place
+   is ever lost: anything published on live is saved on the office copy by
+   itself, anything published on local reaches live through the deploy.
+   - AUTOMATIC: while an office tab is open and signed in, a live publish newer
+     than this copy's is published straight onto the office backend (same
+     bless, history and log as a hand publish) with its uploads fetched home.
+     Conservative by design: never across a newer update (apply the zip
+     first), never over unsaved draft work, never from a fallback bake (only
+     a fresh copy may be restored from the bake, and only by hand), and ties
+     go to the durable path (rev counters are per-store, so the wall clock
+     arbitrates — live wins only when its publish is strictly newer).
+   - BY HAND: Tools → "Pull from live" lands live's words as a draft — review,
+     then Publish — the backup-restore shape the office already knows. */
+
+let livePullStarted = false;
+let livePullRunning = false;
+let lastLivePullAt = 0;
+let lastLivePullMsg = "";
+
+/* Where "live" is for this copy: the office backend's own answer. Empty on the
+   live box itself (it IS live) and on standalone copies — those never pull. */
+async function liveBaseUrl(): Promise<string> {
+  try {
+    const res = await fetch("/__live-url", { cache: "no-store" });
+    if (!res.ok) return "";
+    const data = await res.json().catch(() => null);
+    const u = String((data && data.url) || "").trim().replace(/\/+$/, "");
+    if (!/^https?:\/\/[^/\s]+$/i.test(u)) return "";
+    try {
+      if (typeof window !== "undefined" && u === window.location.origin) return "";
+    } catch {
+      /* compare failed — trust the backend (the live box answers empty) */
+    }
+    return u;
+  } catch {
+    return "";
+  }
+}
+
+export function livePullStatus(): { at: number; msg: string } {
+  return { at: lastLivePullAt, msg: lastLivePullMsg };
+}
+
+type LivePullResult = { ok: boolean; error?: string; pulled?: string[]; filesRestored?: number; filesFailed?: string[] };
+
+async function fetchLiveContent(base: string): Promise<any | null> {
+  try {
+    const ctrl = typeof AbortController !== "undefined" ? new AbortController() : null;
+    const timer = ctrl ? setTimeout(() => ctrl.abort(), 15000) : 0;
+    try {
+      const res = await fetch(base + "/__cms/getContent?conn=livepull-" + Math.random().toString(36).slice(2), {
+        method: "POST",
+        headers: { "content-type": "text/plain;charset=utf-8" },
+        body: "",
+        signal: ctrl ? ctrl.signal : undefined,
+      });
+      if (!res.ok) return null;
+      return await res.json().catch(() => null);
+    } finally {
+      if (timer) clearTimeout(timer as ReturnType<typeof setTimeout>);
+    }
+  } catch {
+    return null;
+  }
+}
+
+/* Live's newer words, section by section (values only, never null: sections
+   are fixed — exactly like an office publish). */
+function diffAgainstLive(liveSections: Snapshot): { ids: string[]; patch: Record<string, string> } {
+  const ids: string[] = [];
+  const patch: Record<string, string> = {};
+  for (const def of SECTION_DEFS) {
+    const theirs = liveSections[def.id];
+    if (theirs === undefined || theirs === null) continue;
+    if (JSON.stringify(overrides[def.id]) !== JSON.stringify(theirs)) {
+      ids.push(def.id);
+      patch[def.id] = JSON.stringify(clone(theirs));
+    }
+  }
+  return { ids, patch };
+}
+
+/* Upload files the adopted words point at but this disk lacks, fetched from
+   the backend that served them (mirrors the backup-restore file loop). */
+async function backfillUploadsFrom(fromBase: string): Promise<{ restored: number; failed: string[] }> {
+  let restored = 0;
+  const failed: string[] = [];
+  for (const name of localUploadNames(overrides)) {
+    let here = false;
+    try {
+      const res = await fetch("/data/uploads/" + name, { cache: "no-store" });
+      here = res.ok;
+    } catch {
+      here = false;
+    }
+    if (here) continue;
+    try {
+      const res = await fetch(fromBase + "/data/uploads/" + name, { cache: "no-store" });
+      if (!res.ok) throw 0;
+      const blob = await res.blob();
+      if (!blob.size || blob.size > BACKUP_FILE_MAX_BYTES) throw 0;
+      const put = await fetch("/__restore-file?name=" + encodeURIComponent(name), {
+        method: "POST",
+        headers: { "content-type": blob.type || guessUploadType(name) },
+        body: blob,
+      });
+      if (!put.ok) throw 0;
+      restored++;
+    } catch {
+      failed.push(name);
+    }
+  }
+  return { restored, failed };
+}
+
+export async function pullFromLive(manual = false): Promise<LivePullResult> {
+  const base = await liveBaseUrl();
+  if (!base) {
+    if (manual) fireToast("No live address is configured (cms-server.txt) — nothing to pull from.", "error");
+    return { ok: false, error: "no-live" };
+  }
+  if (livePullRunning) return { ok: false, error: "busy" };
+  livePullRunning = true;
+  try {
+    if ((!socket || status !== "online") && !(await ensureOnline())) {
+      if (manual) fireToast("The office backend is unreachable — start it and try again.", "error");
+      return { ok: false, error: "offline" };
+    }
+    if (!authed) {
+      const saved = sessionPassword();
+      const res = saved ? await login(saved, true) : ({ ok: false as const });
+      if (!res.ok) {
+        if ((res as any).error === "denied") clearSession();
+        if (manual) fireToast("Sign in first — then pull from live.", "error");
+        return { ok: false, error: "unauthorized" };
+      }
+    }
+    const live = await fetchLiveContent(base);
+    if (!live || live.ok !== true) {
+      if (manual) fireToast("Live did not answer — try again in a bit.", "error");
+      return { ok: false, error: "unreachable" };
+    }
+    let liveSections: Snapshot = {};
+    try {
+      liveSections = live.sections ? JSON.parse(live.sections) : {};
+    } catch {
+      if (manual) fireToast("Live answered with words that could not be read.", "error");
+      return { ok: false, error: "bad-content" };
+    }
+    if (!liveSections || typeof liveSections !== "object" || !Object.keys(liveSections).length) {
+      if (manual) fireToast("Live has nothing published yet — nothing to pull.", "info");
+      return { ok: true, pulled: [] };
+    }
+    const liveNotes = typeof live.notes === "number" ? Math.floor(live.notes) : 0;
+    const liveAt = typeof live.at === "number" ? live.at : 0;
+    const seeded = (live as any).seeded === true;
+    /* Never adopt across a newer update: apply the new zip on local first —
+       the live publish stamp outruns this copy. */
+    if (liveNotes > BUILD_NOTES) {
+      const msg = `Live is on update ${liveNotes} — apply the new update on this copy first, then pull.`;
+      lastLivePullAt = Date.now();
+      lastLivePullMsg = msg;
+      if (manual) fireToast(msg, "error");
+      return { ok: false, error: "newer-update" };
+    }
+    const { ids, patch } = diffAgainstLive(liveSections);
+    if (!ids.length) {
+      lastLivePullAt = Date.now();
+      lastLivePullMsg = "Live matches this copy — nothing to pull.";
+      if (manual) fireToast("Live matches this copy — nothing to pull.", "success");
+      return { ok: true, pulled: [] };
+    }
+    /* A fallback bake is last-resort evidence, not a publish: it must never
+       regress office words — only a fresh copy may be restored from it, and
+       only by hand (the update window stays exactly as the office left it). */
+    if (seeded && (rev !== 0 || publishedNotes > 0)) {
+      lastLivePullAt = Date.now();
+      lastLivePullMsg = "Live is serving its last deploy — nothing newer to pull.";
+      if (manual) fireToast("Live is serving its last deploy — nothing newer to pull.", "info");
+      return { ok: true, pulled: [] };
+    }
+    /* Direction arbitration: rev counters are per-store, so the wall clock
+       decides — live wins only when its publish is strictly newer. Ties and
+       older go to the durable path (local publish → auto-deploy). */
+    if (liveAt <= updatedAt && updatedAt > 0) {
+      lastLivePullAt = Date.now();
+      lastLivePullMsg = "This copy is already ahead of live — nothing to pull.";
+      if (manual) fireToast("This copy is already ahead of live — nothing to pull.", "info");
+      return { ok: true, pulled: [] };
+    }
+    if (!manual) {
+      /* Automatic, so conservative: only a copy already blessed on this update
+         with no unsaved work adopts by itself. Fresh copies and mid-edit
+         desks wait for the office (the button below) — the update window and
+         the draft stay exactly as the office left them. */
+      if (publishedNotes < BUILD_NOTES || pendingSections().length > 0) {
+        return { ok: false, error: "deferred" };
+      }
+      rememberHistory();
+      const res = await sendPatch(patch, ids, `Pulled from live (${ids.length} ${ids.length === 1 ? "section" : "sections"})`);
+      if (!res.ok) return { ok: false, error: res.error };
+      rev = res.rev ?? rev + 1;
+      updatedAt = Date.now();
+      updatedBy = editorName();
+      setPublishedNotes(BUILD_NOTES);
+      applyOverrides(overrides, false);
+      writeCache();
+      log = [{ rev, at: updatedAt, by: updatedBy, role: myRole === "sub" ? "sub" : "main", note: "Pulled from live", changed: ids }, ...log].slice(0, 30);
+      draft = null;
+      dirty = {};
+      editUndos = [];
+      previewBase = null;
+      previewing = false;
+      try {
+        localStorage.removeItem(DRAFT_KEY);
+      } catch {}
+      const files = await backfillUploadsFrom(base);
+      lastLivePullAt = Date.now();
+      const imgBit = files.restored ? ` and ${files.restored} uploaded ${files.restored === 1 ? "file" : "files"} came home` : "";
+      const missBit = files.failed.length ? ` (${files.failed.length} uploaded ${files.failed.length === 1 ? "file is" : "files are"} missing on live: ${files.failed.slice(0, 3).join(", ")}${files.failed.length > 3 ? "…" : ""})` : "";
+      lastLivePullMsg = `Live publish saved here — ${ids.length} ${ids.length === 1 ? "section" : "sections"}${imgBit}${missBit}`;
+      fireToast(lastLivePullMsg + ".", "success");
+      notify();
+      return { ok: true, pulled: ids, filesRestored: files.restored, filesFailed: files.failed };
+    }
+    /* By hand: never overwrite unsaved work — Publish or Put back first. */
+    if (pendingSections().length > 0) {
+      fireToast("You have unsaved changes — Publish or Put them back first, then pull from live.", "error");
+      return { ok: false, error: "dirty-draft" };
+    }
+    /* By hand: land as a draft — review, then Publish (the backup-restore
+       shape the office already knows). Unknown sections are left out. */
+    const known = new Set(SECTION_DEFS.map((d) => d.id));
+    const kept: Snapshot = {};
+    const skipped: string[] = [];
+    for (const key of Object.keys(liveSections)) {
+      if (known.has(key)) kept[key] = liveSections[key];
+      else skipped.push(key);
+    }
+    draft = normalizeDraft({ ...clone(defaults), ...kept });
+    draftFromRev = rev;
+    dirty = {};
+    editUndos = [];
+    for (const id of ids) dirty[id] = true;
+    persistDraft();
+    notify();
+    const files = await backfillUploadsFrom(base);
+    lastLivePullAt = Date.now();
+    const imgBit = files.restored ? ` ${files.restored} uploaded ${files.restored === 1 ? "file" : "files"} brought back too.` : "";
+    const missBit = files.failed.length
+      ? ` ${files.failed.length} uploaded ${files.failed.length === 1 ? "file is" : "files are"} missing on live (${files.failed.slice(0, 3).join(", ")}${files.failed.length > 3 ? "…" : ""}).`
+      : "";
+    const leftBit = skipped.length ? ` ${skipped.length} ${skipped.length === 1 ? "section" : "sections"} from live no longer exist in this update and ${skipped.length === 1 ? "was" : "were"} left out.` : "";
+    lastLivePullMsg = `Brought ${ids.length} ${ids.length === 1 ? "section" : "sections"} from live — review, then Publish.${imgBit}${missBit}${leftBit}`;
+    fireToast(lastLivePullMsg, "success");
+    return { ok: true, pulled: ids, filesRestored: files.restored, filesFailed: files.failed };
+  } finally {
+    livePullRunning = false;
+  }
+}
+
+/* The automatic half runs in any signed-in office tab: right after boot, every
+   minute, and whenever the tab comes back or the network returns. Visitors'
+   tabs never poll (no session, no sign-in) — and copies with no live address
+   (the live box itself, standalone copies) return at the first fetch. */
+function startLivePull() {
+  if (livePullStarted) return;
+  livePullStarted = true;
+  const tick = () => {
+    if (livePullRunning) return;
+    try {
+      if (!authed && !sessionPassword()) return;
+    } catch {
+      return;
+    }
+    if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
+    pullFromLive(false).catch(() => {});
+  };
+  try {
+    initialSyncDone.then(() => {
+      window.setTimeout(() => tick(), 15000);
+    }).catch(() => {});
+  } catch {
+    window.setTimeout(() => tick(), 15000);
+  }
+  window.setInterval(() => tick(), 60 * 1000);
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "visible") tick();
+  });
+  window.addEventListener("online", () => tick());
+}
+
 export async function startCms() {
   if (starting) return;
   starting = true;
@@ -1390,6 +1684,8 @@ export async function startCms() {
     startFeed();
     /* A late-arriving server address is joined with no reload. */
     watchForServer();
+    /* Live publishes pull themselves home while an office tab is open. */
+    startLivePull();
     setBootReady();
     return;
   }
@@ -1419,6 +1715,8 @@ export async function startCms() {
     initialSyncResolve = res;
   });
   connect();
+  /* Live publishes pull themselves home while an office tab is open. */
+  startLivePull();
   try {
     await Promise.race([
       initialSyncDone,
