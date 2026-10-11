@@ -1,38 +1,50 @@
-APPLY THIS UPDATE (316) — LOCAL + LIVE
+APPLY THIS UPDATE (318) — LOCAL + LIVE
 =====================================
-This update makes live immediate: the moment the broadcast starts on the
-YouTube channel, the site shows it and the waiting clock vanishes — on the
-live site and on local runs alike. Symptom it kills: starting the stream on
-YouTube took minutes to reach the Watch page (the on-air check asked every
-45s on the clock / 3min off it, waited out a freshness window on open, and
-never re-asked when the channel was retyped), so the ticking clock sat on
-screen long after the service was up. What changed (note 316):
+Read this head first: the deployed site was still running update 279, so no
+deployed fix could work yet — step 0 below (deploy) comes before everything.
+What changed (note 318):
 
-- The fast cadence is now 20s (was 45s), quiet-week 90s (was 3min). The Watch
-  page checks AT ONCE on open and stays fast whether or not a gathering is on
-  the clock — a visitor who opened that page came to see the stream. The
-  player still wins over the clock the instant the answer says live, including
-  unscheduled broadcasts (vigils, moved services).
-- The channel is editable and the check follows it: retyping the YouTube
-  channel in the console (or a publish landing) re-checks at once through a
-  debounced announcement plus signature tracking — no waiting out the timer.
-  Only the fetch door differs per copy (same-origin /__yt locally, the office
-  server when joined, else the public proxy), so live and local behave alike.
-- Start / Continue / Stop re-ask the channel at once.
-- Same update closes an offline gap from 309: a per-section Publish while
-  offline now saves last-published on this copy with its cache (the whole-site
-  path already did; a bless-only click now caches too). An offline click keeps
-  this copy live, the flush carries it out when the connection returns, and a
-  host sleep in between changes nothing.
-- Unchanged and still locked: maintenance holds until the office publishes
-  (plain reload, /admin clear); with no new update the copy stays on the last
-  published; only an explicit office action lifts maintenance; sleep/wake
-  re-serves the last publish whole (words + stamp + history); every Publish
-  still folds live's newer words in (untouched sections follow live, office
-  edits win, uploads come home).
-- The pre-ship verifier's section M now locks live-at-once (short cadence,
-  urgent Watch check, moved-channel re-check, button re-asks, offline stamp)
-  — one FAIL blocks the ship. It passed for this zip.
+- Why the deployed page said "Live has ended" while local played: measured,
+  not guessed. YouTube serves datacenter IPs (Render) a login-walled page
+  with no live marker — even a 24/7 live channel read through the live
+  server's own proxy shows no live answer, while the office machine reads the
+  same channel fine. So no deployed scrape can ever say "live". This update
+  stops asking the deployed server to read YouTube.
+- Instead the office reports it: a signed-in office tab sends each definitive
+  YouTube answer (live/off, with video and title) to the server, and visitors
+  trust a fresh report for the same channel address instead of the scrape.
+  While the office is open and signed in, the deployed Watch page follows the
+  stream within seconds — player appears, clock vanishes, endings land too.
+- Safety as usual: reads are public, writes take the admin sign-in, and only
+  strict recent answers store (right channel shape, live/off only, real video
+  id, stamp within 10 minutes). A server restart clears the answer and the
+  office re-reports within a poll. A stale report, a closed office tab, or a
+  retyped channel: the old scrape runs exactly as before.
+- Two duties come with it, both in the steps: (1) DEPLOY this code to Render
+  first — the new server answer only exists after the rebuild (until then the
+  old box declines the new call and everything behaves as before); (2) keep a
+  signed-in office tab open during broadcasts (the admin console you already
+  keep open for Start/Stop is enough) — no open office tab, no reports.
+- Also check the published channel itself: it currently reads
+  @creflodollar1. If that is not the church's own channel, retype it in the
+  console and publish again before testing.
+- Unchanged and still locked: everything from 310/316 (short cadence, urgent
+  Watch check, moved-channel re-check, button re-asks, offline Publish
+  stamps), maintenance holds until the office publishes (plain reload,
+  /admin clear); with no new update the copy stays on the last published;
+  only an explicit office action lifts maintenance; sleep/wake re-serves the
+  last publish whole; every Publish still folds live's newer words in.
+- The pre-ship verifier's section N now locks the report path (public read,
+  admin-only write, strict validation incl. a live round-trip, fresh-only
+  trust, office-only reporting) — one FAIL blocks the ship. All 139 checks
+  passed for this zip.
+
+0. DEPLOY FIRST (the live site is behind — do this before anything else)
+   Put this code where Render builds it (replace src/, scripts/, index.html,
+   seed.json, vite.config.ts, package.json — keep data/ as-is), commit/push.
+   Render: install npm install, build npm run build, start node scripts/serve.mjs.
+   Confirm https://twocchurch-site.onrender.com/version.json shows {"notes":318}.
+   Until it does, NOTHING below can work on the deployed site.
 
 LOCAL (your computer)
 1. In the OLD folder: open #/admin → Tools → Back up now. Keep the file.
@@ -46,14 +58,14 @@ LOCAL (your computer)
    right back", logo + message only) — this update holds until blessed.
    A plain reload must show it; no hard refresh needed. The admin console
    (/admin) must NOT show it — it boots straight into the console.
-   (Coming from 305: same steps — backup in the old folder first, then a NEW
-   folder for 316, restore, publish. The restore carries all words across the
+   (Coming from 316: same steps — backup in the old folder first, then a NEW
+   folder for 318, restore, publish. The restore carries all words across the
    jump; the first publish also folds in anything newer on the live site.)
 6. Bring your words home: #/admin → Tools → Restore the backup file → review
    → Publish. The Publish itself folds in anything newer on the live site
    (untouched sections follow live, your edits win, uploads come home), so
    there is no second step.
-   Local lifts to 316 and the notice releases. Reload desktop + phone
+   Local lifts to 318 and the notice releases. Reload desktop + phone
    width to verify (plain reloads).
 7. Live check (local): open /watch-live, then start the broadcast on the
    YouTube channel (or retype the channel in the console and publish). The
@@ -74,32 +86,34 @@ LOCAL (your computer)
    between changes nothing.
 9. Check: reload again with no new update — the site stays on the last
    published (no notice, published words intact). Console check:
-   window.__maintState() shows publishedNotes 316.
+   window.__maintState() shows publishedNotes 318.
 
 LIVE (Render: twocchurch-site.onrender.com)
-1. Put this code where Render builds it (replace src/, scripts/, index.html,
-   seed.json, vite.config.ts, package.json — keep data/ as-is), commit/push.
-   Render: install npm install, build npm run build, start node scripts/serve.mjs.
-2. Confirm https://twocchurch-site.onrender.com/version.json shows {"notes":316}.
-3. Push the step-8 content commit if you have not already (the bake must be
-   from 316 or newer — a bake stamped 315 or older still waits, by design).
-   Render rebuilds on the push by itself.
-4. The live site now waits on the maintenance notice until the publish lands
+1. Step 0 first (deploy + version.json reads 318). Then push the step-8
+   content commit if you have not already (the bake must be from 318 or
+   newer — a bake stamped 317 or older still waits, by design). Render
+   rebuilds on the push by itself.
+2. The live site now waits on the maintenance notice until the publish lands
    through the bake — verify with a PLAIN reload on desktop + phone width,
    uploads/photos/videos showing. The live admin console stays clear
    throughout and keeps "Last published". A live /admin publish now also
    lands on the office copy by itself (about a minute, while the office is
    signed in) — but still publish the same words locally afterwards when
    you can: the ephemeral disk forgets, the office folder remembers.
-5. Live check (live): open the live /watch-live, then start the broadcast on
-   the YouTube channel. The player must appear within seconds and the ticking
-   clock must vanish with it. Retype the channel (console → Publish) and the
-   check follows the new address at once.
-6. Sleep test (optional, proves the fix): in the Render dashboard, restart
+3. In live /admin: confirm the YouTube channel is the church's own, then
+   Review and publish → Publish (typing alone is a draft — visitors never
+   see it until published).
+4. Keep a signed-in office tab open (this admin console counts), then start
+   the broadcast on the YouTube channel. Open the live /watch-live: the
+   player must appear within seconds and the ticking clock must vanish with
+   it. Stop the stream and the page returns to "Live has ended" by itself.
+   Retype the channel (console → Publish) and the check follows the new
+   address at once.
+5. Sleep test (optional, proves the fix): in the Render dashboard, restart
    the service (or just wait for it to sleep). The site must stay live with
    "Last published" intact — no notice, no re-publish. If the notice shows,
    the bake is stale: do step 8 first, then test again.
-7. Optional but recommended on free Render: a free keep-awake ping
+6. Optional but recommended on free Render: a free keep-awake ping
    (e.g. UptimeRobot, every 5 minutes, to
    https://twocchurch-site.onrender.com/version.json) skips the 30–60s cold
    boot after a sleep. Harmless either way now — sleep loses nothing — it

@@ -1,5 +1,4 @@
-/* verify-update.mjs — the pre-ship gate (note 293).
-   The maintenance notice kept going missing on updates because a blessing
+/* verify-update.mjs — the pre-ship gate (note 293).   The maintenance notice kept going missing on updates because a blessing
    leaked through the baked seed / the fallback / the auto-heal, opening new
    code with no office review. The invariants below lock the fail-safe rule:
    NOTHING blesses a copy except an explicit office action (publish, undo
@@ -11,7 +10,9 @@
    unsaved work, and folds live's newer words into every Publish instead of a
    hand button. Section M (note 310) locks live-at-once: short cadence, urgent
    Watch check, moved-channel re-check on live and local, button re-asks, and
-   offline Publish stamping. Run this
+   offline Publish stamping. Section N (note 318) locks the office-reported
+   on-air answer: public reads, admin-only writes, strict validation, fresh-
+   for-same-target trust on visitors, office-only reporting. Run this
    before EVERY update zip — a single FAIL blocks the
    ship, no exceptions.
    RUN (paste the two lines into an execute_js call):
@@ -378,6 +379,41 @@ export async function runAll(fs) {
   ok("office buttons re-ask", has(ed, "recheckLiveNow()") && has(ed, 'import { readLiveStatus, recheckLiveNow } from "../lib/livestatus"'), "Start/Continue/Stop must ask the channel at once");
   ok("section publish stamps offline", has(cms, "An offline click still moves last-published on this copy"), "a per-section Publish while offline must move the stamp like the whole-site one");
   ok("bless caches offline", has(cms, "The stamp is cached with"), "a bless-only Publish while offline must cache the stamp with the words");
+  /* N. office-reported on-air answer (note 318): the deployed server cannot
+     read YouTube itself (bot wall — login wall, no live marker), so a
+     signed-in office tab reports each definitive answer and visitors trust a
+     fresh report for the same target instead of the scrape. */
+  const srvLive = text["scripts/cms-server.js"];
+  ok("report store exists", has(srvLive, "var LIVE_REPORT = null;"), "the server must hold the latest office answer");
+  ok("report reads public", has(srvLive, "if (!raw) return ok({ report: LIVE_REPORT });"), "visitors ask every check, no session needed");
+  ok("report writes take admin", has(srvLive, "liveReport: function (info, raw)") && has(srvLive, 'if (!admins.has(info.conn.id)) return fail("denied");'), "only the signed-in office may report");
+  ok("report validates strictly", has(srvLive, 'return fail("bad-report");') && has(srvLive, "LIVE_REPORT = { target:") && has(srvLive, "now - checkedAt > 10 * 60 * 1000"), "stale tabs, wrong channels and forged ids must never reach the screen");
+  ok("visitors ask the office first", has(live, "fetchLiveReport()") && has(live, "officeHit") && has(live, "officeRep.target === target.url"), "a fresh office answer must win over the scrape");
+  ok("reports stay fresh-only", has(live, "REPORT_FRESH_MS = 150_000") && has(live, "Date.now() - checkedAt > REPORT_FRESH_MS"), "a closed office tab must stop steering visitors");
+  ok("office reports definitive answers", has(live, "setLiveReportSink") && has(live, "maybeReport(next)") && has(cms, "socket.rpc.liveReport"), "the poll must hand live/off answers to the joined server");
+  ok("only signed-in office reports", has(cms, "if (!authed || !socket || status !=="), "visitors and signed-out tabs must only read");
+  try {
+    const rpcR = loadVm(srv, new Uint8Array(8 * 1024 * 1024));
+    const anon = { id: "anon-rep", net: ["x", 0, 0], subscribe() {}, topics: new Set() };
+    const read0 = JSON.parse(rpcR.liveReport({ conn: anon }, ""));
+    ok("report starts empty, reads public", read0.ok === true && read0.report === null);
+    const denied = JSON.parse(rpcR.liveReport({ conn: anon }, JSON.stringify({ target: "https://www.youtube.com/@a/live", state: "live", videoId: "dQw4w9WgXcQ", title: "T", checkedAt: Date.now() })));
+    ok("report write needs admin", denied.ok === false, "an anonymous write must be refused");
+    const open = srv.replace('if (!admins.has(info.conn.id)) return fail("denied");', 'if (false) return fail("denied");');
+    const rpcO = loadVm(open, new Uint8Array(8 * 1024 * 1024));
+    const w = (payload) => JSON.parse(rpcO.liveReport({ conn: anon }, JSON.stringify(payload)));
+    const good = { target: "https://www.youtube.com/@church/live", state: "live", videoId: "dQw4w9WgXcQ", title: "Sunday", checkedAt: Date.now() };
+    ok("report stores a strict answer", w(good).ok === true);
+    const back = JSON.parse(rpcO.liveReport({ conn: anon }, ""));
+    ok("report reads back whole", back.ok === true && back.report && back.report.state === "live" && back.report.videoId === "dQw4w9WgXcQ" && back.report.target === good.target);
+    ok("report refuses junk", !w({}).ok && !w("x").ok && !w({ ...good, state: "maybe" }).ok && !w({ ...good, target: "https://evil.example/x" }).ok && !w({ ...good, videoId: "short" }).ok && !w({ ...good, checkedAt: Date.now() - 11 * 60 * 1000 }).ok, "bad state, channel, id or stamp must never store");
+    const longT = w({ ...good, title: "x".repeat(201) });
+    const backT = JSON.parse(rpcO.liveReport({ conn: anon }, ""));
+    ok("report trims long titles", longT.ok === true && backT.report.title.length === 200, "a long title must shrink, not refuse the whole answer");
+    ok("report stores endings too", w({ ...good, state: "off", videoId: "", title: "" }).ok === true, "visitors must hear the ending at once");
+  } catch (e) {
+    ok("report suite", false, String((e && e.message) || e).slice(0, 200));
+  }
   const notes = Number((text["src/lib/hooks.ts"].match(/BUILD_NOTES = (\d+)/) || [])[1]) || 0;
   const apply = text["APPLY_UPDATE.txt"];
   ok("update number consistent", notes > 0 && has(apply, `APPLY THIS UPDATE (${notes})`), "hooks=" + notes);

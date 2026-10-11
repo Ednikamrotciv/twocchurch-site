@@ -208,15 +208,63 @@ async function fetchPageOffice(url: string): Promise<string | null> {
   }
 }
 
+/** The office's reported on-air answer (note 318): what the office copy saw,
+    where it saw it, and when — trusted only while fresh and on this target. */
+export type LiveReport = { target: string; state: "live" | "off"; videoId: string; title: string; checkedAt: number };
+/* A report older than this is ignored (the office tab closed or sleeps) and
+   the check falls back to reading YouTube itself. */
+const REPORT_FRESH_MS = 150_000;
+/* Reports ride the same door as content — tiny and fast; a slow door must
+   never hold up the scrape behind it. */
+const REPORT_TIMEOUT_MS = 6_000;
+
+/** The latest office report, or null — public read, never throws. */
+async function fetchLiveReport(): Promise<LiveReport | null> {
+  try {
+    const base = serverUrl();
+    const res = await withTimeout(
+      fetch(`${base}/__cms/liveReport?conn=rpt-` + Math.random().toString(36).slice(2), {
+        method: "POST",
+        headers: { "content-type": "text/plain;charset=utf-8" },
+        body: "",
+        cache: "no-store",
+      }),
+      REPORT_TIMEOUT_MS
+    );
+    if (!res || !res.ok) return null;
+    const data = await res.json().catch(() => null);
+    const rep = data && (data as { report?: unknown }).report;
+    if (!rep || typeof rep !== "object") return null;
+    const r = rep as Partial<LiveReport>;
+    if (r.state !== "live" && r.state !== "off") return null;
+    const checkedAt = Number(r.checkedAt) || 0;
+    if (!(checkedAt > 0) || Date.now() - checkedAt > REPORT_FRESH_MS) return null;
+    return { target: String(r.target || ""), state: r.state, videoId: String(r.videoId || ""), title: String(r.title || ""), checkedAt };
+  } catch {
+    return null;
+  }
+}
+
 /** Ask YouTube whether we are broadcasting, right now. */
 export async function checkLiveStream(opts: { facebook?: boolean } = {}): Promise<LiveStatus> {
   const target = liveTarget();
   const fbUrl = opts.facebook ? facebookTarget() : "";
   if (!target && !fbUrl) return { ...EMPTY, state: "unset", checkedAt: Date.now() };
 
-  const html = target ? await fetchPage(target.url) : null;
+  /* A fresh office report wins over the scrape (note 318): the deployed
+     server cannot read YouTube itself (bot wall — the page comes back with a
+     login wall and no live marker), but the office copy can, so while the
+     office is open and reporting, visitors take its answer. A stale report,
+     or one for another address, changes nothing — the scrape below runs. */
+  const officeRep = target ? await fetchLiveReport() : null;
+  const officeHit = target && officeRep && officeRep.target === target.url ? officeRep : null;
+  const html = target && !officeHit ? await fetchPage(target.url) : null;
   const youtube: { state: LiveState; videoId: string; title: string } = !target
     ? { state: "unset", videoId: "", title: "" }
+    : officeHit
+    ? officeHit.state === "live"
+      ? { state: "live", videoId: officeHit.videoId, title: officeHit.title }
+      : { state: "off", videoId: "", title: "" }
     : html === null
     ? { state: "unknown", videoId: "", title: "" }
     : (() => {
@@ -308,6 +356,29 @@ let polling = false;
 let lastCheckAt = snapshot.status.checkedAt;
 /** The address the last answer was about, so a new one is checked at once. */
 let lastTarget = "";
+
+/* Where definitive answers go when this copy is the office (note 318): the
+   content store registers its authed-socket sink at boot; every other copy
+   leaves it unset and only reads. Reporting never blocks or breaks the poll. */
+let reportSink: ((rep: LiveReport) => void) | null = null;
+export function setLiveReportSink(fn: ((rep: LiveReport) => void) | null) {
+  reportSink = fn;
+}
+
+function maybeReport(status: LiveStatus) {
+  try {
+    if (!reportSink) return;
+    /* Definitive YouTube answers only: unknowns, unsets and Facebook-only
+       finds must never overwrite the office's real answer on the server. */
+    if (status.state !== "live" && status.state !== "off") return;
+    if (status.state === "live" && status.platform !== "youtube") return;
+    const url = liveTarget()?.url || "";
+    if (!url) return;
+    reportSink({ target: url, state: status.state, videoId: status.videoId, title: status.title, checkedAt: status.checkedAt });
+  } catch {
+    /* reporting must never break the poll */
+  }
+}
 
 function emit() {
   listeners.forEach((fn) => fn());
@@ -460,6 +531,10 @@ async function run() {
   }
   saveLiveStatus(next);
   publish({ status: next });
+  /* This copy may be the office: a definitive answer goes to the server at
+     once (note 318), so deployed visitors — whose own read of YouTube is bot-
+     walled — see it on their next check. */
+  maybeReport(next);
   /* The answer's own verdict decides the cadence this time (a broadcast that
      has just been found must not wait out the quiet-week timer because the
      render has not landed yet). */

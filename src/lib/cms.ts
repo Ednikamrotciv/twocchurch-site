@@ -13,7 +13,7 @@ import { createRemoteSocket, initServerUrl, refreshServerUrl, serverOverride, se
 import { applyBakedRecent } from "./recentstreams";
 import { bakedFeedSpec, feedIsNewer, peekSeed, siteFile, type FeedSeed, type FeedSpec } from "./livefeed";
 import { BUILD_NOTES } from "./hooks";
-
+import { setLiveReportSink } from "./livestatus";
 export type Snapshot = Record<string, any>;
 export type CmsStatus = "connecting" | "online" | "offline" | "local";
 export type LogEntry = { rev: number; at: number; by: string; role?: string; note: string; changed: string[] };
@@ -2319,6 +2319,20 @@ export async function login2fa(code: string, password: string): Promise<{ ok: bo
 export function isAuthed() {
   return authed;
 }
+
+/* Office-reported on-air answer (note 318): this copy's definitive YouTube
+   answers ride the joined server's authed socket to every other copy. Only a
+   signed-in office tab reports — visitors and signed-out tabs only read —
+   and only while joined (standalone copies keep the answer to themselves).
+   The sink is fire-and-forget: the next poll reports again. */
+setLiveReportSink((rep) => {
+  try {
+    if (!authed || !socket || status !== "online") return;
+    socket.rpc.liveReport(JSON.stringify(rep))?.catch?.(() => {});
+  } catch {
+    /* the next poll reports again */
+  }
+});
 
 /* ------------------------------------------------------------ sub-admins */
 

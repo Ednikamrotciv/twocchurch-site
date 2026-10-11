@@ -375,6 +375,12 @@ var REV = 0, AT = 0, BY = "";
    visitors wait on maintenance until a publish from the newest code). */
 var NOTES = 0;
 var LOG = [];
+/* The office's latest on-air answer (note 318, memory-only): the deployed
+   server cannot read YouTube itself (bot-walled datacenter IPs get a login
+   wall with no live marker), but the office copy can — so a signed-in office
+   tab reports each definitive answer here and visitors read it back. A
+   restart clears it and the office re-reports within a poll. */
+var LIVE_REPORT = null;
 /* The publish before this one: {at, rev, sections} — one undo, inside about
    15 minutes of the publish (note 291). A publish always deletes the one
    before it as the live words; this copy only lives long enough to take it
@@ -799,6 +805,34 @@ self.rpc = {
       pwgen: PWGEN,
       undoLeft: left,
     });
+  },
+
+  /* Office-reported on-air answer (note 318): reads are public (visitors ask
+     every check); writes take an admin connection (the signed-in office tab).
+     Only strict, recent answers are kept — anything else is refused, never
+     stored — so a stale tab, a wrong channel or a forged video id can never
+     put words on the visitors' screen. */
+  liveReport: function (info, raw) {
+    if (!raw) return ok({ report: LIVE_REPORT });
+    if (!admins.has(info.conn.id)) return fail("denied");
+    var rep;
+    try {
+      rep = JSON.parse(raw);
+    } catch (e) {
+      return fail("bad-report");
+    }
+    if (!rep || typeof rep !== "object") return fail("bad-report");
+    var target = String(rep.target || "").slice(0, 300);
+    if (!/^https:\/\/(www\.youtube\.com|youtube\.com|m\.youtube\.com|youtu\.be)\//.test(target)) return fail("bad-report");
+    if (rep.state !== "live" && rep.state !== "off") return fail("bad-report");
+    var videoId = String(rep.videoId || "");
+    if (videoId && !/^[\w-]{11}$/.test(videoId)) return fail("bad-report");
+    var title = String(rep.title || "").slice(0, 200);
+    var checkedAt = Number(rep.checkedAt) || 0;
+    var now = Date.now();
+    if (!(checkedAt > 0) || checkedAt > now + 5 * 60 * 1000 || now - checkedAt > 10 * 60 * 1000) return fail("bad-report");
+    LIVE_REPORT = { target: target, state: rep.state, videoId: videoId, title: title, checkedAt: checkedAt, at: now };
+    return ok({ stored: true });
   },
 
   login: function (info, raw) {
