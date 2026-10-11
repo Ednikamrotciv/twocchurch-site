@@ -1,5 +1,8 @@
 /* On-air check: reads the channel's /live page for `isLiveNow` (never `isLiveContent`/`isLive`,
-   both traps, note 112) via the office-server proxy (no CORS). Cached, re-checked on a timer; failures read
+   both traps, note 112) via the office-server proxy (no CORS). A bot-walled /live page can name the
+   broadcast without playing it (note 322) — the check then follows the Live tab's video to its watch
+   page, whose on-air chrome (`Live` indicator + `watching now`, measured on a real service) is the
+   answer — before calling anything off. Cached, re-checked on a timer; failures read
    "unknown". Ended broadcasts are remembered for auto-stop; Facebook only ever confirms. */
 
 import { useEffect, useSyncExternalStore } from "react";
@@ -98,25 +101,79 @@ function decodeEntities(value: string): string {
 }
 
 /** Read a YouTube page; unreadable pages return "no answer", never "off". */
-export function parseLivePage(html: string): { read: boolean; live: boolean; videoId: string; title: string } {
+export function parseLivePage(html: string, pageUrl = ""): { read: boolean; live: boolean; videoId: string; title: string } {
   const text = String(html || "");
   /* YouTube's own pages all carry the inlined page model — a consent wall or an
      error page carries none of it. */
   const read = /ytInitialData/.test(text) || /"videoDetails":\{/.test(text);
-  /* Only `isLiveNow` (or an existing live manifest) means broadcasting (note 112). */
-  const live = read && (/"isLiveNow":true/.test(text) || /"hlsManifestUrl":"https?:\/\//.test(text));
+  /* `isLiveNow` (or a live manifest) is the player saying it — but a bot-walled
+     page can hide the player while still printing the broadcast's own chrome
+     (note 322, measured on a real service: no `isLiveNow`, yet `watching now`,
+     `Started streaming … ago`, the `Live` indicator and a live-chat
+     continuation). Those only ever sit together while on air, so together they
+     are a live marker; each alone is not — and `"isLive":true` still never is
+     (note 112: finished pages keep it in the view-count renderer). */
+  const chromeLive =
+    (/"liveIndicatorText":\{"simpleText":"Live"\}/.test(text) && / watching now"/.test(text)) ||
+    (/"dateText":\{"simpleText":"Started streaming /.test(text) && / watching now"/.test(text)) ||
+    (/"liveChatRenderer":\{"continuations"/.test(text) && / watching now"/.test(text));
+  const live = read && (/"isLiveNow":true/.test(text) || /"hlsManifestUrl":"https?:\/\//.test(text) || chromeLive);
   if (!live) return { read, live: false, videoId: "", title: "" };
+  /* A bot-walled watch page drops the canonical link and the videoDetails id
+     (note 322) — the address asked for is the id then. */
+  const fromUrl = /(?:watch\?v=|\/live\/|\/embed\/|\/v\/|youtu\.be\/)([\w-]{11})/.exec(String(pageUrl || ""));
   const canonical = /<link rel="canonical" href="https:\/\/www\.youtube\.com\/watch\?v=([\w-]{11})"/.exec(text);
   const details = /"videoDetails":\{[^}]*?"videoId":"([\w-]{11})"/.exec(text);
   const any = /"videoId":"([\w-]{11})"/.exec(text);
   const meta = /<meta name="title" content="([^"]*)"/.exec(text);
   const videoTitle = /"videoDetails":\{[^}]*?"title":"((?:[^"\\]|\\.)*)"/.exec(text);
+  const overlayTitle = /"playerOverlayVideoDetailsRenderer":\{"title":\{"simpleText":"((?:[^"\\]|\\.)*)"/.exec(text);
+  const headline =
+    meta?.[1] ||
+    (videoTitle ? videoTitle[1].replace(/\\"/g, '"') : "") ||
+    (overlayTitle ? overlayTitle[1].replace(/\\"/g, '"') : "");
   return {
     read,
     live: true,
-    videoId: canonical?.[1] || details?.[1] || any?.[1] || "",
-    title: decodeEntities(meta?.[1] || (videoTitle ? videoTitle[1].replace(/\\"/g, '"') : "") || ""),
+    videoId: fromUrl?.[1] || canonical?.[1] || details?.[1] || any?.[1] || "",
+    title: decodeEntities(headline),
   };
+}
+
+/** The video the channel's Live tab is showing (note 322): a channel's /live
+    page carries no player marker on a bot-walled read, so the check follows
+    this id to its watch page for the real answer. "" when the tab is empty. */
+export function channelLiveVideoId(html: string): string {
+  const text = String(html || "");
+  const tab = text.indexOf('"title":"Live","selected":true');
+  if (tab < 0) return "";
+  const seg = text.slice(tab, tab + 30_000);
+  return /"url":"\/watch\?v=([\w-]{11})"/.exec(seg)?.[1] || /"videoId":"([\w-]{11})"/.exec(seg)?.[1] || "";
+}
+
+/** Answer YouTube for a fetched channel/watch page (note 322): when the page
+    is readable but carries no live marker and the target is a channel, the
+    Live tab's video is asked on its own watch page before anything is called
+    off — a page we merely could not read stays `unknown`, never `off`. */
+async function resolveYoutube(
+  target: { url: string; kind: "channel" | "video" },
+  html: string
+): Promise<{ state: LiveState; videoId: string; title: string }> {
+  const off = { state: "off" as const, videoId: "", title: "" };
+  const parsed = parseLivePage(html, target.url);
+  if (parsed.live) return { state: "live" as const, videoId: parsed.videoId, title: parsed.title };
+  if (!parsed.read) return { state: "unknown" as const, videoId: "", title: "" };
+  if (target.kind === "channel") {
+    const vid = channelLiveVideoId(html);
+    if (!vid) return off;
+    const watchUrl = `https://www.youtube.com/watch?v=${vid}`;
+    const watchHtml = await fetchPage(watchUrl);
+    if (watchHtml === null) return { state: "unknown" as const, videoId: "", title: "" };
+    const watch = parseLivePage(watchHtml, watchUrl);
+    if (watch.live) return { state: "live" as const, videoId: watch.videoId || vid, title: watch.title };
+    if (!watch.read) return { state: "unknown" as const, videoId: "", title: "" };
+  }
+  return off;
 }
 
 /** Facebook can only confirm a broadcast (two markers); never trusts "off". */
@@ -269,13 +326,7 @@ export async function checkLiveStream(opts: { facebook?: boolean } = {}): Promis
       : { state: "off", videoId: "", title: "" }
     : html === null
     ? { state: "unknown", videoId: "", title: "" }
-    : (() => {
-        const parsed = parseLivePage(html);
-        /* A page we could not read is not an ending — only a real YouTube page
-           that says nothing about a broadcast is (see `parseLivePage`). */
-        if (!parsed.read) return { state: "unknown" as const, videoId: "", title: "" };
-        return { state: parsed.live ? ("live" as const) : ("off" as const), videoId: parsed.videoId, title: parsed.title };
-      })();
+    : await resolveYoutube(target, html);
 
   /* Facebook is asked only when YouTube has not already answered "live" — it is
      the office's drawer that asks, and this is the one case it can add

@@ -14,7 +14,10 @@
    on-air answer: public reads, admin-only writes, strict validation, fresh-
    for-same-target trust on visitors, office-only reporting. Section O (note
    320) locks the pasted-channel cleaning: a doubled "@" or stray spaces can
-   never point the site at nothing again. Run this
+   never point the site at nothing again. Section P (note 322) locks the
+   live follow: the Live tab's video is asked on its watch page before
+   anything is called off, on-air chrome is read there, traps stay shut and
+   unreadable pages stay unknown. Run this
    before EVERY update zip — a single FAIL blocks the
    ship, no exceptions.
    RUN (paste the two lines into an execute_js call):
@@ -447,6 +450,46 @@ export async function runAll(fs) {
     ok("channel links survive doubles", url("@@creflodollar1") === "https://www.youtube.com/@creflodollar1" && url("@twocorg") === "https://www.youtube.com/@twocorg" && url("") === "");
   } catch (e) {
     ok("channel cleaner suite", false, String((e && e.message) || e).slice(0, 200));
+  }
+  /* P. the Live tab's video is asked before anything is called off (note 322):
+     a bot-walled channel /live page names the broadcast without playing it,
+     so the check follows it to its watch page and reads the on-air chrome
+     there — each chrome marker alone, and "isLive":true always, still mean
+     nothing, and unreadable pages stay unknown at both steps. */
+  ok("live follows the Live tab", has(live, "channelLiveVideoId") && has(live, "resolveYoutube") && has(live, "watch?v=${vid}"), "a channel page with no marker must ask the Live tab's video before calling off");
+  ok("on-air chrome is read", has(live, "liveIndicatorText") && has(live, "watching now") && has(live, "Started streaming ") && has(live, "playerOverlayVideoDetailsRenderer"), "a bot-walled watch page must still answer live while broadcasting");
+  ok("unreadable stays unknown", has(live, "stays `unknown`, never `off`"), "a hiccup must never end a service that is on air");
+  try {
+    const eb3 = await import("https://esm.sh/esbuild-wasm@0.21.5?bundle");
+    try {
+      await eb3.default.initialize({ wasmURL: "https://esm.sh/esbuild-wasm@0.21.5/esbuild.wasm" });
+    } catch {
+      /* already initialized above — transform works regardless */
+    }
+    const tc = await eb3.default.transform(live, { loader: "ts", format: "cjs" });
+    const stubReq = (id) => {
+      if (id === "react") return { useEffect: () => {}, useSyncExternalStore: () => ({}) };
+      if (id === "./hooks") return { readStore: (k, fb) => fb, writeStore: () => true };
+      return {};
+    };
+    const liveMod = { exports: {} };
+    new Function("module", "exports", "require", tc.code)(liveMod, liveMod.exports, stubReq);
+    const parseFn = liveMod.exports.parseLivePage;
+    const tabIdFn = liveMod.exports.channelLiveVideoId;
+    const VID = "er5FXepH2hg";
+    const liveWatch = 'ytInitialData{"a":1} "liveIndicatorText":{"simpleText":"Live"} "7,464"," watching now" "dateText":{"simpleText":"Started streaming 3 hours ago"} "liveChatRenderer":{"continuations":[{}]} "playerOverlayVideoDetailsRenderer":{"title":{"simpleText":"Sunday Service"}} <meta name="title" content="">';
+    const gotLive = parseFn(liveWatch, "https://www.youtube.com/watch?v=" + VID);
+    ok("shipped parser sees a walled live page", gotLive.read === true && gotLive.live === true && gotLive.videoId === VID && gotLive.title === "Sunday Service", "the id must come from the asked address, the headline from the overlay");
+    const trap = parseFn('ytInitialData{"a":1} "isLive":true "isLiveContent":true "isLiveNow":false', "https://www.youtube.com/watch?v=" + VID);
+    ok("shipped parser keeps the note-112 trap shut", trap.read === true && trap.live === false, '"isLive":true must never read as on air');
+    const ended = parseFn('ytInitialData{"a":1} "text":"3:43:35","badgeStyle":"THUMBNAIL_OVERLAY_BADGE_STYLE_DEFAULT"', "https://www.youtube.com/watch?v=" + VID);
+    ok("shipped parser calls a replay off", ended.read === true && ended.live === false, "a duration badge is not a broadcast");
+    const classic = parseFn('ytInitialData{"a":1} "isLiveNow":true <link rel="canonical" href="https://www.youtube.com/watch?v=' + VID + '">', "https://www.youtube.com/@x/live");
+    ok("shipped parser keeps the player marker", classic.live === true && classic.videoId === VID, "isLiveNow must still win with the canonical id");
+    const tabHtml = '"title":"Live","selected":true,"content":{"x":[{"videoCommand":{"commandMetadata":{"webCommandMetadata":{"url":"/watch?v=' + VID + '"}}}}]}';
+    ok("Live tab names its video", tabIdFn(tabHtml) === VID && tabIdFn('ytInitialData{"a":1} "title":"Videos","selected":true') === "", "the follow needs the tab's id, and nothing when the tab is empty");
+  } catch (e) {
+    ok("live-follow suite", false, String((e && e.message) || e).slice(0, 200));
   }
   const notes = Number((text["src/lib/hooks.ts"].match(/BUILD_NOTES = (\d+)/) || [])[1]) || 0;
   const apply = text["APPLY_UPDATE.txt"];

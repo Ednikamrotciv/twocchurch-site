@@ -1,35 +1,38 @@
-APPLY THIS UPDATE (320) — LOCAL + LIVE
+APPLY THIS UPDATE (322) — LOCAL + LIVE
 =====================================
-Why local stopped too: the published channel had become "@@creflodollar1"
-(an extra "@" typed in front of the handle). Every reader silently watched
-nothing after that — locally and deployed alike — with the stream live on
-YouTube. What changed (note 320):
+Why a live service still read "ended": on 11 Oct the Bushiri broadcast was
+running on YouTube, yet the office reported "off". The channel's /live page
+carries no `isLiveNow` marker on a bot-walled read — it only names the video —
+so the old check called it off without asking further. What changed (note 322):
 
-- The paste is cleaned once, and every reader cleans: trimming, collapsing
-  "@@" runs and stripping stray spaces. The live check, the channel links,
-  recent services and the deploy-time bake all resolve the doubled value to
-  the right channel — so the ALREADY-PUBLISHED "@@creflodollar1" starts
-  working with NO retype needed. And the console cleans the paste on the way
-  in, so a doubled "@" can never reach the published words again.
-- Still check the handle itself: it reads "@creflodollar1". If that is not
-  the church's own channel, retype it (one "@") in the console and publish.
-- Unchanged and still locked: everything from 318 (office-reported on-air
-  answer for the deployed bot wall — keep a signed-in office tab open during
-  broadcasts; short cadence, urgent Watch check, moved-channel re-check,
-  button re-asks, offline Publish stamps), maintenance holds until the office
-  publishes (plain reload, /admin clear); with no new update the copy stays
-  on the last published; only an explicit office action lifts maintenance;
-  sleep/wake re-serves the last publish whole; every Publish still folds
-  live's newer words in.
-- The pre-ship verifier's section O now locks the cleaning (one cleaner used
-  everywhere, incl. a live run of the shipped code) — one FAIL blocks the
-  ship. All 149 checks passed for this zip.
+- Before anything is called off, the check follows the Live tab's video to
+  its own watch page and reads the broadcast's on-air chrome there (`Live`
+  indicator + `watching now` / `Started streaming …`, measured on the real
+  service — each marker alone, and `"isLive":true` always, still mean
+  nothing). The watch page's id comes from the address asked when YouTube
+  drops the canonical link, and its headline from the player overlay.
+- Unreadable pages still answer `unknown`, never `off` — at the channel step
+  and at the watch step — so a hiccup can never end a service that is on air.
+- The office reports the followed answer at once (note 318's door), and
+  visitors keep trusting a fresh same-target report; the follow also runs on
+  the deployed fallback scrape itself.
+- Unchanged and still locked: everything from 320 (doubled-"@" healing),
+  318 (office-reported on-air answer — keep a signed-in office tab open
+  during broadcasts; short cadence, urgent Watch check, moved-channel
+  re-check, button re-asks, offline Publish stamps), maintenance holds until
+  the office publishes (plain reload, /admin clear); with no new update the
+  copy stays on the last published; only an explicit office action lifts
+  maintenance; sleep/wake re-serves the last publish whole; every Publish
+  still folds live's newer words in.
+- The pre-ship verifier's section P now locks the follow (marker checks plus
+  a live run of the shipped parser on synthetic live/trap/ended pages) — one
+  FAIL blocks the ship.
 
 0. DEPLOY FIRST (the live site is behind — do this before anything else)
    Put this code where Render builds it (replace src/, scripts/, index.html,
    seed.json, vite.config.ts, package.json — keep data/ as-is), commit/push.
    Render: install npm install, build npm run build, start node scripts/serve.mjs.
-   Confirm https://twocchurch-site.onrender.com/version.json shows {"notes":320}.
+   Confirm https://twocchurch-site.onrender.com/version.json shows {"notes":322}.
    Until it does, NOTHING below can work on the deployed site.
 
 LOCAL (your computer)
@@ -44,14 +47,14 @@ LOCAL (your computer)
    right back", logo + message only) — this update holds until blessed.
    A plain reload must show it; no hard refresh needed. The admin console
    (/admin) must NOT show it — it boots straight into the console.
-   (Coming from 318: same steps — backup in the old folder first, then a NEW
-   folder for 320, restore, publish. The restore carries all words across the
+   (Coming from 320: same steps — backup in the old folder first, then a NEW
+   folder for 322, restore, publish. The restore carries all words across the
    jump; the first publish also folds in anything newer on the live site.)
 6. Bring your words home: #/admin → Tools → Restore the backup file → review
    → Publish. The Publish itself folds in anything newer on the live site
    (untouched sections follow live, your edits win, uploads come home), so
    there is no second step.
-   Local lifts to 320 and the notice releases. Reload desktop + phone
+   Local lifts to 322 and the notice releases. Reload desktop + phone
    width to verify (plain reloads).
 7. Live check (local): open /watch-live while the broadcast is running on
    the YouTube channel. The player must appear within seconds and the
@@ -72,12 +75,12 @@ LOCAL (your computer)
    between changes nothing.
 9. Check: reload again with no new update — the site stays on the last
    published (no notice, published words intact). Console check:
-   window.__maintState() shows publishedNotes 320.
+   window.__maintState() shows publishedNotes 322.
 
 LIVE (Render: twocchurch-site.onrender.com)
-1. Step 0 first (deploy + version.json reads 320). Then push the step-8
-   content commit if you have not already (the bake must be from 320 or
-   newer — a bake stamped 319 or older still waits, by design). Render
+1. Step 0 first (deploy + version.json reads 322). Then push the step-8
+   content commit if you have not already (the bake must be from 322 or
+   newer — a bake stamped 321 or older still waits, by design). Render
    rebuilds on the push by itself.
 2. The live site now waits on the maintenance notice until the publish lands
    through the bake — verify with a PLAIN reload on desktop + phone width,
@@ -89,7 +92,7 @@ LIVE (Render: twocchurch-site.onrender.com)
 3. In live /admin: confirm the YouTube channel is the church's own (one
    "@"), then Review and publish → Publish (typing alone is a draft —
    visitors never see it until published). No retype is needed for the
-   doubling itself — this update heals it — but publish to bless 320.
+   doubling itself — this update heals it — but publish to bless 322.
 4. Keep a signed-in office tab open (this admin console counts), then start
    the broadcast on the YouTube channel. Open the live /watch-live: the
    player must appear within seconds and the ticking clock must vanish with
