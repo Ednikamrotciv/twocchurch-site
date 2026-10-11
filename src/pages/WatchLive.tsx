@@ -10,7 +10,6 @@ import { useLocalState, useNow, fireToast } from "../lib/hooks";
 import { KEYS, nextService, onAir, to12h, DAY_NAMES, countdownParts, addToCalendar, mailto, clockHere, tidyCount, churchTimezone, visitorPlace, fmtDate, downloadText, serviceNoteKey, type NextServiceInfo } from "../lib/store";
 import { isFacebookVideoUrl, parseYoutubeId, platformLabel, watchUrl, youtubeThumb, type VideoPlatform, type VideoSource } from "../lib/embed";
 import { useLiveStream, liveTarget, facebookTarget } from "../lib/livestatus";
-import { channelIdFrom } from "../lib/embed";
 import { useLibrary } from "../lib/collections";
 import { useRecentServices } from "../lib/recentstreams";
 import { Badge, Btn, Icon, IconBtn, Modal, Notice, Reveal, Rich, Section, SectionHeading, Textarea } from "../components/ui";
@@ -31,11 +30,13 @@ export function WatchLive() {
   /* The message playing above everything else. */
   const latest = replays[0];
 
-  /* Is the church on air? Asked of YouTube regularly — and of Facebook too
-     when the office set a Facebook link (a Facebook-only broadcast is
-     otherwise invisible to this page, note 310); shared with the header. */
+  /* Is the church on air? Asked of YouTube regularly (livestatus.ts); shared with the header.
+     The Watch page always asks on the short cadence and checks at once on open
+     (note 310): a visitor who opened this page came to see the stream, schedule
+     or no — so a YouTube start shows in seconds and the waiting clock vanishes
+     with it, on live and on local alike. */
+  const air = useLiveStream(true, false, true);
   const justNow = !!info && (onAir(info) || info.msUntil < 45 * 60 * 1000);
-  const air = useLiveStream(justNow, !!facebookTarget());
   const detectedId = air.state === "live" ? air.videoId : "";
   /* Anywhere for the check to look — channel, stream link or Facebook page. */
   const configured = !!liveTarget() || !!facebookTarget();
@@ -76,51 +77,26 @@ export function WatchLive() {
   /* which platforms the office has actually configured (the stream that is on
      air right now counts as YouTube being available, even if all the office
      gave us was the channel to watch) */
-  const ytLinkId = parseYoutubeId(LIVE.youtubeId);
-  const fbLink = isFacebookVideoUrl(LIVE.facebookUrl) ? String(LIVE.facebookUrl) : "";
-  const chanId = channelIdFrom(LIVE.youtubeChannel || "");
-  /* On air already — the switch, or the schedule's own gathering. Hoisted
-     above the platform list: a set channel with the service on plays at once
-     through its own live embed, like a set link (note 312). */
-  const streaming = air.state === "live";
-  const onAirNow = onAir(info);
   const available = useMemo(() => {
     const list: VideoPlatform[] = [];
-    if (detectedId || ytLinkId) list.push("youtube");
-    /* Detected live but the page gave no id yet: the channel's own live
-       embed still plays (note 310). On air with the channel set but no link
-       and no answer yet: same embed, same play-at-once (note 312). */
-    else if (chanId && (air.state === "live" || onAirNow)) list.push("youtube");
-    if (fbLink) list.push("facebook");
+    if (detectedId || parseYoutubeId(LIVE.youtubeId)) list.push("youtube");
+    if (isFacebookVideoUrl(LIVE.facebookUrl)) list.push("facebook");
     return list;
-  }, [detectedId, ytLinkId, fbLink, air.state, chanId, onAirNow]);
+  }, [detectedId, LIVE.youtubeId, LIVE.facebookUrl]);
   const preferred: VideoPlatform = detectedId ? "youtube" : LIVE.provider === "facebook" ? "facebook" : "youtube";
   const [chosen, setChosen] = useState<VideoPlatform>(preferred);
   /* The service notepad behind the *Service notes* arrow (note 223). */
   const [notesOpen, setNotesOpen] = useState(false);
   const platform: VideoPlatform | null = available.includes(chosen) ? chosen : available[0] || null;
-  /* The YouTube setup as one source: a set link plays, else the set channel
-     plays through its own live embed (note 312) — the Watch-on-YouTube button
-     follows this same source, so a channel-only setup still offers somewhere
-     to watch. */
-  const youtubeSource: VideoSource = {
-    platform: "youtube",
-    youtubeId: detectedId || LIVE.youtubeId,
-    channelLiveId: !detectedId && !ytLinkId ? chanId : "",
-  };
   const liveSource: VideoSource =
     platform === "facebook"
       ? { platform: "facebook", facebookUrl: LIVE.facebookUrl }
-      : youtubeSource;
-  const youtubeLink = watchUrl(youtubeSource);
+      : { platform: "youtube", youtubeId: detectedId || LIVE.youtubeId };
+  const youtubeLink = watchUrl({ platform: "youtube", youtubeId: detectedId || LIVE.youtubeId });
 
-  /* The shared on-air answer (notes 83, 133); `playing` is the narrower screen
-     question (note 312). The detected broadcast plays at once; otherwise the
-     link — or the channel, through its own live embed — the office put on air
-     plays too, unless the check affirmatively says
-     the stream is down — so the clock vanishes the moment the livestream
-     starts instead of sitting there while it runs. */
-  const playing = streaming || (onAirNow && air.state !== "off" && (!!ytLinkId || !!fbLink || !!chanId));
+  /* The shared on-air answer (notes 83, 133); `streaming` is the narrower screen question. */
+  const streaming = air.state === "live";
+  const onAirNow = onAir(info);
   /* What the panel calls the broadcast while on air. */
   const liveName = tx(air.title || (info?.isLive ? info.slot.name : "") || LIVE.liveTitle || info?.slot.name || "");
   const streamCountdown = info ? countdownParts(info.msUntil) : null;
@@ -234,7 +210,7 @@ export function WatchLive() {
                 </div>
               )}
 
-              {playing && available.length > 0 ? (
+              {streaming && available.length > 0 ? (
                 <VideoPlayer
                   source={liveSource}
                   title={liveName || ct("auto.live.bc108377bb47f9e6")}

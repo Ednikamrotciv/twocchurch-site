@@ -23,15 +23,10 @@ export function isUploadVideoUrl(input: string): boolean {
   return VIDEO_FILE.test(value) || /^https?:\/\//.test(value) || /^src\//.test(value);
 }
 
-/** Accepts a bare id, a watch link, a share link, an embed link or a live link.
-    Channel-shaped input (a channel page, handle or /live tab — not a video)
-    and other platforms' links are NOT video ids: "" rather than a mangled
-    id no player could ever open (note 310). */
+/** Accepts a bare id, a watch link, a share link, an embed link or a live link. */
 export function parseYoutubeId(input: string): string {
   const value = String(input || "").trim();
   if (!value) return "";
-  if (/youtube\.com\/(@|channel\/|c\/|user\/)/i.test(value)) return "";
-  if (/facebook\.com\//i.test(value)) return "";
   if (/^[\w-]{6,20}$/.test(value)) return value;
   const patterns = [
     /[?&]v=([\w-]{6,20})/,
@@ -54,15 +49,6 @@ export function youtubeEmbed(id: string, autoplay = true): string {
   return `https://www.youtube.com/embed/${video}?rel=0&modestbranding=1&playsinline=1${autoplay ? "&autoplay=1" : ""}`;
 }
 
-/** A channel's current broadcast, without knowing the video id (note 310):
-    the player YouTube itself serves on the channel's /live page. Needs the UC
-    id — handles cannot address it. */
-export function youtubeChannelLiveEmbed(channelId: string, autoplay = true): string {
-  const id = channelIdFrom(channelId);
-  if (!id) return "";
-  return `https://www.youtube.com/embed/live_stream?channel=${id}${autoplay ? "&autoplay=1" : ""}`;
-}
-
 export function youtubeWatch(id: string): string {
   const video = parseYoutubeId(id);
   return video ? `https://www.youtube.com/watch?v=${video}` : "";
@@ -71,12 +57,6 @@ export function youtubeWatch(id: string): string {
 export function youtubeThumb(id: string): string {
   const video = parseYoutubeId(id);
   return video ? `https://i.ytimg.com/vi/${video}/hqdefault.jpg` : "";
-}
-
-/** The UC id in whatever the office pasted (id, handle or link) — "" for
-    handles and names, which cannot address an embed without resolving. */
-export function channelIdFrom(input: string): string {
-  return /(UC[\w-]{20,24})/.exec(String(input || ""))?.[1] || "";
 }
 
 /** The church's channel page, from whatever the office pasted (handle, id or link). */
@@ -132,9 +112,6 @@ export type VideoSource = {
   /** A video file the office uploaded from their phone or computer. */
   uploadUrl?: string;
   poster?: string;
-  /** Fallback while a detected broadcast's own id is still unknown: the
-      channel's UC id, played through its /live embed (note 310). */
-  channelLiveId?: string;
 };
 
 /** Has this slot actually got the source its platform needs? */
@@ -142,7 +119,7 @@ export function hasVideo(source: VideoSource): boolean {
   if (!source) return false;
   if (source.platform === "facebook") return isFacebookVideoUrl(source.facebookUrl || "");
   if (source.platform === "upload") return isUploadVideoUrl(source.uploadUrl || "");
-  return !!parseYoutubeId(source.youtubeId || "") || !!channelIdFrom(source.channelLiveId || "");
+  return !!parseYoutubeId(source.youtubeId || "");
 }
 
 /** True when this slot plays a file directly instead of an embedded player. */
@@ -155,11 +132,7 @@ export function embedSrc(source: VideoSource, autoplay = true): string {
   if (!source) return "";
   if (source.platform === "facebook") return facebookEmbed(source.facebookUrl || "", autoplay);
   if (source.platform === "upload") return "";
-  const video = parseYoutubeId(source.youtubeId || "");
-  if (video) return youtubeEmbed(video, autoplay);
-  /* Detected live, id still unknown: the channel's own live embed (note 310). */
-  if (source.channelLiveId) return youtubeChannelLiveEmbed(source.channelLiveId, autoplay);
-  return "";
+  return youtubeEmbed(source.youtubeId || "", autoplay);
 }
 
 /** The file address for an uploaded video. */
@@ -182,12 +155,7 @@ export function watchUrl(source: VideoSource): string {
   if (!source) return "";
   if (source.platform === "facebook") return String(source.facebookUrl || "");
   if (source.platform === "upload") return String(source.uploadUrl || "");
-  const video = parseYoutubeId(source.youtubeId || "");
-  if (video) return `https://www.youtube.com/watch?v=${video}`;
-  /* Channel-live fallback: the channel's own /live page (note 310). */
-  const channel = channelIdFrom(source.channelLiveId || "");
-  if (channel) return `https://www.youtube.com/channel/${channel}/live`;
-  return "";
+  return youtubeWatch(source.youtubeId || "");
 }
 
 export function platformLabel(platform?: VideoPlatform): string {

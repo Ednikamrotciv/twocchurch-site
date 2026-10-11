@@ -582,6 +582,16 @@ export function applySnapshot(snap: Snapshot) {
   applied = clone(snap);
   version += 1;
   notify();
+  /* The live section binds in place (LIVE mutates, no event of its own): tell
+     the on-air poller the target may have moved — a retyped channel (draft
+     preview while the office types, published words on sync) is re-checked at
+     once instead of waiting out the timer (note 310). The poller itself
+     decides whether the address actually changed. */
+  try {
+    window.dispatchEvent(new Event("wom:live-target"));
+  } catch {
+    /* a browser that refuses events keeps the standing timer */
+  }
 }
 
 function applyOverrides(over: Snapshot, keepDraft = true) {
@@ -1001,6 +1011,11 @@ export async function publishSection(sectionId: string, note: string): Promise<P
     rememberHistory();
     overrides = { ...overrides, [sectionId]: value };
     applyOverrides(overrides);
+    /* An offline click still moves last-published on this copy (note 310):
+       the words, the stamp and the queue are all in this browser, the flush
+       carries them to the server when the connection returns, and a host
+       sleep in between changes nothing. */
+    setPublishedNotes(BUILD_NOTES);
     writeCache();
     pending = { ...(pending || {}), [sectionId]: value };
     writeJSON(PENDING_KEY, pending);
@@ -1397,12 +1412,10 @@ function diffAgainstLive(liveSections: Snapshot): { ids: string[]; patch: Record
 async function backfillUploadsFrom(fromBase: string, content: Snapshot = overrides): Promise<{ restored: number; failed: string[] }> {
   let restored = 0;
   const failed: string[] = [];
-  /* To the joined backend (note 310), like the restore above. */
-  const up = backendBase();
   for (const name of localUploadNames(content)) {
     let here = false;
     try {
-      const res = await fetch(up + "/data/uploads/" + name, { cache: "no-store" });
+      const res = await fetch("/data/uploads/" + name, { cache: "no-store" });
       here = res.ok;
     } catch {
       here = false;
@@ -1413,7 +1426,7 @@ async function backfillUploadsFrom(fromBase: string, content: Snapshot = overrid
       if (!res.ok) throw 0;
       const blob = await res.blob();
       if (!blob.size || blob.size > BACKUP_FILE_MAX_BYTES) throw 0;
-      const put = await fetch(up + "/__restore-file?name=" + encodeURIComponent(name), {
+      const put = await fetch("/__restore-file?name=" + encodeURIComponent(name), {
         method: "POST",
         headers: { "content-type": blob.type || guessUploadType(name) },
         body: blob,
@@ -2781,22 +2794,6 @@ function base64ToBlob(b64: string, type: string): Blob {
   return new Blob([bytes], { type });
 }
 
-/** The backend this tab is actually joined to (note 310): a same-origin office
-    server when one is injected (local runs serve their own disk), else the
-    configured office address. File doors (backup export/import, upload
-    backfill) must use THIS — serverUrl() alone points at the live site on
-    `npm start` (its meta is stamped from cms-server.txt), which sent restored
-    photos/videos to live's short memory instead of the local disk while
-    reporting success. */
-function backendBase(): string {
-  try {
-    if (typeof (window as any).createServerSocket === "function") return "";
-  } catch {
-    /* no window — no local backend */
-  }
-  return serverUrl();
-}
-
 /** The latest PUBLISHED content as a downloadable backup — never draft edits.
     Every office-server photo/video the content uses rides inside the file, so
     a restore brings everything back exactly as stored. Uploads are never
@@ -2804,9 +2801,7 @@ function backendBase(): string {
     them, and every backup carries copies regardless. */
 export async function exportPublished(): Promise<string> {
   const content = merge(overrides);
-  /* From the joined backend (note 310): on `npm start` serverUrl() names the
-     live site while the socket — and the disk — are local. */
-  const base = backendBase();
+  const base = serverUrl();
   const files: BackupFile[] = [];
   const missingFiles: string[] = [];
   for (const name of localUploadNames(content)) {
@@ -2890,9 +2885,7 @@ export async function importBackup(text: string): Promise<ImportResult> {
   const filesFailed: string[] = [];
   let filesRestored = 0;
   if (incoming.length) {
-    /* To the joined backend (note 310): restoring to serverUrl() on `npm start`
-       writes live's short memory while this disk stays empty. */
-    const base = backendBase();
+    const base = serverUrl();
     let reachable = !!base;
     if (!base) {
       try {
@@ -3052,9 +3045,11 @@ export async function publish(note: string, content?: Snapshot): Promise<Publish
     /* Visitors are waiting and Publish was clicked with no content changes:
        bless the current update so maintenance lifts (note 250: even with no
        server reachable — a local Publish blesses this copy, the server sync
-       carries it on when the connection returns). */
+       carries it on when the connection returns). The stamp is cached with
+       the words (note 310), so a host sleep afterwards changes nothing. */
     if (!socket || status !== "online") {
       setPublishedNotes(BUILD_NOTES);
+      writeCache();
       notify();
       return { ok: true, local: true };
     }

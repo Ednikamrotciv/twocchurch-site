@@ -9,7 +9,9 @@
    (notes 308–309) locks the other half: live → local sync that refuses newer
    updates, fallback bakes and older-or-tied publishes, never auto-adopts over
    unsaved work, and folds live's newer words into every Publish instead of a
-   hand button. Run this
+   hand button. Section M (note 310) locks live-at-once: short cadence, urgent
+   Watch check, moved-channel re-check on live and local, button re-asks, and
+   offline Publish stamping. Run this
    before EVERY update zip — a single FAIL blocks the
    ship, no exceptions.
    RUN (paste the two lines into an execute_js call):
@@ -23,14 +25,13 @@ const FILES = [
   ["scripts/cms-server.js", "js"],
   ["scripts/seed-fallback.mjs", "js"],
   ["src/lib/cms.ts", "ts"],
+  ["src/lib/livestatus.ts", "ts"],
+  ["src/pages/WatchLive.tsx", "tsx"],
+  ["src/App.tsx", "tsx"],
   ["src/components/editor.tsx", "tsx"],
   ["src/lib/hooks.ts", "ts"],
   ["src/data/photos.ts", "ts"],
   ["src/lib/cmsSchema.ts", "ts"],
-  ["src/lib/livestatus.ts", "ts"],
-  ["src/lib/embed.ts", "ts"],
-  ["src/lib/recentstreams.ts", "ts"],
-  ["src/pages/WatchLive.tsx", "tsx"],
   ["src/lib/jobs.ts", "ts"],
   ["src/lib/pageMap.ts", "ts"],
   ["src/components/layout.tsx", "tsx"],
@@ -311,17 +312,17 @@ export async function runAll(fs) {
     const wiped = JSON.stringify({ ok: true, rev: 0, at: 0, by: "", notes: 0, sections: "{}", log: [], admin: false, pwgen: 3 });
     const baked = {
       rev: 15,
-      notes: 310,
+      notes: 309,
       sections: { home: JSON.stringify({ title: "Live words" }) },
       log: [{ rev: 15, at: 1700000000000, by: "office", note: "Sunday update", changed: ["home"] }],
       by: "office",
       at: 1700000000000,
     };
     const w = JSON.parse(modJ.fallbackGetContent(wiped, baked));
-    ok("wake re-serves words+stamp+history", w.seeded === true && w.rev === 15 && w.notes === 310 && JSON.parse(JSON.parse(w.sections).home).title === "Live words" && w.log.length === 1 && w.log[0].note === "Sunday update" && w.by === "office" && w.at === 1700000000000, "a wake must restore the whole publish");
+    ok("wake re-serves words+stamp+history", w.seeded === true && w.rev === 15 && w.notes === 309 && JSON.parse(JSON.parse(w.sections).home).title === "Live words" && w.log.length === 1 && w.log[0].note === "Sunday update" && w.by === "office" && w.at === 1700000000000, "a wake must restore the whole publish");
     const bare = JSON.parse(modJ.fallbackGetContent(wiped, { rev: 4, notes: 0, sections: { home: JSON.stringify({ t: 1 }) } }));
     ok("history-less bake stays safe", bare.seeded === true && Array.isArray(bare.log) && bare.log.length === 0 && bare.by === "" && bare.at === 0);
-    const liveFull = JSON.stringify({ ok: true, rev: 16, at: 1, by: "office", notes: 310, sections: JSON.stringify({ home: JSON.stringify({ title: "Newer" }) }), log: [{ rev: 16 }], admin: false, pwgen: 3 });
+    const liveFull = JSON.stringify({ ok: true, rev: 16, at: 1, by: "office", notes: 309, sections: JSON.stringify({ home: JSON.stringify({ title: "Newer" }) }), log: [{ rev: 16 }], admin: false, pwgen: 3 });
     const lf = JSON.parse(modJ.fallbackGetContent(liveFull, baked));
     ok("fallback leaves a live store alone", lf.sections !== undefined && JSON.parse(JSON.parse(lf.sections).home).title === "Newer" && lf.seeded !== true, "a healthy store must never be overlaid");
   } catch (e) {
@@ -361,38 +362,22 @@ export async function runAll(fs) {
   ok("fold keeps office edits", has(cms, "The office's own edits always win"), "a section the office touched must never be overwritten by live");
   ok("fold brings uploads home", has(cms, "backfillUploadsFrom(read.base, snap") && has(cms, '"/__restore-file?name="'), "folded words must point at working photos");
   ok("no hand pull button", !has(ed, "Pull from live now") && !has(ed, "pullFromLive(") && has(ed, "folds into this publish"), "the card is gone — Publish does it, and says so");
-  /* M. livestream plays when it starts (note 310): the page asks Facebook too
-     when its link is set (a Facebook-only broadcast was invisible everywhere);
-     on-air + a set link plays even before the check confirms, unless the check
-     affirmatively says the stream is down; cross-pasted channel/link still
-     resolve; a detected broadcast without an id yet plays through the
-     channel's live embed; file doors hit the joined backend; the push is
-     followed until live catches up (a stale bake is how sleep bites). */
-  const watch = text["src/pages/WatchLive.tsx"];
-  const emb = text["src/lib/embed.ts"];
+  /* M. live shows at once, clock vanishes with it (note 310): the Watch page
+     checks immediately on open and stays on the short cadence even with no
+     gathering on the clock; the fast cadence itself is shorter; a retyped
+     channel (editable in the console) or a landed publish re-checks at once
+     on live and on local; Start/Continue/Stop re-ask at once; an offline
+     Publish still moves last-published on this copy with its cache, so a host
+     sleep afterwards changes nothing. */
   const live = text["src/lib/livestatus.ts"];
-  ok("page watches facebook too", has(watch, "useLiveStream(justNow, !!facebookTarget())"), "a Facebook-only stream never flipped the page off its clock");
-  ok("header watches facebook too", has(app, "useLiveStream(expecting, !!facebookTarget())"), "the site-wide on-air answer must see Facebook as well");
-  ok("on-air link plays at once", has(watch, "const playing = streaming || (onAirNow") && has(watch, "{playing && available.length > 0 ? ("), "the clock must vanish the moment the livestream starts, not on the next check");
-  ok("affirmative off still waits", has(watch, 'air.state !== "off"'), "a stale link must never play as live when the check says the stream is down");
-  ok("channel id fallback plays", has(watch, "channelLiveId") && has(emb, "youtubeChannelLiveEmbed"), "a detected broadcast without an id plays through the channel embed");
-  ok("no mangled channel ids", has(emb, "are NOT video ids"), "a channel pasted as the stream link must not become a garbage video id");
-  ok("cross-pasted targets resolve", has(live, "channelLiveUrl") && has(live, "linkChannel"), "channel-in-link-field and link-in-channel-field must both be watched");
-  ok("edit fields still offered", has(text["src/lib/cmsSchema.ts"], 'path: "youtubeChannel"') && has(text["src/lib/cmsSchema.ts"], 'path: "youtubeId"') && has(text["src/lib/cmsSchema.ts"], 'path: "facebookUrl"'), "channel and link stay editable in the console");
-  ok("files hit the joined backend", has(cms, "function backendBase()") && has(cms, "const base = backendBase()") && has(cms, "const up = backendBase()"), "backup and backfill doors must reach the joined disk, never the live site by meta");
-  ok("push is followed to live", has(push, "watchLiveCatchUp") && has(push, "sleep-safe"), "a push nobody confirms is how a stale bake surprises the next sleep");
-  /* N. channel-only YouTube plays at once too (note 312): 310 taught the
-     screen to play a set Facebook link on air before the check confirms, but
-     a YouTube setup with only the channel pasted still sat on the clock until
-     the check answered — and a freshly pasted channel waited out the quiet
-     timer. The channel now counts as a set link for the play-at-once rule
-     (through its live embed), the platform list carries it in the on-air
-     window, the open-on-YouTube button follows the same source, and a new
-     address is re-checked at once. */
-  ok("channel counts for play-at-once", has(watch, "|| !!chanId"), "on-air + channel must play like on-air + link");
-  ok("channel listed while on air", has(watch, "(air.state === \"live\" || onAirNow)"), "the platform list must carry a set channel in the on-air window");
-  ok("open-on-youtube follows the channel", has(watch, "watchUrl(youtubeSource)") && has(watch, "const youtubeSource"), "a channel-only setup must still offer somewhere to watch");
-  ok("new address checked at once", has(live, "targetSignature() !== lastTarget"), "a pasted channel must not wait out the quiet timer");
+  const watch = text["src/pages/WatchLive.tsx"];
+  ok("live cadence is short", has(live, "SOON_MS = 20_000") && has(live, "IDLE_MS = 90_000"), "a YouTube start must show in seconds, not minutes");
+  ok("watch checks at once", has(live, "urgent") && has(watch, "useLiveStream(true, false, true)"), "the Watch page must not wait out the freshness window");
+  ok("app hurries on watch", has(app, 'onWatchPage') && has(app, "expecting || onWatchPage"), "the header must follow the stream on the Watch page");
+  ok("moved channel jumps the queue", has(live, "wom:live-target") && has(live, "noteLiveTargetMayHaveChanged") && has(live, "export function recheckLiveNow()") && has(cms, 'window.dispatchEvent(new Event("wom:live-target"))'), "a retyped channel must be re-checked at once on live and local");
+  ok("office buttons re-ask", has(ed, "recheckLiveNow()") && has(ed, 'import { readLiveStatus, recheckLiveNow } from "../lib/livestatus"'), "Start/Continue/Stop must ask the channel at once");
+  ok("section publish stamps offline", has(cms, "An offline click still moves last-published on this copy"), "a per-section Publish while offline must move the stamp like the whole-site one");
+  ok("bless caches offline", has(cms, "The stamp is cached with"), "a bless-only Publish while offline must cache the stamp with the words");
   const notes = Number((text["src/lib/hooks.ts"].match(/BUILD_NOTES = (\d+)/) || [])[1]) || 0;
   const apply = text["APPLY_UPDATE.txt"];
   ok("update number consistent", notes > 0 && has(apply, `APPLY THIS UPDATE (${notes})`), "hooks=" + notes);

@@ -9,7 +9,7 @@ import { startVisitorClock, useVisitorClock, useVisitorClockRefresh } from "./li
 import { useI18nTick, ensureI18n, setProtectedValues, i18nAsk, chooseLang, dismissAsk } from "./lib/i18n";
 import { allCopySources } from "./data/copy";
 import { startRates, useRates, useRatesRefresh } from "./lib/rates";
-import { useLiveStream, facebookTarget } from "./lib/livestatus";
+import { useLiveStream } from "./lib/livestatus";
 import { nextService, onAir, churchTimezone } from "./lib/store";
 import { useNow } from "./lib/hooks";
 import { SERVICES } from "./data/site";
@@ -53,17 +53,17 @@ export function App() {
   useRates();
   useRatesRefresh();
 
-  /* Whether the church is broadcasting, asked once for the whole site (note 133). */
+  /* Whether the church is broadcasting, asked once for the whole site (note 133).
+     The short cadence is only worth asking for while a broadcast is expected:
+     a gathering is on the clock, or one starts within the next three quarters
+     of an hour — or the visitor sits on the Watch page itself (note 310),
+     where a YouTube start must show in seconds on live and on local alike. */
   const minute = useNow(60_000);
   /* The office's Weekly services card, read on the church's own clock. */
   const gathering = nextService(SERVICES, minute, churchTimezone());
-  /* The short cadence is only worth asking for while a broadcast is expected:
-     a gathering is on the clock, or one starts within the next three quarters
-     of an hour. */
   const expecting = !!gathering && (onAir(gathering) || gathering.msUntil < 45 * 60 * 1000);
-  /* Facebook too when the office set its link (note 310): a Facebook-only
-     broadcast is otherwise invisible to the whole site, not just this page. */
-  useLiveStream(expecting, !!facebookTarget());
+  const onWatchPage = route.path === "/watch-live" || route.path.startsWith("/watch-live/");
+  useLiveStream(expecting || onWatchPage, false, onWatchPage);
 
   // Load the published content once; the version counter then re-renders the
   // page every time the office applies something.

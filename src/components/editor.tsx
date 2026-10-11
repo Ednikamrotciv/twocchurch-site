@@ -21,7 +21,7 @@ import {
 import { PageHead } from "../components/layout";
 import { SearchBox, eventDate } from "../components/blocks";
 import { fireToast, useNow } from "../lib/hooks";
-import { readLiveStatus } from "../lib/livestatus";
+import { readLiveStatus, recheckLiveNow } from "../lib/livestatus";
 import { SITE, SERVICES, img } from "../data/site";
 import { recentLimit } from "../data/live";
 import { ytWatch } from "../data/sermons";
@@ -779,14 +779,19 @@ export function LiveControlPanel() {
     /* A new session: read the channel now, so a service that has just been
        published shows up without waiting for the ten-minute timer. */
     askForRecentServices();
+    /* …and ask the on-air check at once (note 310): if the stream is already
+       up on the channel the site flips to it in seconds, on live and local. */
+    recheckLiveNow();
     fireToast("You are on air. Publish to put the live state on the public site.", "success");
   };
   const resume = () => {
     write({ isLive: true, liveCut: 0, liveEndedBy: "office", liveCommandAt: Date.now(), liveSince: started || Date.now() });
+    recheckLiveNow();
     fireToast("Back on air — the site is showing LIVE NOW again.", "success");
   };
   const stop = () => {
     write({ isLive: false, liveCut: Date.now(), liveEndedBy: "office", liveCommandAt: Date.now() });
+    recheckLiveNow();
     /* An ended service seeds Recent services now; every open page re-reads the channel. */
     const aired = readLiveStatus();
     askForRecentServices(aired.videoId ? { videoId: aired.videoId, title: aired.title } : undefined);

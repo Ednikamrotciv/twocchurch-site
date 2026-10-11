@@ -4,7 +4,7 @@
 
 import { useEffect, useSyncExternalStore } from "react";
 import { LIVE } from "../data/live";
-import { channelIdFrom, parseYoutubeId } from "./embed";
+import { parseYoutubeId } from "./embed";
 import { readStore, writeStore } from "./hooks";
 import { serverUrl } from "./remoteserver";
 
@@ -31,47 +31,39 @@ export type LiveStatus = {
 
 export const LIVE_STATUS_KEY = "wom.livestatus";
 
-/** A status younger than this is trusted on mount instead of re-checked. */
+/** A status younger than this is trusted on mount instead of re-checked —
+    unless a watcher asks urgent (the Watch page does: it checks at once). */
 const FRESH_MS = 45_000;
 /** Give the proxy this long before calling the check a failure. */
 const CHECK_TIMEOUT_MS = 15_000;
-/** Poll cadence: a broadcast is expected (on the clock) vs. the quiet week. */
-export const SOON_MS = 45_000;
-export const IDLE_MS = 180_000;
+/** Poll cadence (note 310): fast while a broadcast is expected or the Watch
+    page is open — a YouTube start shows in seconds and the waiting clock
+    vanishes with it — slower in the quiet week. Live and local share this
+    poller; only the fetch door differs (same-origin /__yt on local runs, the
+    office server when joined, else the public proxy). */
+export const SOON_MS = 20_000;
+export const IDLE_MS = 90_000;
 
 const EMPTY: LiveStatus = { state: "unset", platform: "", videoId: "", title: "", checkedAt: 0, endedAt: 0 };
 
 /* --------------------------------------------------------------- the target */
 
-/** The channel's /live page from whatever the office pasted (handle, id or
-    link) — "" when it is not channel-shaped at all. */
-export function channelLiveUrl(input: string): string {
-  const raw = String(input || "").trim();
-  if (!raw) return "";
-  /* Handle, id or link — each becomes the channel's /live page. */
-  const id = channelIdFrom(raw);
-  if (id) return `https://www.youtube.com/channel/${id}/live`;
-  const at = /youtube\.com\/@([\w.-]+)/i.exec(raw) || /^@([\w.-]+)$/.exec(raw);
-  if (at) return `https://www.youtube.com/@${at[1]}/live`;
-  const legacy = /youtube\.com\/(?:c|user)\/([\w.-]+)/i.exec(raw);
-  if (legacy) return `https://www.youtube.com/${/\/user\//i.test(raw) ? "user" : "c"}/${legacy[1]}/live`;
-  if (/^[\w.-]+$/.test(raw)) return `https://www.youtube.com/@${raw}/live`;
-  return "";
-}
-
 /** Where to ask: the channel when set (its /live follows every broadcast), else the link. */
 export function liveTarget(): { url: string; kind: "channel" | "video" } | null {
-  const channel = channelLiveUrl(LIVE.youtubeChannel || "");
-  if (channel) return { url: channel, kind: "channel" };
-  /* Forgiving both ways (note 310): a video link pasted in the channel field
-     still works, and a channel pasted in the stream-link field is read as the
-     channel instead of being ignored. */
-  const channelVideo = parseYoutubeId(LIVE.youtubeChannel || "");
-  if (channelVideo) return { url: `https://www.youtube.com/watch?v=${channelVideo}`, kind: "video" };
+  const raw = String(LIVE.youtubeChannel || "").trim();
+  if (raw) {
+    /* Handle, id or link — each becomes the channel's /live page. */
+    const id = /(UC[\w-]{20,24})/.exec(raw);
+    if (id) return { url: `https://www.youtube.com/channel/${id[1]}/live`, kind: "channel" };
+    const at = /youtube\.com\/@([\w.-]+)/i.exec(raw) || /^@([\w.-]+)$/.exec(raw);
+    if (at) return { url: `https://www.youtube.com/@${at[1]}/live`, kind: "channel" };
+    const legacy = /youtube\.com\/(?:c|user)\/([\w.-]+)/i.exec(raw);
+    if (legacy) return { url: `https://www.youtube.com/${/\/user\//i.test(raw) ? "user" : "c"}/${legacy[1]}/live`, kind: "channel" };
+    if (/^[\w.-]+$/.test(raw)) return { url: `https://www.youtube.com/@${raw}/live`, kind: "channel" };
+    return null;
+  }
   const video = parseYoutubeId(LIVE.youtubeId || "");
   if (video) return { url: `https://www.youtube.com/watch?v=${video}`, kind: "video" };
-  const linkChannel = channelLiveUrl(LIVE.youtubeId || "");
-  if (linkChannel) return { url: linkChannel, kind: "channel" };
   return null;
 }
 
@@ -305,7 +297,7 @@ function saveLiveStatus(status: LiveStatus) {
 export type LiveSnapshot = { status: LiveStatus; checking: boolean };
 
 /** What each mounted reader of the check is asking for. */
-type Watcher = { soon: boolean; facebook: boolean };
+type Watcher = { soon: boolean; facebook: boolean; urgent: boolean };
 
 let snapshot: LiveSnapshot = { status: readLiveStatus(), checking: false };
 const watchers = new Set<Watcher>();
@@ -364,7 +356,8 @@ export function useLiveStatus(): LiveSnapshot {
 
 /* --------------------------------------------------------------- the poller */
 
-/** The short cadence while any caller expects a service (or one is running). */
+/** The short cadence while any caller expects a service, sits on the Watch
+    page, or one is running. */
 function wantsSoon() {
   if (snapshot.status.state === "live") return true;
   for (const watcher of watchers) if (watcher.soon) return true;
@@ -376,9 +369,25 @@ function wantsFacebook() {
   return false;
 }
 
-/** Where the check is pointed right now — a new address is answered at once. */
+function wantsUrgent() {
+  for (const watcher of watchers) if (watcher.urgent) return true;
+  return false;
+}
+
+/** Where the check is pointed right now — a new address is answered at once.
+    The channel is editable in the console, so this moves whenever the office
+    retypes it (note 310). */
 function targetSignature() {
   return `${liveTarget()?.url || ""}|${wantsFacebook() ? facebookTarget() : ""}`;
+}
+
+/** The same signature for components: they re-ask when it moves. */
+export function liveTargetSignature(): string {
+  try {
+    return targetSignature();
+  } catch {
+    return "";
+  }
 }
 
 function delay() {
@@ -386,8 +395,44 @@ function delay() {
 }
 
 function schedule(ms: number) {
+  /* A moved target jumps the queue: the office retyped the channel (or a
+     publish landed), so the old timer's wait no longer applies. */
+  try {
+    if (polling && targetSignature() !== lastTarget) ms = 0;
+  } catch {
+    /* the check below degrades exactly as before */
+  }
   window.clearTimeout(timer);
-  timer = window.setTimeout(run, ms);
+  timer = window.setTimeout(run, Math.max(0, ms));
+}
+
+/** Ask at once (the Watch page just opened, the office pressed Start/Stop,
+    the channel was retyped). Collapses concurrent asks into one run. */
+export function recheckLiveNow() {
+  if (!polling || !watchers.size) return;
+  schedule(0);
+}
+
+/* The content store applies the live section (draft preview while typing,
+   published words on sync) through `bind`, which mutates LIVE in place with
+   no event of its own — so it announces the move here (see `applySnapshot`
+   in src/lib/cms.ts) and this debounces it into one immediate re-check. */
+let targetNoteTimer = 0;
+export function noteLiveTargetMayHaveChanged() {
+  if (!polling || !watchers.size) return;
+  if (targetNoteTimer) return;
+  targetNoteTimer = window.setTimeout(() => {
+    targetNoteTimer = 0;
+    try {
+      if (targetSignature() !== lastTarget) schedule(0);
+    } catch {
+      /* keep the standing timer */
+    }
+  }, 800);
+}
+
+function onLiveTargetEvent() {
+  noteLiveTargetMayHaveChanged();
 }
 
 async function run() {
@@ -434,6 +479,15 @@ function startPolling() {
   lastTarget = targetSignature();
   document.addEventListener("visibilitychange", onWake);
   window.addEventListener("online", onWake);
+  window.addEventListener("wom:live-target", onLiveTargetEvent);
+  /* An urgent watcher (the Watch page) checks at once — a YouTube start
+     shows in seconds and the clock vanishes with it — instead of waiting out
+     the freshness window. Everyone else waits for a fresh cached answer and
+     re-checks behind it, or checks at once when the answer is stale. */
+  if (wantsUrgent()) {
+    schedule(600);
+    return;
+  }
   /* Wait for the first answer within the freshness window (a cached answer
      paints at once and is re-checked behind it), but not long for an answer
      that has never been made or is already stale. */
@@ -444,23 +498,27 @@ function startPolling() {
 function stopPolling() {
   polling = false;
   window.clearTimeout(timer);
+  window.clearTimeout(targetNoteTimer);
+  targetNoteTimer = 0;
   document.removeEventListener("visibilitychange", onWake);
   window.removeEventListener("online", onWake);
+  window.removeEventListener("wom:live-target", onLiveTargetEvent);
   publish({ checking: false });
 }
 
-/** Live answer while mounted; short cadence when a broadcast is expected. */
-export function watchLiveStream(opts: { soon?: boolean; facebook?: boolean } = {}) {
-  const watcher: Watcher = { soon: !!opts.soon, facebook: !!opts.facebook };
+/** Live answer while mounted; short cadence when a broadcast is expected.
+    `urgent` checks at once (the Watch page); a moved channel always does. */
+export function watchLiveStream(opts: { soon?: boolean; facebook?: boolean; urgent?: boolean } = {}) {
+  const watcher: Watcher = { soon: !!opts.soon, facebook: !!opts.facebook, urgent: !!opts.urgent };
   const first = watchers.size === 0;
   watchers.add(watcher);
   if (first) startPolling();
-  /* A caller who needs more than the poller is doing has this second asked
-     rather than waiting out the quiet-week timer: Facebook, the short cadence
-     once a service comes on the clock — or a new YouTube address the office
-     just pasted (note 312: the check sat on the old answer for up to three
-     quiet minutes while the new channel went live). */
-  else if (watcher.facebook || targetSignature() !== lastTarget || (watcher.soon && Date.now() - lastCheckAt > SOON_MS)) schedule(600);
+  /* A caller who needs more than the poller is doing (Facebook, the short
+     cadence once a service comes on the clock, or the at-once check on the
+     Watch page) has this second asked rather than waiting out the timer —
+     and a retyped channel (or a landed publish) jumps the queue. */
+  else if (watcher.urgent || watcher.facebook || targetSignature() !== lastTarget) schedule(600);
+  else if (watcher.soon && Date.now() - lastCheckAt > SOON_MS) schedule(600);
   return () => {
     watchers.delete(watcher);
     if (!watchers.size) stopPolling();
@@ -469,9 +527,18 @@ export function watchLiveStream(opts: { soon?: boolean; facebook?: boolean } = {
 
 /* --------------------------------------------------------------- the hook */
 
-/** Live status, shared by every caller through the one poll. */
-export function useLiveStream(soon = false, watchFacebook = false) {
+/** Live status, shared by every caller through the one poll. `urgent` checks
+    at once (the Watch page, so a YouTube start shows in seconds); a retyped
+    channel re-checks by itself through the target signature. */
+export function useLiveStream(soon = false, watchFacebook = false, urgent = false) {
   const { status, checking } = useLiveStatus();
-  useEffect(() => watchLiveStream({ soon, facebook: watchFacebook }), [soon, watchFacebook]);
+  useEffect(() => watchLiveStream({ soon, facebook: watchFacebook, urgent }), [soon, watchFacebook, urgent]);
+  /* The channel is editable: the office retyping it (or a publish landing)
+     moves the target, and the check follows at once instead of waiting out
+     the timer. Same on live and local — only the fetch door differs. */
+  const signature = liveTargetSignature();
+  useEffect(() => {
+    noteLiveTargetMayHaveChanged();
+  }, [signature]);
   return { ...status, checking } as LiveStatus & { checking: boolean };
 }
