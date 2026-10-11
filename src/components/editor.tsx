@@ -1949,6 +1949,7 @@ export function PublishModal({ open, onClose, state }: { open: boolean; onClose:
               </li>
             ))}
           </ul>
+          <p className="muted">Anything newer on the live site folds into this publish by itself — your edits always win.</p>
           <Field label="Note for the activity log" hint="Optional — e.g. “Christmas service times”.">
             <Input value={note} onChange={(e) => setNote(e.target.value)} placeholder={defaultNote(changed)} disabled={saving} />
           </Field>
@@ -2024,28 +2025,6 @@ export function ToolsPage() {
     setBusy(false);
   };
 
-  /* Pull from live: live's newer words land as a draft — review, then Publish.
-     (While signed in, newer live publishes also save here by themselves.) */
-  const [livePullMsg, setLivePullMsg] = useState("");
-  const doLivePull = async () => {
-    if (busy) return;
-    setBusy(true);
-    try {
-      const res = await cms.pullFromLive(true);
-      try {
-        setLivePullMsg(cms.livePullStatus().msg || "");
-      } catch {
-        /* the toast already said it */
-      }
-      if (!res.ok && res.error !== "dirty-draft" && res.error !== "newer-update") {
-        /* errors already toasted inside the pull (offline, sign-in, live
-           silent) — nothing more to add here */
-      }
-    } catch {
-      fireToast("Could not pull from live.", "error");
-    }
-    setBusy(false);
-  };
   /* Restore: an uploaded backup returns as a draft — words and photos — review, then Publish. */
   const restoreRef = useRef<HTMLInputElement>(null);
   const doRestoreFile = async (file: File | undefined) => {
@@ -2139,16 +2118,6 @@ export function ToolsPage() {
           />
           <Btn size="sm" variant="ghost" icon="archive" onClick={() => restoreRef.current?.click()} disabled={busy}>
             {busy ? "Restoring…" : "Restore a backup"}
-          </Btn>
-        </Card>
-        <Card className="admin__tool">
-          <h4>
-            <Icon name="refresh" size={16} /> Pull from live
-          </h4>
-          <p>Bring what is published on the live site home as a draft — review it, then Publish. While signed in, live publishes also save here by themselves.</p>
-          {livePullMsg ? <p>{livePullMsg}</p> : null}
-          <Btn size="sm" variant="ghost" icon="refresh" onClick={() => void doLivePull()} disabled={busy}>
-            {busy ? "Pulling…" : "Pull from live now"}
           </Btn>
         </Card>
       </div>

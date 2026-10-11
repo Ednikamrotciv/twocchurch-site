@@ -6,9 +6,10 @@
    click, bless, offline flush) on its own server, a feed answer, or the local
    bless click. Section K (note 307) locks the local → live chain: dev
    restore/delete doors, loud bake failures, big-file push hints. Section L
-   (note 308) locks the other half: live → local pull that refuses newer
-   updates, fallback bakes, older-or-tied publishes and auto-adopt over
-   unsaved work. Run this
+   (notes 308–309) locks the other half: live → local sync that refuses newer
+   updates, fallback bakes and older-or-tied publishes, never auto-adopts over
+   unsaved work, and folds live's newer words into every Publish instead of a
+   hand button. Run this
    before EVERY update zip — a single FAIL blocks the
    ship, no exceptions.
    RUN (paste the two lines into an execute_js call):
@@ -306,17 +307,17 @@ export async function runAll(fs) {
     const wiped = JSON.stringify({ ok: true, rev: 0, at: 0, by: "", notes: 0, sections: "{}", log: [], admin: false, pwgen: 3 });
     const baked = {
       rev: 15,
-      notes: 308,
+      notes: 309,
       sections: { home: JSON.stringify({ title: "Live words" }) },
       log: [{ rev: 15, at: 1700000000000, by: "office", note: "Sunday update", changed: ["home"] }],
       by: "office",
       at: 1700000000000,
     };
     const w = JSON.parse(modJ.fallbackGetContent(wiped, baked));
-    ok("wake re-serves words+stamp+history", w.seeded === true && w.rev === 15 && w.notes === 308 && JSON.parse(JSON.parse(w.sections).home).title === "Live words" && w.log.length === 1 && w.log[0].note === "Sunday update" && w.by === "office" && w.at === 1700000000000, "a wake must restore the whole publish");
+    ok("wake re-serves words+stamp+history", w.seeded === true && w.rev === 15 && w.notes === 309 && JSON.parse(JSON.parse(w.sections).home).title === "Live words" && w.log.length === 1 && w.log[0].note === "Sunday update" && w.by === "office" && w.at === 1700000000000, "a wake must restore the whole publish");
     const bare = JSON.parse(modJ.fallbackGetContent(wiped, { rev: 4, notes: 0, sections: { home: JSON.stringify({ t: 1 }) } }));
     ok("history-less bake stays safe", bare.seeded === true && Array.isArray(bare.log) && bare.log.length === 0 && bare.by === "" && bare.at === 0);
-    const liveFull = JSON.stringify({ ok: true, rev: 16, at: 1, by: "office", notes: 308, sections: JSON.stringify({ home: JSON.stringify({ title: "Newer" }) }), log: [{ rev: 16 }], admin: false, pwgen: 3 });
+    const liveFull = JSON.stringify({ ok: true, rev: 16, at: 1, by: "office", notes: 309, sections: JSON.stringify({ home: JSON.stringify({ title: "Newer" }) }), log: [{ rev: 16 }], admin: false, pwgen: 3 });
     const lf = JSON.parse(modJ.fallbackGetContent(liveFull, baked));
     ok("fallback leaves a live store alone", lf.sections !== undefined && JSON.parse(JSON.parse(lf.sections).home).title === "Newer" && lf.seeded !== true, "a healthy store must never be overlaid");
   } catch (e) {
@@ -337,23 +338,25 @@ export async function runAll(fs) {
   ok("bake failure says why", has(push, "bake said:") && has(push, "npm run bake-seed"), "a silent bake failure leaves the live bake stale with no hint");
   ok("push failure names big files", has(push, "100 MB") && has(push, "data/uploads/"), "a video over the host limit looks exactly like a login failure");
   ok("bake CLI fails loudly", has(seedBaker, "bake-seed failed:") && has(seedBaker, "previous seed.json was kept"), "bake must never wipe a good seed on the way out");
-  /* L. two-way sync with live (note 308): anything published on live is saved
-     on the office copy by itself; anything published on local reaches live
-     through the deploy. The pull must refuse newer updates, fallback bakes
-     (except a fresh restore by hand), older-or-tied publishes (rev counters
-     are per-store — the wall clock arbitrates), and automatic adoption over
-     unsaved work or an unblessed copy. The live box itself never pulls. */
+  /* L. two-way sync with live (notes 308–309): anything published on live is
+     saved on the office copy by itself, and every Publish first folds live's
+     newer words in (untouched sections follow live, office edits win) — there
+     is no pull button anymore. The fold and the automatic save share the same
+     guards: refuse newer updates, fallback bakes (except a fresh restore by
+     hand), and older-or-tied publishes (rev counters are per-store — the wall
+     clock arbitrates). The live box itself never pulls. */
   const liveServe = text["scripts/serve.mjs"];
   ok("office names its live address", has(devBackend, '"/__live-url"') && has(liveServe, '"/__live-url"'), "office copies must know where live is");
   ok("live box never pulls itself", has(liveServe, "process.env.RENDER"), "the live box IS live — its tabs must never pull");
-  ok("pull entry exists", has(cms, "export async function pullFromLive(manual") && has(cms, "function startLivePull()"), "the sync needs its entry and its poller");
-  ok("pull refuses newer updates", has(cms, "Live is on update") && has(cms, 'error: "newer-update"'), "a live stamp from a newer update must never be adopted here");
+  ok("pull entry exists", has(cms, "export async function pullFromLive()") && has(cms, "function startLivePull()") && has(cms, "async function foldLiveInto("), "the sync needs its auto entry, its poller and its publish-time fold");
+  ok("pull refuses newer updates", has(cms, "Live is on update") && has(cms, '"newer-update"'), "a live stamp from a newer update must never be adopted here");
   ok("pull respects fallback bakes", has(cms, "seeded && (rev !== 0 || publishedNotes > 0)"), "a fallback bake must never regress office words");
   ok("pull arbitrates by clock", has(cms, "liveAt <= updatedAt"), "rev counters are per-store — only a strictly newer live publish wins");
   ok("auto-pull stays conservative", has(cms, "publishedNotes < BUILD_NOTES || pendingSections().length > 0"), "no auto-adopt over an unblessed copy or unsaved work");
-  ok("manual pull lands as draft", has(cms, "normalizeDraft({ ...clone(defaults), ...kept })"), "by-hand pulls review first, like a backup restore");
-  ok("pull brings uploads home", has(cms, "backfillUploadsFrom(base") && has(cms, '"/__restore-file?name="'), "adopted words must point at working photos");
-  ok("pull has a hand button", has(ed, "Pull from live now") && has(ed, "pullFromLive(true)"), "the office needs the pull by hand too");
+  ok("publish folds live in", has(cms, "await foldLiveInto(content || draft)") && has(cms, "await foldLiveInto(draft, sectionId)"), "every Publish (whole site and per-section) must fold live's newer words in first");
+  ok("fold keeps office edits", has(cms, "The office's own edits always win"), "a section the office touched must never be overwritten by live");
+  ok("fold brings uploads home", has(cms, "backfillUploadsFrom(read.base, snap") && has(cms, '"/__restore-file?name="'), "folded words must point at working photos");
+  ok("no hand pull button", !has(ed, "Pull from live now") && !has(ed, "pullFromLive(") && has(ed, "folds into this publish"), "the card is gone — Publish does it, and says so");
   const notes = Number((text["src/lib/hooks.ts"].match(/BUILD_NOTES = (\d+)/) || [])[1]) || 0;
   const apply = text["APPLY_UPDATE.txt"];
   ok("update number consistent", notes > 0 && has(apply, `APPLY THIS UPDATE (${notes})`), "hooks=" + notes);

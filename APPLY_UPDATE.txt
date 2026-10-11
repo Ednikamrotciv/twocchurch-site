@@ -1,28 +1,25 @@
-APPLY THIS UPDATE (308) — LOCAL + LIVE
+APPLY THIS UPDATE (309) — LOCAL + LIVE
 =====================================
-This update finishes the two-way sync: anything published on live is saved
-on the office copy by itself, anything published on local reaches live
-through the deploy — no direction is ever lost. Symptom it kills: a
-publish done on live /admin stayed on live's short memory only. The next
-sleep wiped it, and the office copy never saw it at all.
-What changed (note 308):
+This update removes the "Pull from live now" card: every Publish now folds
+live's newer words in by itself. Symptom it kills: keeping live and local in
+step needed a hand button in Tools — now Publish does it on every click.
+What changed (note 309):
 
-- While an office tab is open and signed in, a live publish newer than the
-  office copy publishes itself straight onto the office backend (same bless,
-  history and log as a hand publish, toast to say so) with its uploads
-  fetched home. Conservative by design: never across a newer update (apply
-  the zip on local first), never over unsaved draft work, never from a
-  fallback bake (only a fresh copy may be restored from the bake, and only
-  by hand), and ties go to the durable path — rev counters are per-store,
-  so the wall clock arbitrates and only a strictly newer live publish wins.
-- Tools → "Pull from live now" lands live's words as a draft — review, then
-  Publish — the backup-restore shape the office already knows (refuses to
-  overwrite unsaved changes; uploads come home; retired sections are named
-  and left out).
+- Pressing Publish (whole site, or one section) first folds live's newer words
+  into what goes out: sections the office did not touch take live's words
+  (uploads fetched home, a toast names what came home), sections the office
+  edited keep the office's. The fold shares the 308 guards — never across a
+  newer update (apply the zip on local first), never from a fallback bake,
+  ties and older go to the local publish — and it never fails a publish:
+  anything unclear publishes exactly as before.
+- Tools → "Pull from live now" is gone; the Publish dialog says the fold
+  happens. The background half is unchanged: while an office tab is open and
+  signed in, a live publish newer than the office copy still saves itself here
+  within about a minute (toast confirms, uploads included).
 - Office backends name their live address (`/__live-url` from
   cms-server.txt, on `npm run dev` and `npm start` alike). The live box
   answers empty — it IS live, so its tabs never pull. No live address, no
-  pull; visitors' tabs never poll.
+  fold; visitors' tabs never poll.
 - Local → live is unchanged: publish locally, the bake + commit + push go
   out by themselves in ~2 minutes, Render rebuilds, the bake carries the
   whole publish (words + stamp + history + uploads).
@@ -30,7 +27,8 @@ What changed (note 308):
   the office publishes (plain reload, /admin clear); with no new update
   the copy stays on the last published; only an explicit office action
   lifts maintenance; sleep/wake re-serves the last publish whole.
-- The pre-ship verifier has a new section L locking this fix — one FAIL
+- The pre-ship verifier's section L now locks the fold (no hand button, fold
+  on both publish paths, office edits win, uploads come home) — one FAIL
   blocks the ship. It passed for this zip.
 
 LOCAL (your computer)
@@ -45,31 +43,32 @@ LOCAL (your computer)
    right back", logo + message only) — this update holds until blessed.
    A plain reload must show it; no hard refresh needed. The admin console
    (/admin) must NOT show it — it boots straight into the console.
-6. Bring your words home EITHER way (they are the same words):
-   (a) #/admin → Tools → Restore the backup file → Review and publish →
-       Publish; OR (b) sign in, then Tools → Pull from live now → review →
-       Publish (live's words AND photos land as a draft).
-   Local lifts to 308 and the notice releases. Reload desktop + phone
+6. Bring your words home: #/admin → Tools → Restore the backup file → review
+   → Publish. The Publish itself folds in anything newer on the live site
+   (untouched sections follow live, your edits win, uploads come home), so
+   there is no second step anymore.
+   Local lifts to 309 and the notice releases. Reload desktop + phone
    width to verify (plain reloads).
 7. From here the sync is automatic both ways: publish on LOCAL and the
    bake + push carry it to live in a few minutes (watch the terminal for
    "auto-deploy: new words pushed", then `git log --oneline -3` shows the
    content commit); publish on LIVE and the signed-in office copy saves it
-   by itself within about a minute (toast confirms, uploads included) and
-   pushes it back out to the deploy on the next cycle. WITHOUT the step-7
+   by itself within about a minute (toast confirms, uploads included) — or
+   it folds into the next local Publish, whichever comes first — and the
+   deploy carries it back out on the next cycle. WITHOUT the step-7
    push the live bake goes stale and a live wake waits on maintenance
    again — if the terminal reports a bake/push problem it now says why.
 8. Check: reload again with no new update — the site stays on the last
    published (no notice, published words intact). Console check:
-   window.__maintState() shows publishedNotes 308.
+   window.__maintState() shows publishedNotes 309.
 
 LIVE (Render: twocchurch-site.onrender.com)
 1. Put this code where Render builds it (replace src/, scripts/, index.html,
    seed.json, vite.config.ts, package.json — keep data/ as-is), commit/push.
    Render: install npm install, build npm run build, start node scripts/serve.mjs.
-2. Confirm https://twocchurch-site.onrender.com/version.json shows {"notes":308}.
+2. Confirm https://twocchurch-site.onrender.com/version.json shows {"notes":309}.
 3. Push the step-7 content commit if you have not already (the bake must be
-   from 308 or newer — a bake stamped 307 or older still waits, by design).
+   from 309 or newer — a bake stamped 308 or older still waits, by design).
    Render rebuilds on the push by itself.
 4. The live site now waits on the maintenance notice until the publish lands
    through the bake — verify with a PLAIN reload on desktop + phone width,

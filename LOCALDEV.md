@@ -62,19 +62,20 @@ Leave that running on the always-on machine. Content is stored in
 `data/cms-state.bin` (created on first publish — keep that file to keep your
 content); photo/video uploads land in `data/uploads/`.
 
-## Two-way sync with live (note 308)
+## Two-way sync with live (notes 308–309)
 
 Publishing works from either side and neither side loses:
 
 - **Local → live:** publish locally and the bake + commit + push go out by
   themselves in ~2 minutes (terminal says "auto-deploy: new words pushed"),
   then Render rebuilds. A few minutes, no commands.
-- **Live → local:** while an office tab is open and signed in, a live
-  publish newer than the office copy saves itself here within about a
-  minute (toast confirms, uploads included). By hand any time: Admin →
-  Tools → **Pull from live now** brings live's words and photos as a draft —
-  review, then Publish.
+- **Live → local:** pressing Publish first folds anything newer on the live
+  site into what goes out — sections you did not touch take live's words and
+  photos (a toast names what came home), sections you edited keep yours.
+  While an office tab is open and signed in, a live publish newer than the
+  office copy also saves itself here within about a minute, even if you never
+  press Publish.
 - Safety: never across a newer update (apply the new zip on local first),
-  never over unsaved draft work, never from a fallback bake except a fresh
-  restore by hand, and ties go to the local publish. The live box itself
-  never pulls.
+  never from a fallback bake except a fresh restore by hand, and ties go to
+  the local publish. The fold never fails a publish: anything unclear
+  publishes exactly as before. The live box itself never pulls.
