@@ -4,7 +4,7 @@
 
 import { useEffect, useSyncExternalStore } from "react";
 import { LIVE } from "../data/live";
-import { parseYoutubeId } from "./embed";
+import { parseYoutubeId, cleanChannelInput } from "./embed";
 import { readStore, writeStore } from "./hooks";
 import { serverUrl } from "./remoteserver";
 
@@ -50,7 +50,9 @@ const EMPTY: LiveStatus = { state: "unset", platform: "", videoId: "", title: ""
 
 /** Where to ask: the channel when set (its /live follows every broadcast), else the link. */
 export function liveTarget(): { url: string; kind: "channel" | "video" } | null {
-  const raw = String(LIVE.youtubeChannel || "").trim();
+  /* Cleaned first (note 320): a doubled "@" used to return null here and the
+     whole site silently watched nothing. */
+  const raw = cleanChannelInput(LIVE.youtubeChannel);
   if (raw) {
     /* Handle, id or link — each becomes the channel's /live page. */
     const id = /(UC[\w-]{20,24})/.exec(raw);

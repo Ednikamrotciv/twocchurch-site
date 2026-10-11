@@ -59,9 +59,19 @@ export function youtubeThumb(id: string): string {
   return video ? `https://i.ytimg.com/vi/${video}/hqdefault.jpg` : "";
 }
 
+/** Whatever the office pasted as the channel, cleaned (note 320): pasting the
+    "@" twice ("@@handle") or with stray spaces used to silently point the
+    whole site at nothing — now it collapses to the intended address. */
+export function cleanChannelInput(input: unknown): string {
+  return String(input || "")
+    .trim()
+    .replace(/@@+/g, "@")
+    .replace(/\s+/g, "");
+}
+
 /** The church's channel page, from whatever the office pasted (handle, id or link). */
 export function youtubeChannelUrl(input: string): string {
-  const raw = String(input || "").trim();
+  const raw = cleanChannelInput(input);
   if (!raw) return "";
   if (/^https?:\/\//i.test(raw)) return raw.replace(/\/live\/*$/i, "");
   const id = /(UC[\w-]{20,24})/.exec(raw);

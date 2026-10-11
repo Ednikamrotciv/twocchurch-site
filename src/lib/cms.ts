@@ -14,6 +14,7 @@ import { applyBakedRecent } from "./recentstreams";
 import { bakedFeedSpec, feedIsNewer, peekSeed, siteFile, type FeedSeed, type FeedSpec } from "./livefeed";
 import { BUILD_NOTES } from "./hooks";
 import { setLiveReportSink } from "./livestatus";
+import { cleanChannelInput } from "./embed";
 export type Snapshot = Record<string, any>;
 export type CmsStatus = "connecting" | "online" | "offline" | "local";
 export type LogEntry = { rev: number; at: number; by: string; role?: string; note: string; changed: string[] };
@@ -2637,6 +2638,12 @@ function dropLapsedSlides(force = false): boolean {
 
 export function setSectionValue(sectionId: string, value: any) {
   const d = getDraft();
+  /* The channel the office pasted is cleaned on the way in (note 320): a
+     doubled "@" or stray spaces can never reach the published words again. */
+  if (sectionId === "live" && value && typeof value === "object" && typeof value.youtubeChannel === "string") {
+    const clean = cleanChannelInput(value.youtubeChannel);
+    if (clean !== value.youtubeChannel) value = { ...value, youtubeChannel: clean };
+  }
   const prev = clone(d[sectionId]);
   if (JSON.stringify(prev) === JSON.stringify(value)) return;
   pushEditUndo(sectionId, prev);

@@ -39,7 +39,8 @@ function channelIdIn(value) {
 }
 
 function channelPageTargets(pasted) {
-  const raw = String(pasted || "").trim();
+  /* Cleaned like the site cleans it (note 320): a doubled "@" resolves. */
+  const raw = String(pasted || "").trim().replace(/@@+/g, "@").replace(/\s+/g, "");
   if (!raw) return [];
   if (/^https?:\/\//i.test(raw)) return [raw.replace(/\/+$/, "")];
   const m = /^@?([\w.-]+)$/.exec(raw);

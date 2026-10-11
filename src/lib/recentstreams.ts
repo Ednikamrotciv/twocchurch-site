@@ -4,7 +4,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { LIVE } from "../data/live";
-import { parseYoutubeId } from "./embed";
+import { parseYoutubeId, cleanChannelInput } from "./embed";
 import { liveTarget } from "./livestatus";
 import { readStore, writeStore } from "./hooks";
 import { serverUrl } from "./remoteserver";
@@ -69,7 +69,8 @@ function channelPageUrl(): string {
 
 /** The channel id behind the office's channel setting, resolving a handle once. */
 async function resolveChannelId(): Promise<string> {
-  const pasted = String(LIVE.youtubeChannel || "").trim();
+  /* Cleaned (note 320): a doubled "@" must resolve like the handle it is. */
+  const pasted = cleanChannelInput(LIVE.youtubeChannel);
   if (!pasted) return "";
   const direct = channelIdIn(pasted);
   if (direct) return direct;
@@ -463,7 +464,8 @@ export function useRecentServices({ soon = false, liveNow = false }: { soon?: bo
      YouTube can take a minute or two to publish the recording (see
      `askForRecentServices`). */
   const burstRef = useRef(0);
-  const target = String(LIVE.youtubeChannel || "").trim();
+  /* Cleaned (note 320): follows the same address the live check watches. */
+  const target = cleanChannelInput(LIVE.youtubeChannel);
 
   soonRef.current = soon;
   liveNowRef.current = liveNow;

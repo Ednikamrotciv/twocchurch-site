@@ -12,7 +12,9 @@
    Watch check, moved-channel re-check on live and local, button re-asks, and
    offline Publish stamping. Section N (note 318) locks the office-reported
    on-air answer: public reads, admin-only writes, strict validation, fresh-
-   for-same-target trust on visitors, office-only reporting. Run this
+   for-same-target trust on visitors, office-only reporting. Section O (note
+   320) locks the pasted-channel cleaning: a doubled "@" or stray spaces can
+   never point the site at nothing again. Run this
    before EVERY update zip — a single FAIL blocks the
    ship, no exceptions.
    RUN (paste the two lines into an execute_js call):
@@ -27,6 +29,8 @@ const FILES = [
   ["scripts/seed-fallback.mjs", "js"],
   ["src/lib/cms.ts", "ts"],
   ["src/lib/livestatus.ts", "ts"],
+  ["src/lib/embed.ts", "ts"],
+  ["src/lib/recentstreams.ts", "ts"],
   ["src/pages/WatchLive.tsx", "tsx"],
   ["src/App.tsx", "tsx"],
   ["src/components/editor.tsx", "tsx"],
@@ -41,6 +45,7 @@ const FILES = [
   ["scripts/serve.mjs", "js"],
   ["scripts/vite-cms-backend.mjs", "js"],
   ["scripts/bake-seed.mjs", "js"],
+  ["scripts/bake-recent.mjs", "js"],
   ["scripts/auto-push.mjs", "js"],
   ["index.html", null],
   ["src/styles/admin.css", null],
@@ -413,6 +418,35 @@ export async function runAll(fs) {
     ok("report stores endings too", w({ ...good, state: "off", videoId: "", title: "" }).ok === true, "visitors must hear the ending at once");
   } catch (e) {
     ok("report suite", false, String((e && e.message) || e).slice(0, 200));
+  }
+  /* O. pasted-channel cleaning (note 320): the published channel once read
+     "@@handle" and every reader silently watched nothing — locally and
+     deployed alike. The paste is cleaned once, and every reader cleans. */
+  const emb = text["src/lib/embed.ts"];
+  const rec = text["src/lib/recentstreams.ts"];
+  const bakeRecent = text["scripts/bake-recent.mjs"];
+  ok("channel cleaner exists", has(emb, "export function cleanChannelInput"), "one cleaner, used everywhere");
+  ok("channel links clean first", has(emb, "const raw = cleanChannelInput(input);"), "watch links must survive a doubled @");
+  ok("live check cleans first", has(live, "const raw = cleanChannelInput(LIVE.youtubeChannel);"), "a doubled @ must still resolve to the channel's /live page");
+  ok("recent lists clean", has(rec, "cleanChannelInput(LIVE.youtubeChannel)") && has(rec, 'from "./embed"'), "recent services must follow the same address");
+  ok("console cleans on write", has(cms, "cleanChannelInput(value.youtubeChannel)") && has(cms, 'from "./embed"'), "a doubled @ must never reach the published words again");
+  ok("bake cleans too", has(bakeRecent, '.replace(/@@+/g, "@")'), "the deploy-time recent-services bake must resolve the same paste");
+  try {
+    const { default: esbuild2 } = await import("https://esm.sh/esbuild-wasm@0.21.5?bundle");
+    try {
+      await esbuild2.initialize({ wasmURL: "https://esm.sh/esbuild-wasm@0.21.5/esbuild.wasm" });
+    } catch {
+      /* already initialized by section A — transform works regardless */
+    }
+    const t = await esbuild2.transform(emb, { loader: "ts", format: "cjs" });
+    const embMod = { exports: {} };
+    new Function("module", "exports", t.code)(embMod, embMod.exports);
+    const clean = embMod.exports.cleanChannelInput;
+    const url = embMod.exports.youtubeChannelUrl;
+    ok("cleaner heals doubles", clean("@@creflodollar1") === "@creflodollar1" && clean("  @twocorg  ") === "@twocorg" && clean("https://www.youtube.com/@@foo") === "https://www.youtube.com/@foo" && clean("") === "" && clean(null) === "" && clean("@@@x") === "@x");
+    ok("channel links survive doubles", url("@@creflodollar1") === "https://www.youtube.com/@creflodollar1" && url("@twocorg") === "https://www.youtube.com/@twocorg" && url("") === "");
+  } catch (e) {
+    ok("channel cleaner suite", false, String((e && e.message) || e).slice(0, 200));
   }
   const notes = Number((text["src/lib/hooks.ts"].match(/BUILD_NOTES = (\d+)/) || [])[1]) || 0;
   const apply = text["APPLY_UPDATE.txt"];
