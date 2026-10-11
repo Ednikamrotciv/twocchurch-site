@@ -66,5 +66,14 @@ export async function bakeSeed(rootDir, outPath) {
 }
 
 if (process.argv[1] && process.argv[1].endsWith("bake-seed.mjs")) {
-  await bakeSeed(process.cwd());
+  /* Loud failure (note 307): auto-push only retries after the next publish,
+     so a silent non-zero exit leaves the live bake stale with no hint. Say
+     what broke and keep the previous seed — never wipe it on the way out. */
+  try {
+    await bakeSeed(process.cwd());
+  } catch (err) {
+    console.error("bake-seed failed:", err?.message || err);
+    console.error("fix it, then run `npm run bake-seed` again — the previous seed.json was kept.");
+    process.exitCode = 1;
+  }
 }

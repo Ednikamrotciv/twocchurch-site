@@ -4,7 +4,9 @@
    code with no office review. The invariants below lock the fail-safe rule:
    NOTHING blesses a copy except an explicit office action (publish, undo
    click, bless, offline flush) on its own server, a feed answer, or the local
-   bless click. Run this before EVERY update zip — a single FAIL blocks the
+   bless click. Section K (note 307) locks the local → live chain: dev
+   restore/delete doors, loud bake failures, big-file push hints. Run this
+   before EVERY update zip — a single FAIL blocks the
    ship, no exceptions.
    RUN (paste the two lines into an execute_js call):
      const m = await import(URL.createObjectURL(new Blob(
@@ -29,6 +31,7 @@ const FILES = [
   ["scripts/serve.mjs", "js"],
   ["scripts/vite-cms-backend.mjs", "js"],
   ["scripts/bake-seed.mjs", "js"],
+  ["scripts/auto-push.mjs", "js"],
   ["index.html", null],
   ["src/styles/admin.css", null],
   ["APPLY_UPDATE.txt", null],
@@ -300,22 +303,37 @@ export async function runAll(fs) {
     const wiped = JSON.stringify({ ok: true, rev: 0, at: 0, by: "", notes: 0, sections: "{}", log: [], admin: false, pwgen: 3 });
     const baked = {
       rev: 15,
-      notes: 306,
+      notes: 307,
       sections: { home: JSON.stringify({ title: "Live words" }) },
       log: [{ rev: 15, at: 1700000000000, by: "office", note: "Sunday update", changed: ["home"] }],
       by: "office",
       at: 1700000000000,
     };
     const w = JSON.parse(modJ.fallbackGetContent(wiped, baked));
-    ok("wake re-serves words+stamp+history", w.seeded === true && w.rev === 15 && w.notes === 306 && JSON.parse(JSON.parse(w.sections).home).title === "Live words" && w.log.length === 1 && w.log[0].note === "Sunday update" && w.by === "office" && w.at === 1700000000000, "a wake must restore the whole publish");
+    ok("wake re-serves words+stamp+history", w.seeded === true && w.rev === 15 && w.notes === 307 && JSON.parse(JSON.parse(w.sections).home).title === "Live words" && w.log.length === 1 && w.log[0].note === "Sunday update" && w.by === "office" && w.at === 1700000000000, "a wake must restore the whole publish");
     const bare = JSON.parse(modJ.fallbackGetContent(wiped, { rev: 4, notes: 0, sections: { home: JSON.stringify({ t: 1 }) } }));
     ok("history-less bake stays safe", bare.seeded === true && Array.isArray(bare.log) && bare.log.length === 0 && bare.by === "" && bare.at === 0);
-    const liveFull = JSON.stringify({ ok: true, rev: 16, at: 1, by: "office", notes: 306, sections: JSON.stringify({ home: JSON.stringify({ title: "Newer" }) }), log: [{ rev: 16 }], admin: false, pwgen: 3 });
+    const liveFull = JSON.stringify({ ok: true, rev: 16, at: 1, by: "office", notes: 307, sections: JSON.stringify({ home: JSON.stringify({ title: "Newer" }) }), log: [{ rev: 16 }], admin: false, pwgen: 3 });
     const lf = JSON.parse(modJ.fallbackGetContent(liveFull, baked));
     ok("fallback leaves a live store alone", lf.sections !== undefined && JSON.parse(JSON.parse(lf.sections).home).title === "Newer" && lf.seeded !== true, "a healthy store must never be overlaid");
   } catch (e) {
     ok("wake suite", false, String((e && e.message) || e).slice(0, 200));
   }
+  /* K. local publish reaches live with everything (note 307): the dev backend
+     must accept backup restores and photo deletes like the office server
+     (otherwise a live backup restored on local loses its uploads), and a
+     failed bake must say why instead of failing silently (a silent stale bake
+     is how every sleep brought maintenance back). */
+  const devBackend = text["scripts/vite-cms-backend.mjs"];
+  const push = text["scripts/auto-push.mjs"];
+  const seedBaker = text["scripts/bake-seed.mjs"];
+  ok("dev restores embedded uploads", has(devBackend, '"/__restore-file"') && has(devBackend, "restored: true"), "a live backup restored on local must bring its photos/videos home");
+  ok("dev deletes office uploads", has(devBackend, '"/__delete-file"') && has(devBackend, "deleted: true"), "the office photo delete must work on local too");
+  ok("dev restore guards names", has(devBackend, "bad name"), "foreign file names must be refused on local like on live");
+  ok("bake uses the running node", has(push, "process.execPath"), "a bare 'node' can miss PATH and fail every bake");
+  ok("bake failure says why", has(push, "bake said:") && has(push, "npm run bake-seed"), "a silent bake failure leaves the live bake stale with no hint");
+  ok("push failure names big files", has(push, "100 MB") && has(push, "data/uploads/"), "a video over the host limit looks exactly like a login failure");
+  ok("bake CLI fails loudly", has(seedBaker, "bake-seed failed:") && has(seedBaker, "previous seed.json was kept"), "bake must never wipe a good seed on the way out");
   const notes = Number((text["src/lib/hooks.ts"].match(/BUILD_NOTES = (\d+)/) || [])[1]) || 0;
   const apply = text["APPLY_UPDATE.txt"];
   ok("update number consistent", notes > 0 && has(apply, `APPLY THIS UPDATE (${notes})`), "hooks=" + notes);

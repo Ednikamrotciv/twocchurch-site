@@ -3,7 +3,7 @@
    publishing, uploads, live updates, plus the local YouTube/geo proxies —
    so dev behaves exactly like production. */
 
-import { readFile, stat, mkdir, writeFile, cp } from "node:fs/promises";
+import { readFile, stat, mkdir, writeFile, cp, rm } from "node:fs/promises";
 import path from "node:path";
 import { createCmsHost, hashText } from "./cms-local.mjs";
 import { answerWithSeedFallback } from "./seed-fallback.mjs";
@@ -271,6 +271,83 @@ export function cmsBackend() {
               res.writeHead(413, { "cache-control": "no-store" });
               res.end("too large");
             });
+            return;
+          }
+
+          /* Backup restore (note 307): same as scripts/serve.mjs — puts one
+             embedded upload back under its exact stored name, so a live
+             backup restored on local (`npm run dev`) brings its photos and
+             videos home instead of silently losing them. */
+          if (pathname === "/__restore-file" && req.method === "POST") {
+            const ctype = String(req.headers["content-type"] || "").split(";")[0].trim().toLowerCase();
+            if (!ctype.startsWith("image/") && !ctype.startsWith("video/")) {
+              res.writeHead(400, { "cache-control": "no-store" });
+              res.end("bad filetype");
+              return;
+            }
+            const asked = String(url.searchParams.get("name") || "");
+            if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,99}$/.test(asked) || asked.includes("..")) {
+              res.writeHead(400, { "cache-control": "no-store" });
+              res.end("bad name");
+              return;
+            }
+            const chunks = [];
+            let size = 0;
+            let tooBig = false;
+            req.on("data", (chunk) => {
+              if (tooBig) return;
+              size += chunk.length;
+              if (size > 250 * 1024 * 1024) {
+                tooBig = true;
+                req.destroy();
+                return;
+              }
+              chunks.push(chunk);
+            });
+            req.on("end", async () => {
+              if (tooBig) return;
+              try {
+                const dir = path.join(ROOT, "data", "uploads");
+                await mkdir(dir, { recursive: true });
+                await writeFile(path.join(dir, asked), Buffer.concat(chunks));
+                const body = JSON.stringify({ url: "/data/uploads/" + asked, restored: true });
+                res.writeHead(200, { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" });
+                res.end(body);
+              } catch {
+                res.writeHead(500, { "cache-control": "no-store" });
+                res.end("save failed");
+              }
+            });
+            req.on("error", () => {
+              res.writeHead(413, { "cache-control": "no-store" });
+              res.end("too large");
+            });
+            return;
+          }
+
+          /* Delete an upload for good (note 307): same as scripts/serve.mjs. */
+          if (pathname === "/__delete-file" && req.method === "POST") {
+            const asked = String(url.searchParams.get("name") || "");
+            if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,99}$/.test(asked) || asked.includes("..")) {
+              res.writeHead(400, { "cache-control": "no-store" });
+              res.end("bad name");
+              return;
+            }
+            try {
+              const target = path.join(ROOT, "data", "uploads", asked);
+              const st = await stat(target).catch(() => null);
+              if (!st || !st.isFile()) {
+                res.writeHead(404, { "cache-control": "no-store" });
+                res.end("not found");
+                return;
+              }
+              await rm(target, { force: true });
+              res.writeHead(200, { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" });
+              res.end(JSON.stringify({ deleted: true }));
+            } catch {
+              res.writeHead(500, { "cache-control": "no-store" });
+              res.end("delete failed");
+            }
             return;
           }
 

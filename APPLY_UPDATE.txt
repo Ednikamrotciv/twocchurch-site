@@ -1,46 +1,30 @@
-APPLY THIS UPDATE (306) — LOCAL + LIVE
+APPLY THIS UPDATE (307) — LOCAL + LIVE
 =====================================
-This is the 303 line (which already contains every 302 fix) as a new
-update: 302 + 303 combined, so the maintenance notice is always available
-on every new update — it holds until the office publishes, and only then
-lifts:
+This update fixes the local → live chain, so a local publish carries
+everything to live and stays there. Symptom it kills: after publishing
+locally the terminal said "auto-deploy: could not bake the new words",
+uploads/photos from a live backup did not come home on local, and the
+live site behaved like a new update again after every Render sleep.
+What changed (note 307):
 
-- 302 (no hard refresh, ever): after an update a PLAIN reload lands every
-  visitor on the maintenance notice until the office publishes. Stale
-  reloads retry instead of trapping on the old bundle, the version check
-  is cache-busted with no-store, the app holds the boot splash until the
-  version check settles and waits while a newer update is known even on
-  the old bundle, and an inline gate in index.html paints the notice
-  before React boots. Entry files (index.html, version.json, seed.json,
-  server.json, feed.json) are never cached anywhere (dist/_headers +
-  dist/.htaccess for static hosts, no-store on the office server).
-- The notice belongs to the visitors' site ONLY: the inline gate never
-  touches /admin, and the app's console path never renders it — the
-  office console always boots straight in, even mid-update.
-- 303 (sleep is harmless): the bake carries the whole publish — words +
-  stamp + history (log/by/at) — in bake-seed.mjs and the dev closeBundle
-  alike, and the no-disk fallback serves all of it (still marked seeded,
-  so newer live-only words heal forward). A Render free sleep/wake
-  re-serves the last publish exactly as it was: visitors stay live,
-  "Last published" stays put, zero office action.
-- Standing rules, unchanged and verifier-locked:
-  * a NEW, DIFFERENT update holds on maintenance until the office publishes
-    (plain reload is enough — never a hard refresh);
-  * with NO new update the copy remains on the last published;
-  * only an explicit office action lifts maintenance (publish, undo click,
-    bless, offline flush). Heal never blesses.
-- Publish LOCALLY from now on (the durable path):
-  * office publishes carry the disk, the git login and the auto-push. About
-    two minutes after a local publish, data/ + seed.json commit and push by
-    themselves, Render rebuilds, and the new bake (words+stamp+history) goes
-    live on its own.
-  * a publish on LIVE /admin between deploys still works, but it lives on
-    Render's ephemeral disk only — the next sleep lets it go. Use live
-    publish only as a stopgap; then publish the same words locally so the
-    next bake keeps them.
-  * the old "bless on live /admin" step is no longer part of the routine —
-    skip it unless the bake missed (see check 8).
-- The pre-ship verifier (sections G+H+I+J) locks all of this — one FAIL
+- The dev backend (`npm run dev`) now accepts backup restores and photo
+  deletes exactly like the office server (`/__restore-file`,
+  `/__delete-file`, same naming guards). Before, a live backup restored
+  on local lost every embedded photo/video (the dev server had no door
+  for them), and the office photo delete failed on local.
+- A failed bake now says WHY in the terminal (the bake's own first error
+  lines) instead of failing silently — plus how to fix it now
+  (`npm run bake-seed` by hand). The bake also runs on the exact node
+  that runs the backend (no more bare-`node`-missing-from-PATH failures),
+  fails loudly without ever wiping a good seed.json, and a failed push
+  now names the usual suspect: a video in data/uploads/ near/over the
+  host's 100 MB file limit looks exactly like a login failure.
+- Unchanged and still locked: every new update holds on maintenance until
+  the office publishes (plain reload, /admin clear); with no new update
+  the copy stays on the last published; only an explicit office action
+  lifts maintenance; sleep/wake re-serves the last publish whole
+  (words + stamp + history) once the bake is fresh.
+- The pre-ship verifier has a new section K locking this fix — one FAIL
   blocks the ship. It passed for this zip.
 
 LOCAL (your computer)
@@ -55,31 +39,40 @@ LOCAL (your computer)
    right back", logo + message only) — this update holds until blessed.
    A plain reload must show it; no hard refresh needed. The admin console
    (/admin) must NOT show it — it boots straight into the console.
-6. #/admin → Tools → Restore the backup file → Review and publish → Publish.
-   Local lifts to 306 and the notice releases. Reload desktop + phone
-   width to verify (plain reloads).
-7. Wait ~2–3 minutes, then check `git log --oneline -3`: you must see a
-   "content update …" commit. If not, the auto-push failed (offline, or the
-   login expired) — push by hand: bake first (`npm run bake-seed`), then
+6. #/admin → Tools → Restore the backup file → check the toast names the
+   photos/videos brought home (filesRestored) → Review and publish →
+   Publish. Local lifts to 307 and the notice releases, uploads showing.
+   Reload desktop + phone width to verify (plain reloads).
+7. Watch the terminal ~2 minutes after publishing. You must see EITHER
+   "auto-deploy: new words pushed" OR "auto-deploy is off (reason)". If
+   you see "could not bake", it now says WHY — run `npm run bake-seed`
+   by hand and read its error, fix it, publish again. Then check
+   `git log --oneline -3`: you must see a "content update …" commit. If
+   not, push by hand: bake first (`npm run bake-seed`), then
    `git add -A -- data seed.json && git commit -m "content update" && git push`.
    WITHOUT this push the live bake goes stale and a live wake waits on
-   maintenance again — this push is the whole fix working.
-8. Check: reload again with no new update — the site stays on the last
+   maintenance again.
+8. If the push fails, check data/uploads/ for videos near/over 100 MB
+   (the host refuses them) — the terminal now says so. Shrink the file,
+   publish again.
+9. Check: reload again with no new update — the site stays on the last
    published (no notice, published words intact). Console check:
-   window.__maintState() shows publishedNotes 306.
+   window.__maintState() shows publishedNotes 307.
 
 LIVE (Render: twocchurch-site.onrender.com)
 1. Put this code where Render builds it (replace src/, scripts/, index.html,
    seed.json, vite.config.ts, package.json — keep data/ as-is), commit/push.
    Render: install npm install, build npm run build, start node scripts/serve.mjs.
-2. Confirm https://twocchurch-site.onrender.com/version.json shows {"notes":306}.
+2. Confirm https://twocchurch-site.onrender.com/version.json shows {"notes":307}.
 3. Push the step-7 content commit if you have not already (the bake must be
-   from 306 or newer — a bake stamped 305 or older still waits, by design).
+   from 307 or newer — a bake stamped 306 or older still waits, by design).
    Render rebuilds on the push by itself.
 4. The live site now waits on the maintenance notice until the publish lands
-   through the bake — verify with a PLAIN reload on desktop + phone width.
-   The live admin console stays clear throughout. No live /admin publish
-   needed this time; only use it if the bake missed.
+   through the bake — verify with a PLAIN reload on desktop + phone width,
+   uploads/photos/videos showing. The live admin console stays clear
+   throughout and keeps "Last published". No live /admin publish needed;
+   only use it as a stopgap (it lives on the ephemeral disk only — always
+   publish the same words locally afterwards).
 5. Sleep test (optional, proves the fix): in the Render dashboard, restart
    the service (or just wait for it to sleep). The site must stay live with
    "Last published" intact — no notice, no re-publish. If the notice shows,
