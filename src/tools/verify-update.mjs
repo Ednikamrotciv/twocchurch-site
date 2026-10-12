@@ -24,7 +24,7 @@
    (note 330) locks the walled-but-on-air channel follow: the owner's id with
    a clear margin or nothing, chrome with no verifiable video plays the
    channel (never a guessed video, never off), the player embeds the running
-   broadcast, and the office report carries the channel id. Section T (note 332) locks the dead-video net (oEmbed verdict before play, fallback with a way out, gated autoplay), same-update office reports, the shipped maintenance hold, and the fresh @twocorg recents bake. Run this
+   broadcast, and the office report carries the channel id. Section T (note 332) locks the dead-video net (oEmbed verdict before play, fallback with a way out, gated autoplay), same-update office reports, the shipped maintenance hold, and the fresh @twocorg recents bake. Section U (note 334) locks the deployed update: the hold file deploys with git, step 0 lists every file, and Tools names both updates. Run this
    before EVERY update zip — a single FAIL blocks the
    ship, no exceptions.
    RUN (paste the two lines into an execute_js call):
@@ -64,6 +64,7 @@ const FILES = [
   ["src/styles/admin.css", null],
   ["APPLY_UPDATE.txt", null],
   ["maintenance-hold.txt", null],
+  [".gitignore", null],
 ];
 
 function has(src, needle) {
@@ -675,6 +676,22 @@ export async function runAll(fs) {
   } catch (e) {
     ok("no-dead-frame suite", false, String((e && e.message) || e).slice(0, 200));
   }
+  /* U. the update lands on deployed and names itself (note 334): the hold
+     file shipped in the zip but stayed git-ignored, so Render rebuilt
+     without it — and nothing on either copy named its update. The hold
+     must travel with git, step 0 must list every file, and Tools must show
+     this console next to the live site with the recipe while behind. */
+  const cmsU = text["src/lib/cms.ts"];
+  const edU = text["src/components/editor.tsx"];
+  const applyU = text["APPLY_UPDATE.txt"];
+  const gitU = text[".gitignore"];
+  const buildU = text["scripts/build-static.mjs"];
+  ok("hold file deploys with git", gitU.split("\n").map((l) => l.trim()).indexOf("maintenance-hold.txt") === -1, "a git-ignored hold means Render rebuilds never wait");
+  ok("step 0 lists every file", has(applyU, "maintenance-hold.txt") && has(applyU, "maintenance hold on"), "the deploy checklist must name the hold file and its build-log proof");
+  ok("build holds git deploys", has(buildU, "NOT git-ignored") && has(buildU, "maintenance hold on"), "the builder must state the new truth, not the old clean-ship line");
+  ok("office tracks the live update", has(cmsU, "liveSiteNotesVersion") && has(cmsU, "refreshLiveSiteNotes") && has(cmsU, 'base + "/version.json') && has(cmsU, "liveSiteNotes"), "Tools needs the live number without version.json spelunking");
+  ok("live tick refreshes it", has(cmsU, "refreshLiveSiteNotes().catch"), "the office minute-tick must keep the number fresh");
+  ok("tools names both updates", has(edU, "Site update") && has(edU, "BUILD_NOTES") && has(edU, "refreshLiveSiteNotes") && has(edU, "liveSiteNotesVersion") && has(edU, "publishedNotesVersion"), "a behind live site must name itself with the recipe inline");
   const notes = Number((text["src/lib/hooks.ts"].match(/BUILD_NOTES = (\d+)/) || [])[1]) || 0;
   const apply = text["APPLY_UPDATE.txt"];
   ok("update number consistent", notes > 0 && has(apply, `APPLY THIS UPDATE (${notes})`), "hooks=" + notes);

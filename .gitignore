@@ -5,7 +5,8 @@ bin/
 data/.last-seen
 deploy-hook.txt
 no-auto-share.txt
-maintenance-hold.txt
+# maintenance-hold.txt SHIPS (note 334): git deploys must hold fresh visitors
+# until the office publishes — never ignore it.
 scratch/
 .tool-output/
 .http-cache/

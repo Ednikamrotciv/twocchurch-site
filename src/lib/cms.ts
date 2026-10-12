@@ -52,6 +52,8 @@ if (typeof window !== "undefined") {
   (window as unknown as { __maintState?: () => object }).__maintState = () => ({
     publishedNotes,
     buildNotes: BUILD_NOTES,
+    liveSiteNotes,
+    liveSiteBase,
     status,
     hasSocket: !!socket,
     serverInvolved: serverInvolved(),
@@ -1367,6 +1369,61 @@ export function livePullStatus(): { at: number; msg: string } {
   return { at: lastLivePullAt, msg: lastLivePullMsg };
 }
 
+/* Which update the live site runs (note 334): the number its version.json
+   names, asked through the same live address the pull uses — so a behind
+   live site is visible in Admin > Tools instead of needing version.json
+   spelunking ("only local has the new update" names itself there). Null
+   while unknown (never asked, unreachable). No separate live address means
+   there is no other copy to lag: this copy IS the live site, or stands
+   alone — its own update is the answer. Never throws, never toasts. */
+let liveSiteNotes: number | null = null;
+let liveSiteBase = "";
+let liveSiteCheckedAt = 0;
+export function liveSiteNotesVersion(): number | null {
+  return liveSiteNotes;
+}
+export function liveSiteBaseUrl(): string {
+  return liveSiteBase;
+}
+export async function refreshLiveSiteNotes(): Promise<number | null> {
+  try {
+    if (Date.now() - liveSiteCheckedAt < 60 * 1000) return liveSiteNotes;
+    const base = await liveBaseUrl();
+    liveSiteBase = base;
+    if (!base) {
+      if (liveSiteNotes !== BUILD_NOTES) {
+        liveSiteNotes = BUILD_NOTES;
+        notify();
+      }
+      liveSiteCheckedAt = Date.now();
+      return liveSiteNotes;
+    }
+    const ctrl = typeof AbortController !== "undefined" ? new AbortController() : null;
+    const timer = ctrl ? setTimeout(() => ctrl.abort(), 8000) : 0;
+    try {
+      const res = await fetch(base + "/version.json?t=" + Date.now(), {
+        cache: "no-store",
+        headers: { pragma: "no-cache", "cache-control": "no-cache" },
+        signal: ctrl ? ctrl.signal : undefined,
+      });
+      if (res.ok) {
+        const data = await res.json().catch(() => null);
+        const n = Math.floor(Number(data && (data as any).notes));
+        if (Number.isFinite(n) && n > 0 && n !== liveSiteNotes) {
+          liveSiteNotes = n;
+          notify();
+        }
+      }
+    } finally {
+      if (timer) clearTimeout(timer as ReturnType<typeof setTimeout>);
+    }
+    liveSiteCheckedAt = Date.now();
+    return liveSiteNotes;
+  } catch {
+    return liveSiteNotes;
+  }
+}
+
 type LivePullResult = { ok: boolean; error?: string; pulled?: string[]; filesRestored?: number; filesFailed?: string[] };
 
 async function fetchLiveContent(base: string): Promise<any | null> {
@@ -1633,6 +1690,7 @@ function startLivePull() {
     }
     if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
     pullFromLive().catch(() => {});
+    refreshLiveSiteNotes().catch(() => {});
   };
   try {
     initialSyncDone.then(() => {

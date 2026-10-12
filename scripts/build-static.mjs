@@ -31,10 +31,13 @@ try {
 /* Maintenance hold: when `maintenance-hold.txt` sits beside package.json,
    stamp dist/seed.json with "hold": true, so fresh visitors wait on the
    maintenance notice until the office publishes — even when no older publish
-   stamp exists to hold them (fresh or wiped backend). Publishing from the
-   admin console releases them; the file never leaves the office
-   (git-ignored), so hosts rebuilding from git always ship clean. Deleting
-   the file strips a previously stamped hold on the next build. */
+   stamp exists to hold them (fresh or wiped backend). The file SHIPS with
+   the code (note 334 — it is NOT git-ignored), so hosts rebuilding from git
+   hold too: a git-ignored hold meant Render rebuilt clean and deployed
+   behaved like no update had landed. Publishing releases the hold (it only
+   gates while the published stamp trails the running update), so no file
+   delete is needed for release; deleting the file strips a previously
+   stamped hold on the next build. */
 let holdVisitors = false;
 try {
   await stat(path.join(ROOT, "maintenance-hold.txt"));

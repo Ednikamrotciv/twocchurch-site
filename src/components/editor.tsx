@@ -20,7 +20,7 @@ import {
 } from "../components/ui";
 import { PageHead } from "../components/layout";
 import { SearchBox, eventDate } from "../components/blocks";
-import { fireToast, useNow } from "../lib/hooks";
+import { BUILD_NOTES, fireToast, useNow } from "../lib/hooks";
 import { readLiveStatus, recheckLiveNow } from "../lib/livestatus";
 import { SITE, SERVICES, img } from "../data/site";
 import { recentLimit } from "../data/live";
@@ -1983,6 +1983,14 @@ export function ToolsPage() {
   const state = cms.useCms();
   const [busy, setBusy] = useState(false);
   useCmsTick();
+  /* Site-update card (note 334): ask which update the live site runs — the
+     answer lands through the cms subscription and re-renders this page. */
+  useEffect(() => {
+    cms.refreshLiveSiteNotes().catch(() => {});
+  }, []);
+  const liveNotes = cms.liveSiteNotesVersion();
+  const liveBase = cms.liveSiteBaseUrl();
+  const publishedFrom = cms.publishedNotesVersion();
 
   const doRevert = async () => {
     setBusy(true);
@@ -2069,6 +2077,34 @@ export function ToolsPage() {
       {state.role === "main" && <SubAdmins />}
       {state.role === "sub" && <MainSigninState />}
       <div className="admin__toolgrid">
+        <Card className="admin__tool">
+          <h4>
+            <Icon name="info" size={16} /> Site update
+          </h4>
+          <p>
+            This console runs update <b>{BUILD_NOTES}</b>
+            {liveBase ? (
+              <>
+                {" "}· the live site runs update <b>{liveNotes === null ? "…" : liveNotes}</b>
+              </>
+            ) : (
+              <> · no separate live site — this copy is what deploys</>
+            )}{" "}
+            · last published from update <b>{publishedFrom}</b>.
+          </p>
+          {typeof liveNotes === "number" && liveNotes < BUILD_NOTES && (
+            <Notice icon="alert" tone="gold">
+              The live site still runs update {liveNotes} — only this console has update {BUILD_NOTES}. Deploy it: APPLY_UPDATE.txt
+              step 0 (copy src/, scripts/, index.html, seed.json, vite.config.ts, package.json and maintenance-hold.txt into the
+              Render folder, commit and push), then confirm /version.json reads {BUILD_NOTES}.
+            </Notice>
+          )}
+          {typeof liveNotes === "number" && liveNotes > BUILD_NOTES && (
+            <Notice icon="alert" tone="gold">
+              The live site runs update {liveNotes} — newer than this console. Apply the new zip here first, then publish.
+            </Notice>
+          )}
+        </Card>
         <Card className="admin__tool">
           <h4>
             <Icon name="arrowLeft" size={16} /> Undo the last publish
