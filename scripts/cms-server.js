@@ -394,6 +394,14 @@ var UNDO_MS = 15 * 60 * 1000;
    once (see below); the flag rides the meta blob so a later intentional edit
    is never touched — the field stays editable. */
 var CH_READY = false;
+/* Recents + slides arrive clean (note 359): take-offs from a debugging
+   channel and slide uploads from it are cleared once (see below); the flag
+   rides the meta blob so later office work is never touched. */
+var MEDIA_CLEAN = false;
+/* This update overrides the last one (note 361): the stamp below carries the update
+   number itself (see the boot block), so the whole clear re-runs once per update — one-shot
+   ever-flags from older updates can never catch later drift. */
+var OVERRIDE_CLEAN = 0;
 /* Set while loading a state stamped with an older history generation: the
    record is forgotten and the clean state is written back at once. */
 var FRESH_GEN = false;
@@ -490,7 +498,7 @@ function undoLeftSec(now) {
 }
 
 function writeMeta() {
-  var meta = JSON.stringify({ by: BY, log: LOG, logGen: LOG_GEN, subs: SUBS, invites: INVITES, totp: TOTP, mainOff: MAIN_OFF, mainHash: MAIN_HASH, pwgen: PWGEN, notes: NOTES, prev: PREV, chReady: CH_READY });
+  var meta = JSON.stringify({ by: BY, log: LOG, logGen: LOG_GEN, subs: SUBS, invites: INVITES, totp: TOTP, mainOff: MAIN_OFF, mainHash: MAIN_HASH, pwgen: PWGEN, notes: NOTES, prev: PREV, chReady: CH_READY, mediaClean: MEDIA_CLEAN, overrideClean: OVERRIDE_CLEAN });
   META_CHARS = meta.length;
   writeString(meta, BASE_CHARS + SECTION_CHARS);
   /* The header carries META_CHARS: without this, an admin-only change (an
@@ -639,6 +647,8 @@ function loadState() {
     NOTES = typeof parsed.notes === "number" && parsed.notes >= 0 ? Math.floor(parsed.notes) : 0;
     PREV = cleanPrev(parsed.prev);
     CH_READY = parsed.chReady === true;
+    MEDIA_CLEAN = parsed.mediaClean === true;
+    OVERRIDE_CLEAN = typeof parsed.overrideClean === "number" && parsed.overrideClean > 0 ? Math.floor(parsed.overrideClean) : 0;
   } catch (e) {
     NOTES = 0;
     BY = "";
@@ -651,6 +661,8 @@ function loadState() {
     PWGEN = 0;
     PREV = null;
     CH_READY = false;
+    MEDIA_CLEAN = false;
+    OVERRIDE_CLEAN = 0;
   }
   SECTIONS = {};
   for (var i = 0; i < INDEX.length; i++) {
@@ -734,6 +746,85 @@ try {
   }
 } catch (e) {
   /* a failed move must never break boot — the reset button still stands */
+}
+
+/* Recents + slides arrive clean (note 359): the office asked for every
+   take-off cleared and the slide uploads gone, with only the welcome card
+   left like the older update. The first boot of this update clears stored
+   take-offs (`live.hiddenReplays`) and plants the lone welcome card over any
+   stored slides section that is not exactly it — once, on every copy that
+   runs it, no stamp, no rev bump, no publish. A later take-off or a new
+   slide is never touched (MEDIA_CLEAN above); a store with no slides
+   section keeps none (the fallback already shows the welcome card). */
+var WELCOME_SLIDE_359 = [{ id: "welcome-home", image: "https://user.uploads.dev/file/ec157920014fb49a718f07e297b665c4.jpg", headline: "Welcome home", line: "First Sunday or fiftieth — there is a seat here with your name on it.", cta: "Plan your visit", link: "/visit", design: "auto", active: true }];
+try {
+  if (!MEDIA_CLEAN) {
+    MEDIA_CLEAN = true;
+    try {
+      var live359 = JSON.parse(SECTIONS.live || "null");
+      if (live359 && typeof live359 === "object" && !Array.isArray(live359) && Array.isArray(live359.hiddenReplays) && live359.hiddenReplays.length) {
+        live359.hiddenReplays = [];
+        setSection("live", JSON.stringify(live359));
+      }
+    } catch (e) {
+      /* a broken live section is the restore's work, not ours */
+    }
+    try {
+      if (typeof SECTIONS.slides === "string") {
+        var slides359 = JSON.parse(SECTIONS.slides);
+        var onlyWelcome = Array.isArray(slides359) && slides359.length === 1 && slides359[0] && typeof slides359[0] === "object" && String(slides359[0].id || "") === "welcome-home";
+        if (!onlyWelcome) setSection("slides", JSON.stringify(WELCOME_SLIDE_359));
+      }
+    } catch (e) {
+      try { setSection("slides", JSON.stringify(WELCOME_SLIDE_359)); } catch (e2) {}
+    }
+    writeMeta();
+    writeHeader();
+  }
+} catch (e) {
+  /* a failed clear must never break boot — the console still stands */
+}
+
+/* This update overrides the last one (note 361): one-shot flags from older
+   updates (351/352's channel move, 359's media clear) can never run again, so
+   anything that drifted since — a restored debugging channel, a stray stream
+   link, re-hidden take-offs, re-added slides — would ride along forever. The
+   stamp carries the update number itself, so the first boot of THIS update (and
+   every future one) re-runs the whole clear once, on every copy that runs it:
+   stored channel back to @twocorg, stray youtubeId dropped, take-offs cleared,
+   any slides but the lone welcome card replanted. No stamp, no rev bump, no
+   publish — later office work is never touched. */
+var OVERRIDE_NO_361 = 361;
+try {
+  if (OVERRIDE_CLEAN !== OVERRIDE_NO_361) {
+    OVERRIDE_CLEAN = OVERRIDE_NO_361;
+    try {
+      var live361 = JSON.parse(SECTIONS.live || "null");
+      if (live361 && typeof live361 === "object" && !Array.isArray(live361)) {
+        var ch361 = String(live361.youtubeChannel || "").trim().replace(/@@+/g, "@").replace(/\s+/g, "");
+        var touched361 = false;
+        if (ch361 && ch361.toLowerCase() !== "@twocorg") { live361.youtubeChannel = "@twocorg"; touched361 = true; }
+        if (typeof live361.youtubeId === "string" && live361.youtubeId) { live361.youtubeId = ""; touched361 = true; }
+        if (Array.isArray(live361.hiddenReplays) && live361.hiddenReplays.length) { live361.hiddenReplays = []; touched361 = true; }
+        if (touched361) setSection("live", JSON.stringify(live361));
+      }
+    } catch (e) {
+      /* a broken live section is the restore's work, not ours */
+    }
+    try {
+      if (typeof SECTIONS.slides === "string") {
+        var slides361 = JSON.parse(SECTIONS.slides);
+        var onlyWelcome361 = Array.isArray(slides361) && slides361.length === 1 && slides361[0] && typeof slides361[0] === "object" && String(slides361[0].id || "") === "welcome-home";
+        if (!onlyWelcome361) setSection("slides", JSON.stringify(WELCOME_SLIDE_359));
+      }
+    } catch (e) {
+      try { setSection("slides", JSON.stringify(WELCOME_SLIDE_359)); } catch (e2) {}
+    }
+    writeMeta();
+    writeHeader();
+  }
+} catch (e) {
+  /* a failed clear must never break boot — the console still stands */
 }
 
 /* --------------------------------------------------------------- authority */

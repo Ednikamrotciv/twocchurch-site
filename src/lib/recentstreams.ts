@@ -5,7 +5,7 @@
 import { useEffect, useRef, useState } from "react";
 import { LIVE } from "../data/live";
 import { parseYoutubeId, cleanChannelInput } from "./embed";
-import { liveTarget } from "./livestatus";
+import { liveTarget, designatedChannelId } from "./livestatus";
 import { readStore, writeStore } from "./hooks";
 import { serverUrl } from "./remoteserver";
 
@@ -352,6 +352,13 @@ export async function fetchRecentServices(): Promise<RecentServices | null> {
 export function readRecentServices(): RecentServices {
   const cached = readStore<RecentServices | null>(RECENT_KEY, null);
   if (!cached || !Array.isArray(cached.items)) return { ...EMPTY };
+  /* Only the designated channel's list (note 359): a cache saved for another
+     channel is cleared, never merged — old debugging videos must not ride a
+     fresh read forever. Seeds and empty caches pass through; the next read
+     (or the baked @twocorg list) fills the card back in. */
+  const cachedChannelId = String(cached.channelId || "");
+  const designated = designatedChannelId();
+  if (designated && cachedChannelId && cachedChannelId !== designated) return { ...EMPTY };
   const now = Date.now();
   const items = cached.items
     .filter((it) => it && parseYoutubeId(String(it.videoId || "")))
@@ -372,6 +379,19 @@ export function readRecentServices(): RecentServices {
 
 function saveRecentServices(next: RecentServices) {
   writeStore(RECENT_KEY, next);
+}
+
+/* A proven new update drops the old card once (note 361): the next read, or
+   the shipped bake, fills it back in. Seeds are never special-cased here — a
+   just-ended service is on YouTube by the next read. */
+export function clearRecentCaches(): void {
+  try {
+    if (typeof localStorage === "undefined") return;
+    localStorage.removeItem(RECENT_KEY);
+    localStorage.removeItem(CHANNEL_KEY);
+  } catch {
+    /* a locked store keeps its cache — the read gate still drops foreign lists */
+  }
 }
 
 /** Paint the baked list; a fresher live read always wins, seeds stay on top. */

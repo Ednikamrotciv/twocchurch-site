@@ -21,7 +21,7 @@ import {
   type VideoPlatform,
   type VideoSource,
 } from "../lib/embed";
-import { checkLiveStream, isStatusForTarget, liveTarget, peekVerified, verifyYoutubeId } from "../lib/livestatus";
+import { checkLiveStream, isStatusForTarget, liveTarget, peekVerified, verifyYoutubeId, isDesignatedChannel, designatedChannelIdForTarget } from "../lib/livestatus";
 import {
   KEYS,
   fmtDate,
@@ -297,6 +297,15 @@ export function VideoPlayer({
           setNotLive(true);
           return;
         }
+        /* Only the designated channel opens the player (note 357): a live
+           answer from another channel — or an unverified channel follow
+           with no video — waits instead of playing. */
+        const designatedId = designatedChannelIdForTarget(liveTarget()?.url || "");
+        if (!isDesignatedChannel(st.channelId || "", designatedId)) {
+          setChecking(false);
+          setNotLive(true);
+          return;
+        }
         const vid = parseYoutubeId(st.videoId || "");
         if (st.state === "live" && vid) {
           verifyYoutubeId(vid)
@@ -316,7 +325,7 @@ export function VideoPlayer({
               setPlaying(true);
               onPlay?.();
             });
-        } else if (st.state === "live") {
+        } else if (st.state === "live" && st.channelId && (!designatedId || st.channelId === designatedId)) {
           setChecking(false);
           setPlaying(true);
           onPlay?.();

@@ -10,7 +10,7 @@ import { purgeExpiredAnnouncements } from "../data/announcements";
 import { fmtDate } from "./store";
 import { fireToast } from "./hooks";
 import { createRemoteSocket, initServerUrl, refreshServerUrl, serverOverride, serverUrl, setServerOverride } from "./remoteserver";
-import { applyBakedRecent } from "./recentstreams";
+import { applyBakedRecent, clearRecentCaches } from "./recentstreams";
 import { bakedFeedSpec, feedIsNewer, peekSeed, siteFile, type FeedSeed, type FeedSpec } from "./livefeed";
 import { BUILD_NOTES } from "./hooks";
 import { setLiveReportSink } from "./livestatus";
@@ -1801,6 +1801,11 @@ export async function startCms() {
   // is skipped on a proven new update, and the server sync fills the page in
   // behind it.
   const freshEyes = storedCodegenProvesNewUpdate();
+  /* A proven new update overrides the last one (note 361): the browser's old
+     recent-services + resolved-channel caches are dropped once — the shipped bake
+     and the next feed read fill the card back in. A missing codegen proves
+     nothing (fresh profile has no cache anyway), so nothing else is touched. */
+  if (freshEyes) clearRecentCaches();
   if (cached?.overrides && !freshEyes) {
     rev = cached.rev || 0;
     applyOverrides(cached.overrides);
@@ -2699,6 +2704,9 @@ export function getDraft(): Snapshot {
   dropLapsedSlides();
   migrateTestimonies();
   healDraftChannel();
+  healDraftRecents();
+  healDraftSlides();
+  healDraftStreamLink();
   return draft;
 }
 
@@ -2729,6 +2737,65 @@ function healDraftChannel() {
     if (!dLive || typeof dLive !== "object" || Array.isArray(dLive)) return;
     if (String(dLive.youtubeChannel || "") === pubCh) return;
     (draft as any).live = { ...dLive, youtubeChannel: pubCh };
+    persistDraft();
+  } catch {
+    /* never break the drawer */
+  }
+}
+
+/** The update itself clears stored take-offs (note 359) — a draft the office
+    saved before that still hides videos. An untouched live section follows
+    the published words here (cleared stays cleared); the office's own edits
+    always win (dirty.live returns early). Runs on read, persists only when
+    something actually moved, never notifies. */
+function healDraftRecents() {
+  try {
+    if (!draft || dirty.live) return;
+    const pubHidden = (applied as any)?.live?.hiddenReplays;
+    if (Array.isArray(pubHidden) && pubHidden.length) return;
+    const dLive = (draft as any).live;
+    if (!dLive || typeof dLive !== "object" || Array.isArray(dLive)) return;
+    if (!Array.isArray(dLive.hiddenReplays) || !dLive.hiddenReplays.length) return;
+    (draft as any).live = { ...dLive, hiddenReplays: [] };
+    persistDraft();
+  } catch {
+    /* never break the drawer */
+  }
+}
+
+/** This update overrides the last one (note 361): a stray stream link the
+    office saved before the clear follows the published words here (cleared stays
+    cleared while the channel space names the handle); the office's own edits
+    always win (dirty.live returns early). Runs on read, persists only when
+    something actually moved, never notifies. */
+function healDraftStreamLink() {
+  try {
+    if (!draft || dirty.live) return;
+    const pubId = String((applied as any)?.live?.youtubeId || "");
+    if (pubId) return;
+    const dLive = (draft as any).live;
+    if (!dLive || typeof dLive !== "object" || Array.isArray(dLive)) return;
+    if (!String(dLive.youtubeId || "")) return;
+    (draft as any).live = { ...dLive, youtubeId: "" };
+    persistDraft();
+  } catch {
+    /* never break the drawer */
+  }
+}
+
+/** The update itself replants the lone welcome card (note 359) — a draft the
+    office saved before that still carries the old uploads. An untouched
+    slides section follows the published words here; the office's own edits
+    always win (dirty.slides returns early). Runs on read, persists only when
+    something actually moved, never notifies. */
+function healDraftSlides() {
+  try {
+    if (!draft || (dirty as any).slides) return;
+    const pubSlides = (applied as any)?.slides;
+    if (!Array.isArray(pubSlides) || pubSlides.length !== 1 || String((pubSlides[0] as any)?.id || "") !== "welcome-home") return;
+    const dSlides = (draft as any).slides;
+    if (Array.isArray(dSlides) && dSlides.length === 1 && String((dSlides[0] as any)?.id || "") === "welcome-home") return;
+    (draft as any).slides = JSON.parse(JSON.stringify(pubSlides));
     persistDraft();
   } catch {
     /* never break the drawer */

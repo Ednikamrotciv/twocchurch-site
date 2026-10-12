@@ -24,7 +24,7 @@
    (note 330) locks the walled-but-on-air channel follow: the owner's id with
    a clear margin or nothing, chrome with no verifiable video plays the
    channel (never a guessed video, never off), the player embeds the running
-   broadcast, and the office report carries the channel id. Section T (note 332) locks the dead-video net (oEmbed verdict before play, fallback with a way out, gated autoplay), same-update office reports, the shipped maintenance hold, and the fresh @twocorg recents bake. Section U (note 334) locks the deployed update: the hold file deploys with git and step 0 lists every file (its Tools card retired in note 343 — the number lives in version.json + the console now). Section V (note 339) locks the deployed heal: the code outnumbers any mystery bundle, step 0 checks the bake's content, and the watched channel carries the reset recipe. Section W (note 341) locks the parity witness and the verified channel tap: the console tracks the live bake, and the channel tap plays a verified id or waits. Section X (note 343) locks the self-working publish (default live address, follow decision table, locked adopt door, player escape + re-ask, visible wakes, fresh @twocorg bake). Section Y (note 345) locks the one-tap @twocorg reset, the publish-time recents refresh, and the self-proving backup round-trip. Section Z (note 347) locks only-@twocorg shipping, the visitor's notice check, and the card staying gone. Section AA (note 349) locks the handle-only livestream: stamped answers, skipped foreign videos, dropped old endings, and the channel-wins screen. Section BB (note 351) locks the ready channel: a stored debugging handle boots to @twocorg with no stamp, a later edit survives, empty boots clean, and the untouched draft follows. Section CC (note 353) locks the ready recents: the restore heals the channel (announced, kept dirty), @twocorg resolves with no page read, and a failed bake never wipes. Run this
+   broadcast, and the office report carries the channel id. Section T (note 332) locks the dead-video net (oEmbed verdict before play, fallback with a way out, gated autoplay), same-update office reports, the shipped maintenance hold, and the fresh @twocorg recents bake. Section U (note 334) locks the deployed update: the hold file deploys with git and step 0 lists every file (its Tools card retired in note 343 — the number lives in version.json + the console now). Section V (note 339) locks the deployed heal: the code outnumbers any mystery bundle, step 0 checks the bake's content, and the watched channel carries the reset recipe. Section W (note 341) locks the parity witness and the verified channel tap: the console tracks the live bake, and the channel tap plays a verified id or waits. Section X (note 343) locks the self-working publish (default live address, follow decision table, locked adopt door, player escape + re-ask, visible wakes, fresh @twocorg bake). Section Y (note 345) locks the one-tap @twocorg reset, the publish-time recents refresh, and the self-proving backup round-trip. Section Z (note 347) locks only-@twocorg shipping, the visitor's notice check, and the card staying gone. Section AA (note 349) locks the handle-only livestream: stamped answers, skipped foreign videos, dropped old endings, and the channel-wins screen. Section BB (note 351) locks the ready channel: a stored debugging handle boots to @twocorg with no stamp, a later edit survives, empty boots clean, and the untouched draft follows. Section CC (note 353) locks the ready recents: the restore heals the channel (announced, kept dirty), @twocorg resolves with no page read, and a failed bake never wipes. Section DD (note 355) re-locks the four retained behaviors on the rebuilt tree: automatic publish on local, perfect livestream, sleep-free Render, blank-free local backups. Section EE (note 357) locks the designated-channel gate: @twocorg's baked id, candidate provenance, the gated channel follow, videoless reports never opening the player, office-only verified ids, and the designated-only screen and tap. Section FF (note 359) locks the clean recents and slides: foreign-channel caches dropped on read, stored take-offs cleared once, the lone welcome card replanted once, drafts healed, later edits never touched. Section GG (note 361) locks the override: the per-update stamp, the full clear, the draft + browser follow, and the same-update silence. Run this
    before EVERY update zip — a single FAIL blocks the
    ship, no exceptions.
    RUN (paste the two lines into an execute_js call):
@@ -846,7 +846,7 @@ export async function runAll(fs) {
   const blocksAA = text["src/components/blocks.tsx"];
   ok("answers carry their address", has(liveAA, "target: string") && has(liveAA, "target: targetUrl"), "an unstamped answer cannot be told from the handle's");
   ok("candidates prove their owner", has(liveAA, "ownerAllowsCandidate(owner, watchChannelId(watchHtml))"), "a live suggestion from another channel must be skipped, not played");
-  ok("old endings are dropped", has(liveAA, "inheritEnded(before, targetUrl, checkedAt)"), "a moved channel must not seed the new handle's ended screen");
+  ok("old endings are dropped", has(liveAA, "inheritEnded(before, targetUrl, checkedAt, designatedChannelIdForTarget(targetUrl))"), "a moved channel must not seed the new handle's ended screen");
   ok("office never reports stale", has(liveAA, "isStatusForTarget(status, url)"), "the office must not steer visitors to the old handle's video");
   ok("screen gates on the stamp", has(watchAA, "isStatusForTarget(air, targetUrl)") && has(watchAA, "airForTarget"), "the screen must read unknown until the fresh check lands");
   ok("channel wins the screen", has(watchAA, "!hasChannel ? LIVE.youtubeId") && has(watchAA, "hasChannel ? targetUrl"), "a stray stream link must not reach the player while the channel is set");
@@ -961,6 +961,240 @@ export async function runAll(fs) {
   ok("twocorg needs no page read", has(brCC, "/^@?twocorg$/i") && has(brCC, 'return "UCQ0KIUXUV7gTZmDDlvd3ZcQ"'), "the bake must work exactly where the wall eats channel pages");
   ok("failed bake never wipes", has(brCC, "Never wipes"), "a walled read keeps the previous list, never blanks it");
   ok("apply restores without reset", has(applyCC, "also heals the channel"), "the checklist must end with @twocorg from any backup");
+  /* DD. rebuilt from the office's base, every fix retained (note 355): the
+     attached zip is the 309 site the office wants — publish must work
+     automatically on local, the livestream must be perfect, Render must be
+     sleep-free, and photo/video backups must restore blank-free on local. */
+  const cmsDD = text["src/lib/cms.ts"];
+  const liveDD = text["src/lib/livestatus.ts"];
+  const srvDD = text["scripts/cms-server.js"];
+  const localDD = text["scripts/cms-local.mjs"];
+  const followDD = text["scripts/live-follow.mjs"];
+  const pushDD = text["scripts/auto-push.mjs"];
+  const serveDD = text["scripts/serve.mjs"];
+  const viteDD = text["scripts/vite-cms-backend.mjs"];
+  const fbDD = text["scripts/seed-fallback.mjs"];
+  const edDD = text["src/components/editor.tsx"];
+  const applyDD = text["APPLY_UPDATE.txt"];
+  ok("follow adopts live", has(localDD, "startLiveFollow") && has(followDD, "shouldAdoptLive") && has(followDD, "adoptPatch"), "a live/admin publish must reach local with no tab open");
+  ok("adopt door locked", has(srvDD, "adoptLive") && has(srvDD, "self.__adoptToken"), "only this machine's own loop may adopt");
+  ok("publish folds live", has(cmsDD, "async function foldLiveInto") && has(cmsDD, "await foldLiveInto(draft, sectionId)"), "every Publish carries live's newer words by itself");
+  ok("auto-push rides out", has(pushDD, "notePublished") && has(localDD, "notePublished"), "a local publish must deploy itself within minutes");
+  ok("handle-only answers", has(liveDD, "ownerAllowsCandidate") && has(liveDD, "isStatusForTarget") && has(liveDD, "inheritEnded"), "no foreign video, no stale address, no stray link");
+  ok("walled follow plus dead net", has(liveDD, "unverifiedChannelAnswer") && has(liveDD, "verifyYoutubeId"), "chrome with no video plays the channel; dead ids never play blind");
+  ok("office reports gated", has(liveDD, "maybeReport") && has(srvDD, "LIVE_REPORT"), "only definitive same-target answers steer visitors");
+  ok("fallback serves last publish", has(fbDD, "answerWithSeedFallback") && has(serveDD, "answerWithSeedFallback"), "a wake with no store still serves whole words, never blank");
+  ok("wakes print, holds ship", has(serveDD, "cold start at") && has(applyDD, "UptimeRobot"), "every wake is visible; the keep-awake recipe rides along");
+  ok("backups embed uploads", has(cmsDD, "allBackupNames"), "a backup must carry the photos and videos the words point at");
+  ok("restore proves writes", has(cmsDD, "Read it back") && has(edDD, "missingFiles"), "a counted file must be a served file; missing ones shout by name");
+  ok("dev doors open local", has(viteDD, "__restore-file") && has(serveDD, "__restore-file"), "a local restore must land uploads, not blank photos");
+  /* EE. only the designated channel plays (note 357): until @twocorg itself
+     is verified live the screen waits — no foreign video, no unverified
+     channel follow, no stray link ever opens the player. The designation is
+     baked (no page read, even through the wall); suggestions answer to it
+     (the Live tab vouches where a walled watch page cannot); the office
+     reports only verified ids and readers never open videoless live
+     reports; the screen and the tap play only the designated channel. */
+  const liveEE = text["src/lib/livestatus.ts"];
+  const watchEE = text["src/pages/WatchLive.tsx"];
+  const blocksEE = text["src/components/blocks.tsx"];
+  ok("designation baked, never read", has(liveEE, '"@twocorg": "UCQ0KIUXUV7gTZmDDlvd3ZcQ"') && has(liveEE, "designatedChannelIdForTarget(target.url)"), "the gate must know whose video counts with no page read");
+  ok("candidates prove designation", has(liveEE, "candidateStandsForDesignated(watchChannelId(watchHtml), designatedId, vid === liveTabId)"), "a suggestion must stand for @twocorg, not the grab-bag");
+  ok("follow needs the designated owner", has(liveEE, 'extractChannelId(html, target.url) : "", designatedId'), "a chrome-only page follows nobody unnamed or foreign");
+  ok("office reports verified ids only", has(liveEE, 'if (status.state === "live" && !status.videoId) return;'), "an unverified channel-live answer must stay local");
+  ok("readers wait on videoless reports", has(liveEE, "officeRep.target === target.url && reportCarriesVideo(officeRep)"), "a live report with no video must never open the player");
+  ok("screen plays only the designation", has(watchEE, "isDesignatedChannel(airForTarget.channelId, designatedId)") && has(watchEE, "designatedChannelIdForTarget(targetUrl)"), "the Watch page must wait until @twocorg is proven live");
+  ok("tap plays only the designation", has(blocksEE, "isDesignatedChannel(st.channelId") && has(blocksEE, "st.channelId && (!designatedId || st.channelId === designatedId)"), "a tap must wait on foreign or videoless live answers");
+  try {
+    const ebEE = await import("https://esm.sh/esbuild-wasm@0.21.5?bundle");
+    try {
+      await ebEE.default.initialize({ wasmURL: "https://esm.sh/esbuild-wasm@0.21.5/esbuild.wasm" });
+    } catch {
+      /* already initialized above — transform works regardless */
+    }
+    const tcEE = await ebEE.default.transform(liveEE, { loader: "ts", format: "cjs" });
+    const stubEE = (id) => {
+      if (id === "react") return { useEffect: () => {}, useState: (v) => [v, () => {}], useSyncExternalStore: () => ({}) };
+      if (id === "./hooks") return { readStore: (k, fb) => fb, writeStore: () => true };
+      if (id === "./embed") return { parseYoutubeId: () => "", cleanChannelInput: (v) => String(v || "").trim().replace(/@@+/g, "@").replace(/\s+/g, "") };
+      return {};
+    };
+    const modEE = { exports: {} };
+    new Function("module", "exports", "require", tcEE.code)(modEE, modEE.exports, stubEE);
+    const D = modEE.exports;
+    const OWNER = "UCQ0KIUXUV7gTZmDDlvd3ZcQ";
+    const OTHER = "UCxxxxxxxxxxxxxxxxxxxxxx";
+    ok("designation answered with no read", D.designatedChannelId("@twocorg") === OWNER && D.designatedChannelId("@@twocorg ") === OWNER && D.designatedChannelId("@TWOCORG") === OWNER && D.designatedChannelId("@other") === "" && D.designatedChannelId("") === "", "cleaned input must answer @twocorg and nothing else");
+    ok("designation read off the target", D.designatedChannelIdForTarget("https://www.youtube.com/@twocorg/live") === OWNER && D.designatedChannelIdForTarget("https://www.youtube.com/channel/" + OWNER + "/live") === OWNER && D.designatedChannelIdForTarget("https://www.youtube.com/@other/live") === "" && D.designatedChannelIdForTarget("https://www.youtube.com/watch?v=AAAAAAAAAAA") === "", "handles and ids answer; anything else names nothing");
+    ok("named foreign channel never stands", D.isDesignatedChannel(OTHER, OWNER) === false && D.isDesignatedChannel(OWNER, OWNER) === true && D.isDesignatedChannel("", OWNER) === true && D.isDesignatedChannel(OTHER, "") === true, "somebody else's video never plays; unprovable passes through");
+    const stands = D.candidateStandsForDesignated;
+    ok("suggestions answer to the designation", stands(OWNER, OWNER, false) === true && stands(OTHER, OWNER, false) === false && stands(OTHER, OWNER, true) === false && stands("", OWNER, true) === true && stands("", OWNER, false) === false && stands("", "", false) === true, "only the handle's video, or the Live tab's where the wall hides the owner");
+    const uca = D.unverifiedChannelAnswer;
+    ok("channel follow needs the designated owner", uca(true, "T", OWNER, OWNER).state === "live" && uca(true, "T", OTHER, OWNER).state === "unknown" && uca(true, "T", "", OWNER).state === "unknown" && uca(true, "T", OWNER).state === "live" && uca(false, "T", OWNER, OWNER).state === "off", "unnamed or foreign chrome waits; older callers behave as before");
+    const rcv = D.reportCarriesVideo;
+    ok("videoless live reports never open", rcv({ state: "live", videoId: "AAAAAAAAAAA" }) === true && rcv({ state: "live", videoId: "" }) === false && rcv({ state: "off", videoId: "" }) === true, "a live report with no video waits; off passes through");
+    const inh = D.inheritEnded;
+    const ADDR_EE = "https://www.youtube.com/@twocorg/live";
+    const foreign = { state: "live", platform: "youtube", videoId: "BBBBBBBBBBB", title: "J", channelId: OTHER, target: ADDR_EE, checkedAt: 1, endedAt: 0 };
+    ok("ended screen drops foreign videos", inh(foreign, ADDR_EE, 99, OWNER).videoId === "" && inh(foreign, ADDR_EE, 99, OWNER).endedAt === 0, "the new handle never inherits somebody else's service");
+    const unprovable = { state: "live", platform: "youtube", videoId: "BBBBBBBBBBB", title: "J", channelId: "", target: ADDR_EE, checkedAt: 1, endedAt: 0 };
+    ok("unprovable endings still stick", inh(unprovable, ADDR_EE, 99, OWNER).videoId === "BBBBBBBBBBB" && inh(unprovable, ADDR_EE, 99).videoId === "BBBBBBBBBBB", "a thin read keeps its cover; older callers behave as before");
+  } catch (e) {
+    ok("designated suite", false, String((e && e.message) || e).slice(0, 200));
+  }
+  /* FF. recents cleared to @twocorg, slides back to welcome (note 359): the
+     card merged every old cached video into each fresh read, so debugging
+     videos rode along forever. A foreign-channel cache now reads as empty;
+     the first boot clears stored take-offs and replants the lone welcome
+     card; untouched drafts heal; later edits are never touched. */
+  const rsFF = text["src/lib/recentstreams.ts"];
+  const srvFF = text["scripts/cms-server.js"];
+  const cmsFF = text["src/lib/cms.ts"];
+  const applyFF = text["APPLY_UPDATE.txt"];
+  ok("foreign caches read empty", has(rsFF, "cachedChannelId !== designated) return { ...EMPTY }") && has(rsFF, "designatedChannelId()"), "a list saved for another channel must be dropped, never merged");
+  ok("take-offs cleared once", has(srvFF, "MEDIA_CLEAN") && has(srvFF, "live359.hiddenReplays = []") && has(srvFF, "mediaClean: MEDIA_CLEAN"), "stored take-offs must go on first boot, later ones never touched");
+  ok("welcome replanted once", has(srvFF, "WELCOME_SLIDE_359") && has(srvFF, 'String(slides359[0].id || "") === "welcome-home"'), "any stored slides but the lone welcome card must become it");
+  ok("absent slides stay absent", has(srvFF, 'if (typeof SECTIONS.slides === "string")'), "a store with no slides keeps none — the fallback already shows welcome");
+  ok("drafts heal on read", has(cmsFF, "healDraftRecents()") && has(cmsFF, "healDraftSlides()") && has(cmsFF, "(dirty as any).slides"), "a pre-clear draft must follow the words; office edits win");
+  ok("apply backs up first", has(applyFF, "BACK UP FIRST (step 1)"), "the uploads survive only in the backup file");
+  try {
+    const ebFF = await import("https://esm.sh/esbuild-wasm@0.21.5?bundle");
+    try {
+      await ebFF.default.initialize({ wasmURL: "https://esm.sh/esbuild-wasm@0.21.5/esbuild.wasm" });
+    } catch {
+      /* already initialized above — transform works regardless */
+    }
+    const tcFF = await ebFF.default.transform(rsFF, { loader: "ts", format: "cjs" });
+    const OWNER = "UCQ0KIUXUV7gTZmDDlvd3ZcQ";
+    const OTHER = "UCxxxxxxxxxxxxxxxxxxxxxx";
+    const cacheFF = {};
+    const stubFF = (id) => {
+      if (id === "react") return { useEffect: () => {}, useState: (v) => [v, () => {}], useRef: (v) => ({ current: v }), useSyncExternalStore: () => ({}) };
+      if (id === "./hooks") return { readStore: (k, fb) => (k in cacheFF ? cacheFF[k] : fb), writeStore: (k, v) => { cacheFF[k] = v; } };
+      if (id === "./embed") return { parseYoutubeId: (u) => /([\w-]{11})/.exec(String(u || ""))?.[1] || "", cleanChannelInput: (v) => String(v || "").trim().replace(/@@+/g, "@").replace(/\s+/g, "") };
+      if (id === "./livestatus") return { liveTarget: () => ({ url: "https://www.youtube.com/@twocorg/live", kind: "channel" }), designatedChannelId: () => OWNER };
+      if (id === "../data/live") return { LIVE: { youtubeChannel: "@twocorg" } };
+      return {};
+    };
+    const modFF = { exports: {} };
+    new Function("module", "exports", "require", tcFF.code)(modFF, modFF.exports, stubFF);
+    cacheFF["wom.recentstreams"] = { items: [{ videoId: "AAAAAAAAAAA", title: "Debug service", at: 5, ago: "", thumb: "", seeded: 0 }], at: 5, channelId: OTHER };
+    ok("foreign cache dropped", modFF.exports.readRecentServices().items.length === 0, "debugging videos must not survive the read");
+    cacheFF["wom.recentstreams"] = { items: [{ videoId: "AAAAAAAAAAA", title: "Sunday service", at: 5, ago: "", thumb: "", seeded: 0 }], at: 5, channelId: OWNER };
+    ok("own cache kept", modFF.exports.readRecentServices().items.length === 1, "@twocorg's list must stay");
+    cacheFF["wom.recentstreams"] = { items: [{ videoId: "BBBBBBBBBBB", title: "Today's service", at: 0, ago: "", thumb: "", seeded: Date.now() }], at: 5, channelId: "" };
+    ok("seeds pass through", modFF.exports.readRecentServices().items.length === 1, "a just-ended service still lists at once");
+  } catch (e) {
+    ok("recents-cache suite", false, String((e && e.message) || e).slice(0, 200));
+  }
+  try {
+    const connFF = { id: "t", net: ["local", 0, 0], subscribe() {}, topics: new Set() };
+    const pubFF = (rpc, sections, extra) =>
+      JSON.parse(rpc.publish({ conn: connFF }, JSON.stringify({ sections, by: "office", changed: Object.keys(sections), notes: 359, ...(extra || {}) })));
+    const getFF = (rpc) => JSON.parse(rpc.getContent({ conn: connFF }, ""));
+    const stripClean = (st) => {
+      const dvFF = new DataView(st.buffer);
+      const metaChars = dvFF.getUint32(14, false);
+      const secChars = dvFF.getUint32(26, false);
+      const base = (34 + 64 * 48) / 2;
+      const u16 = new Uint16Array(st.buffer);
+      let meta = "";
+      for (let i = 0; i < metaChars; i++) meta += String.fromCharCode(u16[base + secChars + i]);
+      const m = JSON.parse(meta);
+      delete m.mediaClean;
+      const nm = JSON.stringify(m);
+      for (let i = 0; i < nm.length; i++) u16[base + secChars + i] = nm.charCodeAt(i);
+      dvFF.setUint32(14, nm.length, false);
+    };
+    const uploadsFF = [
+      { id: "", image: "https://twocchurch-site.onrender.com/data/uploads/mv12fgp8-IMG_7180.jpeg", headline: "", line: "", active: true },
+      { id: "", image: "https://twocchurch-site.onrender.com/data/uploads/mv35c9g1-WhatsApp_Image_2026-10-10_at_5.09.06_PM_2", headline: "", line: "", active: true },
+    ];
+    const stFF = new Uint8Array(8 * 1024 * 1024);
+    const rFF0 = loadVm(stubAuth(srvFF), stFF);
+    const p0 = pubFF(rFF0, { live: JSON.stringify({ youtubeChannel: "@twocorg", hiddenReplays: ["AAAAAAAAAAA", "BBBBBBBBBBB"] }), slides: JSON.stringify(uploadsFF) }, { first: true });
+    ok("ff fixture publishes", p0.ok === true, "pub=" + JSON.stringify(p0).slice(0, 120));
+    stripClean(stFF);
+    const rFF1 = loadVm(stubAuth(srvFF), stFF);
+    const afterFF = getFF(rFF1);
+    const secFF = JSON.parse(afterFF.sections);
+    const liveFF = secFF.live;
+    ok("take-offs cleared", Array.isArray(liveFF.hiddenReplays) && liveFF.hiddenReplays.length === 0 && liveFF.youtubeChannel === "@twocorg", "every take-off goes, the channel stays");
+    ok("welcome replanted", Array.isArray(secFF.slides) && secFF.slides.length === 1 && secFF.slides[0].id === "welcome-home" && secFF.slides[0].headline === "Welcome home", "the uploads go, the welcome card stays");
+    ok("clear stamps nothing", afterFF.notes === 359, "notes=" + afterFF.notes);
+    /* a later take-off and a new slide survive every later boot. */
+    const p1 = pubFF(rFF1, { live: JSON.stringify({ ...liveFF, hiddenReplays: ["CCCCCCCCCCC"] }), slides: JSON.stringify([{ id: "easter", image: "https://example.com/e.jpg", headline: "Easter", line: "", cta: "", link: "", design: "auto", active: true }]) });
+    ok("ff later edits publish", p1.ok === true);
+    const rFF2 = loadVm(stubAuth(srvFF), stFF);
+    const secFF2 = JSON.parse(getFF(rFF2).sections);
+    ok("later edits survive reboot", secFF2.live.hiddenReplays.length === 1 && secFF2.slides.length === 1 && secFF2.slides[0].id === "easter", "got " + secFF2.slides[0].id);
+    /* a store with no slides section gains none. */
+    const rFFE = loadVm(stubAuth(srvFF), new Uint8Array(8 * 1024 * 1024));
+    ok("absent slides stay absent", !("slides" in JSON.parse(getFF(rFFE).sections)), "the fallback already shows welcome");
+  } catch (e) {
+    ok("clean-migration suite", false, String((e && e.message) || e).slice(0, 200));
+  }
+  /* GG. this update overrides the last one (note 361): the stamp carries the
+     update number so the whole clear re-runs once per update, untouched drafts
+     follow, browsers drop old caches on a proven new update, and old office
+     reports go silent by themselves. */
+  const srvGG = text["scripts/cms-server.js"];
+  const cmsGG = text["src/lib/cms.ts"];
+  const rsGG = text["src/lib/recentstreams.ts"];
+  const lsGG = text["src/lib/livestatus.ts"];
+  const applyGG = text["APPLY_UPDATE.txt"];
+  ok("override stamp per-update", has(srvGG, "var OVERRIDE_CLEAN = 0;") && has(srvGG, "overrideClean: OVERRIDE_CLEAN") && has(srvGG, "OVERRIDE_NO_361 = 361") && has(srvGG, "OVERRIDE_CLEAN !== OVERRIDE_NO_361"), "the clear must re-run on every new update, not once ever");
+  ok("override clears everything old", has(srvGG, "live361.youtubeChannel = \"@twocorg\"") && has(srvGG, "live361.youtubeId = \"\"") && has(srvGG, "live361.hiddenReplays = []") && has(srvGG, "WELCOME_SLIDE_359") && has(srvGG, "String(slides361[0].id || \"\") === \"welcome-home\""), "channel, stray link, take-offs and slides must all go");
+  ok("override never blesses", has(srvGG, "no rev bump") && has(srvGG, "later office work is never touched"), "the clear must not publish");
+  ok("draft stray link heals", has(cmsGG, "healDraftStreamLink()") && has(cmsGG, "(draft as any).live = { ...dLive, youtubeId: \"\" }"), "an untouched draft must follow the words");
+  ok("browser caches drop on new update", has(rsGG, "export function clearRecentCaches()") && has(cmsGG, "if (freshEyes) clearRecentCaches();"), "old cards must not ride into the new update");
+  ok("old reports go silent", has(lsGG, "Number(rep?.notes) === BUILD_NOTES"), "a 359 answer must die when 361 lands");
+  ok("apply leads with override", has(applyGG, "overrides the last one, so every old clears away"), "the office must meet the override first");
+  try {
+    const connGG = { id: "t", net: ["local", 0, 0], subscribe() {}, topics: new Set() };
+    const pubGG = (rpc, sections, extra) =>
+      JSON.parse(rpc.publish({ conn: connGG }, JSON.stringify({ sections, by: "office", changed: Object.keys(sections), notes: 361, ...(extra || {}) })));
+    const getGG = (rpc) => JSON.parse(rpc.getContent({ conn: connGG }, ""));
+    const stripOverride = (st) => {
+      const dvGG = new DataView(st.buffer);
+      const metaChars = dvGG.getUint32(14, false);
+      const secChars = dvGG.getUint32(26, false);
+      const base = (34 + 64 * 48) / 2;
+      const u16 = new Uint16Array(st.buffer);
+      let meta = "";
+      for (let i = 0; i < metaChars; i++) meta += String.fromCharCode(u16[base + secChars + i]);
+      const m = JSON.parse(meta);
+      delete m.overrideClean;
+      const nm = JSON.stringify(m);
+      for (let i = 0; i < nm.length; i++) u16[base + secChars + i] = nm.charCodeAt(i);
+      dvGG.setUint32(14, nm.length, false);
+    };
+    const uploadsGG = [
+      { id: "", image: "https://twocchurch-site.onrender.com/data/uploads/mv12fgp8-IMG_7180.jpeg", headline: "", line: "", active: true },
+      { id: "", image: "https://twocchurch-site.onrender.com/data/uploads/mv35c9g1-WhatsApp_Image_2026-10-10_at_5.09.06_PM_2", headline: "", line: "", active: true },
+    ];
+    const stGG = new Uint8Array(8 * 1024 * 1024);
+    const rGG0 = loadVm(stubAuth(srvGG), stGG);
+    const p0 = pubGG(rGG0, { live: JSON.stringify({ youtubeChannel: "@debugging", youtubeId: "AAAAAAAAAAA", hiddenReplays: ["BBBBBBBBBBB"] }), slides: JSON.stringify(uploadsGG) }, { first: true });
+    ok("gg fixture publishes", p0.ok === true, "pub=" + JSON.stringify(p0).slice(0, 120));
+    stripOverride(stGG);
+    const rGG1 = loadVm(stubAuth(srvGG), stGG);
+    const afterGG = getGG(rGG1);
+    const secGG = JSON.parse(afterGG.sections);
+    const liveGG = secGG.live;
+    ok("override moves channel", liveGG.youtubeChannel === "@twocorg", "got " + liveGG.youtubeChannel);
+    ok("override drops stray link", liveGG.youtubeId === "", "got " + liveGG.youtubeId);
+    ok("override clears take-offs", Array.isArray(liveGG.hiddenReplays) && liveGG.hiddenReplays.length === 0, "got " + JSON.stringify(liveGG.hiddenReplays));
+    ok("override replants welcome", Array.isArray(secGG.slides) && secGG.slides.length === 1 && secGG.slides[0].id === "welcome-home", "got " + (secGG.slides[0] || {}).id);
+    ok("override stamps nothing", afterGG.notes === 361, "notes=" + afterGG.notes);
+    const p1 = pubGG(rGG1, { live: JSON.stringify({ youtubeChannel: "@twocorg", youtubeId: "", hiddenReplays: ["CCCCCCCCCCC"] }), slides: JSON.stringify([{ id: "easter", image: "x", headline: "Easter", line: "", active: true }]) });
+    ok("gg second publish", p1.ok === true, "pub=" + JSON.stringify(p1).slice(0, 120));
+    const rGG2 = loadVm(stubAuth(srvGG), stGG);
+    const secGG2 = JSON.parse(getGG(rGG2).sections);
+    ok("later edits survive reboot", secGG2.live.hiddenReplays.length === 1 && secGG2.slides.length === 1 && secGG2.slides[0].id === "easter", "got " + secGG2.slides[0].id);
+  } catch (e) {
+    ok("override suite", false, String((e && e.message) || e).slice(0, 200));
+  }
   const notes = Number((text["src/lib/hooks.ts"].match(/BUILD_NOTES = (\d+)/) || [])[1]) || 0;
   const apply = text["APPLY_UPDATE.txt"];
   ok("update number consistent", notes > 0 && has(apply, `APPLY THIS UPDATE (${notes})`), "hooks=" + notes);

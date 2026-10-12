@@ -223,6 +223,61 @@ export function ownerAllowsCandidate(ownerChannelId: string, candidateChannelId:
   return true;
 }
 
+/** The designated channel's own id, answered with no page read (note 357):
+    @twocorg is UCQ0KIUXUV7gTZmDDlvd3ZcQ (SPEC note 112 — the same answer the
+    bake uses), so the livestream gate knows whose video counts even through
+    the wall. Any other address names nothing, and every gate below behaves
+    exactly like before for it. */
+export const DESIGNATED_CHANNEL_IDS: Record<string, string> = {
+  "@twocorg": "UCQ0KIUXUV7gTZmDDlvd3ZcQ",
+};
+/** The designated id for a channel input (note 357): cleaned first, so
+    "@TWOCORG" and "@@twocorg" answer like "@twocorg". */
+export function designatedChannelId(channelInput?: string): string {
+  const cleaned = cleanChannelInput(channelInput === undefined ? LIVE.youtubeChannel : channelInput);
+  if (!cleaned) return "";
+  return DESIGNATED_CHANNEL_IDS[cleaned.toLowerCase()] || "";
+}
+/** The designated id for a checked target URL (note 357): a UC id in the
+    address is the designation itself; an @handle answers from the baked map
+    above; anything else names nothing. */
+export function designatedChannelIdForTarget(targetUrl: string): string {
+  const url = String(targetUrl || "");
+  const id = /(UC[\w-]{20,24})/.exec(url);
+  if (id) return id[1];
+  const at = /youtube\.com\/@([\w.-]+)/i.exec(url);
+  if (at) return DESIGNATED_CHANNEL_IDS[("@" + at[1]).toLowerCase()] || "";
+  return "";
+}
+/** True while this channel may stand for the designated broadcast (note 357),
+    pure for the verifier: a named channel that is not the designated one is
+    somebody else's video and never plays; an unnamed one passes through (the
+    candidate and report gates below judge those — a thin read must still be
+    able to end silence). */
+export function isDesignatedChannel(channelId: string, designatedId: string): boolean {
+  const c = String(channelId || "");
+  const d = String(designatedId || "");
+  if (!d || !c) return true;
+  return c === d;
+}
+/** True while a suggestion may stand for the designated broadcast (note 357),
+    pure for the verifier: the page that names the suggestions is a grab-bag,
+    so a suggestion from another channel is skipped like an off answer — and
+    with the designation known, an ownerless grab-bag mention plays only when
+    the channel's own Live tab points at it. The Live tab names the channel's
+    own video, so it vouches where a walled watch page cannot. */
+export function candidateStandsForDesignated(
+  candidateChannelId: string,
+  designatedId: string,
+  fromLiveTab = false
+): boolean {
+  const d = String(designatedId || "");
+  if (!d) return true;
+  const c = String(candidateChannelId || "");
+  if (c) return c === d;
+  return fromLiveTab === true;
+}
+
 /** True while this answer belongs to the address asked for (note 349), pure
     for the verifier: an answer stamped for another address (the office moved
     the channel since the check) never plays and never reports. Caches from
@@ -241,9 +296,16 @@ export function isStatusForTarget(status: { target?: unknown }, targetUrl: strin
 export function inheritEnded(
   before: LiveStatus,
   targetUrl: string,
-  checkedAt: number
+  checkedAt: number,
+  designatedId = ""
 ): { endedAt: number; videoId: string; title: string; channelId: string; platform: LivePlatform | "" } {
   if ((before.state === "live" || before.endedAt > 0) && isStatusForTarget(before, targetUrl)) {
+    /* A kept video from another channel is dropped too (note 357): the new
+       handle never inherits somebody else's service on its ended screen.
+       Older callers pass nothing and behave exactly like before. */
+    const d = String(designatedId || "");
+    const keptId = String(before.channelId || "");
+    if (d && keptId && keptId !== d) return { endedAt: 0, videoId: "", title: "", channelId: "", platform: "" };
     return {
       endedAt: before.state === "live" ? checkedAt : before.endedAt,
       videoId: before.videoId,
@@ -262,9 +324,15 @@ export function inheritEnded(
 export function unverifiedChannelAnswer(
   live: boolean,
   title: string,
-  channelId: string
+  channelId: string,
+  designatedId = ""
 ): { state: LiveState; videoId: string; title: string; channelId: string } {
-  if (live && channelId) return { state: "live", videoId: "", title, channelId };
+  /* Strict (note 357): a chrome-only page follows the channel only when the
+     page names the designated owner — an unnamed or foreign owner stays
+     unknown and the screen waits instead of playing a guess. Older callers
+     pass nothing and behave exactly like before. */
+  const d = String(designatedId || "");
+  if (live && channelId && (!d || channelId === d)) return { state: "live", videoId: "", title, channelId };
   if (live) return { state: "unknown", videoId: "", title: "", channelId: "" };
   return { state: "off", videoId: "", title: "", channelId: "" };
 }
@@ -296,6 +364,12 @@ async function resolveYoutube(
      suggestions is a grab-bag, so a live suggestion from another channel is
      skipped like an off answer — the asking moves on, never the player. */
   const owner = extractChannelId(html, target.url);
+  /* Only the designated channel's videos (note 357): with the designation
+     known, an ownerless grab-bag mention plays only when the channel's own
+     Live tab points at it — the Live tab vouches where a walled watch page
+     cannot. */
+  const designatedId = designatedChannelIdForTarget(target.url);
+  const liveTabId = channelLiveVideoId(html);
   for (const vid of cands) {
     const watchUrl = `https://www.youtube.com/watch?v=${vid}`;
     const watchHtml = await fetchPage(watchUrl);
@@ -303,6 +377,7 @@ async function resolveYoutube(
     const watch = parseLivePage(watchHtml, watchUrl);
     if (watch.live && (watch.videoId || vid)) {
       if (!ownerAllowsCandidate(owner, watchChannelId(watchHtml))) continue;
+      if (!candidateStandsForDesignated(watchChannelId(watchHtml), designatedId, vid === liveTabId)) continue;
       return { state: "live" as const, videoId: watch.videoId || vid, title: watch.title, channelId: "" };
     }
   }
@@ -313,7 +388,7 @@ async function resolveYoutube(
      repeat note 324, so the answer follows the channel instead, through
      `unverifiedChannelAnswer` above — and a page we merely could not read
      stays `unknown`, never `off`. */
-  return unverifiedChannelAnswer(parsed.live, parsed.title, parsed.live ? extractChannelId(html, target.url) : "");
+  return unverifiedChannelAnswer(parsed.live, parsed.title, parsed.live ? extractChannelId(html, target.url) : "", designatedId);
 }
 
 /** Facebook can only confirm a broadcast (two markers); never trusts "off". */
@@ -426,6 +501,16 @@ const REPORT_TIMEOUT_MS = 6_000;
 export function reportMatchesBuild(rep: { notes?: unknown }): boolean {
   return Number(rep?.notes) === BUILD_NOTES;
 }
+/** True while an office report names something the player may open (note 357),
+    pure for the verifier: a "live" report with no video id is an unverified
+    channel follow — it must never open the player by itself. Readers fall
+    through to their own scrape (usually `unknown` → the waiting screen)
+    instead of playing a guess. "off" reports carry no video by design and
+    pass through. */
+export function reportCarriesVideo(rep: { state?: unknown; videoId?: unknown }): boolean {
+  if (String((rep && rep.state) || "") !== "live") return true;
+  return !!String((rep && rep.videoId) || "");
+}
 
 /** The latest office report, or null — public read, never throws. */
 async function fetchLiveReport(): Promise<LiveReport | null> {
@@ -468,7 +553,9 @@ export async function checkLiveStream(opts: { facebook?: boolean } = {}): Promis
      office is open and reporting, visitors take its answer. A stale report,
      or one for another address, changes nothing — the scrape below runs. */
   const officeRep = target ? await fetchLiveReport() : null;
-  const officeHit = target && officeRep && officeRep.target === target.url ? officeRep : null;
+  /* A videoless "live" report is an unverified follow (note 357): it never
+     opens the player — the scrape below runs and usually waits. */
+  const officeHit = target && officeRep && officeRep.target === target.url && reportCarriesVideo(officeRep) ? officeRep : null;
   const html = target && !officeHit ? await fetchPage(target.url) : null;
   const youtube: { state: LiveState; videoId: string; title: string; channelId: string } = !target
     ? { state: "unset", videoId: "", title: "", channelId: "" }
@@ -518,7 +605,7 @@ export async function checkLiveStream(opts: { facebook?: boolean } = {}): Promis
   if (state === "off" && (before.state === "live" || before.endedAt > 0)) {
     /* The moment it ended is the first answer that says it has; every answer
        after that carries the same moment and the video it was. */
-    const kept = inheritEnded(before, targetUrl, checkedAt);
+    const kept = inheritEnded(before, targetUrl, checkedAt, designatedChannelIdForTarget(targetUrl));
     next.endedAt = kept.endedAt;
     next.videoId = kept.videoId;
     next.title = kept.title;
@@ -584,6 +671,10 @@ function maybeReport(status: LiveStatus) {
        finds must never overwrite the office's real answer on the server. */
     if (status.state !== "live" && status.state !== "off") return;
     if (status.state === "live" && status.platform !== "youtube") return;
+    /* Only a verified broadcast id is reported (note 357): an unverified
+       channel-live answer names no video, so reporting it would steer every
+       visitor's player at a guess — it stays local, and the readers wait. */
+    if (status.state === "live" && !status.videoId) return;
     const url = liveTarget()?.url || "";
     if (!url) return;
     /* An answer checked for another address (the channel moved since) never
