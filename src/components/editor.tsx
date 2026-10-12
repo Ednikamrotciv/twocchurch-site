@@ -25,7 +25,7 @@ import { readLiveStatus, recheckLiveNow } from "../lib/livestatus";
 import { SITE, SERVICES, img } from "../data/site";
 import { recentLimit } from "../data/live";
 import { ytWatch } from "../data/sermons";
-import { askForRecentServices, useRecentServices } from "../lib/recentstreams";
+import { askForRecentServices, buildRecentSeeds, useRecentServices } from "../lib/recentstreams";
 import { BRANCHES } from "../data/branches";
 import type { ChurchEvent } from "../data/content";
 import { PHOTO_SLOTS, bundledPhoto, photoById, photoKeyOf, resolvePhoto } from "../data/photos";
@@ -779,7 +779,7 @@ export function LiveControlPanel() {
     /* A new session: read the channel now, so a service that has just been
        published shows up without waiting for the ten-minute timer. */
     askForRecentServices();
-    /* …and ask the on-air check at once (note 310): if the stream is already
+    /* …and ask the on-air check at once (note 306): if the stream is already
        up on the channel the site flips to it in seconds, on live and local. */
     recheckLiveNow();
     fireToast("You are on air. Publish to put the live state on the public site.", "success");
@@ -792,9 +792,18 @@ export function LiveControlPanel() {
   const stop = () => {
     write({ isLive: false, liveCut: Date.now(), liveEndedBy: "office", liveCommandAt: Date.now() });
     recheckLiveNow();
-    /* An ended service seeds Recent services now; every open page re-reads the channel. */
+    /* An ended service seeds Recent services now; every open page re-reads the channel.
+       Filed durably too (note 336): Publish carries the previous live to every
+       copy and the next bake, even before YouTube's feed publishes the archive. */
     const aired = readLiveStatus();
     askForRecentServices(aired.videoId ? { videoId: aired.videoId, title: aired.title } : undefined);
+    if (aired.platform === "youtube" && aired.videoId) {
+      const latest = cms.getDraft().live || {};
+      cms.setSectionValue("live", {
+        ...latest,
+        recentSeeds: buildRecentSeeds(latest.recentSeeds, aired.videoId, aired.title || latest.liveTitle || "Service"),
+      });
+    }
     fireToast("Stopped. The finished service is in Recent services, and the site is counting down to the next gathering.", "info");
   };
 
@@ -1983,7 +1992,7 @@ export function ToolsPage() {
   const state = cms.useCms();
   const [busy, setBusy] = useState(false);
   useCmsTick();
-  /* Site-update card (note 334): ask which update the live site runs — the
+  /* Site-update card (note 335): ask which update the live site runs — the
      answer lands through the cms subscription and re-renders this page. */
   useEffect(() => {
     cms.refreshLiveSiteNotes().catch(() => {});

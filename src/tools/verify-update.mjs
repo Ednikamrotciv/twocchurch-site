@@ -24,7 +24,7 @@
    (note 330) locks the walled-but-on-air channel follow: the owner's id with
    a clear margin or nothing, chrome with no verifiable video plays the
    channel (never a guessed video, never off), the player embeds the running
-   broadcast, and the office report carries the channel id. Section T (note 332) locks the dead-video net (oEmbed verdict before play, fallback with a way out, gated autoplay), same-update office reports, the shipped maintenance hold, and the fresh @twocorg recents bake. Section U (note 334) locks the deployed update: the hold file deploys with git, step 0 lists every file, and Tools names both updates. Run this
+   broadcast, and the office report carries the channel id. Section T (note 332) locks the dead-video net (oEmbed verdict before play, fallback with a way out, gated autoplay), same-update office reports, the shipped maintenance hold, and the fresh @twocorg recents bake. Section U (note 334) locks the deployed update: the hold file deploys with git, step 0 lists every file, and Tools names both updates. Section V (note 336) locks previous lives in the six: ended @twocorg broadcasts file durably on Stop/auto-stop, ride Publish and the bake, merge first in every reader, survive a feed miss, and the bake never wipes recents. Section W (note 337) locks the renumber: same code as 336 with the update number moved to 337 and a fresh @twocorg bake. Run this
    before EVERY update zip — a single FAIL blocks the
    ship, no exceptions.
    RUN (paste the two lines into an execute_js call):
@@ -59,6 +59,7 @@ const FILES = [
   ["scripts/vite-cms-backend.mjs", "js"],
   ["scripts/bake-seed.mjs", "js"],
   ["scripts/bake-recent.mjs", "js"],
+  ["src/lib/autostop.ts", "ts"],
   ["scripts/auto-push.mjs", "js"],
   ["index.html", null],
   ["src/styles/admin.css", null],
@@ -692,6 +693,31 @@ export async function runAll(fs) {
   ok("office tracks the live update", has(cmsU, "liveSiteNotesVersion") && has(cmsU, "refreshLiveSiteNotes") && has(cmsU, 'base + "/version.json') && has(cmsU, "liveSiteNotes"), "Tools needs the live number without version.json spelunking");
   ok("live tick refreshes it", has(cmsU, "refreshLiveSiteNotes().catch"), "the office minute-tick must keep the number fresh");
   ok("tools names both updates", has(edU, "Site update") && has(edU, "BUILD_NOTES") && has(edU, "refreshLiveSiteNotes") && has(edU, "liveSiteNotesVersion") && has(edU, "publishedNotesVersion"), "a behind live site must name itself with the recipe inline");
+  /* V. previous lives sit in the six @twocorg recents (note 336): an ended
+     broadcast files durably on Stop and on auto-stop, rides Publish and the
+     bake, merges first in every reader, survives a feed miss, and the bake
+     never wipes the list. */
+  const liveV = text["src/data/live.ts"];
+  const recV = text["src/lib/recentstreams.ts"];
+  const autoV = text["src/lib/autostop.ts"];
+  const edV = text["src/components/editor.tsx"];
+  const bakeSeedV = text["scripts/bake-seed.mjs"];
+  const bakeRecV = text["scripts/bake-recent.mjs"];
+  ok("durable previous lives exist", has(liveV, "recentSeeds") && has(liveV, "RecentSeed") && has(liveV, "@twocorg"), "the live words must carry filed previous lives, defaulting to @twocorg");
+  ok("readers merge durable first", has(recV, "durableSeedItems") && has(recV, "mergeDurable") && has(recV, "buildRecentSeeds") && has(recV, "BURST_MS = 30"), "every reader must list filed previous lives first and keep asking until the feed publishes");
+  ok("stop files durably", has(edV, "buildRecentSeeds") && has(edV, "recentSeeds") && has(autoV, "buildRecentSeeds") && has(autoV, "recentSeeds"), "Stop and auto-stop must file the ended video for Publish, not just the local tab");
+  ok("bake never wipes recents", has(bakeSeedV, "prev.recent") && has(bakeRecV, "recentSeeds") && has(bakeRecV, "previous"), "a feed miss must keep the previous bake with previous lives first");
+  try {
+    const seed336 = JSON.parse(text["seed.json"]);
+    const items336 = (seed336 && seed336.recent && seed336.recent.items) || [];
+    const ids336 = items336.map((it) => it && it.videoId);
+    ok("recents bake the church feed", seed336 && seed336.recent && seed336.recent.channelId === "UCQ0KIUXUV7gTZmDDlvd3ZcQ" && items336.length >= 6 && ids336.indexOf("s4bLaGUNet4") === 0 && ids336.indexOf("aT5IeCtJHFw") === 1 && ids336.every((id) => /^[\w-]{11}$/.test(String(id || ""))), "six-plus @twocorg services, newest first from the Oct-12 feed");
+    ok("fallback words are the church", seed336 && seed336.sections && seed336.sections.live && seed336.sections.live.youtubeChannel === "@twocorg", "the fallback bake must carry @twocorg, not a debugging channel");
+  } catch (e) {
+    ok("recents bake parses", false, String((e && e.message) || e).slice(0, 160));
+  }
+  /* W. renumber to 337 (note 337): same code as 336, update number moved. */
+  ok("renumber is 337", Number((text["src/lib/hooks.ts"].match(/BUILD_NOTES = (\d+)/) || [])[1]) === 337 && has(text["APPLY_UPDATE.txt"], "APPLY THIS UPDATE (337)"), "hooks and APPLY must both read 337");
   const notes = Number((text["src/lib/hooks.ts"].match(/BUILD_NOTES = (\d+)/) || [])[1]) || 0;
   const apply = text["APPLY_UPDATE.txt"];
   ok("update number consistent", notes > 0 && has(apply, `APPLY THIS UPDATE (${notes})`), "hooks=" + notes);

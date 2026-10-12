@@ -51,8 +51,20 @@ export async function bakeSeed(rootDir, outPath) {
       if (typeof prev?.at === "number") at = prev.at;
     } catch { /* no previous history — ships empty */ }
   }
-  await writeFile(target, JSON.stringify({ rev, notes, sections, log, by, at }));
-  console.log(`bake-seed: baked ${ids.length} sections into ${path.relative(rootDir, target)}`);
+  /* Previous lives ride the same bake (note 336): the six Recent services are
+     baked from @twocorg, and an ended broadcast filed by the office must stay
+     in that bake even when the channel feed has not published the archive yet
+     — and a feed miss must never wipe the previous bake. Carried across like
+     the stamp above; bake-recent.mjs refreshes it below. */
+  let recent = null;
+  try {
+    const prev = JSON.parse(await readFile(target, "utf8"));
+    if (prev && prev.recent && Array.isArray(prev.recent.items) && prev.recent.items.length) recent = prev.recent;
+  } catch { /* no previous bake — bake-recent builds it below */ }
+  const out = { rev, notes, sections, log, by, at };
+  if (recent) out.recent = recent;
+  await writeFile(target, JSON.stringify(out));
+  console.log(`bake-seed: baked ${ids.length} sections into ${path.relative(rootDir, target)}${recent ? ` (kept ${recent.items.length} recent services)` : ""}`);
   /* The recent-services list ships in the same file, so every copy paints the
      same services as the preview (see bake-recent.mjs). Best effort — a missed
      read keeps the previous bake. */

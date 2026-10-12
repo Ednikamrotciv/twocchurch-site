@@ -7,7 +7,7 @@ import { fireToast } from "./hooks";
 import { nextService, churchTimezone } from "./store";
 import { SERVICES } from "../data/site";
 import { useLiveStream, type LiveStatus } from "./livestatus";
-import { askForRecentServices } from "./recentstreams";
+import { askForRecentServices, buildRecentSeeds } from "./recentstreams";
 
 /** The live section as the office's own draft has it. */
 function draftLive(): any {
@@ -37,8 +37,15 @@ function stopForStream(live: any, air: LiveStatus): boolean {
     isLive: false,
     liveCut: endedAt,
     liveEndedBy: "channel",
+    /* Filed durably too (note 336): the previous live rides the next Publish
+       into every copy's six Recent services, even before the feed has it. */
+    ...(air.platform === "youtube" && air.videoId
+      ? { recentSeeds: buildRecentSeeds(live.recentSeeds, air.videoId, air.title || live.liveTitle || "Service", endedAt) }
+      : {}),
   });
-  /* File the finished service into Recent services now. */
+  /* File the finished service into Recent services now (local seed + re-read;
+     a channel-follow ending with no video id still re-reads until the feed
+     publishes the archive — see BURST_MS in recentstreams.ts). */
   askForRecentServices(
     air.platform === "youtube" && air.videoId ? { videoId: air.videoId, title: air.title } : undefined
   );

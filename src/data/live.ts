@@ -48,6 +48,23 @@ export function hiddenReplays(): Set<string> {
   return new Set(list.map((id) => String(id || "").trim()).filter(Boolean));
 }
 
+/** A finished broadcast the office filed into Recent services (note 336):
+    the ended YouTube video + headline + when it ended. Published like any
+    other live words, so every copy — and the baked seed — lists the previous
+    live even before YouTube's feed publishes the archive. Newest first,
+    capped where it is written (never here). */
+export type RecentSeed = { videoId: string; title: string; at: number };
+export function recentSeeds(): RecentSeed[] {
+  const list = Array.isArray((LIVE as { recentSeeds?: unknown }).recentSeeds)
+    ? ((LIVE as { recentSeeds?: unknown }).recentSeeds as RecentSeed[])
+    : [];
+  return list
+    .filter((s) => s && typeof s === "object" && /^[\w-]{11}$/.test(String((s as RecentSeed).videoId || "")))
+    .map((s) => ({ videoId: String(s.videoId), title: String(s.title || "Service"), at: Number(s.at) || 0 }))
+    .sort((a, b) => (b.at || 0) - (a.at || 0))
+    .slice(0, 24);
+}
+
 /** A Ways-to-watch card; `platform` adds the Open button for that platform. */
 export type WatchOption = { label: string; value: string; icon: string; platform?: VideoPlatform };
 
@@ -57,7 +74,7 @@ export const LIVE = {
   /** A YouTube video id, or any YouTube link — the id is pulled out of it. */
   youtubeId: "",
   /** The church's YouTube channel (handle, id or link); the office types it in the console (note 112).
-      Shipped as the church's own address (note 328) so every fresh copy, every fallback bake and every
+      Shipped as the church's own address (note 329) so every fresh copy, every fallback bake and every
       reader with no published words yet watches @twocorg — never nothing, never a debugging channel. */
   youtubeChannel: "@twocorg",
   /** A public Facebook video / live-video link. */
@@ -82,6 +99,10 @@ export const LIVE = {
   liveCommandAt: 0,
   /** Taken-off service ids; the channel keeps them, the site hides them. */
   hiddenReplays: [] as string[],
+  /** Previous lives filed by the office (note 336): ended broadcasts kept
+      here on Stop / auto-stop so the six Recent services list them from
+      @twocorg even before the channel feed publishes the archive. */
+  recentSeeds: [] as RecentSeed[],
   /** The cards under "everywhere you already are". */
   watchOptions: [
     { label: "Live stream", value: "Plays here whenever our broadcast is active", icon: "live" },
