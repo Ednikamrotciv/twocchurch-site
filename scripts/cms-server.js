@@ -388,6 +388,12 @@ var LIVE_REPORT = null;
    change was needed. */
 var PREV = null;
 var UNDO_MS = 15 * 60 * 1000;
+/* @twocorg arrives ready (note 351): stored words keep whatever channel the
+   office last published — debugging handles included — across every update.
+   The first boot of this update moves a non-@twocorg channel to @twocorg
+   once (see below); the flag rides the meta blob so a later intentional edit
+   is never touched — the field stays editable. */
+var CH_READY = false;
 /* Set while loading a state stamped with an older history generation: the
    record is forgotten and the clean state is written back at once. */
 var FRESH_GEN = false;
@@ -484,7 +490,7 @@ function undoLeftSec(now) {
 }
 
 function writeMeta() {
-  var meta = JSON.stringify({ by: BY, log: LOG, logGen: LOG_GEN, subs: SUBS, invites: INVITES, totp: TOTP, mainOff: MAIN_OFF, mainHash: MAIN_HASH, pwgen: PWGEN, notes: NOTES, prev: PREV });
+  var meta = JSON.stringify({ by: BY, log: LOG, logGen: LOG_GEN, subs: SUBS, invites: INVITES, totp: TOTP, mainOff: MAIN_OFF, mainHash: MAIN_HASH, pwgen: PWGEN, notes: NOTES, prev: PREV, chReady: CH_READY });
   META_CHARS = meta.length;
   writeString(meta, BASE_CHARS + SECTION_CHARS);
   /* The header carries META_CHARS: without this, an admin-only change (an
@@ -632,6 +638,7 @@ function loadState() {
     PWGEN = typeof parsed.pwgen === "number" && parsed.pwgen >= 0 ? Math.floor(parsed.pwgen) : 0;
     NOTES = typeof parsed.notes === "number" && parsed.notes >= 0 ? Math.floor(parsed.notes) : 0;
     PREV = cleanPrev(parsed.prev);
+    CH_READY = parsed.chReady === true;
   } catch (e) {
     NOTES = 0;
     BY = "";
@@ -643,6 +650,7 @@ function loadState() {
     MAIN_HASH = "";
     PWGEN = 0;
     PREV = null;
+    CH_READY = false;
   }
   SECTIONS = {};
   for (var i = 0; i < INDEX.length; i++) {
@@ -701,6 +709,32 @@ function setSection(id, value) {
 }
 
 loadState();
+
+/* @twocorg arrives ready (note 351): a stored live section naming anything
+   but the church's handle is moved to @twocorg once, on the first boot of
+   this update, on every copy that runs it — no reset tap, no retype. Empty
+   stays empty (fresh copies read the @twocorg code default), and the CH_READY
+   flag above means a later intentional edit is never touched. No stamp, no
+   rev bump, no publish: the office still publishes to bless the update and
+   lift the notice, and that publish refreshes the recents from @twocorg. */
+try {
+  if (!CH_READY) {
+    CH_READY = true;
+    var readyObj = null;
+    try { readyObj = JSON.parse(SECTIONS.live || ""); } catch (e) { readyObj = null; }
+    if (readyObj && typeof readyObj === "object" && !Array.isArray(readyObj)) {
+      var readyCh = String(readyObj.youtubeChannel || "").trim().replace(/@@+/g, "@").replace(/\s+/g, "");
+      if (readyCh && readyCh.toLowerCase() !== "@twocorg") {
+        readyObj.youtubeChannel = "@twocorg";
+        setSection("live", JSON.stringify(readyObj));
+      }
+    }
+    writeMeta();
+    writeHeader();
+  }
+} catch (e) {
+  /* a failed move must never break boot — the reset button still stands */
+}
 
 /* --------------------------------------------------------------- authority */
 

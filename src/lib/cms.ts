@@ -2698,6 +2698,7 @@ export function getDraft(): Snapshot {
   }
   dropLapsedSlides();
   migrateTestimonies();
+  healDraftChannel();
   return draft;
 }
 
@@ -2711,6 +2712,27 @@ function migrateTestimonies() {
   draft.testimonies = { items, categories };
   dirty.testimonies = true;
   persistDraft();
+}
+
+/** The update itself moves stored words to @twocorg (note 351) — a draft the
+    office saved before that still names the old handle. An untouched live
+    section follows the published words here; the office's own edits always
+    win (dirty.live returns early), so the channel stays editable. Runs on
+    read, persists only when something actually moved, never notifies. */
+function healDraftChannel() {
+  try {
+    if (!draft || dirty.live) return;
+    const pubLive = (applied as any)?.live;
+    const pubCh = String(pubLive?.youtubeChannel || "").trim();
+    if (!pubCh) return;
+    const dLive = (draft as any).live;
+    if (!dLive || typeof dLive !== "object" || Array.isArray(dLive)) return;
+    if (String(dLive.youtubeChannel || "") === pubCh) return;
+    (draft as any).live = { ...dLive, youtubeChannel: pubCh };
+    persistDraft();
+  } catch {
+    /* never break the drawer */
+  }
 }
 
 /** Lapsed slides and notices clear out of the draft (throttled; the site never shows them anyway). */
@@ -2980,6 +3002,7 @@ export type ImportResult = {
   filesRestored?: number;
   filesFailed?: string[];
   filesMissing?: string[];
+  channelMoved?: string;
 };
 
 /**
@@ -3019,6 +3042,25 @@ export async function importBackup(text: string): Promise<ImportResult> {
   dirty = {};
   editUndos = [];
   for (const id of restored) dirty[id] = true;
+  /* @twocorg arrives ready, restore half (note 353): a backup saved before
+     the move still names the old handle — restoring it must not re-put the
+     debugging channel (the boot move only runs on stored words, never on a
+     draft). A restored non-@twocorg channel becomes @twocorg here, kept
+     dirty so Review shows it and Publish carries it; the result names the
+     move, and the field stays editable afterwards. */
+  let channelMoved = "";
+  try {
+    const rl = (draft as any)?.live;
+    if (rl && typeof rl === "object" && !Array.isArray(rl)) {
+      const rc = String(rl.youtubeChannel || "").trim().replace(/@@+/g, "@").replace(/\s+/g, "");
+      if (rc && rc.toLowerCase() !== "@twocorg") {
+        channelMoved = String(rl.youtubeChannel || "");
+        (draft as any).live = { ...rl, youtubeChannel: "@twocorg" };
+      }
+    }
+  } catch {
+    /* a failed clean keeps the backup's words as-is */
+  }
   persistDraft();
   notify();
   /* The photos ride home: each embedded upload is written back under its
@@ -3073,7 +3115,7 @@ export async function importBackup(text: string): Promise<ImportResult> {
       }
     }
   }
-  return { ok: true, restored, skipped, filesRestored, filesFailed, filesMissing };
+  return { ok: true, restored, skipped, filesRestored, filesFailed, filesMissing, channelMoved: channelMoved || undefined };
 }
 
 /* ----------------------------------------------------------------- publish */

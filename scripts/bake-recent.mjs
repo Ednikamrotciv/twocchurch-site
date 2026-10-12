@@ -51,6 +51,12 @@ function channelPageTargets(pasted) {
 async function resolveChannelId(pasted) {
   const direct = channelIdIn(pasted);
   if (direct) return direct;
+  /* @twocorg resolves without a page read (note 353): the church's id is
+     baked beside its services — the datacenter wall eats channel pages, so
+     asking YouTube whose handle this is fails exactly where the bake must
+     work. Any other handle resolves over the network as before. */
+  const cleaned = String(pasted || "").trim().replace(/@@+/g, "@").replace(/\s+/g, "");
+  if (/^@?twocorg$/i.test(cleaned)) return "UCQ0KIUXUV7gTZmDDlvd3ZcQ";
   for (const page of channelPageTargets(pasted)) {
     try {
       const html = await fetchText(page);

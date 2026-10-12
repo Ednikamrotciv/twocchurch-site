@@ -29,6 +29,12 @@ export type LiveStatus = {
   /** The broadcast channel's own id, when the channel page is on air but no
       video id could be verified (note 330): the player follows the channel. */
   channelId: string;
+  /** The address this answer was checked for (note 349): the channel space
+      it belongs to. An answer stamped for another address never plays, never
+      reports, and never seeds the ended screen — the livestream shows only
+      the handle in the YouTube channel space. Caches from older updates
+      carry no stamp and pass through like before. */
+  target: string;
   /** The stream's own headline, when YouTube gives us one. */
   title: string;
   /** When the answer was fetched (ms). */
@@ -52,7 +58,7 @@ const CHECK_TIMEOUT_MS = 15_000;
 export const SOON_MS = 20_000;
 export const IDLE_MS = 90_000;
 
-const EMPTY: LiveStatus = { state: "unset", platform: "", videoId: "", title: "", channelId: "", checkedAt: 0, endedAt: 0 };
+const EMPTY: LiveStatus = { state: "unset", platform: "", videoId: "", title: "", channelId: "", target: "", checkedAt: 0, endedAt: 0 };
 
 /* --------------------------------------------------------------- the target */
 
@@ -198,6 +204,57 @@ export function extractChannelId(html: string, targetUrl = ""): string {
   return ranked[0][0];
 }
 
+/** The owner channel named by a watch page's own player model (note 349):
+    every video belongs to exactly one channel, so a live candidate from
+    another channel is an ad, an autoplay or a related upload — never the
+    handle's broadcast. "" when the page names none (bot-walled reads). */
+export function watchChannelId(watchHtml: string): string {
+  const d = /"videoDetails":\{[^}]*?"channelId":"(UC[\w-]{20,24})"/.exec(String(watchHtml || ""));
+  return d?.[1] || "";
+}
+
+/** True while a candidate may stand for the handle's broadcast (note 349),
+    pure for the verifier: when the channel page's owner and the candidate's
+    own page both name a channel and they differ, the candidate is somebody
+    else's video and the asking moves on. Anything unprovable either way
+    still plays — a thin read must never end a service. */
+export function ownerAllowsCandidate(ownerChannelId: string, candidateChannelId: string): boolean {
+  if (ownerChannelId && candidateChannelId && ownerChannelId !== candidateChannelId) return false;
+  return true;
+}
+
+/** True while this answer belongs to the address asked for (note 349), pure
+    for the verifier: an answer stamped for another address (the office moved
+    the channel since the check) never plays and never reports. Caches from
+    older updates carry no stamp and pass through like before. */
+export function isStatusForTarget(status: { target?: unknown }, targetUrl: string): boolean {
+  const stamped = String((status && status.target) || "");
+  if (!stamped) return true;
+  return stamped === String(targetUrl || "");
+}
+
+/** What an "off" answer keeps from the broadcast before it (note 349), pure
+    for the verifier: the ended screen keeps the video it was — but only when
+    it was the SAME address. A moved channel drops the old video outright
+    instead of seeding the new handle's ended screen, cover and recents with
+    somebody else's service. */
+export function inheritEnded(
+  before: LiveStatus,
+  targetUrl: string,
+  checkedAt: number
+): { endedAt: number; videoId: string; title: string; channelId: string; platform: LivePlatform | "" } {
+  if ((before.state === "live" || before.endedAt > 0) && isStatusForTarget(before, targetUrl)) {
+    return {
+      endedAt: before.state === "live" ? checkedAt : before.endedAt,
+      videoId: before.videoId,
+      title: before.title,
+      channelId: before.channelId,
+      platform: before.platform,
+    };
+  }
+  return { endedAt: 0, videoId: "", title: "", channelId: "", platform: "" };
+}
+
 /** The walled-but-on-air answer (note 330), pure for the verifier: a channel
     page carrying on-air chrome that no suggestion confirmed plays the channel
     when the page names its owner clearly — otherwise it stays `unknown`, never
@@ -235,12 +292,17 @@ async function resolveYoutube(
      settle — and a channel page that itself carries on-air chrome no candidate
      confirmed stays `unknown`, never `off`, rather than ending a service. */
   const cands = channelCandidateIds(html);
+  /* Only the handle's own videos (note 349): the page that names the
+     suggestions is a grab-bag, so a live suggestion from another channel is
+     skipped like an off answer — the asking moves on, never the player. */
+  const owner = extractChannelId(html, target.url);
   for (const vid of cands) {
     const watchUrl = `https://www.youtube.com/watch?v=${vid}`;
     const watchHtml = await fetchPage(watchUrl);
     if (watchHtml === null) continue;
     const watch = parseLivePage(watchHtml, watchUrl);
     if (watch.live && (watch.videoId || vid)) {
+      if (!ownerAllowsCandidate(owner, watchChannelId(watchHtml))) continue;
       return { state: "live" as const, videoId: watch.videoId || vid, title: watch.title, channelId: "" };
     }
   }
@@ -446,18 +508,22 @@ export async function checkLiveStream(opts: { facebook?: boolean } = {}): Promis
     : "unknown";
 
   const checkedAt = Date.now();
-  const next: LiveStatus = { state, platform: found?.platform || "", videoId: found?.videoId || "", title: found?.title || "", channelId: found?.channelId || "", checkedAt, endedAt: 0 };
+  const targetUrl = target?.url || "";
+  const next: LiveStatus = { state, platform: found?.platform || "", videoId: found?.videoId || "", title: found?.title || "", channelId: found?.channelId || "", target: targetUrl, checkedAt, endedAt: 0 };
 
-  /* A watched broadcast's ending sticks until one comes back (autostop). */
+  /* A watched broadcast's ending sticks until one comes back (autostop) — but
+     only for the address it was (note 349): a moved channel drops the old
+     video outright instead of seeding the new handle's ended screen. */
   const before = readLiveStatus();
   if (state === "off" && (before.state === "live" || before.endedAt > 0)) {
     /* The moment it ended is the first answer that says it has; every answer
        after that carries the same moment and the video it was. */
-    next.endedAt = before.state === "live" ? checkedAt : before.endedAt;
-    next.videoId = before.videoId;
-    next.title = before.title;
-    next.channelId = before.channelId;
-    next.platform = before.platform;
+    const kept = inheritEnded(before, targetUrl, checkedAt);
+    next.endedAt = kept.endedAt;
+    next.videoId = kept.videoId;
+    next.title = kept.title;
+    next.channelId = kept.channelId;
+    next.platform = kept.platform;
   }
   return next;
 }
@@ -473,6 +539,7 @@ export function readLiveStatus(): LiveStatus {
     videoId: String(cached.videoId || ""),
     title: String(cached.title || ""),
     channelId: String(cached.channelId || ""),
+    target: String((cached as Partial<LiveStatus>).target || ""),
     checkedAt: Number(cached.checkedAt) || 0,
     endedAt: Number(cached.endedAt) || 0,
   };
@@ -519,6 +586,10 @@ function maybeReport(status: LiveStatus) {
     if (status.state === "live" && status.platform !== "youtube") return;
     const url = liveTarget()?.url || "";
     if (!url) return;
+    /* An answer checked for another address (the channel moved since) never
+       reports (note 349): the office must not steer visitors to the old
+       handle's video. */
+    if (!isStatusForTarget(status, url)) return;
     reportSink({ target: url, state: status.state, videoId: status.videoId, title: status.title, channelId: status.channelId, checkedAt: status.checkedAt, notes: BUILD_NOTES });
   } catch {
     /* reporting must never break the poll */
@@ -536,6 +607,7 @@ function sameStatus(a: LiveStatus, b: LiveStatus) {
     a.videoId === b.videoId &&
     a.title === b.title &&
     a.channelId === b.channelId &&
+    a.target === b.target &&
     a.checkedAt === b.checkedAt &&
     a.endedAt === b.endedAt
   );

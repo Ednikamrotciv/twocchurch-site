@@ -34,7 +34,7 @@ export function cmsBackend() {
       try {
         const src = await readFile(path.join(ROOT, "src", "lib", "hooks.ts"), "utf8");
         const n = Number((src.match(/BUILD_NOTES = (\d+)/) || [])[1]) || 0;
-        if (n) console.log(`dev server: site update ${n} (Admin > Tools shows the same number)`);
+        if (n) console.log(`dev server: site update ${n} (version.json shows the same number)`);
       } catch {
         /* stamp unreadable — the page stamp still shows */
       }

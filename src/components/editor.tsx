@@ -2079,10 +2079,13 @@ export function ToolsPage() {
         const missBit = missed.length
           ? ` ${missed.length} uploaded ${missed.length === 1 ? "file is" : "files are"} missing on the server (${missed.slice(0, 3).join(", ")}${missed.length > 3 ? "…" : ""}).`
           : "";
+        const chanBit = res.channelMoved
+          ? ` Channel in the backup was ${res.channelMoved} — set to @twocorg (change it back in the Live stream console if that was intentional).`
+          : "";
         fireToast(
           left
-            ? `Brought back ${n} ${n === 1 ? "section" : "sections"} — review, then Publish. ${left} ${left === 1 ? "section" : "sections"} from the backup no longer exist in this update and ${left === 1 ? "was" : "were"} left out.${imgBit}${missBit}`
-            : `Brought back ${n} ${n === 1 ? "section" : "sections"} — review, then Publish to put it live.${imgBit}${missBit}`,
+            ? `Brought back ${n} ${n === 1 ? "section" : "sections"} — review, then Publish. ${left} ${left === 1 ? "section" : "sections"} from the backup no longer exist in this update and ${left === 1 ? "was" : "were"} left out.${imgBit}${missBit}${chanBit}`
+            : `Brought back ${n} ${n === 1 ? "section" : "sections"} — review, then Publish to put it live.${imgBit}${missBit}${chanBit}`,
           "success"
         );
       }

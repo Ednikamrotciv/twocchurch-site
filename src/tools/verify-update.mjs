@@ -24,12 +24,12 @@
    (note 330) locks the walled-but-on-air channel follow: the owner's id with
    a clear margin or nothing, chrome with no verifiable video plays the
    channel (never a guessed video, never off), the player embeds the running
-   broadcast, and the office report carries the channel id. Section T (note 332) locks the dead-video net (oEmbed verdict before play, fallback with a way out, gated autoplay), same-update office reports, the shipped maintenance hold, and the fresh @twocorg recents bake. Section U (note 334) locks the deployed update: the hold file deploys with git and step 0 lists every file (its Tools card retired in note 343 — the number lives in version.json + the console now). Section V (note 339) locks the deployed heal: the code outnumbers any mystery bundle, step 0 checks the bake's content, and the watched channel carries the reset recipe. Section W (note 341) locks the parity witness and the verified channel tap: the console tracks the live bake, and the channel tap plays a verified id or waits. Section X (note 343) locks the self-working publish (default live address, follow decision table, locked adopt door, player escape + re-ask, visible wakes, fresh @twocorg bake). Section Y (note 345) locks the one-tap @twocorg reset, the publish-time recents refresh, and the self-proving backup round-trip. Run this
+   broadcast, and the office report carries the channel id. Section T (note 332) locks the dead-video net (oEmbed verdict before play, fallback with a way out, gated autoplay), same-update office reports, the shipped maintenance hold, and the fresh @twocorg recents bake. Section U (note 334) locks the deployed update: the hold file deploys with git and step 0 lists every file (its Tools card retired in note 343 — the number lives in version.json + the console now). Section V (note 339) locks the deployed heal: the code outnumbers any mystery bundle, step 0 checks the bake's content, and the watched channel carries the reset recipe. Section W (note 341) locks the parity witness and the verified channel tap: the console tracks the live bake, and the channel tap plays a verified id or waits. Section X (note 343) locks the self-working publish (default live address, follow decision table, locked adopt door, player escape + re-ask, visible wakes, fresh @twocorg bake). Section Y (note 345) locks the one-tap @twocorg reset, the publish-time recents refresh, and the self-proving backup round-trip. Section Z (note 347) locks only-@twocorg shipping, the visitor's notice check, and the card staying gone. Section AA (note 349) locks the handle-only livestream: stamped answers, skipped foreign videos, dropped old endings, and the channel-wins screen. Section BB (note 351) locks the ready channel: a stored debugging handle boots to @twocorg with no stamp, a later edit survives, empty boots clean, and the untouched draft follows. Section CC (note 353) locks the ready recents: the restore heals the channel (announced, kept dirty), @twocorg resolves with no page read, and a failed bake never wipes. Run this
    before EVERY update zip — a single FAIL blocks the
    ship, no exceptions.
    RUN (paste the two lines into an execute_js call):
      const m = await import(URL.createObjectURL(new Blob(
-       [await fs.readTextFile("src/tools/verify-update.mjs")])));
+       [await fs.readTextFile("src/tools/verify-update.mjs")], { type: "text/javascript" })));
      return await m.runAll({ read: (p) => fs.readTextFile(p) });
    Needs network (esbuild-wasm from esm.sh). Site code must NEVER import this
    module — it pulls a compiler and runs suites. */
@@ -804,7 +804,163 @@ export async function runAll(fs) {
   ok("restore proves its writes", has(cmsY, "verified") && has(cmsY, "Read it back"), "a counted file must be a served file, never a hope");
   ok("restore takes audio", has(serveY, "startsWith(\"audio/\")") && has(viteY, "startsWith(\"audio/\")"), "refused kinds came back blank on both backends");
   ok("backup warns by name", has(edY, "missingFiles") && has(edY, "will be blank after a restore"), "a skipping backup must shout before the restore, not after");
-  ok("apply leads with the box truth", has(applyY, "still runs 339 with an EMPTY bake"), "the checklist must start from the measured box, not the last zip");
+  ok("apply leads with the box truth", has(applyY, "Measured on the live box first"), "the checklist must start from the measured box, not the last zip");
+  /* Z. only @twocorg ships; the visitor's notice; the card stays gone (note
+     347): the box runs 345 code with an empty bake and debugging channel(s)
+     published — lately @zoelifemultimedia. The last other name in what
+     ships must go, the APPLY must check the notice like a visitor, and no
+     pointer at the removed card may survive. */
+  const edZ = text["src/components/editor.tsx"];
+  const liveZ = text["src/data/live.ts"];
+  const viteZ = text["scripts/vite-cms-backend.mjs"];
+  const buildZ = text["scripts/build-static.mjs"];
+  const applyZ = text["APPLY_UPDATE.txt"];
+  const holdZ = text["maintenance-hold.txt"];
+  const notesZ = Number((text["src/lib/hooks.ts"].match(/BUILD_NOTES = (\d+)/) || [])[1]) || 0;
+  ok("no site-update card anywhere", !has(edZ, "Site update") && !has(edZ, "Live bake carries") && !has(edZ, "The site watches"), "the office asked it gone from Tools");
+  ok("no pointer at tools either", !has(viteZ, "Admin > Tools shows the same number") && has(viteZ, "version.json shows the same number"), "the dev boot line pointed at the removed card");
+  ok("code default is @twocorg", has(liveZ, 'youtubeChannel: "@twocorg"') && has(liveZ, 'value: "@twocorg"'), "the fallback card must read the church, not the old handle");
+  ok("no stray channel in code", ["src/lib/cms.ts", "src/components/editor.tsx", "src/data/live.ts", "src/components/blocks.tsx", "src/pages/WatchLive.tsx", "src/lib/livestatus.ts", "src/lib/embed.ts", "src/lib/recentstreams.ts"].every((p) => text[p].toLowerCase().indexOf("zoelifemultimedia") === -1), "@zoelifemultimedia must live only in published words, never in shipped code");
+  ok("apply checks like a visitor", has(applyZ, "FRESH profile") && has(applyZ, "incognito") && has(applyZ, "Exit preview"), "the notice check must defeat the office's own bypasses");
+  ok("reset recipe still in apply", has(applyZ, "exactly `@twocorg`") && has(applyZ, "Reset to @twocorg"), "the published handle only moves by reset plus publish");
+  ok("hold still ships", holdZ.trim().length > 0 && has(buildZ, "maintenance hold on"), "fresh visitors wait until the publish");
+  try {
+    const seed347 = JSON.parse(text["seed.json"]);
+    const live347 = seed347 && seed347.sections && seed347.sections.live;
+    const cards347 = (live347 && live347.watchOptions) || [];
+    const yt347 = cards347.filter((w) => w && w.icon === "youtube")[0] || {};
+    const items347 = ((seed347 && seed347.recent && seed347.recent.items) || []).map((it) => it && it.videoId);
+    ok("bake card reads @twocorg", !!live347 && live347.youtubeChannel === "@twocorg" && yt347.value === "@twocorg", "the shipped words must name no other channel");
+    ok("bake notes leave room to hold", typeof seed347.notes !== "number" || seed347.notes < notesZ, "a bake stamped at/above this update would release fresh visitors");
+    ok("recents still the church's", !!seed347 && !!seed347.recent && seed347.recent.channelId === "UCQ0KIUXUV7gTZmDDlvd3ZcQ" && items347.indexOf("s4bLaGUNet4") !== -1 && items347.length >= 6, "previous livestreams must be @twocorg's");
+  } catch (e) {
+    ok("bake parses", false, String((e && e.message) || e).slice(0, 160));
+  }
+  /* AA. the livestream answers only for the handle (note 349): the candidate
+     walk never asked whose video a suggestion was, answers outlived the
+     channel, and a stray stream link could reach the screen. Answers are
+     stamped with the checked address, foreign videos are skipped, old
+     endings are dropped on a move, and the channel wins on the screen. */
+  const liveAA = text["src/lib/livestatus.ts"];
+  const watchAA = text["src/pages/WatchLive.tsx"];
+  const blocksAA = text["src/components/blocks.tsx"];
+  ok("answers carry their address", has(liveAA, "target: string") && has(liveAA, "target: targetUrl"), "an unstamped answer cannot be told from the handle's");
+  ok("candidates prove their owner", has(liveAA, "ownerAllowsCandidate(owner, watchChannelId(watchHtml))"), "a live suggestion from another channel must be skipped, not played");
+  ok("old endings are dropped", has(liveAA, "inheritEnded(before, targetUrl, checkedAt)"), "a moved channel must not seed the new handle's ended screen");
+  ok("office never reports stale", has(liveAA, "isStatusForTarget(status, url)"), "the office must not steer visitors to the old handle's video");
+  ok("screen gates on the stamp", has(watchAA, "isStatusForTarget(air, targetUrl)") && has(watchAA, "airForTarget"), "the screen must read unknown until the fresh check lands");
+  ok("channel wins the screen", has(watchAA, "!hasChannel ? LIVE.youtubeId") && has(watchAA, "hasChannel ? targetUrl"), "a stray stream link must not reach the player while the channel is set");
+  ok("tap re-asks the handle", has(blocksAA, "isStatusForTarget(st, liveTarget()?.url"), "a tap after a channel move must wait, not play the old video");
+  try {
+    const ebAA = await import("https://esm.sh/esbuild-wasm@0.21.5?bundle");
+    try {
+      await ebAA.default.initialize({ wasmURL: "https://esm.sh/esbuild-wasm@0.21.5/esbuild.wasm" });
+    } catch {
+      /* already initialized above — transform works regardless */
+    }
+    const tcAA = await ebAA.default.transform(liveAA, { loader: "ts", format: "cjs" });
+    const stubAA = (id) => {
+      if (id === "react") return { useEffect: () => {}, useState: (v) => [v, () => {}], useSyncExternalStore: () => ({}) };
+      if (id === "./hooks") return { readStore: (k, fb) => fb, writeStore: () => true };
+      return {};
+    };
+    const modAA = { exports: {} };
+    new Function("module", "exports", "require", tcAA.code)(modAA, modAA.exports, stubAA);
+    const OWNER = "UCQ0KIUXUV7gTZmDDlvd3ZcQ";
+    const OTHER = "UCxxxxxxxxxxxxxxxxxxxxxx";
+    const watchHtml = 'ytInitialData{"x":1} "videoDetails":{"videoId":"AAAAAAAAAAA","channelId":"' + OWNER + '","title":"T"}';
+    ok("watch page names its owner", modAA.exports.watchChannelId(watchHtml) === OWNER && modAA.exports.watchChannelId('ytInitialData{"x":1}') === "", "the winner's own page must say whose video it is");
+    const allows = modAA.exports.ownerAllowsCandidate;
+    ok("own video allowed", allows(OWNER, OWNER) === true && allows("", OTHER) === true && allows(OWNER, "") === true, "unprovable either way still plays — a thin read never ends a service");
+    ok("foreign video refused", allows(OWNER, OTHER) === false, "an ad or related upload is never the handle's broadcast");
+    const forTarget = modAA.exports.isStatusForTarget;
+    const ADDR = "https://www.youtube.com/@twocorg/live";
+    ok("stamp gates the screen", forTarget({ target: ADDR }, ADDR) === true && forTarget({ target: "https://www.youtube.com/@other/live" }, ADDR) === false && forTarget({}, ADDR) === true, "another address never plays; older caches pass through");
+    const inherit = modAA.exports.inheritEnded;
+    const wasLive = { state: "live", platform: "youtube", videoId: "AAAAAAAAAAA", title: "T", channelId: "", target: ADDR, checkedAt: 1, endedAt: 0 };
+    const kept = inherit(wasLive, ADDR, 99);
+    ok("same-address ending sticks", kept.videoId === "AAAAAAAAAAA" && kept.endedAt === 99, "the ended screen keeps the video it was");
+    const dropped = inherit(wasLive, "https://www.youtube.com/@other/live", 99);
+    ok("moved channel drops the old video", dropped.videoId === "" && dropped.endedAt === 0, "the new handle never inherits somebody else's service");
+    const wasOff = { state: "off", platform: "", videoId: "AAAAAAAAAAA", title: "T", channelId: "", target: ADDR, checkedAt: 1, endedAt: 50 };
+    ok("old ending keeps its moment", inherit(wasOff, ADDR, 99).endedAt === 50 && inherit(wasOff, "https://www.youtube.com/@other/live", 99).endedAt === 0, "the moment sticks only for its own address");
+  } catch (e) {
+    ok("live-scope suite", false, String((e && e.message) || e).slice(0, 200));
+  }
+  /* BB. @twocorg arrives ready (note 351): stored words keep the last
+     published channel across updates, so the office had to reset it by hand.
+     The first boot of this update moves a stored non-@twocorg channel once —
+     no stamp, no publish — a later edit is never touched, and an untouched
+     draft follows the published words. */
+  const srvBB = text["scripts/cms-server.js"];
+  const cmsBB = text["src/lib/cms.ts"];
+  const applyBB = text["APPLY_UPDATE.txt"];
+  ok("ready flag declared", has(srvBB, "var CH_READY = false;"), "the one-shot needs memory");
+  ok("ready flag persists", has(srvBB, "chReady: CH_READY") && has(srvBB, "CH_READY = parsed.chReady === true;"), "a later edit must never be re-moved");
+  ok("boot moves the channel", has(srvBB, 'readyObj.youtubeChannel = "@twocorg"') && has(srvBB, "if (!CH_READY)"), "stored debugging handles must land on the church's");
+  ok("empty stays empty", has(srvBB, "stays empty (fresh copies read"), "fresh copies read the code default, not an invented section");
+  ok("draft heals on read", has(cmsBB, "healDraftChannel()") && has(cmsBB, "if (!draft || dirty.live) return;"), "an untouched Live section follows the published words; office edits win");
+  ok("apply needs no reset", has(applyBB, "no reset tap") && has(applyBB, "Only if it offers"), "the checklist must verify readiness, not tap the button");
+  try {
+    const connBB = { id: "t", net: ["local", 0, 0], subscribe() {}, topics: new Set() };
+    const pubBB = (rpc, sections, extra) =>
+      JSON.parse(rpc.publish({ conn: connBB }, JSON.stringify({ sections, by: "office", changed: Object.keys(sections), notes: 351, ...(extra || {}) })));
+    const getBB = (rpc) => JSON.parse(rpc.getContent({ conn: connBB }, ""));
+    const stripReady = (st) => {
+      const dvBB = new DataView(st.buffer);
+      const metaChars = dvBB.getUint32(14, false);
+      const secChars = dvBB.getUint32(26, false);
+      const base = (34 + 64 * 48) / 2;
+      const u16 = new Uint16Array(st.buffer);
+      let meta = "";
+      for (let i = 0; i < metaChars; i++) meta += String.fromCharCode(u16[base + secChars + i]);
+      const m = JSON.parse(meta);
+      delete m.chReady;
+      const nm = JSON.stringify(m);
+      for (let i = 0; i < nm.length; i++) u16[base + secChars + i] = nm.charCodeAt(i);
+      dvBB.setUint32(14, nm.length, false);
+    };
+    /* a pre-351 store: debugging channel published, no flag. */
+    const stBB = new Uint8Array(8 * 1024 * 1024);
+    const rBB0 = loadVm(stubAuth(srvBB), stBB);
+    const p0 = pubBB(rBB0, { live: JSON.stringify({ youtubeChannel: "@zoelifemultimedia", recentLimit: 6 }) }, { first: true });
+    ok("bb fixture publishes", p0.ok === true, "pub=" + JSON.stringify(p0).slice(0, 120));
+    stripReady(stBB);
+    const beforeBB = getBB(rBB0);
+    const rBB1 = loadVm(stubAuth(srvBB), stBB);
+    const afterBB = getBB(rBB1);
+    const liveBB = JSON.parse(afterBB.sections).live;
+    ok("boot moves the stored channel", liveBB.youtubeChannel === "@twocorg" && liveBB.recentLimit === 6, "got " + liveBB.youtubeChannel);
+    ok("boot stamps nothing", afterBB.rev === beforeBB.rev && afterBB.notes === beforeBB.notes && JSON.stringify(afterBB.log) === JSON.stringify(beforeBB.log), "a move is not a publish");
+    /* a later intentional edit survives every later boot. */
+    const p1 = pubBB(rBB1, { live: JSON.stringify({ ...liveBB, youtubeChannel: "@otherhandle" }) });
+    ok("bb later edit publishes", p1.ok === true);
+    const rBB2 = loadVm(stubAuth(srvBB), stBB);
+    const liveBB2 = JSON.parse(getBB(rBB2).sections).live;
+    ok("later edit survives reboot", liveBB2.youtubeChannel === "@otherhandle", "got " + liveBB2.youtubeChannel);
+    /* empty boots invent nothing. */
+    const rBBE = loadVm(stubAuth(srvBB), new Uint8Array(8 * 1024 * 1024));
+    const gBBE = getBB(rBBE);
+    ok("empty boots clean", gBBE.ok === true && !JSON.parse(gBBE.sections).live, "no live section may be invented");
+  } catch (e) {
+    ok("ready suite", false, String((e && e.message) || e).slice(0, 200));
+  }
+  /* CC. recents ready on deploy (note 353): the restore re-put the debugging
+     channel (the boot move never sees a draft), and resolving a handle needed
+     a page read the wall eats. A restored non-@twocorg channel becomes
+     @twocorg in the draft — announced, kept dirty — and @twocorg resolves to
+     its id with no network. */
+  const cmsCC = text["src/lib/cms.ts"];
+  const edCC = text["src/components/editor.tsx"];
+  const brCC = text["scripts/bake-recent.mjs"];
+  const applyCC = text["APPLY_UPDATE.txt"];
+  ok("restore heals the channel", has(cmsCC, "channelMoved") && has(cmsCC, '{ ...rl, youtubeChannel: "@twocorg" }'), "an old backup must not re-put the debugging handle");
+  ok("restore stays visible", has(cmsCC, "restoring it must not re-put") && has(cmsCC, "channelMoved: channelMoved || undefined"), "the move must ride Review, not slip in silent");
+  ok("empty channel untouched", has(cmsCC, "if (rc && rc.toLowerCase()"), "an unset channel reads the code default, never an invented one");
+  ok("toast names the move", has(edCC, "res.channelMoved") && has(edCC, "set to @twocorg (change it back"), "the office must see what moved, with the way back");
+  ok("twocorg needs no page read", has(brCC, "/^@?twocorg$/i") && has(brCC, 'return "UCQ0KIUXUV7gTZmDDlvd3ZcQ"'), "the bake must work exactly where the wall eats channel pages");
+  ok("failed bake never wipes", has(brCC, "Never wipes"), "a walled read keeps the previous list, never blanks it");
+  ok("apply restores without reset", has(applyCC, "also heals the channel"), "the checklist must end with @twocorg from any backup");
   const notes = Number((text["src/lib/hooks.ts"].match(/BUILD_NOTES = (\d+)/) || [])[1]) || 0;
   const apply = text["APPLY_UPDATE.txt"];
   ok("update number consistent", notes > 0 && has(apply, `APPLY THIS UPDATE (${notes})`), "hooks=" + notes);

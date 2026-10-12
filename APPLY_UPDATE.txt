@@ -1,46 +1,105 @@
-APPLY THIS UPDATE (345) — LOCAL + LIVE
+APPLY THIS UPDATE (353) — LOCAL + LIVE
 =====================================
-Measured on the live box first: it still runs 339 with an EMPTY bake
-(`"sections":{}` — the repo's seed.json was never replaced), and the words
-it serves still name a debugging channel. That is the whole story behind
-this update's complaints: the recents follow that debugging channel (never
-@twocorg's), the notice lifted because a live publish already blessed 339,
-and no code since 339 ever landed. This update outnumbers everything on the
-box, re-holds until you publish, adds a one-tap reset to @twocorg with
-recents that follow on the same publish, and makes backups carry every
-photo/video so restores never come back blank.
-What changed (note 345):
+Measured on the live box first: it finally runs 345 (the code landed),
+but the bake is STILL empty (`{"rev":0,"notes":0,"sections":{},
+"hold":true}` — the repo's seed.json was never replaced), and the words it
+serves still name debugging channel(s) — lately @zoelifemultimedia and every
+other one. This update outnumbers everything on the box, re-holds until you
+publish, lands with @twocorg ALREADY in place (no reset tap — the update
+moves the channel itself on first boot AND on restore, on every copy), and
+keeps the Tools Site-update card gone for good.
+What changed (note 353):
 
-- One-tap reset to @twocorg: the console's *Recent services* card now says
-  which channel its list follows, and while it names anything but exactly `@twocorg`
-  it offers "Reset to @twocorg" — one tap sets the channel; Review and
-  publish moves every copy. The old list clears out as @twocorg's previous
-  livestreams arrive (the shipped bake already carries all 15 @twocorg
-  services, newest SUNDAY SERVICE, 11TH OCT. 2026 — the feed added nothing
-  since, checked today).
+- Recent services ready on deploy: two holes behind the wrong list. First,
+  the restore re-put the debugging channel — the boot move only runs on
+  stored words, never on a draft, and a restore lands old backup words
+  straight into the draft. Now a restored non-@twocorg channel becomes
+  @twocorg in the draft itself (kept dirty so Review shows it and Publish
+  carries it); the restore toast names the move. So the documented flow
+  (extract, restore the old backup, publish) ends with @twocorg everywhere
+  even from a debugging backup — no reset tap at any step. Second, the bake
+  refreshes itself through the wall: @twocorg resolves to its channel id
+  with no YouTube page read, so the live box's own boot refresh bakes the
+  church's services even where channel pages are walled. With the channel
+  @twocorg at boot, the shipped @twocorg bake (all 15 services), and the
+  refresh working, Recent services show the church's previous livestreams
+  from the deploy. The field stays editable throughout — change it any time.
+
+What changed (note 351):
+
+- @twocorg arrives ready: stored words keep whatever channel was last
+  published — debugging handles included — across every update, which is why
+  the reset tap was needed each time. Now the first boot of THIS update moves
+  a stored non-@twocorg channel to @twocorg by itself, on every copy that runs
+  it (local office, live, dev). A draft you saved before the move heals on
+  read too (an untouched Live section follows the published words; your own
+  edits always win). The field stays editable afterwards — change it any time;
+  the move runs once and never touches a later edit. The console's "Reset to
+  @twocorg" stays as the way back if it ever names anything but exactly
+  `@twocorg` again. No stamp, no publish by the update itself: YOU still
+  publish to bless 351 and lift the notice, and that publish refreshes the
+  recents from @twocorg on the same cycle (the shipped bake already carries
+  all 15 @twocorg services, newest SUNDAY SERVICE, 11TH OCT. 2026).
+  @zoelifemultimedia and every other handle now live ONLY in old publishes,
+  which this boot move clears — the reset button plus one publish remains the
+  backstop for any later drift.
+
+What changed (note 349):
+
+- The livestream answers only for the handle: every on-air answer is now
+  stamped with the address it was checked for, and the screen plays nothing
+  stamped for another address — a moved channel reads as unknown until the
+  fresh check lands, instead of playing, covering, or reporting the old
+  handle's video. The candidate walk skips live videos from other channels
+  (ads and related uploads on the grab-bag page), the ended screen drops the
+  old video when the channel moved, and a stray stream link is ignored while
+  the channel space names @twocorg — the handle wins on the player, the
+  cover, the lists, and the watch link.
+
+- One-tap reset to @twocorg (still there as the way back): the console's
+  *Recent services* card says which channel its list follows, and while it
+  names anything but exactly `@twocorg` it offers "Reset to @twocorg" — one
+  tap sets the channel; Review and publish moves every copy. You should NOT
+  need it this time: the 351 boot move already puts @twocorg in place on
+  every copy, and the shipped bake already carries all 15 @twocorg services
+  (newest SUNDAY SERVICE, 11TH OCT. 2026 — the feed added nothing since,
+  checked today). The old list clears out as @twocorg's previous livestreams
+  arrive.
+- Only @twocorg ships: the last other name inside what ships is gone — the
+  fallback bake's YouTube card read "@worldovercomers" while opening @twocorg;
+  seed.json now reads @twocorg exactly like the code default
+  (src/data/live.ts, unchanged). Code, defaults, bake and recents name no
+  other channel anywhere (the pre-ship verifier proves it).
+- Maintenance, as designed — and how to SEE it like a visitor: the notice
+  lifts the moment any publish blesses the running update, and your OWN
+  browser can hide it from you three ways — a ?preview=1 grant (gold Preview
+  bar: click Exit preview), the #/admin console (never waits, by design), or
+  a stamp your browser witnessed from an earlier live/admin publish (by
+  design: you published). So the check is a FRESH profile (incognito/private
+  window, no preview flag) BEFORE you publish — every "no notice" report so
+  far was a bypassed office tab, never a missing hold. Deploying THIS update
+  re-holds every fresh visitor until you publish 351 (the shipped hold + a
+  notes-0 bake), then the publish lifts it everywhere at once. If you already
+  published from any copy, the notice is correctly gone — do not expect it
+  back.
+- The Tools Site-update card stays gone (removed in 343, locked ever since):
+  the update number lives in version.json + window.__womBuild, and the dev
+  server's boot line no longer points at Tools either.
 - Recents follow the channel on the SAME publish: after every real publish
   the office server re-bakes the recent-services list from the newly
   published channel (about a minute later) and rides the same auto-deploy
   out — no more "within the hour". The bake never wipes on a failed read.
-- Backups now carry every photo and video, or shout when they cannot:
-  export embeds uploads the current draft points at too (a backup taken
-  before publishing used to skip unsaved uploads, and the restore showed
-  them blank); restore reads each file back and only counts files the
-  server actually serves; the backup button warns by name when uploads are
-  missing from the file; and restore accepts audio uploads too (they were
-  refused and came back blank). RULE that fixes most blank restores: back
-  up from the copy that HOLDS the files (if you uploaded on live/admin,
-  back up on live/admin), and publish before backing up.
-- Maintenance, as designed: the notice lifts the moment any publish blesses
-  the running update — that is why deployed shows none (339 was blessed
-  from live). Deploying THIS update re-holds every visitor until you
-  publish 345 (the shipped hold + a notes-0 bake), then the publish lifts
-  it everywhere at once.
-- @twocorg stays the livestream: code default, fallback bake, first paints —
-  unchanged. The reset button above is now the whole recipe (no retyping).
+- Backups still prove themselves (345): export embeds uploads the current
+  draft points at too; restore reads each file back and only counts files
+  the server actually serves; the backup button warns by name when uploads
+  are missing; restore accepts audio too. RULE that fixes most blank
+  restores: back up from the copy that HOLDS the files (if you uploaded on
+  live/admin, back up on live/admin), and publish before backing up.
 - DEPLOY CHECK FIRST: confirm the Render build finished and version.json
-  reads 345 after this one. Until it does, NOTHING below can work live.
-- Unchanged and still locked: everything from 343 (live follow with no
+  reads 353 after this one. Until it does, NOTHING below can work live.
+- Unchanged and still locked: everything from 351 (ready channel at boot),
+  349 (handle-only livestream), 347 (only-@twocorg shipping, visitor's notice check, card stays gone), 345 (one-tap reset,
+  publish-time recents, self-proving backups), 343 (live follow with no
   setup, no Tools card, player escape + re-ask, cold-start line, keep-awake
   recipe), 341 (live-bake watchdog, verified channel tap), 339 (mystery
   bundle outnumbered, seed content check), 334 (git-shipped hold, step-0
@@ -50,19 +109,18 @@ What changed (note 345):
   (office-reported on-air answer — a signed-in office tab with verified ids
   is STILL the best reporter); sleep/wake re-serves the last publish whole;
   every Publish still folds live's newer words in.
-- The pre-ship verifier's new section Y locks the reset button, the
-  publish-time recents refresh, the complete backup round-trip
-  (draft files embedded, verified writes, audio accepted, missing files
-  named) — one FAIL blocks the ship.
+- The pre-ship verifier's new section CC locks the ready recents: the
+  restore heals the channel (announced, kept dirty), @twocorg resolves with
+  no page read, and a failed bake never wipes — one FAIL blocks the ship.
 
-0. DEPLOY FIRST (the live site is on 339 with an empty bake — do this first)
+0. DEPLOY FIRST (the live site is on 345 with an empty bake — do this first)
    Put this code where Render builds it (replace src/, scripts/, index.html,
    seed.json, vite.config.ts, package.json and maintenance-hold.txt — keep
    data/ as-is), commit/push. Render: install npm install, build
    npm run build, start node scripts/serve.mjs. The Render build log must
    say "maintenance hold on". Confirm
-   https://twocchurch-site.onrender.com/version.json shows {"notes":345}.
-   A 339 there means the push never rebuilt; replace ALL the files again.
+   https://twocchurch-site.onrender.com/version.json shows {"notes":353}.
+   A 345 there means the push never rebuilt; replace ALL the files again.
    Then open https://twocchurch-site.onrender.com/seed.json: it must list
    sections and recent items — `"sections":{}` means the repo's seed.json
    was never replaced (an empty bake serves no words and no recents, only
@@ -70,8 +128,12 @@ What changed (note 345):
    commit, push, rebuild again. A 337 anywhere matches no shipped update —
    a hand-edited or mixed folder also counts as not-deployed; replace ALL
    the files again. Until both checks pass, NOTHING below can work on the
-   deployed site. The deployed site now waits on the maintenance notice until you
-   publish — verify with a PLAIN reload on desktop + phone width.
+   deployed site. The deployed site now waits on the maintenance notice until
+   you publish — verify like a visitor: a FRESH profile (incognito/private
+   window, no ?preview=1) on desktop + phone width, BEFORE you publish. Your
+   everyday browser may already carry a preview grant or a witnessed stamp
+   and open straight into the site — that is the office bypass, not a
+   missing notice.
 
 LOCAL (your computer)
 1. In the OLD folder: open #/admin → Tools → Back up now. NEW: the button
@@ -88,17 +150,24 @@ LOCAL (your computer)
    machine's tunnel (the live site must keep pointing at Render).
 5. BEFORE restoring: the site must show the maintenance notice ("We'll be
    right back", logo + message only) — this update holds until blessed.
-   A plain reload must show it; no hard refresh needed. The admin console
+   A plain reload must show it; no hard refresh needed. If this browser
+   already published or previewed, use a fresh profile (incognito/private
+   window) — your own stamp or grant hides the notice from YOU while
+   visitors wait. The admin console
    (/admin) must NOT show it — it boots straight into the console.
 6. Bring your words home: #/admin → Tools → Restore the backup file → review.
    NEW: the restore result names files brought back AND files that failed —
    every counted file was read back from the server, so counted means
-   visible. If files failed, re-upload them before publishing. Then open the
-   Live stream console's *Recent services* card: if it offers
-   "Reset to @twocorg", tap it — then Review and publish → Publish. Local
-   lifts to 345 and the notice releases. Reload desktop + phone width to
-   verify (plain reloads): Watch shows the player (or ended screen),
-   Recent services shows @twocorg services, photos/videos all visible.
+   visible. If files failed, re-upload them before publishing. The restore
+   also heals the channel: even an old backup's debugging handle lands as
+   @twocorg in the draft (the toast names the move). Then open the Live
+   stream console's *Recent services* card: the channel already reads
+   @twocorg — no reset tap. Only if it offers "Reset to @twocorg" anyway
+   (a draft saved mid-edit, or a later drift), tap it — then Review and
+   publish → Publish. Local lifts to 353 and the notice releases. Reload
+   desktop + phone width to verify (plain reloads): Watch shows the player
+   (or ended screen), Recent services shows @twocorg services, photos/videos
+   all visible.
 7. Live check (local): open /watch-live while the broadcast is running on
    the YouTube channel. The player must appear within seconds and the
    ticking clock must vanish with it. Stop the stream and the page returns
@@ -112,22 +181,23 @@ LOCAL (your computer)
    last published, and a sleep in between changes nothing.
 9. Check: reload again with no new update — the site stays on the last
    published (no notice, published words intact). Console check:
-   window.__maintState() shows publishedNotes 345.
+   window.__maintState() shows publishedNotes 353.
 
 LIVE (Render: twocchurch-site.onrender.com)
-1. Step 0 first (deploy + version.json reads 345 + /seed.json lists sections
+1. Step 0 first (deploy + version.json reads 353 + /seed.json lists sections
    and recents). Then push the step-8 content commit if you have not already
-   (the bake must be from 345 or newer). Render rebuilds on the push by
-   itself. Then open the live /seed.json again: notes must read 345.
+   (the bake must be from 353 or newer). Render rebuilds on the push by
+   itself. Then open the live /seed.json again: notes must read 353.
 2. The live site waits on the maintenance notice until the publish lands
    through the bake — verify with a PLAIN reload on desktop + phone width,
    uploads/photos/videos showing. The live admin console stays clear
    throughout and keeps "Last published".
-3. In live /admin, open the Live stream console's *Recent services* card: if
-   it offers "Reset to @twocorg", tap it — then Review and publish →
-   Publish (typing alone is a draft). Publish to bless 345. Afterwards
-   confirm on the live site itself: version.json reads 345, /seed.json
-   carries 345 words with recent items, and Recent services shows @twocorg
+3. In live /admin, open the Live stream console's *Recent services* card: the
+   channel already reads @twocorg (this boot moved it). Only if it offers
+   "Reset to @twocorg" anyway, tap it — then Review and publish →
+   Publish (typing alone is a draft). Publish to bless 353. Afterwards
+   confirm on the live site itself: version.json reads 353, /seed.json
+   carries 353 words with recent items, and Recent services shows @twocorg
    services (the shipped bake shows them meanwhile; the publish refreshes
    them from the channel within minutes).
 4. Keep a signed-in office tab open (this admin console counts), then start

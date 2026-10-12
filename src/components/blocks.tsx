@@ -21,7 +21,7 @@ import {
   type VideoPlatform,
   type VideoSource,
 } from "../lib/embed";
-import { checkLiveStream, peekVerified, verifyYoutubeId } from "../lib/livestatus";
+import { checkLiveStream, isStatusForTarget, liveTarget, peekVerified, verifyYoutubeId } from "../lib/livestatus";
 import {
   KEYS,
   fmtDate,
@@ -289,6 +289,14 @@ export function VideoPlayer({
     setChecking(true);
     checkLiveStream()
       .then((st) => {
+        /* Only the handle's answer opens the player (note 349): a tap that
+           lands after the office moved the channel waits instead of playing
+           the old address's video. */
+        if (!isStatusForTarget(st, liveTarget()?.url || "")) {
+          setChecking(false);
+          setNotLive(true);
+          return;
+        }
         const vid = parseYoutubeId(st.videoId || "");
         if (st.state === "live" && vid) {
           verifyYoutubeId(vid)
