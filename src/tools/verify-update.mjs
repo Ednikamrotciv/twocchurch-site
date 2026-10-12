@@ -24,7 +24,7 @@
    (note 330) locks the walled-but-on-air channel follow: the owner's id with
    a clear margin or nothing, chrome with no verifiable video plays the
    channel (never a guessed video, never off), the player embeds the running
-   broadcast, and the office report carries the channel id. Section T (note 332) locks the dead-video net (oEmbed verdict before play, fallback with a way out, gated autoplay), same-update office reports, the shipped maintenance hold, and the fresh @twocorg recents bake. Section U (note 334) locks the deployed update: the hold file deploys with git and step 0 lists every file (its Tools card retired in note 343 — the number lives in version.json + the console now). Section V (note 339) locks the deployed heal: the code outnumbers any mystery bundle, step 0 checks the bake's content, and the watched channel carries the reset recipe. Section W (note 341) locks the parity witness and the verified channel tap: the console tracks the live bake, and the channel tap plays a verified id or waits. Section X (note 343) locks the self-working publish (default live address, follow decision table, locked adopt door, player escape + re-ask, visible wakes, fresh @twocorg bake). Section Y (note 345) locks the one-tap @twocorg reset, the publish-time recents refresh, and the self-proving backup round-trip. Section Z (note 347) locks only-@twocorg shipping, the visitor's notice check, and the card staying gone. Section AA (note 349) locks the handle-only livestream: stamped answers, skipped foreign videos, dropped old endings, and the channel-wins screen. Section BB (note 351) locks the ready channel: a stored debugging handle boots to @twocorg with no stamp, a later edit survives, empty boots clean, and the untouched draft follows. Section CC (note 353) locks the ready recents: the restore heals the channel (announced, kept dirty), @twocorg resolves with no page read, and a failed bake never wipes. Run this
+   broadcast, and the office report carries the channel id. Section T (note 332) locks the dead-video net (oEmbed verdict before play, fallback with a way out, gated autoplay), same-update office reports, the shipped maintenance hold, and the fresh @twocorg recents bake. Section U (note 334) locks the deployed update: the hold file deploys with git and step 0 lists every file (its Tools card retired in note 343 — the number lives in version.json + the console now). Section V (note 339) locks the deployed heal: the code outnumbers any mystery bundle, step 0 checks the bake's content, and the watched channel carries the reset recipe. Section W (note 341) locks the parity witness and the verified channel tap: the console tracks the live bake, and the channel tap plays a verified id or waits. Section X (note 343) locks the self-working publish (default live address, follow decision table, locked adopt door, player escape + re-ask, visible wakes, fresh @twocorg bake). Section Y (note 345) locks the one-tap @twocorg reset, the publish-time recents refresh, and the self-proving backup round-trip. Section Z (note 347) locks only-@twocorg shipping, the visitor's notice check, and the card staying gone. Section AA (note 349) locks the handle-only livestream: stamped answers, skipped foreign videos, dropped old endings, and the channel-wins screen. Section BB (note 351) locks the ready channel: a stored debugging handle boots to @twocorg with no stamp, a later edit survives, empty boots clean, and the untouched draft follows. Section CC (note 353) locks the ready recents: the restore heals the channel (announced, kept dirty), @twocorg resolves with no page read, and a failed bake never wipes. Section DD (note 355) re-locks the four retained behaviors on the rebuilt tree: automatic publish on local, perfect livestream, sleep-free Render, blank-free local backups. Run this
    before EVERY update zip — a single FAIL blocks the
    ship, no exceptions.
    RUN (paste the two lines into an execute_js call):
@@ -961,6 +961,33 @@ export async function runAll(fs) {
   ok("twocorg needs no page read", has(brCC, "/^@?twocorg$/i") && has(brCC, 'return "UCQ0KIUXUV7gTZmDDlvd3ZcQ"'), "the bake must work exactly where the wall eats channel pages");
   ok("failed bake never wipes", has(brCC, "Never wipes"), "a walled read keeps the previous list, never blanks it");
   ok("apply restores without reset", has(applyCC, "also heals the channel"), "the checklist must end with @twocorg from any backup");
+  /* DD. rebuilt from the office's base, every fix retained (note 355): the
+     attached zip is the 309 site the office wants — publish must work
+     automatically on local, the livestream must be perfect, Render must be
+     sleep-free, and photo/video backups must restore blank-free on local. */
+  const cmsDD = text["src/lib/cms.ts"];
+  const liveDD = text["src/lib/livestatus.ts"];
+  const srvDD = text["scripts/cms-server.js"];
+  const localDD = text["scripts/cms-local.mjs"];
+  const followDD = text["scripts/live-follow.mjs"];
+  const pushDD = text["scripts/auto-push.mjs"];
+  const serveDD = text["scripts/serve.mjs"];
+  const viteDD = text["scripts/vite-cms-backend.mjs"];
+  const fbDD = text["scripts/seed-fallback.mjs"];
+  const edDD = text["src/components/editor.tsx"];
+  const applyDD = text["APPLY_UPDATE.txt"];
+  ok("follow adopts live", has(localDD, "startLiveFollow") && has(followDD, "shouldAdoptLive") && has(followDD, "adoptPatch"), "a live/admin publish must reach local with no tab open");
+  ok("adopt door locked", has(srvDD, "adoptLive") && has(srvDD, "self.__adoptToken"), "only this machine's own loop may adopt");
+  ok("publish folds live", has(cmsDD, "async function foldLiveInto") && has(cmsDD, "await foldLiveInto(draft, sectionId)"), "every Publish carries live's newer words by itself");
+  ok("auto-push rides out", has(pushDD, "notePublished") && has(localDD, "notePublished"), "a local publish must deploy itself within minutes");
+  ok("handle-only answers", has(liveDD, "ownerAllowsCandidate") && has(liveDD, "isStatusForTarget") && has(liveDD, "inheritEnded"), "no foreign video, no stale address, no stray link");
+  ok("walled follow plus dead net", has(liveDD, "unverifiedChannelAnswer") && has(liveDD, "verifyYoutubeId"), "chrome with no video plays the channel; dead ids never play blind");
+  ok("office reports gated", has(liveDD, "maybeReport") && has(srvDD, "LIVE_REPORT"), "only definitive same-target answers steer visitors");
+  ok("fallback serves last publish", has(fbDD, "answerWithSeedFallback") && has(serveDD, "answerWithSeedFallback"), "a wake with no store still serves whole words, never blank");
+  ok("wakes print, holds ship", has(serveDD, "cold start at") && has(applyDD, "UptimeRobot"), "every wake is visible; the keep-awake recipe rides along");
+  ok("backups embed uploads", has(cmsDD, "allBackupNames"), "a backup must carry the photos and videos the words point at");
+  ok("restore proves writes", has(cmsDD, "Read it back") && has(edDD, "missingFiles"), "a counted file must be a served file; missing ones shout by name");
+  ok("dev doors open local", has(viteDD, "__restore-file") && has(serveDD, "__restore-file"), "a local restore must land uploads, not blank photos");
   const notes = Number((text["src/lib/hooks.ts"].match(/BUILD_NOTES = (\d+)/) || [])[1]) || 0;
   const apply = text["APPLY_UPDATE.txt"];
   ok("update number consistent", notes > 0 && has(apply, `APPLY THIS UPDATE (${notes})`), "hooks=" + notes);

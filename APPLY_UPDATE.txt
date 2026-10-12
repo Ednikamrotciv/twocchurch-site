@@ -1,13 +1,27 @@
-APPLY THIS UPDATE (353) — LOCAL + LIVE
+APPLY THIS UPDATE (355) — LOCAL + LIVE
 =====================================
 Measured on the live box first: it finally runs 345 (the code landed),
 but the bake is STILL empty (`{"rev":0,"notes":0,"sections":{},
 "hold":true}` — the repo's seed.json was never replaced), and the words it
 serves still name debugging channel(s) — lately @zoelifemultimedia and every
-other one. This update outnumbers everything on the box, re-holds until you
-publish, lands with @twocorg ALREADY in place (no reset tap — the update
-moves the channel itself on first boot AND on restore, on every copy), and
-keeps the Tools Site-update card gone for good.
+other one. This update is built from the office's own attached zip (update
+309 — verified byte-identical, every difference to 353 is exactly the shipped
+fix chain), outnumbers everything on the box, re-holds until you publish,
+and lands with @twocorg AND its previous livestreams ready (no reset tap,
+no retype, no blank photos).
+What changed (note 355):
+
+- Your website, every fix kept: this zip starts from your attached file, so
+  the site is the one you know — and it retains automatic Publish from
+  admin on local (live follow + auto-push + two-way pull/fold), the perfect
+  livestream (verified broadcast, walled channel follow, dead-video net,
+  handle-only answers), sleep-free Render (seed fallback serves the last
+  publish whole across wakes, cold-start line, keep-awake recipe,
+  hold-until-publish), and self-proving photo/video backups with local dev
+  doors so local restores never show blank — plus the ready channel at boot
+  and restore, and the @twocorg recents bake. The pre-ship verifier's new
+  section DD re-locks all four retained behaviors on this tree.
+
 What changed (note 353):
 
 - Recent services ready on deploy: two holes behind the wrong list. First,
@@ -96,8 +110,9 @@ What changed (note 349):
   restores: back up from the copy that HOLDS the files (if you uploaded on
   live/admin, back up on live/admin), and publish before backing up.
 - DEPLOY CHECK FIRST: confirm the Render build finished and version.json
-  reads 353 after this one. Until it does, NOTHING below can work live.
-- Unchanged and still locked: everything from 351 (ready channel at boot),
+  reads 355 after this one. Until it does, NOTHING below can work live.
+- Unchanged and still locked: everything from 353 (ready recents),
+  351 (ready channel at boot),
   349 (handle-only livestream), 347 (only-@twocorg shipping, visitor's notice check, card stays gone), 345 (one-tap reset,
   publish-time recents, self-proving backups), 343 (live follow with no
   setup, no Tools card, player escape + re-ask, cold-start line, keep-awake
@@ -109,9 +124,9 @@ What changed (note 349):
   (office-reported on-air answer — a signed-in office tab with verified ids
   is STILL the best reporter); sleep/wake re-serves the last publish whole;
   every Publish still folds live's newer words in.
-- The pre-ship verifier's new section CC locks the ready recents: the
-  restore heals the channel (announced, kept dirty), @twocorg resolves with
-  no page read, and a failed bake never wipes — one FAIL blocks the ship.
+- The pre-ship verifier's new section DD re-locks the four retained
+  behaviors on this tree (auto publish on local, perfect livestream,
+  sleep-free Render, blank-free local backups) — one FAIL blocks the ship.
 
 0. DEPLOY FIRST (the live site is on 345 with an empty bake — do this first)
    Put this code where Render builds it (replace src/, scripts/, index.html,
@@ -119,7 +134,7 @@ What changed (note 349):
    data/ as-is), commit/push. Render: install npm install, build
    npm run build, start node scripts/serve.mjs. The Render build log must
    say "maintenance hold on". Confirm
-   https://twocchurch-site.onrender.com/version.json shows {"notes":353}.
+   https://twocchurch-site.onrender.com/version.json shows {"notes":355}.
    A 345 there means the push never rebuilt; replace ALL the files again.
    Then open https://twocchurch-site.onrender.com/seed.json: it must list
    sections and recent items — `"sections":{}` means the repo's seed.json
@@ -164,7 +179,7 @@ LOCAL (your computer)
    stream console's *Recent services* card: the channel already reads
    @twocorg — no reset tap. Only if it offers "Reset to @twocorg" anyway
    (a draft saved mid-edit, or a later drift), tap it — then Review and
-   publish → Publish. Local lifts to 353 and the notice releases. Reload
+   publish → Publish. Local lifts to 355 and the notice releases. Reload
    desktop + phone width to verify (plain reloads): Watch shows the player
    (or ended screen), Recent services shows @twocorg services, photos/videos
    all visible.
@@ -181,13 +196,13 @@ LOCAL (your computer)
    last published, and a sleep in between changes nothing.
 9. Check: reload again with no new update — the site stays on the last
    published (no notice, published words intact). Console check:
-   window.__maintState() shows publishedNotes 353.
+   window.__maintState() shows publishedNotes 355.
 
 LIVE (Render: twocchurch-site.onrender.com)
-1. Step 0 first (deploy + version.json reads 353 + /seed.json lists sections
+1. Step 0 first (deploy + version.json reads 355 + /seed.json lists sections
    and recents). Then push the step-8 content commit if you have not already
-   (the bake must be from 353 or newer). Render rebuilds on the push by
-   itself. Then open the live /seed.json again: notes must read 353.
+   (the bake must be from 355 or newer). Render rebuilds on the push by
+   itself. Then open the live /seed.json again: notes must read 355.
 2. The live site waits on the maintenance notice until the publish lands
    through the bake — verify with a PLAIN reload on desktop + phone width,
    uploads/photos/videos showing. The live admin console stays clear
@@ -195,9 +210,9 @@ LIVE (Render: twocchurch-site.onrender.com)
 3. In live /admin, open the Live stream console's *Recent services* card: the
    channel already reads @twocorg (this boot moved it). Only if it offers
    "Reset to @twocorg" anyway, tap it — then Review and publish →
-   Publish (typing alone is a draft). Publish to bless 353. Afterwards
-   confirm on the live site itself: version.json reads 353, /seed.json
-   carries 353 words with recent items, and Recent services shows @twocorg
+   Publish (typing alone is a draft). Publish to bless 355. Afterwards
+   confirm on the live site itself: version.json reads 355, /seed.json
+   carries 355 words with recent items, and Recent services shows @twocorg
    services (the shipped bake shows them meanwhile; the publish refreshes
    them from the channel within minutes).
 4. Keep a signed-in office tab open (this admin console counts), then start
