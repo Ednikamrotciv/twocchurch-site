@@ -347,7 +347,9 @@ const server = http.createServer(async (req, res) => {
        in data/uploads/ until the office removes them by hand. */
     if (pathname === "/__restore-file" && req.method === "POST") {
       const ctype = String(req.headers["content-type"] || "").split(";")[0].trim().toLowerCase();
-      if (!ctype.startsWith("image/") && !ctype.startsWith("video/")) {
+      /* Restored backups carry every upload kind the office uses (note 345):
+         photos, videos and audio — a refused kind used to come back blank. */
+      if (!ctype.startsWith("image/") && !ctype.startsWith("video/") && !ctype.startsWith("audio/")) {
         res.writeHead(400, { "cache-control": "no-store" });
         res.end("bad filetype");
         return;

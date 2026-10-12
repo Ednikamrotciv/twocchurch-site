@@ -287,7 +287,8 @@ export function cmsBackend() {
              videos home instead of silently losing them. */
           if (pathname === "/__restore-file" && req.method === "POST") {
             const ctype = String(req.headers["content-type"] || "").split(";")[0].trim().toLowerCase();
-            if (!ctype.startsWith("image/") && !ctype.startsWith("video/")) {
+            /* Restored backups carry every upload kind the office uses (note 345). */
+            if (!ctype.startsWith("image/") && !ctype.startsWith("video/") && !ctype.startsWith("audio/")) {
               res.writeHead(400, { "cache-control": "no-store" });
               res.end("bad filetype");
               return;

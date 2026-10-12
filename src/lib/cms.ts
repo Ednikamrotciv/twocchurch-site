@@ -2932,12 +2932,25 @@ function base64ToBlob(b64: string, type: string): Blob {
     a restore brings everything back exactly as stored. Uploads are never
     deleted server-side: they sit in data/uploads/ until the office removes
     them, and every backup carries copies regardless. */
+/** Every upload the backup must carry (note 345): the published words' files
+    plus anything the current draft points at — a backup taken before
+    publishing used to skip unsaved uploads, and the restore then showed
+    blank photos/videos on the new copy. */
+function allBackupNames(content: Snapshot): string[] {
+  const seen = new Set<string>(localUploadNames(content));
+  try {
+    if (draft) for (const name of localUploadNames(draft)) seen.add(name);
+  } catch {
+    /* the published set alone still backs up */
+  }
+  return [...seen];
+}
 export async function exportPublished(): Promise<string> {
   const content = merge(overrides);
   const base = serverUrl();
   const files: BackupFile[] = [];
   const missingFiles: string[] = [];
-  for (const name of localUploadNames(content)) {
+  for (const name of allBackupNames(content)) {
     try {
       const res = await fetch((base ? base : "") + "/data/uploads/" + name, { cache: "no-store" });
       if (!res.ok) throw 0;
@@ -3042,6 +3055,17 @@ export async function importBackup(text: string): Promise<ImportResult> {
             body: base64ToBlob(f.data, type),
           });
           if (!res.ok) throw 0;
+          /* Read it back (note 345): a 200 that never became a file used to
+             count as restored and left blank photos/videos. Only a file the
+             server actually serves counts. */
+          let verified = false;
+          try {
+            const check = await fetch(`${base}/data/uploads/${name}`, { cache: "no-store" });
+            verified = !!check.ok;
+          } catch {
+            verified = false;
+          }
+          if (!verified) throw 0;
           filesRestored++;
         } catch {
           if (f && typeof f.name === "string") filesFailed.push(f.name);

@@ -226,6 +226,16 @@ export async function createCmsHost(rootDir) {
       return { status: 500, body: JSON.stringify({ ok: false, err: "error" }) };
     }
     saveSoon();
+    /* A publish moves the words — the recents follow the channel on the same
+       cycle (note 345): without this the new channel's services took up to
+       the 20-minute loop plus a deploy to appear. Only real publishes
+       (never reads) schedule it, debounced well past the auto-push delay so
+       words and recents ride one commit. */
+    try {
+      if (method === "publish" || method === "adoptLive" || method === "undoPublish") noteRecentsDirty(rootDir);
+    } catch {
+      /* the publish itself already landed */
+    }
     return { status: 200, body: typeof out === "string" ? out : JSON.stringify(out === undefined ? { ok: true } : out) };
   }
 
@@ -343,4 +353,29 @@ function startLiveFollow({ rootDir, rpcCall, adoptToken }) {
   };
   setTimeout(() => round().catch(() => {}), 20000);
   setInterval(() => round().catch(() => {}), FOLLOW_MS);
+}
+
+/* Recents follow the published channel on the same cycle (note 345): after
+   a real publish, re-bake the recent-services list from the newly published
+   channel, debounced well past the auto-push delay so words and recents
+   ride one commit out. Never on the live box (its own 20-minute loop owns
+   recents there, and a datacenter read of YouTube is walled anyway). Never
+   wipes: bakeRecent keeps the previous list on any failure. Never throws. */
+let recentsTimer = null;
+function noteRecentsDirty(rootDir) {
+  if (process.env.RENDER) return;
+  if (recentsTimer) clearTimeout(recentsTimer);
+  recentsTimer = setTimeout(async () => {
+    recentsTimer = null;
+    try {
+      const { bakeRecent } = await import("./bake-recent.mjs");
+      const r = await bakeRecent(rootDir);
+      if (r && r.changed) {
+        console.log(`recent services refreshed after publish (${r.count} services from ${r.channelId}) — riding auto-deploy out`);
+        notePublished(rootDir);
+      }
+    } catch (err) {
+      console.warn("recent services refresh skipped:", err?.message || err);
+    }
+  }, 90000);
 }

@@ -923,6 +923,15 @@ export function RecentServicesPanel() {
   const putBack = (id: string) => writeHidden(hiddenIds.filter((x) => x !== id));
 
   const channelSet = !!String(live.youtubeChannel || "").trim();
+  /* One tap back to the church's channel (note 345): restores carry
+     debugging channels otherwise, and the recents follow the published
+     channel — so the wrong list stays until a @twocorg publish moves it. */
+  const cleanedChannel = String(live.youtubeChannel || "").trim().replace(/@@+/g, "@").replace(/\s+/g, "");
+  const resetChannel = () => {
+    const latest = cms.getDraft().live || {};
+    cms.setSectionValue("live", { ...latest, youtubeChannel: "@twocorg" });
+    fireToast("Channel reset to @twocorg — Review and publish to put it live. The old list clears out as @twocorg's services arrive.", "success");
+  };
   const when = (it: any) =>
     it.at
       ? fmtDate(new Date(it.at), "long")
@@ -940,6 +949,16 @@ export function RecentServicesPanel() {
           <h3>Recent services</h3>
         </div>
       </div>
+
+      {cleanedChannel.toLowerCase() !== "@twocorg" && (
+        <Notice icon="alert" tone="gold">
+          This list follows {live.youtubeChannel ? live.youtubeChannel : "no channel"} — not the church's channel.{" "}
+          <button type="button" className="admin__linkbtn" onClick={resetChannel}>
+            Reset to @twocorg
+          </button>{" "}
+          — then Review and publish to move every copy.
+        </Notice>
+      )}
 
       {shown.length > 0 ? (
         <ul className="admin__recent-list">
@@ -2017,9 +2036,21 @@ export function ToolsPage() {
       window.setTimeout(() => URL.revokeObjectURL(url), 5000);
       let extra = "";
       try {
-        const files = JSON.parse(text)?.files;
+        const parsed = JSON.parse(text);
+        const files = parsed?.files;
         const nf = Array.isArray(files) ? files.length : 0;
         if (nf) extra = ` with ${nf} uploaded ${nf === 1 ? "file" : "files"}`;
+        /* Missing uploads must shout (note 345): a backup that skipped
+           photos/videos used to look complete, and the restore then showed
+           them blank on the new copy. */
+        const missing = parsed?.missingFiles;
+        if (Array.isArray(missing) && missing.length) {
+          const names = missing.map((m: any) => String(m)).slice(0, 3).join(", ");
+          fireToast(
+            `Backup downloaded, but ${missing.length} uploaded ${missing.length === 1 ? "file is" : "files are"} missing from it (${names}${missing.length > 3 ? "…" : ""}) — those will be blank after a restore. Publish first (or re-upload them), then back up again.`,
+            "error"
+          );
+        }
       } catch {
         /* the file still downloaded — the count is only a nicety */
       }

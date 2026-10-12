@@ -24,7 +24,7 @@
    (note 330) locks the walled-but-on-air channel follow: the owner's id with
    a clear margin or nothing, chrome with no verifiable video plays the
    channel (never a guessed video, never off), the player embeds the running
-   broadcast, and the office report carries the channel id. Section T (note 332) locks the dead-video net (oEmbed verdict before play, fallback with a way out, gated autoplay), same-update office reports, the shipped maintenance hold, and the fresh @twocorg recents bake. Section U (note 334) locks the deployed update: the hold file deploys with git and step 0 lists every file (its Tools card retired in note 343 — the number lives in version.json + the console now). Section V (note 339) locks the deployed heal: the code outnumbers any mystery bundle, step 0 checks the bake's content, and the watched channel carries the reset recipe. Section W (note 341) locks the parity witness and the verified channel tap: the console tracks the live bake, and the channel tap plays a verified id or waits. Run this
+   broadcast, and the office report carries the channel id. Section T (note 332) locks the dead-video net (oEmbed verdict before play, fallback with a way out, gated autoplay), same-update office reports, the shipped maintenance hold, and the fresh @twocorg recents bake. Section U (note 334) locks the deployed update: the hold file deploys with git and step 0 lists every file (its Tools card retired in note 343 — the number lives in version.json + the console now). Section V (note 339) locks the deployed heal: the code outnumbers any mystery bundle, step 0 checks the bake's content, and the watched channel carries the reset recipe. Section W (note 341) locks the parity witness and the verified channel tap: the console tracks the live bake, and the channel tap plays a verified id or waits. Section X (note 343) locks the self-working publish (default live address, follow decision table, locked adopt door, player escape + re-ask, visible wakes, fresh @twocorg bake). Section Y (note 345) locks the one-tap @twocorg reset, the publish-time recents refresh, and the self-proving backup round-trip. Run this
    before EVERY update zip — a single FAIL blocks the
    ship, no exceptions.
    RUN (paste the two lines into an execute_js call):
@@ -784,6 +784,27 @@ export async function runAll(fs) {
   } catch (e) {
     ok("bake parses", false, String((e && e.message) || e).slice(0, 160));
   }
+  /* Y. one-tap reset, recents on the same publish, backups that prove
+     themselves (note 345): the box ran 339 with an empty bake and a
+     debugging channel published — so the recents followed that channel and
+     restores came back blank. The console must offer the reset, a publish
+     must refresh the recents itself, and a backup must carry (or name)
+     every photo and video. */
+  const edY = text["src/components/editor.tsx"];
+  const cmsY = text["src/lib/cms.ts"];
+  const localY = text["scripts/cms-local.mjs"];
+  const serveY = text["scripts/serve.mjs"];
+  const viteY = text["scripts/vite-cms-backend.mjs"];
+  const applyY = text["APPLY_UPDATE.txt"];
+  ok("reset button offered", has(edY, "Reset to @twocorg") && has(edY, "resetChannel") && has(edY, "youtubeChannel: \"@twocorg\""), "the office must fix the channel in one tap, not by retyping");
+  ok("reset names the wrong channel", has(edY, "not the church's channel"), "the wrong list must say what it follows");
+  ok("publish refreshes recents", has(localY, "noteRecentsDirty") && has(localY, "bake-recent.mjs") && has(localY, "process.env.RENDER"), "the new channel's services must ride the same deploy, never the next loop");
+  ok("refresh only on real publishes", has(localY, "method === \"publish\""), "reads must never schedule YouTube work");
+  ok("backup embeds draft files", has(cmsY, "allBackupNames") && has(cmsY, "localUploadNames(draft)"), "a pre-publish backup must not strand unsaved uploads");
+  ok("restore proves its writes", has(cmsY, "verified") && has(cmsY, "Read it back"), "a counted file must be a served file, never a hope");
+  ok("restore takes audio", has(serveY, "startsWith(\"audio/\")") && has(viteY, "startsWith(\"audio/\")"), "refused kinds came back blank on both backends");
+  ok("backup warns by name", has(edY, "missingFiles") && has(edY, "will be blank after a restore"), "a skipping backup must shout before the restore, not after");
+  ok("apply leads with the box truth", has(applyY, "still runs 339 with an EMPTY bake"), "the checklist must start from the measured box, not the last zip");
   const notes = Number((text["src/lib/hooks.ts"].match(/BUILD_NOTES = (\d+)/) || [])[1]) || 0;
   const apply = text["APPLY_UPDATE.txt"];
   ok("update number consistent", notes > 0 && has(apply, `APPLY THIS UPDATE (${notes})`), "hooks=" + notes);
