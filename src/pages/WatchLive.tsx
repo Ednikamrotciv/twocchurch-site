@@ -38,6 +38,9 @@ export function WatchLive() {
   const air = useLiveStream(true, false, true);
   const justNow = !!info && (onAir(info) || info.msUntil < 45 * 60 * 1000);
   const detectedId = air.state === "live" ? air.videoId : "";
+  /* Walled but on air (note 330): live with no verified video — the player
+     follows the channel instead of showing the ended screen. */
+  const detectedChannel = air.state === "live" && !air.videoId ? air.channelId : "";
   /* Anywhere for the check to look — channel, stream link or Facebook page. */
   const configured = !!liveTarget() || !!facebookTarget();
 
@@ -79,11 +82,11 @@ export function WatchLive() {
      gave us was the channel to watch) */
   const available = useMemo(() => {
     const list: VideoPlatform[] = [];
-    if (detectedId || parseYoutubeId(LIVE.youtubeId)) list.push("youtube");
+    if (detectedId || detectedChannel || parseYoutubeId(LIVE.youtubeId)) list.push("youtube");
     if (isFacebookVideoUrl(LIVE.facebookUrl)) list.push("facebook");
     return list;
-  }, [detectedId, LIVE.youtubeId, LIVE.facebookUrl]);
-  const preferred: VideoPlatform = detectedId ? "youtube" : LIVE.provider === "facebook" ? "facebook" : "youtube";
+  }, [detectedId, detectedChannel, LIVE.youtubeId, LIVE.facebookUrl]);
+  const preferred: VideoPlatform = detectedId || detectedChannel ? "youtube" : LIVE.provider === "facebook" ? "facebook" : "youtube";
   const [chosen, setChosen] = useState<VideoPlatform>(preferred);
   /* The service notepad behind the *Service notes* arrow (note 223). */
   const [notesOpen, setNotesOpen] = useState(false);
@@ -91,8 +94,9 @@ export function WatchLive() {
   const liveSource: VideoSource =
     platform === "facebook"
       ? { platform: "facebook", facebookUrl: LIVE.facebookUrl }
-      : { platform: "youtube", youtubeId: detectedId || LIVE.youtubeId };
-  const youtubeLink = watchUrl({ platform: "youtube", youtubeId: detectedId || LIVE.youtubeId });
+      : { platform: "youtube", youtubeId: detectedId || LIVE.youtubeId, youtubeChannelId: detectedChannel || undefined };
+  const youtubeLink =
+    watchUrl({ platform: "youtube", youtubeId: detectedId || LIVE.youtubeId }) || liveTarget()?.url || "";
 
   /* The shared on-air answer (notes 83, 133); `streaming` is the narrower screen question. */
   const streaming = air.state === "live";

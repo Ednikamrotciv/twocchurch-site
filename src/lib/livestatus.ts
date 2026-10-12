@@ -26,6 +26,9 @@ export type LiveStatus = {
   platform: LivePlatform | "";
   /** The video id of the broadcast that is on air, when we know it. */
   videoId: string;
+  /** The broadcast channel's own id, when the channel page is on air but no
+      video id could be verified (note 330): the player follows the channel. */
+  channelId: string;
   /** The stream's own headline, when YouTube gives us one. */
   title: string;
   /** When the answer was fetched (ms). */
@@ -49,7 +52,7 @@ const CHECK_TIMEOUT_MS = 15_000;
 export const SOON_MS = 20_000;
 export const IDLE_MS = 90_000;
 
-const EMPTY: LiveStatus = { state: "unset", platform: "", videoId: "", title: "", checkedAt: 0, endedAt: 0 };
+const EMPTY: LiveStatus = { state: "unset", platform: "", videoId: "", title: "", channelId: "", checkedAt: 0, endedAt: 0 };
 
 /* --------------------------------------------------------------- the target */
 
@@ -176,6 +179,39 @@ export function channelCandidateIds(html: string, limit = 3): string[] {
   return ids;
 }
 
+/** The channel page's own id (note 330): the id the page names most — the
+    owner dwarfs every guest — but only with a clear margin. A target that
+    already carries the id wins without any counting; a contested or quiet
+    page names nothing rather than risking the wrong channel's stream. */
+export function extractChannelId(html: string, targetUrl = ""): string {
+  const fromTarget = /(UC[\w-]{20,24})/.exec(String(targetUrl || ""));
+  if (fromTarget) return fromTarget[1];
+  const freq = new Map<string, number>();
+  for (const w of String(html || "").matchAll(/"browseId":"(UC[\w-]{20,24})"/g)) freq.set(w[1], (freq.get(w[1]) || 0) + 1);
+  const ranked = [...freq.entries()].sort((a, b) => b[1] - a[1]);
+  if (!ranked.length) return "";
+  const runner = ranked.length > 1 ? ranked[1][1] : 0;
+  /* Strict margin, measured on a real walled service (owner named 17 times,
+     strongest guest 4): below it the page stays unnamed and the answer below
+     stays unknown. */
+  if (ranked[0][1] < 5 || ranked[0][1] < 2 * runner) return "";
+  return ranked[0][0];
+}
+
+/** The walled-but-on-air answer (note 330), pure for the verifier: a channel
+    page carrying on-air chrome that no suggestion confirmed plays the channel
+    when the page names its owner clearly — otherwise it stays `unknown`, never
+    `off`, and never a guessed video. */
+export function unverifiedChannelAnswer(
+  live: boolean,
+  title: string,
+  channelId: string
+): { state: LiveState; videoId: string; title: string; channelId: string } {
+  if (live && channelId) return { state: "live", videoId: "", title, channelId };
+  if (live) return { state: "unknown", videoId: "", title: "", channelId: "" };
+  return { state: "off", videoId: "", title: "", channelId: "" };
+}
+
 /** Answer YouTube for a fetched channel/watch page (note 322): when the page
     is readable but carries no live marker and the target is a channel, the
     Live tab's video is asked on its own watch page before anything is called
@@ -183,13 +219,13 @@ export function channelCandidateIds(html: string, limit = 3): string[] {
 async function resolveYoutube(
   target: { url: string; kind: "channel" | "video" },
   html: string
-): Promise<{ state: LiveState; videoId: string; title: string }> {
-  const off = { state: "off" as const, videoId: "", title: "" };
+): Promise<{ state: LiveState; videoId: string; title: string; channelId: string }> {
+  const off = { state: "off" as const, videoId: "", title: "", channelId: "" };
   const parsed = parseLivePage(html, target.url);
   /* A direct hit already names its video (player marker, canonical link, or
      the asked watch address) — nothing more to ask. */
-  if (parsed.live && parsed.videoId) return { state: "live" as const, videoId: parsed.videoId, title: parsed.title };
-  if (!parsed.read) return { state: "unknown" as const, videoId: "", title: "" };
+  if (parsed.live && parsed.videoId) return { state: "live" as const, videoId: parsed.videoId, title: parsed.title, channelId: "" };
+  if (!parsed.read) return { state: "unknown" as const, videoId: "", title: "", channelId: "" };
   if (target.kind !== "channel") return off;
   /* Otherwise the page only SUGGESTS videos (note 324) — the Live tab's, then
      the most named — and each suggestion is asked on its own watch page. The
@@ -199,17 +235,23 @@ async function resolveYoutube(
      settle — and a channel page that itself carries on-air chrome no candidate
      confirmed stays `unknown`, never `off`, rather than ending a service. */
   const cands = channelCandidateIds(html);
-  if (!cands.length) return off;
   for (const vid of cands) {
     const watchUrl = `https://www.youtube.com/watch?v=${vid}`;
     const watchHtml = await fetchPage(watchUrl);
     if (watchHtml === null) continue;
     const watch = parseLivePage(watchHtml, watchUrl);
     if (watch.live && (watch.videoId || vid)) {
-      return { state: "live" as const, videoId: watch.videoId || vid, title: watch.title };
+      return { state: "live" as const, videoId: watch.videoId || vid, title: watch.title, channelId: "" };
     }
   }
-  return parsed.live ? { state: "unknown" as const, videoId: "", title: "" } : off;
+  /* Walled but on air (note 330): the channel page carries the full on-air
+     chrome yet no suggestion verifies — measured on a real service, every
+     watch page answers 502 through the deployed server while the channel page
+     reads 200, and the public proxy is down too. Guessing a video would
+     repeat note 324, so the answer follows the channel instead, through
+     `unverifiedChannelAnswer` above — and a page we merely could not read
+     stays `unknown`, never `off`. */
+  return unverifiedChannelAnswer(parsed.live, parsed.title, parsed.live ? extractChannelId(html, target.url) : "");
 }
 
 /** Facebook can only confirm a broadcast (two markers); never trusts "off". */
@@ -305,7 +347,7 @@ async function fetchPageOffice(url: string): Promise<string | null> {
 
 /** The office's reported on-air answer (note 318): what the office copy saw,
     where it saw it, and when — trusted only while fresh and on this target. */
-export type LiveReport = { target: string; state: "live" | "off"; videoId: string; title: string; checkedAt: number };
+export type LiveReport = { target: string; state: "live" | "off"; videoId: string; title: string; channelId: string; checkedAt: number };
 /* A report older than this is ignored (the office tab closed or sleeps) and
    the check falls back to reading YouTube itself. */
 const REPORT_FRESH_MS = 150_000;
@@ -334,7 +376,8 @@ async function fetchLiveReport(): Promise<LiveReport | null> {
     if (r.state !== "live" && r.state !== "off") return null;
     const checkedAt = Number(r.checkedAt) || 0;
     if (!(checkedAt > 0) || Date.now() - checkedAt > REPORT_FRESH_MS) return null;
-    return { target: String(r.target || ""), state: r.state, videoId: String(r.videoId || ""), title: String(r.title || ""), checkedAt };
+    const cid = String(r.channelId || "");
+    return { target: String(r.target || ""), state: r.state, videoId: String(r.videoId || ""), title: String(r.title || ""), channelId: /^UC[\w-]{20,24}$/.test(cid) ? cid : "", checkedAt };
   } catch {
     return null;
   }
@@ -354,33 +397,33 @@ export async function checkLiveStream(opts: { facebook?: boolean } = {}): Promis
   const officeRep = target ? await fetchLiveReport() : null;
   const officeHit = target && officeRep && officeRep.target === target.url ? officeRep : null;
   const html = target && !officeHit ? await fetchPage(target.url) : null;
-  const youtube: { state: LiveState; videoId: string; title: string } = !target
-    ? { state: "unset", videoId: "", title: "" }
+  const youtube: { state: LiveState; videoId: string; title: string; channelId: string } = !target
+    ? { state: "unset", videoId: "", title: "", channelId: "" }
     : officeHit
     ? officeHit.state === "live"
-      ? { state: "live", videoId: officeHit.videoId, title: officeHit.title }
-      : { state: "off", videoId: "", title: "" }
+      ? { state: "live", videoId: officeHit.videoId, title: officeHit.title, channelId: officeHit.channelId }
+      : { state: "off", videoId: "", title: "", channelId: "" }
     : html === null
-    ? { state: "unknown", videoId: "", title: "" }
+    ? { state: "unknown", videoId: "", title: "", channelId: "" }
     : await resolveYoutube(target, html);
 
   /* Facebook is asked only when YouTube has not already answered "live" — it is
      the office's drawer that asks, and this is the one case it can add
      something: a service that is only on Facebook (SPEC note 111). */
-  let facebook: { state: LiveState; videoId: string; title: string } = { state: "unset", videoId: "", title: "" };
+  let facebook: { state: LiveState; videoId: string; title: string; channelId: string } = { state: "unset", videoId: "", title: "", channelId: "" };
   if (fbUrl && youtube.state !== "live") {
     const fbHtml = await fetchPage(fbUrl);
     if (fbHtml !== null) {
       const parsed = parseFacebookLivePage(fbHtml);
-      facebook = { state: parsed.live ? "live" : "unknown", videoId: parsed.videoId, title: parsed.title };
+      facebook = { state: parsed.live ? "live" : "unknown", videoId: parsed.videoId, title: parsed.title, channelId: "" };
     }
   }
 
   const found =
     youtube.state === "live"
-      ? { platform: "youtube" as LivePlatform, videoId: youtube.videoId, title: youtube.title }
+      ? { platform: "youtube" as LivePlatform, videoId: youtube.videoId, title: youtube.title, channelId: youtube.channelId }
       : facebook.state === "live"
-      ? { platform: "facebook" as LivePlatform, videoId: facebook.videoId, title: facebook.title }
+      ? { platform: "facebook" as LivePlatform, videoId: facebook.videoId, title: facebook.title, channelId: "" }
       : null;
 
   const state: LiveState = found
@@ -392,7 +435,7 @@ export async function checkLiveStream(opts: { facebook?: boolean } = {}): Promis
     : "unknown";
 
   const checkedAt = Date.now();
-  const next: LiveStatus = { state, platform: found?.platform || "", videoId: found?.videoId || "", title: found?.title || "", checkedAt, endedAt: 0 };
+  const next: LiveStatus = { state, platform: found?.platform || "", videoId: found?.videoId || "", title: found?.title || "", channelId: found?.channelId || "", checkedAt, endedAt: 0 };
 
   /* A watched broadcast's ending sticks until one comes back (autostop). */
   const before = readLiveStatus();
@@ -402,6 +445,7 @@ export async function checkLiveStream(opts: { facebook?: boolean } = {}): Promis
     next.endedAt = before.state === "live" ? checkedAt : before.endedAt;
     next.videoId = before.videoId;
     next.title = before.title;
+    next.channelId = before.channelId;
     next.platform = before.platform;
   }
   return next;
@@ -417,6 +461,7 @@ export function readLiveStatus(): LiveStatus {
     platform: cached.platform === "youtube" || cached.platform === "facebook" ? cached.platform : "",
     videoId: String(cached.videoId || ""),
     title: String(cached.title || ""),
+    channelId: String(cached.channelId || ""),
     checkedAt: Number(cached.checkedAt) || 0,
     endedAt: Number(cached.endedAt) || 0,
   };
@@ -463,7 +508,7 @@ function maybeReport(status: LiveStatus) {
     if (status.state === "live" && status.platform !== "youtube") return;
     const url = liveTarget()?.url || "";
     if (!url) return;
-    reportSink({ target: url, state: status.state, videoId: status.videoId, title: status.title, checkedAt: status.checkedAt });
+    reportSink({ target: url, state: status.state, videoId: status.videoId, title: status.title, channelId: status.channelId, checkedAt: status.checkedAt });
   } catch {
     /* reporting must never break the poll */
   }
@@ -479,6 +524,7 @@ function sameStatus(a: LiveStatus, b: LiveStatus) {
     a.platform === b.platform &&
     a.videoId === b.videoId &&
     a.title === b.title &&
+    a.channelId === b.channelId &&
     a.checkedAt === b.checkedAt &&
     a.endedAt === b.endedAt
   );

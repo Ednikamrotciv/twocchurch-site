@@ -827,11 +827,13 @@ self.rpc = {
     if (rep.state !== "live" && rep.state !== "off") return fail("bad-report");
     var videoId = String(rep.videoId || "");
     if (videoId && !/^[\w-]{11}$/.test(videoId)) return fail("bad-report");
+    var channelId = String(rep.channelId || "");
+    if (channelId && !/^UC[\w-]{20,24}$/.test(channelId)) return fail("bad-report");
     var title = String(rep.title || "").slice(0, 200);
     var checkedAt = Number(rep.checkedAt) || 0;
     var now = Date.now();
     if (!(checkedAt > 0) || checkedAt > now + 5 * 60 * 1000 || now - checkedAt > 10 * 60 * 1000) return fail("bad-report");
-    LIVE_REPORT = { target: target, state: rep.state, videoId: videoId, title: title, checkedAt: checkedAt, at: now };
+    LIVE_REPORT = { target: target, state: rep.state, videoId: videoId, title: title, channelId: channelId, checkedAt: checkedAt, at: now };
     return ok({ stored: true });
   },
 

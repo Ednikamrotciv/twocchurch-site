@@ -20,7 +20,11 @@
    unreadable pages stay unknown. Section Q (note 324) locks verified
    candidates: no bare first-id fallback, ordered suggestions each asked on
    its watch page. Section R (note 328) locks the shipped default: @twocorg in
-   the code default and in the fallback bake's words and recents. Run this
+   the code default and in the fallback bake's words and recents. Section S
+   (note 330) locks the walled-but-on-air channel follow: the owner's id with
+   a clear margin or nothing, chrome with no verifiable video plays the
+   channel (never a guessed video, never off), the player embeds the running
+   broadcast, and the office report carries the channel id. Run this
    before EVERY update zip — a single FAIL blocks the
    ship, no exceptions.
    RUN (paste the two lines into an execute_js call):
@@ -546,6 +550,74 @@ export async function runAll(fs) {
     );
   } catch (e) {
     ok("fallback seed parses", false, String((e && e.message) || e).slice(0, 160));
+  }
+  /* S. walled-but-on-air channel follow (note 330): measured on a real
+     service, every watch page answers 502 through the deployed server while
+     the channel page reads 200 with full on-air chrome but no video id — so
+     the check follows the channel instead of guessing a video, the player
+     embeds the channel's running broadcast, and the office report carries the
+     channel id. Local runs verify watch pages as before; the follow only
+     engages where verification is impossible. */
+  ok("channel id is extracted strictly", has(live, "extractChannelId") && has(live, "unverifiedChannelAnswer"), "the owner must be named with a clear margin, or nothing");
+  ok("walled answer follows the channel", has(live, "unverifiedChannelAnswer(parsed.live, parsed.title, parsed.live ? extractChannelId(html, target.url) :") && has(live, "stays `unknown`, never `off`"), "chrome with no verifiable video must play the channel, never end the service");
+  ok("report carries the channel", has(live, "channelId: status.channelId") && has(srvLive, "channelId: channelId") && has(srvLive, "/^UC[\\w-]{20,24}$/.test(channelId)"), "office answers and server validation must know the channel id");
+  ok("player embeds the channel", has(emb, "youtubeChannelEmbed") && has(emb, "live_stream?channel=") && has(emb, "youtubeChannelEmbed(source.youtubeChannelId"), "a live answer with no video id must still play on the site");
+  const watchPage = text["src/pages/WatchLive.tsx"];
+  ok("watch follows the channel", has(watchPage, "detectedChannel") && has(watchPage, "youtubeChannelId: detectedChannel") && has(watchPage, "liveTarget()?.url"), "the ended screen must not cover a channel-followed broadcast");
+  try {
+    const eb5 = await import("https://esm.sh/esbuild-wasm@0.21.5?bundle");
+    try {
+      await eb5.default.initialize({ wasmURL: "https://esm.sh/esbuild-wasm@0.21.5/esbuild.wasm" });
+    } catch {
+      /* already initialized above — transform works regardless */
+    }
+    const tc3 = await eb5.default.transform(live, { loader: "ts", format: "cjs" });
+    const stubReq3 = (id) => {
+      if (id === "react") return { useEffect: () => {}, useSyncExternalStore: () => ({}) };
+      if (id === "./hooks") return { readStore: (k, fb) => fb, writeStore: () => true };
+      return {};
+    };
+    const liveMod3 = { exports: {} };
+    new Function("module", "exports", "require", tc3.code)(liveMod3, liveMod3.exports, stubReq3);
+    const ownerOf = liveMod3.exports.extractChannelId;
+    const decide = liveMod3.exports.unverifiedChannelAnswer;
+    const OWNER = "UCLg4NCAJxhIvD4IRV__LOFg";
+    const GUEST = "UCboqmwN682NPFew8Wp8Qdmg";
+    const walledPage =
+      'ytInitialData{"x":1} "liveIndicatorText":{"simpleText":"Live"} "1,010"," watching now" ' +
+      '"dateText":{"simpleText":"Started streaming 3 hours ago"} "liveChatRenderer":{"continuations":[{}]} ' +
+      ('"browseId":"' + OWNER + '" ').repeat(17) + ('"browseId":"' + GUEST + '" ').repeat(4);
+    ok("owner wins clearly", ownerOf(walledPage, "https://www.youtube.com/@pastorjerryeze/live") === OWNER, "the measured walled page must name its owner");
+    ok("target id needs no counting", ownerOf("", "https://www.youtube.com/channel/" + OWNER + "/live") === OWNER, "a target that carries the id wins directly");
+    ok("contested names nothing", ownerOf(('"browseId":"' + OWNER + '" ').repeat(5) + ('"browseId":"' + GUEST + '" ').repeat(4)) === "", "5 vs 4 must not risk the wrong channel");
+    ok("quiet names nothing", ownerOf(('"browseId":"' + OWNER + '" ').repeat(3)) === "", "3 mentions could be a guest");
+    ok("empty names nothing", ownerOf('ytInitialData{"x":1}') === "", "no ids means no channel");
+    const followed = decide(true, "Sunday Service", OWNER);
+    ok("walled-live plays the channel", followed.state === "live" && followed.videoId === "" && followed.channelId === OWNER && followed.title === "Sunday Service", "the player needs the channel and the headline");
+    const stranded = decide(true, "Sunday Service", "");
+    ok("unnamed stays unknown", stranded.state === "unknown", "chrome with no owner must wait, never end");
+    ok("no chrome stays off", decide(false, "", OWNER).state === "off", "an off page must not follow anything");
+    const te = await eb5.default.transform(emb, { loader: "ts", format: "cjs" });
+    const embMod3 = { exports: {} };
+    new Function("module", "exports", te.code)(embMod3, embMod3.exports);
+    const chEmbed = embMod3.exports.youtubeChannelEmbed;
+    const srcOf = embMod3.exports.embedSrc;
+    const hasVid = embMod3.exports.hasVideo;
+    ok("channel embed is strict", chEmbed(OWNER, false) === "https://www.youtube.com/embed/live_stream?channel=" + OWNER + "&rel=0&modestbranding=1&playsinline=1" && chEmbed("short", false) === "" && chEmbed("", false) === "", "only a real channel id may build the player");
+    ok("video id still wins", srcOf({ platform: "youtube", youtubeId: "dQw4w9WgXcQ", youtubeChannelId: OWNER }, false) === "https://www.youtube.com/embed/dQw4w9WgXcQ?rel=0&modestbranding=1&playsinline=1", "a verified video must keep playing by id");
+    ok("channel plays without id", srcOf({ platform: "youtube", youtubeId: "", youtubeChannelId: OWNER }, false) === chEmbed(OWNER, false) && srcOf({ platform: "youtube" }, false) === "", "no id and no channel means no player, never a guess");
+    ok("channel counts as video", hasVid({ platform: "youtube", youtubeChannelId: OWNER }) === true && hasVid({ platform: "youtube" }) === false, "the watch page must treat a followed channel as playable");
+    const goodCh = { target: "https://www.youtube.com/@church/live", state: "live", videoId: "", title: "Sunday", channelId: OWNER, checkedAt: Date.now() };
+    const srvCh = text["scripts/cms-server.js"];
+    const rpcCh = loadVm(srvCh.replace('if (!admins.has(info.conn.id)) return fail("denied");', 'if (false) return fail("denied");'), new Uint8Array(8 * 1024 * 1024));
+    const anonCh = { id: "anon-chan", net: ["x", 0, 0], subscribe() {}, topics: new Set() };
+    const wCh = (payload) => JSON.parse(rpcCh.liveReport({ conn: anonCh }, JSON.stringify(payload)));
+    ok("report stores the channel", wCh(goodCh).ok === true);
+    const backCh = JSON.parse(rpcCh.liveReport({ conn: anonCh }, ""));
+    ok("report reads the channel back", backCh.ok === true && backCh.report && backCh.report.channelId === OWNER && backCh.report.videoId === "", "visitors must inherit the channel with the live answer");
+    ok("report refuses a bad channel", !wCh({ ...goodCh, channelId: "UCshort" }).ok, "a malformed channel id must never store");
+  } catch (e) {
+    ok("channel-follow suite", false, String((e && e.message) || e).slice(0, 200));
   }
   const notes = Number((text["src/lib/hooks.ts"].match(/BUILD_NOTES = (\d+)/) || [])[1]) || 0;
   const apply = text["APPLY_UPDATE.txt"];
