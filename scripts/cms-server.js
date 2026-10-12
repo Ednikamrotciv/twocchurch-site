@@ -375,6 +375,39 @@ var REV = 0, AT = 0, BY = "";
    visitors wait on maintenance until a publish from the newest code). */
 var NOTES = 0;
 var LOG = [];
+/* The office's latest on-air answer (note 318, memory-only): the deployed
+   server cannot read YouTube itself (bot-walled datacenter IPs get a login
+   wall with no live marker), but the office copy can — so a signed-in office
+   tab reports each definitive answer here and visitors read it back. A
+   restart clears it and the office re-reports within a poll. */
+var LIVE_REPORT = null;
+var REPORT_RELAY_MS = 150_000;
+/* Server-side relay gate (note 367): the server is the one choke point every
+   bundle version reads through, so it enforces what no old tab can be trusted
+   with. A stored answer is relayed only while it is fresh on the SERVER clock
+   (a closed tab's last word dies here for every version at once — old bundles
+   without a freshness check can never play a dead report again) and only when
+   its reporter runs the published update or newer (NOTES is the newest update
+   any publish or adoption claimed; an outdated tab's answers — once a wrong
+   video id mid-service — never steer this site again, even while that tab is
+   still open). A gated-out answer is dropped from the store on read. Before
+   the first publish (NOTES 0) any fresh answer still flows, so the office can
+   prove a broadcast end to end on a new copy. */
+function reportRelayable(rep, floor, now) {
+  if (!rep || typeof rep !== "object") return false;
+  var at = Number(rep.at) || 0;
+  var notes = Math.floor(Number(rep.notes) || 0);
+  if (!(at > 0) || now - at > REPORT_RELAY_MS) return false;
+  if (floor > 0 && notes < floor) return false;
+  return true;
+}
+function gatedReport() {
+  if (!reportRelayable(LIVE_REPORT, NOTES, Date.now())) {
+    if (LIVE_REPORT) LIVE_REPORT = null;
+    return null;
+  }
+  return LIVE_REPORT;
+}
 /* The publish before this one: {at, rev, sections} — one undo, inside about
    15 minutes of the publish (note 291). A publish always deletes the one
    before it as the live words; this copy only lives long enough to take it
@@ -382,6 +415,20 @@ var LOG = [];
    change was needed. */
 var PREV = null;
 var UNDO_MS = 15 * 60 * 1000;
+/* @twocorg arrives ready (note 351): stored words keep whatever channel the
+   office last published — debugging handles included — across every update.
+   The first boot of this update moves a non-@twocorg channel to @twocorg
+   once (see below); the flag rides the meta blob so a later intentional edit
+   is never touched — the field stays editable. */
+var CH_READY = false;
+/* Recents + slides arrive clean (note 359): take-offs from a debugging
+   channel and slide uploads from it are cleared once (see below); the flag
+   rides the meta blob so later office work is never touched. */
+var MEDIA_CLEAN = false;
+/* This update overrides the last one (note 361): the stamp below carries the update
+   number itself (see the boot block), so the whole clear re-runs once per update — one-shot
+   ever-flags from older updates can never catch later drift. */
+var OVERRIDE_CLEAN = 0;
 /* Set while loading a state stamped with an older history generation: the
    record is forgotten and the clean state is written back at once. */
 var FRESH_GEN = false;
@@ -478,7 +525,7 @@ function undoLeftSec(now) {
 }
 
 function writeMeta() {
-  var meta = JSON.stringify({ by: BY, log: LOG, logGen: LOG_GEN, subs: SUBS, invites: INVITES, totp: TOTP, mainOff: MAIN_OFF, mainHash: MAIN_HASH, pwgen: PWGEN, notes: NOTES, prev: PREV });
+  var meta = JSON.stringify({ by: BY, log: LOG, logGen: LOG_GEN, subs: SUBS, invites: INVITES, totp: TOTP, mainOff: MAIN_OFF, mainHash: MAIN_HASH, pwgen: PWGEN, notes: NOTES, prev: PREV, chReady: CH_READY, mediaClean: MEDIA_CLEAN, overrideClean: OVERRIDE_CLEAN });
   META_CHARS = meta.length;
   writeString(meta, BASE_CHARS + SECTION_CHARS);
   /* The header carries META_CHARS: without this, an admin-only change (an
@@ -626,6 +673,9 @@ function loadState() {
     PWGEN = typeof parsed.pwgen === "number" && parsed.pwgen >= 0 ? Math.floor(parsed.pwgen) : 0;
     NOTES = typeof parsed.notes === "number" && parsed.notes >= 0 ? Math.floor(parsed.notes) : 0;
     PREV = cleanPrev(parsed.prev);
+    CH_READY = parsed.chReady === true;
+    MEDIA_CLEAN = parsed.mediaClean === true;
+    OVERRIDE_CLEAN = typeof parsed.overrideClean === "number" && parsed.overrideClean > 0 ? Math.floor(parsed.overrideClean) : 0;
   } catch (e) {
     NOTES = 0;
     BY = "";
@@ -637,6 +687,9 @@ function loadState() {
     MAIN_HASH = "";
     PWGEN = 0;
     PREV = null;
+    CH_READY = false;
+    MEDIA_CLEAN = false;
+    OVERRIDE_CLEAN = 0;
   }
   SECTIONS = {};
   for (var i = 0; i < INDEX.length; i++) {
@@ -695,6 +748,111 @@ function setSection(id, value) {
 }
 
 loadState();
+
+/* @twocorg arrives ready (note 351): a stored live section naming anything
+   but the church's handle is moved to @twocorg once, on the first boot of
+   this update, on every copy that runs it — no reset tap, no retype. Empty
+   stays empty (fresh copies read the @twocorg code default), and the CH_READY
+   flag above means a later intentional edit is never touched. No stamp, no
+   rev bump, no publish: the office still publishes to bless the update and
+   lift the notice, and that publish refreshes the recents from @twocorg. */
+try {
+  if (!CH_READY) {
+    CH_READY = true;
+    var readyObj = null;
+    try { readyObj = JSON.parse(SECTIONS.live || ""); } catch (e) { readyObj = null; }
+    if (readyObj && typeof readyObj === "object" && !Array.isArray(readyObj)) {
+      var readyCh = String(readyObj.youtubeChannel || "").trim().replace(/@@+/g, "@").replace(/\s+/g, "");
+      if (readyCh && readyCh.toLowerCase() !== "@twocorg") {
+        readyObj.youtubeChannel = "@twocorg";
+        setSection("live", JSON.stringify(readyObj));
+      }
+    }
+    writeMeta();
+    writeHeader();
+  }
+} catch (e) {
+  /* a failed move must never break boot — the reset button still stands */
+}
+
+/* Recents + slides arrive clean (note 359): the office asked for every
+   take-off cleared and the slide uploads gone, with only the welcome card
+   left like the older update. The first boot of this update clears stored
+   take-offs (`live.hiddenReplays`) and plants the lone welcome card over any
+   stored slides section that is not exactly it — once, on every copy that
+   runs it, no stamp, no rev bump, no publish. A later take-off or a new
+   slide is never touched (MEDIA_CLEAN above); a store with no slides
+   section keeps none (the fallback already shows the welcome card). */
+var WELCOME_SLIDE_359 = [{ id: "welcome-home", image: "https://user.uploads.dev/file/ec157920014fb49a718f07e297b665c4.jpg", headline: "Welcome home", line: "First Sunday or fiftieth — there is a seat here with your name on it.", cta: "Plan your visit", link: "/visit", design: "auto", active: true }];
+try {
+  if (!MEDIA_CLEAN) {
+    MEDIA_CLEAN = true;
+    try {
+      var live359 = JSON.parse(SECTIONS.live || "null");
+      if (live359 && typeof live359 === "object" && !Array.isArray(live359) && Array.isArray(live359.hiddenReplays) && live359.hiddenReplays.length) {
+        live359.hiddenReplays = [];
+        setSection("live", JSON.stringify(live359));
+      }
+    } catch (e) {
+      /* a broken live section is the restore's work, not ours */
+    }
+    try {
+      if (typeof SECTIONS.slides === "string") {
+        var slides359 = JSON.parse(SECTIONS.slides);
+        var onlyWelcome = Array.isArray(slides359) && slides359.length === 1 && slides359[0] && typeof slides359[0] === "object" && String(slides359[0].id || "") === "welcome-home";
+        if (!onlyWelcome) setSection("slides", JSON.stringify(WELCOME_SLIDE_359));
+      }
+    } catch (e) {
+      try { setSection("slides", JSON.stringify(WELCOME_SLIDE_359)); } catch (e2) {}
+    }
+    writeMeta();
+    writeHeader();
+  }
+} catch (e) {
+  /* a failed clear must never break boot — the console still stands */
+}
+
+/* This update overrides the last one (note 361): one-shot flags from older
+   updates (351/352's channel move, 359's media clear) can never run again, so
+   anything that drifted since — a restored debugging channel, a stray stream
+   link, re-hidden take-offs, re-added slides — would ride along forever. The
+   stamp carries the update number itself, so the first boot of THIS update (and
+   every future one) re-runs the whole clear once, on every copy that runs it:
+   stored channel back to @twocorg, stray youtubeId dropped, take-offs cleared,
+   any slides but the lone welcome card replanted. No stamp, no rev bump, no
+   publish — later office work is never touched. */
+var OVERRIDE_NO_361 = 361;
+try {
+  if (OVERRIDE_CLEAN !== OVERRIDE_NO_361) {
+    OVERRIDE_CLEAN = OVERRIDE_NO_361;
+    try {
+      var live361 = JSON.parse(SECTIONS.live || "null");
+      if (live361 && typeof live361 === "object" && !Array.isArray(live361)) {
+        var ch361 = String(live361.youtubeChannel || "").trim().replace(/@@+/g, "@").replace(/\s+/g, "");
+        var touched361 = false;
+        if (ch361 && ch361.toLowerCase() !== "@twocorg") { live361.youtubeChannel = "@twocorg"; touched361 = true; }
+        if (typeof live361.youtubeId === "string" && live361.youtubeId) { live361.youtubeId = ""; touched361 = true; }
+        if (Array.isArray(live361.hiddenReplays) && live361.hiddenReplays.length) { live361.hiddenReplays = []; touched361 = true; }
+        if (touched361) setSection("live", JSON.stringify(live361));
+      }
+    } catch (e) {
+      /* a broken live section is the restore's work, not ours */
+    }
+    try {
+      if (typeof SECTIONS.slides === "string") {
+        var slides361 = JSON.parse(SECTIONS.slides);
+        var onlyWelcome361 = Array.isArray(slides361) && slides361.length === 1 && slides361[0] && typeof slides361[0] === "object" && String(slides361[0].id || "") === "welcome-home";
+        if (!onlyWelcome361) setSection("slides", JSON.stringify(WELCOME_SLIDE_359));
+      }
+    } catch (e) {
+      try { setSection("slides", JSON.stringify(WELCOME_SLIDE_359)); } catch (e2) {}
+    }
+    writeMeta();
+    writeHeader();
+  }
+} catch (e) {
+  /* a failed clear must never break boot — the console still stands */
+}
 
 /* --------------------------------------------------------------- authority */
 
@@ -799,6 +957,130 @@ self.rpc = {
       pwgen: PWGEN,
       undoLeft: left,
     });
+  },
+
+  /* Office-reported on-air answer (note 318): reads are public (visitors ask
+     every check); writes take an admin connection (the signed-in office tab).
+     Only strict, recent answers are kept — anything else is refused, never
+     stored — so a stale tab, a wrong channel or a forged video id can never
+     put words on the visitors' screen. */
+  liveReport: function (info, raw) {
+    if (!raw) return ok({ report: gatedReport() });
+    if (!admins.has(info.conn.id)) return fail("denied");
+    var rep;
+    try {
+      rep = JSON.parse(raw);
+    } catch (e) {
+      return fail("bad-report");
+    }
+    if (!rep || typeof rep !== "object") return fail("bad-report");
+    var target = String(rep.target || "").slice(0, 300);
+    if (!/^https:\/\/(www\.youtube\.com|youtube\.com|m\.youtube\.com|youtu\.be)\//.test(target)) return fail("bad-report");
+    if (rep.state !== "live" && rep.state !== "off") return fail("bad-report");
+    var videoId = String(rep.videoId || "");
+    if (videoId && !/^[\w-]{11}$/.test(videoId)) return fail("bad-report");
+    var channelId = String(rep.channelId || "");
+    if (channelId && !/^UC[\w-]{20,24}$/.test(channelId)) return fail("bad-report");
+    /* The reporter's own update (note 332): readers only trust their own
+       update's reports, so mixed-version office tabs cannot steer each other. */
+    var notes = Math.floor(Number(rep.notes) || 0);
+    if (!Number.isFinite(notes) || notes < 0) notes = 0;
+    var title = String(rep.title || "").slice(0, 200);
+    var checkedAt = Number(rep.checkedAt) || 0;
+    var now = Date.now();
+    if (!(checkedAt > 0) || checkedAt > now + 5 * 60 * 1000 || now - checkedAt > 10 * 60 * 1000) return fail("bad-report");
+    LIVE_REPORT = { target: target, state: rep.state, videoId: videoId, title: title, channelId: channelId, checkedAt: checkedAt, at: now, notes: notes };
+    return ok({ stored: true });
+  },
+
+  /* Live-follow adoption (note 343): the office backend's own minute loop
+     writes the live site's newer words here with the per-boot token (see
+     cms-local.mjs) — never the admin password, which the backend does not
+     know. Same validation and the same write path as publish (space check,
+     undo snapshot, stamp, history, live nudge); the history names the live
+     office author with note "from the live site". Over plain HTTP this door
+     additionally opens to loopback remotes only (see serve.mjs and
+     vite-cms-backend.mjs) — the token alone is already unguessable and never
+     leaves the process. */
+  adoptLive: function (info, raw) {
+    var payload;
+    try {
+      payload = JSON.parse(raw);
+    } catch (e) {
+      return fail("bad-payload");
+    }
+    if (!payload || typeof payload !== "object") return fail("bad-payload");
+    if (typeof self.__adoptToken !== "string" || !self.__adoptToken) return fail("denied");
+    if (payload.token !== self.__adoptToken) return fail("denied");
+    if (!payload.sections || typeof payload.sections !== "object") return fail("empty");
+    var ids = [];
+    var id;
+    for (id in payload.sections) {
+      if (Object.prototype.hasOwnProperty.call(payload.sections, id)) ids.push(id);
+    }
+    if (!ids.length) return fail("empty");
+    if (ids.length > SLOTS) return fail("too-many");
+    var notes = typeof payload.notes === "number" && payload.notes >= 0 && payload.notes <= 999999 ? Math.floor(payload.notes) : 0;
+    var i, value;
+    for (i = 0; i < ids.length; i++) {
+      id = ids[i];
+      if (!/^[a-zA-Z][a-zA-Z0-9-]{0,31}$/.test(id)) return fail("bad-id");
+      value = payload.sections[id];
+      if (typeof value !== "string" || value.length > MAX_SECTION_CHARS) return fail("bad-value");
+      try {
+        var parsed = JSON.parse(value);
+        if (parsed === null || typeof parsed !== "object") return fail("bad-value");
+      } catch (e) {
+        return fail("bad-value");
+      }
+    }
+    var free = state.length - (HEADER + (SECTION_CHARS + META_CHARS) * 2);
+    for (i = 0; i < ids.length; i++) {
+      value = payload.sections[ids[i]];
+      if (typeof value === "string") free -= value.length * 2;
+    }
+    if (!PREV) free -= SECTION_CHARS * 2 + 1024;
+    if (free < 8192) return fail("no-space");
+    var undoSnap = null;
+    if (ids.length) {
+      var keep = {};
+      for (var k in SECTIONS) {
+        if (Object.prototype.hasOwnProperty.call(SECTIONS, k)) keep[k] = SECTIONS[k];
+      }
+      if (Object.keys(keep).length) undoSnap = { at: 0, rev: REV, sections: keep };
+    }
+    REV += 1;
+    AT = Date.now();
+    BY = typeof payload.by === "string" ? payload.by.slice(0, 60) : "";
+    if (notes > NOTES) NOTES = notes;
+    var changed = [];
+    for (i = 0; i < ids.length && i < 24; i++) changed.push(ids[i]);
+    var who = adminIds.get(info.conn.id);
+    LOG.unshift({
+      rev: REV,
+      at: AT,
+      by: BY,
+      role: who && who.role === "sub" ? "sub" : "main",
+      note: "from the live site",
+      changed: changed,
+    });
+    if (LOG.length > MAX_LOG) LOG.length = MAX_LOG;
+    for (i = 0; i < ids.length; i++) {
+      var err = setSection(ids[i], payload.sections[ids[i]]);
+      if (err) return fail(err);
+    }
+    if (undoSnap) {
+      undoSnap.at = AT;
+      PREV = undoSnap;
+    }
+    writeMeta();
+    writeHeader();
+    try {
+      pubsub.publish("content", JSON.stringify({ rev: REV, at: AT, by: BY }));
+    } catch (e) {
+      /* a missed nudge is harmless: clients refresh on their next sync */
+    }
+    return ok({ adopted: ids });
   },
 
   login: function (info, raw) {

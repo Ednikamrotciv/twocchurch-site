@@ -5,7 +5,8 @@ bin/
 data/.last-seen
 deploy-hook.txt
 no-auto-share.txt
-maintenance-hold.txt
+# maintenance-hold.txt SHIPS (note 334): git deploys must hold fresh visitors
+# until the office publishes — never ignore it.
 scratch/
 .tool-output/
 .http-cache/
@@ -14,3 +15,8 @@ scratch/
 Thumbs.db
 server.json
 feed.json
+
+# seed.json ALWAYS ships (note 365): the bake, the words, the recents. The
+# negation beats any *.json rule here or in a parent config — without the
+# words the deploy ships an empty shell behind the maintenance notice.
+!seed.json

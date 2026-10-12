@@ -1028,6 +1028,25 @@
   display: block;
 }
 
+/* The frame never reports a failure (note 343): this link sits over the
+   corner while a video plays, so a refused/blocked/removed embed always
+   has a way out that says why. */
+.player__escape {
+  position: absolute;
+  right: 10px;
+  bottom: 8px;
+  z-index: 3;
+  font-size: 12px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: rgba(4, 4, 7, 0.72);
+  color: #fff;
+  text-decoration: none;
+}
+.player__escape:hover {
+  background: rgba(4, 4, 7, 0.92);
+}
+
 .player__poster {
   position: relative;
   width: 100%;

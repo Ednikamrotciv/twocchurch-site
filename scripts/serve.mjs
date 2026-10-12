@@ -3,6 +3,7 @@ import { readFile, stat, mkdir, writeFile, rm } from "node:fs/promises";
 import { gzipSync } from "node:zlib";
 import path from "node:path";
 import { createCmsHost, hashText } from "./cms-local.mjs";
+import { isLoopbackAddr } from "./live-follow.mjs";
 import { answerWithSeedFallback } from "./seed-fallback.mjs";
 import { createGeoProxy } from "./geo-proxy.mjs";
 import { guardAtBoot } from "./backup-data.mjs";
@@ -51,7 +52,7 @@ try {
 } catch {
   /* built before version stamps — treated as old */
 }
-if (SRC_NOTES) console.log(`site update ${SRC_NOTES} (Admin > Tools shows the same number)`);
+if (SRC_NOTES) console.log(`site update ${SRC_NOTES} (the same number is in version.json)`);
 if (SRC_NOTES && DIST_NOTES && DIST_NOTES < SRC_NOTES) {
   console.warn(`OLD BUILD: dist/ is update ${DIST_NOTES} but this folder is update ${SRC_NOTES} — run \`npm run build\` before \`npm start\`, or use \`npm run dev\`.`);
 } else if (SRC_NOTES && !DIST_NOTES) {
@@ -346,7 +347,9 @@ const server = http.createServer(async (req, res) => {
        in data/uploads/ until the office removes them by hand. */
     if (pathname === "/__restore-file" && req.method === "POST") {
       const ctype = String(req.headers["content-type"] || "").split(";")[0].trim().toLowerCase();
-      if (!ctype.startsWith("image/") && !ctype.startsWith("video/")) {
+      /* Restored backups carry every upload kind the office uses (note 345):
+         photos, videos and audio — a refused kind used to come back blank. */
+      if (!ctype.startsWith("image/") && !ctype.startsWith("video/") && !ctype.startsWith("audio/")) {
         res.writeHead(400, { "cache-control": "no-store" });
         res.end("bad filetype");
         return;
@@ -420,6 +423,13 @@ const server = http.createServer(async (req, res) => {
 
     const rpcMatch = pathname.match(/^\/__cms\/([A-Za-z0-9_]+)$/);    if (rpcMatch && req.method === "POST") {
       const id = url.searchParams.get("conn") || "anon";
+      /* Live-follow adoption (note 343) opens to this machine only — the
+         per-boot token is the real lock; this is the second one. */
+      if (rpcMatch[1] === "adoptLive" && !isLoopbackAddr(req.socket && req.socket.remoteAddress)) {
+        res.writeHead(403, { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" });
+        res.end(JSON.stringify({ ok: false, err: "denied" }));
+        return;
+      }
       let body = "";
       req.setEncoding("utf8");
       req.on("data", (chunk) => {
@@ -512,5 +522,10 @@ const server = http.createServer(async (req, res) => {
 });
 
 server.listen(PORT, () => {
+  /* Cold-start marker (note 343): on hosts that sleep (Render free), every
+     wake prints here with the time — the office can see in the host log when
+     the box last slept, and the bake below keeps serving the last publish
+     whole from the first second. */
+  console.log(`cold start at ${new Date().toISOString()} — serving baked words (update ${SRC_NOTES || DIST_NOTES || "?"})`);
   console.log(`Site + admin backend at http://localhost:${PORT}/  (admin: /admin) — production build, update ${SRC_NOTES || DIST_NOTES || "?"}`);
 });

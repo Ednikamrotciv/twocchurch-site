@@ -3,7 +3,7 @@ import { useRoute, navigate, ADMIN_PREFIX } from "./lib/router";
 import { Header, Footer, ScrollTop, SkipLink, MaintenanceSite, PreviewBanner, BootSplash } from "./components/layout";
 import { Toaster } from "./components/ui";
 import { ErrorBoundary } from "./components/ErrorBoundary";
-import { startCms, useCmsVersion, useCmsReady, useMaintenance, usePreviewingWhileWaiting, useStaleBuild, checkStaleBuild } from "./lib/cms";
+import { startCms, useCmsVersion, useCmsReady, useMaintenance, usePreviewingWhileWaiting, useStaleBuild, checkStaleBuild, startStaleCoReload } from "./lib/cms";
 import { mountShaderBackground } from "./lib/shaderbg";
 import { startVisitorClock, useVisitorClock, useVisitorClockRefresh } from "./lib/visitor";
 import { useI18nTick, ensureI18n, setProtectedValues, i18nAsk, chooseLang, dismissAsk } from "./lib/i18n";
@@ -53,15 +53,17 @@ export function App() {
   useRates();
   useRatesRefresh();
 
-  /* Whether the church is broadcasting, asked once for the whole site (note 133). */
+  /* Whether the church is broadcasting, asked once for the whole site (note 133).
+     The short cadence is only worth asking for while a broadcast is expected:
+     a gathering is on the clock, or one starts within the next three quarters
+     of an hour — or the visitor sits on the Watch page itself (note 310),
+     where a YouTube start must show in seconds on live and on local alike. */
   const minute = useNow(60_000);
   /* The office's Weekly services card, read on the church's own clock. */
   const gathering = nextService(SERVICES, minute, churchTimezone());
-  /* The short cadence is only worth asking for while a broadcast is expected:
-     a gathering is on the clock, or one starts within the next three quarters
-     of an hour. */
   const expecting = !!gathering && (onAir(gathering) || gathering.msUntil < 45 * 60 * 1000);
-  useLiveStream(expecting);
+  const onWatchPage = route.path === "/watch-live" || route.path.startsWith("/watch-live/");
+  useLiveStream(expecting || onWatchPage, false, onWatchPage);
 
   // Load the published content once; the version counter then re-renders the
   // page every time the office applies something.
@@ -72,6 +74,9 @@ export function App() {
        retried with a normal reload — never a hard refresh — and re-checked
        while the tab stays open, so an update that lands later still takes). */
     void checkStaleBuild().catch(() => {});
+    /* One tab's discovery moves every tab (note 369): background tabs
+       throttle their own poll, so they jump on the shout instead. */
+    startStaleCoReload();
     const onVis = () => {
       if (document.visibilityState === "visible") void checkStaleBuild().catch(() => {});
     };
@@ -80,7 +85,7 @@ export function App() {
     };
     const poll = window.setInterval(() => {
       void checkStaleBuild().catch(() => {});
-    }, 60_000);
+    }, 30_000);
     document.addEventListener("visibilitychange", onVis);
     window.addEventListener("online", onOnline);
     startVisitorClock();

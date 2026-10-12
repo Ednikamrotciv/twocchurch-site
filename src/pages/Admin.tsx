@@ -174,6 +174,9 @@ export function Admin() {
   /* The update window: visitors wait until the office restores + publishes —
      the two doors back, as plain buttons with no banner behind them. */
   const waiting = cms.maintenanceShouldWait();
+  /* A newer update on the host (note 369): the office tab says so out loud
+     with a way back — drafts and the drawer place restore across the reload. */
+  const staleAdmin = cms.useStaleBuild();
 
   /* Auto-stop watcher lives here so it runs whatever drawer card is open (note 111). */
   useAutoStopLive(canEdit);
@@ -332,6 +335,16 @@ export function Admin() {
             This is an old copy (update {BUILD_NOTES} — this browser has already seen update {cms.publishedNotesVersion()}).
             Close it, open the newest extract, and delete the old folder.
           </span>
+        </div>
+      )}
+      {staleAdmin.waiting && (
+        <div className="admin__maint" role="alert">
+          <span>
+            Update {cms.staleWaitingNotes()} is live — this tab still runs update {BUILD_NOTES}. Reload to work on the new code.
+          </span>
+          <Btn size="sm" icon="check" onClick={() => window.location.reload()} title="Reload onto the new update now">
+            Reload now
+          </Btn>
         </div>
       )}
       {waiting && (
