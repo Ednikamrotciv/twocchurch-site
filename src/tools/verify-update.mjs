@@ -24,7 +24,7 @@
    (note 330) locks the walled-but-on-air channel follow: the owner's id with
    a clear margin or nothing, chrome with no verifiable video plays the
    channel (never a guessed video, never off), the player embeds the running
-   broadcast, and the office report carries the channel id. Section T (note 332) locks the dead-video net (oEmbed verdict before play, fallback with a way out, gated autoplay), same-update office reports, the shipped maintenance hold, and the fresh @twocorg recents bake. Section U (note 334) locks the deployed update: the hold file deploys with git, step 0 lists every file, and Tools names both updates. Section V (note 339) locks the deployed heal: the code outnumbers any mystery bundle, step 0 checks the bake's content, and Tools shows the watched channel with the reset recipe. Section W (note 341) locks the parity witness and the verified channel tap: Tools shows the live bake, and the channel tap plays a verified id or waits. Run this
+   broadcast, and the office report carries the channel id. Section T (note 332) locks the dead-video net (oEmbed verdict before play, fallback with a way out, gated autoplay), same-update office reports, the shipped maintenance hold, and the fresh @twocorg recents bake. Section U (note 334) locks the deployed update: the hold file deploys with git and step 0 lists every file (its Tools card retired in note 343 — the number lives in version.json + the console now). Section V (note 339) locks the deployed heal: the code outnumbers any mystery bundle, step 0 checks the bake's content, and the watched channel carries the reset recipe. Section W (note 341) locks the parity witness and the verified channel tap: the console tracks the live bake, and the channel tap plays a verified id or waits. Run this
    before EVERY update zip — a single FAIL blocks the
    ship, no exceptions.
    RUN (paste the two lines into an execute_js call):
@@ -60,8 +60,11 @@ const FILES = [
   ["scripts/bake-seed.mjs", "js"],
   ["scripts/bake-recent.mjs", "js"],
   ["scripts/auto-push.mjs", "js"],
+  ["scripts/live-follow.mjs", "js"],
+  ["scripts/cms-local.mjs", "js"],
   ["index.html", null],
   ["src/styles/admin.css", null],
+  ["src/styles/pages.css", null],
   ["APPLY_UPDATE.txt", null],
   ["maintenance-hold.txt", null],
   [".gitignore", null],
@@ -691,7 +694,10 @@ export async function runAll(fs) {
   ok("build holds git deploys", has(buildU, "NOT git-ignored") && has(buildU, "maintenance hold on"), "the builder must state the new truth, not the old clean-ship line");
   ok("office tracks the live update", has(cmsU, "liveSiteNotesVersion") && has(cmsU, "refreshLiveSiteNotes") && has(cmsU, 'base + "/version.json') && has(cmsU, "liveSiteNotes"), "Tools needs the live number without version.json spelunking");
   ok("live tick refreshes it", has(cmsU, "refreshLiveSiteNotes().catch"), "the office minute-tick must keep the number fresh");
-  ok("tools names both updates", has(edU, "Site update") && has(edU, "BUILD_NOTES") && has(edU, "refreshLiveSiteNotes") && has(edU, "liveSiteNotesVersion") && has(edU, "publishedNotesVersion"), "a behind live site must name itself with the recipe inline");
+  /* Note 343 retired the card (the office asked it gone): the number lives
+     in version.json + the console now, and the trackers feed __maintState. */
+  ok("site-update card removed", !has(edU, "Site update") && !has(edU, "liveSiteNotesVersion") && !has(edU, "refreshLiveBake"), "the office asked the card gone from Tools");
+  ok("apply checks without the card", has(applyU, "version.json") && has(applyU, "/seed.json"), "deploy verification must not route through the removed card");
   /* V. the deployed copy heals (note 339): the box ran a mystery 337 with
      an empty bake and the old channel published — committing code alone
      changed nothing visible. The update must outnumber the mystery, step 0
@@ -699,8 +705,9 @@ export async function runAll(fs) {
      with the @twocorg recipe while it names anything else. */
   const edV = text["src/components/editor.tsx"];
   const applyV = text["APPLY_UPDATE.txt"];
-  ok("tools shows the watched channel", has(edV, "LIVE.youtubeChannel") && has(edV, "The site watches") && has(edV, "only Publish moves it"), "the stuck channel must be visible with its fix, not hid in the sections");
-  ok("reset recipe is inline", has(edV, "to exactly @twocorg, then Publish"), "the office must meet the reset where it sees the wrong channel");
+  /* Note 343 retired the card with the @twocorg recipe on it: the recipe
+     lives in the APPLY instead (the office asked the card gone). */
+  ok("reset recipe survives the card", has(applyV, "exactly `@twocorg`"), "the stuck channel's fix must survive the card's removal");
   ok("step 0 checks the bake content", has(applyV, '"sections":{}') && has(applyV, "copy seed.json") && has(applyV, "from THIS zip"), "an empty bake must be caught and recoverable at deploy time");
   ok("mystery bundle named", has(applyV, "337") && has(applyV, "matches no shipped update"), "a hand-edited folder must read as not-deployed");
   try {
@@ -719,10 +726,64 @@ export async function runAll(fs) {
   const blocksW = text["src/components/blocks.tsx"];
   const applyW = text["APPLY_UPDATE.txt"];
   ok("office tracks the live bake", has(cmsW, "liveBakeNotesVersion") && has(cmsW, "refreshLiveBake") && has(cmsW, 'base + "/seed.json') && has(cmsW, "liveBakeSections"), "parity needs a witness, not a version number alone");
-  ok("bake watchdog runs itself", has(cmsW, "refreshLiveBake().catch"), "the minute-tick and Tools must keep it fresh");
-  ok("tools shows the bake", has(edW, "Live bake carries") && has(edW, "liveBakeNotesVersion") && has(edW, "new words pushed"), "an empty bake must name its fix inline");
+  ok("bake watchdog runs itself", has(cmsW, "refreshLiveBake().catch"), "the minute-tick must keep it fresh");
+  /* Note 343 retired the card: the witness lives on in the console. */
+  ok("bake watch feeds the console", has(cmsW, "__maintState") && has(cmsW, "liveBakeNotes"), "the retired card's witness must live on in window.__maintState");
   ok("channel tap verifies first", has(blocksW, "checkLiveStream") && has(blocksW, "liveVideoId") && has(blocksW, "checkChannelThenPlay") && has(blocksW, "No broadcast right now"), "a blind channel embed is YouTube's unavailable waiting to happen");
   ok("push-land check in apply", has(applyW, "empty shell"), "the checklist must confirm the words landed, not just the code");
+  /* X. publish reaches the office by itself; card gone; player always has a
+     way out; sleep ends (note 343): the follow loop adopts live's newer
+     words with no setup (the old cms-server.txt never survived a fresh
+     folder), the Tools card is removed, every playing frame carries its way
+     out, and a live publish lands in git instead of dying with the disk. */
+  const cmsX = text["src/lib/cms.ts"];
+  const edX = text["src/components/editor.tsx"];
+  const localX = text["scripts/cms-local.mjs"];
+  const srvX = text["scripts/cms-server.js"];
+  const serveX = text["scripts/serve.mjs"];
+  const viteX = text["scripts/vite-cms-backend.mjs"];
+  const blocksX = text["src/components/blocks.tsx"];
+  const cssX = text["src/styles/pages.css"];
+  const applyX = text["APPLY_UPDATE.txt"];
+  ok("no site-update card anywhere", !has(edX, "Site update") && !has(edX, "Live bake carries") && !has(edX, "The site watches"), "the office asked it gone from Tools");
+  ok("default live address", has(cmsX, "DEFAULT_LIVE_ORIGIN") && has(cmsX, "https://twocchurch-site.onrender.com") && has(localX, "pickLiveOrigin"), "a fresh folder must know live with no setup file");
+  ok("pull falls back to the default", has(cmsX, "backend || DEFAULT_LIVE_ORIGIN"), "the browser pull used to die on an empty __live-url");
+  ok("office backend follows live", has(localX, "startLiveFollow") && has(localX, "adoptLive") && has(localX, "FOLLOW_MS") && has(localX, "process.env.RENDER"), "no tab open must still bring a live publish home");
+  ok("adopt door locked twice", has(srvX, "adoptLive") && has(srvX, "__adoptToken") && has(serveX, "isLoopbackAddr") && has(viteX, "isLoopbackAddr"), "token in the vm plus loopback at both http doors");
+  ok("player always has a way out", has(blocksX, "player__escape") && has(blocksX, "Can't see the video? Watch on YouTube") && has(cssX, ".player__escape"), "the frame never reports failure — the link is the permanent net");
+  ok("playing videos re-asked", has(blocksX, "5 * 60 * 1000") && has(blocksX, "setDead(true)"), "a mid-play death must swap to the fallback, not sit black");
+  ok("wakes are visible", has(serveX, "cold start at") && !has(serveX, "Admin > Tools shows the same number"), "the host log must show sleeps; nothing may point at the removed card");
+  ok("apply keeps awake + follow", has(applyX, "UptimeRobot") && has(applyX, "live follow"), "sleep must be a non-event by recipe and by loop");
+  try {
+    const mod = await import(
+      URL.createObjectURL(new Blob([text["scripts/live-follow.mjs"]], { type: "text/javascript" }))
+    );
+    const secs = (o) => JSON.stringify(o);
+    const liveNew = { ok: true, notes: 343, at: 2000, rev: 9, seeded: false, sections: secs({ live: { a: 1 } }) };
+    const localOld = { ok: true, notes: 343, at: 1000, rev: 4, sections: secs({}) };
+    ok("follow adopts strictly newer", mod.shouldAdoptLive(localOld, liveNew, 343, false) === "adopt", "a live/admin publish must come home");
+    ok("follow keeps ties", mod.shouldAdoptLive({ ...localOld, at: 2000 }, liveNew, 343, false) === "stale", "ties ride the office publish out");
+    ok("follow never crosses updates", mod.shouldAdoptLive(localOld, { ...liveNew, notes: 999 }, 343, false) === "newer-update", "a newer live update waits for this copy");
+    ok("follow refuses stale bakes", mod.shouldAdoptLive(localOld, { ...liveNew, at: 3000, seeded: true }, 343, false) === "seeded", "a wake bake must never regress office words");
+    ok("follow heals fresh copies", mod.shouldAdoptLive({ ok: true, notes: 0, at: 0, rev: 0, sections: "{}" }, liveNew, 343, true) === "adopt", "a fresh extract may be restored from live");
+    ok("follow ignores emptiness", mod.shouldAdoptLive(localOld, { ok: true, notes: 343, at: 3000, sections: "{}" }, 343, false) === "empty", "blank answers adopt nothing");
+    ok("origin prefers the file", mod.pickLiveOrigin("https://office-tunnel.example/\n") === "https://office-tunnel.example", "an explicit cms-server.txt still wins");
+    ok("origin defaults without a file", mod.pickLiveOrigin("") === "https://twocchurch-site.onrender.com" && mod.pickLiveOrigin("# only comments\n") === "https://twocchurch-site.onrender.com", "fresh folders must know live");
+    ok("loopback gate knows its own", mod.isLoopbackAddr("127.0.0.1") && mod.isLoopbackAddr("::1") && !mod.isLoopbackAddr("8.8.8.8"), "the adopt door opens to this machine only");
+    const patch = mod.adoptPatch(liveNew.sections);
+    ok("adopt writes values only", Object.keys(patch).length === 1 && patch.live === JSON.stringify({ a: 1 }), "the parsed wire shape must store exactly like a publish");
+  } catch (e) {
+    ok("follow suite", false, String((e && e.message) || e).slice(0, 200));
+  }
+  try {
+    const seed343 = JSON.parse(text["seed.json"]);
+    const items343 = ((seed343 && seed343.recent && seed343.recent.items) || []).map((it) => it && it.videoId);
+    const want343 = ["s4bLaGUNet4", "aT5IeCtJHFw", "3uqJoUXKds4", "OV6XtrNPGgo", "BgF97PIYPe8", "rmdEvZ_ZOXo", "ddWq2WYrmZ8", "HmVTgKwA6rY", "eyGDEZplxJw", "akE7Klt3a8w", "KCGWV3jWROE", "_PD-k6SqPvg", "eu3xQ-XCHv4", "gVJP8wlL9dM", "suLunbMiN78"];
+    const live343 = seed343 && seed343.sections && seed343.sections.live;
+    ok("bake still @twocorg's", !!seed343 && !!seed343.recent && seed343.recent.channelId === "UCQ0KIUXUV7gTZmDDlvd3ZcQ" && want343.every((id) => items343.indexOf(id) !== -1) && live343 && live343.youtubeChannel === "@twocorg", "recents must be the church's previous livestreams, all 15");
+  } catch (e) {
+    ok("bake parses", false, String((e && e.message) || e).slice(0, 160));
+  }
   const notes = Number((text["src/lib/hooks.ts"].match(/BUILD_NOTES = (\d+)/) || [])[1]) || 0;
   const apply = text["APPLY_UPDATE.txt"];
   ok("update number consistent", notes > 0 && has(apply, `APPLY THIS UPDATE (${notes})`), "hooks=" + notes);

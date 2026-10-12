@@ -387,6 +387,27 @@ export function VideoPlayer({
     }
   }, [playing, ytId, dead, src]);
 
+  /* While a video plays, the verdict is re-asked every few minutes
+     (note 343): a broadcast taken down mid-play swaps to the fallback
+     instead of sitting on the black frame. Cached verdicts make each
+     re-ask free; hidden tabs skip it. */
+  useEffect(() => {
+    if (!playing || !ytId || dead) return;
+    const t = window.setInterval(() => {
+      try {
+        if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
+      } catch {
+        /* visibility unreadable — ask anyway */
+      }
+      verifyYoutubeId(ytId)
+        .then((v) => {
+          if (v === false) setDead(true);
+        })
+        .catch(() => {});
+    }, 5 * 60 * 1000);
+    return () => window.clearInterval(t);
+  }, [playing, ytId, dead]);
+
   if (file) {
     /* A video the office uploaded plays in the browser itself. */
     return (
@@ -445,14 +466,31 @@ export function VideoPlayer({
   return (
     <div className={shell}>
       {playing ? (
-        <iframe
-          className="player__frame"
-          src={src}
-          title={shown}
-          referrerPolicy={EMBED_REFERRER_POLICY}
-          allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; fullscreen"
-          allowFullScreen
-        />
+        <>
+          <iframe
+            className="player__frame"
+            src={src}
+            title={shown}
+            referrerPolicy={EMBED_REFERRER_POLICY}
+            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; fullscreen"
+            allowFullScreen
+          />
+          {/* The frame itself never reports a failure (note 343): a video
+              YouTube refuses to embed, blocks in this country, or takes down
+              mid-play would otherwise sit black with no way out. This link
+              is the permanent way out — on YouTube itself it always plays
+              or says why. */}
+          {platform === "youtube" && (liveVideoId || ytId) && (
+            <a
+              className="player__escape"
+              href={watchUrl({ platform: "youtube", youtubeId: liveVideoId || ytId }) || ""}
+              target="_blank"
+              rel="noreferrer"
+            >
+              {tx("Can't see the video? Watch on YouTube")}
+            </a>
+          )}
+        </>
       ) : (
         <button
           type="button"

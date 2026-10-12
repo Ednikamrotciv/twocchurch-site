@@ -841,6 +841,96 @@ self.rpc = {
     return ok({ stored: true });
   },
 
+  /* Live-follow adoption (note 343): the office backend's own minute loop
+     writes the live site's newer words here with the per-boot token (see
+     cms-local.mjs) — never the admin password, which the backend does not
+     know. Same validation and the same write path as publish (space check,
+     undo snapshot, stamp, history, live nudge); the history names the live
+     office author with note "from the live site". Over plain HTTP this door
+     additionally opens to loopback remotes only (see serve.mjs and
+     vite-cms-backend.mjs) — the token alone is already unguessable and never
+     leaves the process. */
+  adoptLive: function (info, raw) {
+    var payload;
+    try {
+      payload = JSON.parse(raw);
+    } catch (e) {
+      return fail("bad-payload");
+    }
+    if (!payload || typeof payload !== "object") return fail("bad-payload");
+    if (typeof self.__adoptToken !== "string" || !self.__adoptToken) return fail("denied");
+    if (payload.token !== self.__adoptToken) return fail("denied");
+    if (!payload.sections || typeof payload.sections !== "object") return fail("empty");
+    var ids = [];
+    var id;
+    for (id in payload.sections) {
+      if (Object.prototype.hasOwnProperty.call(payload.sections, id)) ids.push(id);
+    }
+    if (!ids.length) return fail("empty");
+    if (ids.length > SLOTS) return fail("too-many");
+    var notes = typeof payload.notes === "number" && payload.notes >= 0 && payload.notes <= 999999 ? Math.floor(payload.notes) : 0;
+    var i, value;
+    for (i = 0; i < ids.length; i++) {
+      id = ids[i];
+      if (!/^[a-zA-Z][a-zA-Z0-9-]{0,31}$/.test(id)) return fail("bad-id");
+      value = payload.sections[id];
+      if (typeof value !== "string" || value.length > MAX_SECTION_CHARS) return fail("bad-value");
+      try {
+        var parsed = JSON.parse(value);
+        if (parsed === null || typeof parsed !== "object") return fail("bad-value");
+      } catch (e) {
+        return fail("bad-value");
+      }
+    }
+    var free = state.length - (HEADER + (SECTION_CHARS + META_CHARS) * 2);
+    for (i = 0; i < ids.length; i++) {
+      value = payload.sections[ids[i]];
+      if (typeof value === "string") free -= value.length * 2;
+    }
+    if (!PREV) free -= SECTION_CHARS * 2 + 1024;
+    if (free < 8192) return fail("no-space");
+    var undoSnap = null;
+    if (ids.length) {
+      var keep = {};
+      for (var k in SECTIONS) {
+        if (Object.prototype.hasOwnProperty.call(SECTIONS, k)) keep[k] = SECTIONS[k];
+      }
+      if (Object.keys(keep).length) undoSnap = { at: 0, rev: REV, sections: keep };
+    }
+    REV += 1;
+    AT = Date.now();
+    BY = typeof payload.by === "string" ? payload.by.slice(0, 60) : "";
+    if (notes > NOTES) NOTES = notes;
+    var changed = [];
+    for (i = 0; i < ids.length && i < 24; i++) changed.push(ids[i]);
+    var who = adminIds.get(info.conn.id);
+    LOG.unshift({
+      rev: REV,
+      at: AT,
+      by: BY,
+      role: who && who.role === "sub" ? "sub" : "main",
+      note: "from the live site",
+      changed: changed,
+    });
+    if (LOG.length > MAX_LOG) LOG.length = MAX_LOG;
+    for (i = 0; i < ids.length; i++) {
+      var err = setSection(ids[i], payload.sections[ids[i]]);
+      if (err) return fail(err);
+    }
+    if (undoSnap) {
+      undoSnap.at = AT;
+      PREV = undoSnap;
+    }
+    writeMeta();
+    writeHeader();
+    try {
+      pubsub.publish("content", JSON.stringify({ rev: REV, at: AT, by: BY }));
+    } catch (e) {
+      /* a missed nudge is harmless: clients refresh on their next sync */
+    }
+    return ok({ adopted: ids });
+  },
+
   login: function (info, raw) {
     if (!allowAttempt(info.conn)) return fail("rate");
     /* Either box opens whichever account matches — a sub-admin password works

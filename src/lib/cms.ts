@@ -1347,24 +1347,29 @@ let livePullRunning = false;
 let lastLivePullAt = 0;
 let lastLivePullMsg = "";
 
-/* Where "live" is for this copy: the office backend's own answer. Empty on the
-   live box itself (it IS live) and on standalone copies — those never pull. */
+/* Where "live" is for this copy: the office backend's own answer, else the
+   site's own live address (note 343). Empty only on the live box itself —
+   it IS live, so its tabs never pull. */
+export const DEFAULT_LIVE_ORIGIN = "https://twocchurch-site.onrender.com";
 async function liveBaseUrl(): Promise<string> {
+  let backend = "";
   try {
     const res = await fetch("/__live-url", { cache: "no-store" });
-    if (!res.ok) return "";
-    const data = await res.json().catch(() => null);
-    const u = String((data && data.url) || "").trim().replace(/\/+$/, "");
-    if (!/^https?:\/\/[^/\s]+$/i.test(u)) return "";
-    try {
-      if (typeof window !== "undefined" && u === window.location.origin) return "";
-    } catch {
-      /* compare failed — trust the backend (the live box answers empty) */
+    if (res.ok) {
+      const data = await res.json().catch(() => null);
+      const u = String((data && data.url) || "").trim().replace(/\/+$/, "");
+      if (/^https?:\/\/[^/\s]+$/i.test(u)) backend = u;
     }
-    return u;
   } catch {
-    return "";
+    /* unreachable backend — fall through to the default below */
   }
+  const u = backend || DEFAULT_LIVE_ORIGIN;
+  try {
+    if (typeof window !== "undefined" && u === window.location.origin) return "";
+  } catch {
+    /* compare failed — trust the address (the live box answers empty) */
+  }
+  return u;
 }
 
 export function livePullStatus(): { at: number; msg: string } {
@@ -1372,12 +1377,12 @@ export function livePullStatus(): { at: number; msg: string } {
 }
 
 /* Which update the live site runs (note 334): the number its version.json
-   names, asked through the same live address the pull uses — so a behind
-   live site is visible in Admin > Tools instead of needing version.json
-   spelunking ("only local has the new update" names itself there). Null
-   while unknown (never asked, unreachable). No separate live address means
-   there is no other copy to lag: this copy IS the live site, or stands
-   alone — its own update is the answer. Never throws, never toasts. */
+   names, asked through the same live address the pull uses — kept for the
+   minute-tick watchdog and window.__maintState(), so a behind live site
+   still names itself in the console instead of needing version.json
+   spelunking. Null while unknown (never asked, unreachable). The live box
+   itself answers its own update: there is no other copy to lag. Never
+   throws, never toasts. */
 let liveSiteNotes: number | null = null;
 let liveSiteBase = "";
 let liveSiteCheckedAt = 0;

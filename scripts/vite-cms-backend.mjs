@@ -6,6 +6,7 @@
 import { readFile, stat, mkdir, writeFile, cp, rm } from "node:fs/promises";
 import path from "node:path";
 import { createCmsHost, hashText } from "./cms-local.mjs";
+import { isLoopbackAddr } from "./live-follow.mjs";
 import { answerWithSeedFallback } from "./seed-fallback.mjs";
 import { guardAtBoot } from "./backup-data.mjs";
 import { createGeoProxy } from "./geo-proxy.mjs";
@@ -205,6 +206,12 @@ export function cmsBackend() {
           const rpcMatch = pathname.match(/^\/__cms\/([A-Za-z0-9_]+)$/);
           if (rpcMatch && req.method === "POST") {
             const id = url.searchParams.get("conn") || "anon";
+            /* Live-follow adoption (note 343) opens to this machine only. */
+            if (rpcMatch[1] === "adoptLive" && !isLoopbackAddr(req.socket && req.socket.remoteAddress)) {
+              res.writeHead(403, { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" });
+              res.end(JSON.stringify({ ok: false, err: "denied" }));
+              return;
+            }
             let body = "";
             req.setEncoding("utf8");
             req.on("data", (chunk) => {
