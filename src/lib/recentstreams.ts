@@ -44,76 +44,14 @@ const SAME_MESSAGE_MS = 20 * 60 * 60 * 1000;
 const IDLE_MS = 10 * 60_000;
 /** …and this often while a service is on the clock or on air. */
 const SOON_MS = 90_000;
-/** …and how long the short cadence is kept after a service comes off air (note 336:
-    YouTube can take half an hour to publish the archive — a walled/channel-follow
-    ending has no video id to seed, so the re-read must keep asking until it lands). */
-const BURST_MS = 30 * 60_000;
+/** …and how long the short cadence is kept after a service comes off air. */
+const BURST_MS = 6 * 60_000;
 /** How long a just-ended service waits for YouTube to publish it. */
 const SEED_MAX_MS = 12 * 60 * 60 * 1000;
 /** Give the proxy this long before calling a read a failure. */
 const TIMEOUT_MS = 20_000;
 
 const EMPTY: RecentServices = { items: [], at: 0, channelId: "" };
-
-/* ------------------------------------------- previous lives, durably (note 336)
-   A just-ended broadcast must sit in the six Recent services even before
-   YouTube's feed publishes the archive — and on every copy, not just the
-   office tab that saw it end. Local seeds (seedRecentService below) cover the
-   tab that saw it; the durable list (LIVE.recentSeeds, published like any
-   other live words and baked into seed.json) covers everyone else. Both are
-   @twocorg videos by construction (they come from the watched channel). */
-
-/** The office's filed previous lives as list cards (durable, never expire). */
-export function durableSeedItems(): RecentService[] {
-  const raw = (LIVE as { recentSeeds?: unknown }).recentSeeds;
-  if (!Array.isArray(raw)) return [];
-  const out: RecentService[] = [];
-  for (const entry of raw) {
-    const s = entry as { videoId?: unknown; title?: unknown; at?: unknown };
-    const videoId = parseYoutubeId(String(s?.videoId || ""));
-    if (!videoId) continue;
-    out.push({
-      videoId,
-      title: String(s?.title || "Service").trim() || "Service",
-      at: Number(s?.at) || 0,
-      ago: "",
-      thumb: `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`,
-    });
-    if (out.length >= KEEP) break;
-  }
-  return out.sort((a, b) => (b.at || 0) - (a.at || 0));
-}
-
-/** Pure merge: durable previous lives first, then the list — deduped, capped. */
-export function mergeDurable(fresh: RecentService[]): RecentService[] {
-  const durable = durableSeedItems();
-  if (!durable.length) return fresh;
-  const known = new Set(fresh.map((it) => it.videoId));
-  const missing = durable.filter((it) => !known.has(it.videoId));
-  if (!missing.length) return fresh;
-  return [...missing, ...fresh].slice(0, KEEP);
-}
-
-/** Pure office write: file an ended broadcast into the durable list (note 336).
-    Newest first, deduped by video, capped — so Publish carries the previous
-    live to every copy and the next bake. */
-export function buildRecentSeeds(
-  prev: unknown,
-  videoId: string,
-  title = "",
-  at = Date.now()
-): { videoId: string; title: string; at: number }[] {
-  const id = parseYoutubeId(videoId);
-  if (!id) return Array.isArray(prev) ? (prev as { videoId: string; title: string; at: number }[]) : [];
-  const list = (Array.isArray(prev) ? prev : [])
-    .filter(
-      (s): s is { videoId: string; title: string; at: number } =>
-        !!s && typeof s === "object" && /^[\w-]{11}$/.test(String((s as { videoId?: unknown }).videoId || ""))
-    )
-    .map((s) => ({ videoId: String(s.videoId), title: String(s.title || "Service"), at: Number(s.at) || 0 }))
-    .filter((s) => s.videoId !== id);
-  return [{ videoId: id, title: String(title || "Service").trim() || "Service", at: Number(at) || Date.now() }, ...list].slice(0, KEEP);
-}
 
 /* ------------------------------------------------------------------- target */
 
@@ -131,7 +69,7 @@ function channelPageUrl(): string {
 
 /** The channel id behind the office's channel setting, resolving a handle once. */
 async function resolveChannelId(): Promise<string> {
-  /* Cleaned (note 321): a doubled "@" must resolve like the handle it is. */
+  /* Cleaned (note 320): a doubled "@" must resolve like the handle it is. */
   const pasted = cleanChannelInput(LIVE.youtubeChannel);
   if (!pasted) return "";
   const direct = channelIdIn(pasted);
@@ -406,24 +344,14 @@ export async function fetchRecentServices(): Promise<RecentServices | null> {
   const kept = readRecentServices().items.filter((it) => !it.seeded && !known.has(it.videoId));
   const merged = [...collapsed, ...kept].sort((a, b) => whenOf(b, now) - whenOf(a, now));
 
-  return { items: mergeDurable(merged).slice(0, KEEP), at: now, channelId: channelId || "" };
+  return { items: merged.slice(0, KEEP), at: now, channelId: channelId || "" };
 }
 
 /* ----------------------------------------------------------------- caching */
 
 export function readRecentServices(): RecentServices {
   const cached = readStore<RecentServices | null>(RECENT_KEY, null);
-  const durable = durableSeedItems();
-  const durableMerged = (items: RecentService[]): RecentService[] => {
-    if (!durable.length) return items;
-    const known = new Set(items.map((it) => it.videoId));
-    const missing = durable.filter((it) => !known.has(it.videoId));
-    return missing.length ? [...missing, ...items].slice(0, KEEP) : items;
-  };
-  if (!cached || !Array.isArray(cached.items)) {
-    if (durable.length) return { items: durable.slice(0, KEEP), at: 0, channelId: "" };
-    return { ...EMPTY };
-  }
+  if (!cached || !Array.isArray(cached.items)) return { ...EMPTY };
   const now = Date.now();
   const items = cached.items
     .filter((it) => it && parseYoutubeId(String(it.videoId || "")))
@@ -439,7 +367,7 @@ export function readRecentServices(): RecentServices {
        moment; past a night it is no longer worth showing, and the read would
        have had it by then if it was ever going to. */
     .filter((it) => !it.seeded || now - it.seeded < SEED_MAX_MS);
-  return { items: durableMerged(items), at: Number(cached.at) || 0, channelId: String(cached.channelId || "") };
+  return { items, at: Number(cached.at) || 0, channelId: String(cached.channelId || "") };
 }
 
 function saveRecentServices(next: RecentServices) {
@@ -471,7 +399,7 @@ export function applyBakedRecent(seed: unknown) {
     if (!fresh.length) return;
     const known = new Set(fresh.map((it) => it.videoId));
     const seeds = current.items.filter((it) => it.seeded && !known.has(it.videoId));
-    saveRecentServices({ items: mergeDurable([...seeds, ...fresh]).slice(0, KEEP), at: at || Date.now(), channelId: String(raw.channelId || "") });
+    saveRecentServices({ items: [...seeds, ...fresh].slice(0, KEEP), at: at || Date.now(), channelId: String(raw.channelId || "") });
   } catch {
     /* a bad bake never blanks a good list */
   }
@@ -518,8 +446,8 @@ export function seedRecentService(videoId: string, title = "") {
 function withSeeds(fresh: RecentService[]): RecentService[] {
   const known = new Set(fresh.map((it) => it.videoId));
   const seeds = readRecentServices().items.filter((it) => it.seeded && !known.has(it.videoId));
-  const withLocal = seeds.length ? [...seeds, ...fresh].slice(0, KEEP) : fresh;
-  return mergeDurable(withLocal);
+  if (!seeds.length) return fresh;
+  return [...seeds, ...fresh].slice(0, KEEP);
 }
 
 /* --------------------------------------------------------------- the hook */
@@ -536,7 +464,7 @@ export function useRecentServices({ soon = false, liveNow = false }: { soon?: bo
      YouTube can take a minute or two to publish the recording (see
      `askForRecentServices`). */
   const burstRef = useRef(0);
-  /* Cleaned (note 321): follows the same address the live check watches. */
+  /* Cleaned (note 320): follows the same address the live check watches. */
   const target = cleanChannelInput(LIVE.youtubeChannel);
 
   soonRef.current = soon;

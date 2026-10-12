@@ -39,7 +39,7 @@ function channelIdIn(value) {
 }
 
 function channelPageTargets(pasted) {
-  /* Cleaned like the site cleans it (note 321): a doubled "@" resolves. */
+  /* Cleaned like the site cleans it (note 320): a doubled "@" resolves. */
   const raw = String(pasted || "").trim().replace(/@@+/g, "@").replace(/\s+/g, "");
   if (!raw) return [];
   if (/^https?:\/\//i.test(raw)) return [raw.replace(/\/+$/, "")];
@@ -88,27 +88,23 @@ function parseFeed(xml) {
   return items;
 }
 
-async function publishedLive(rootDir) {
+async function publishedChannel(rootDir) {
   try {
     const cms = await createCmsHost(rootDir);
     cms.openConn("bake-recent");
     const r = await cms.call("getContent", "bake-recent", "");
     const res = JSON.parse(r.body);
     const sections = res && res.sections ? JSON.parse(res.sections) : {};
-    const live = sections && sections.live && typeof sections.live === "object" ? sections.live : {};
-    return {
-      channel: typeof live.youtubeChannel === "string" ? live.youtubeChannel.trim() : "",
-      seeds: Array.isArray(live.recentSeeds) ? live.recentSeeds : [],
-    };
+    if (sections && sections.live && typeof sections.live.youtubeChannel === "string") {
+      return sections.live.youtubeChannel.trim();
+    }
   } catch { /* an unreadable store means no channel from here */ }
-  return { channel: "", seeds: [] };
+  return "";
 }
 
 /* Read the channel, bake its latest uploads into seed.json's `recent`, and say
    whether the list actually changed. Never wipes: any failure keeps the
-   previous bake (or the file as it was). Previous lives filed by the office
-   (live.recentSeeds, note 336) merge in first — so an ended @twocorg broadcast
-   is in the bake even before the channel feed publishes the archive. */
+   previous bake (or the file as it was). */
 export async function bakeRecent(rootDir) {
   const target = path.join(rootDir, "seed.json");
   let prev = null;
@@ -117,80 +113,21 @@ export async function bakeRecent(rootDir) {
   } catch { /* no seed yet — one is written below */ }
   const prevItems = prev && prev.recent && Array.isArray(prev.recent.items) ? prev.recent.items : [];
 
-  const { channel: pasted, seeds } = await publishedLive(rootDir);
-  const durable = seeds
-    .filter((s) => s && typeof s === "object" && /^[\w-]{11}$/.test(String(s.videoId || "")))
-    .map((s) => ({
-      videoId: String(s.videoId),
-      title: String(s.title || "Service").trim() || "Service",
-      at: Number(s.at) || 0,
-      ago: "",
-      thumb: `https://i.ytimg.com/vi/${s.videoId}/hqdefault.jpg`,
-    }))
-    .sort((a, b) => (b.at || 0) - (a.at || 0))
-    .slice(0, KEEP);
-  const withDurable = (items) => {
-    if (!durable.length) return items;
-    const known = new Set(items.map((it) => it && it.videoId));
-    const missing = durable.filter((it) => !known.has(it.videoId));
-    return [...missing, ...items].slice(0, KEEP);
-  };
-
-  if (!pasted) {
-    /* No channel yet: still bake the filed previous lives so the six never go empty. */
-    if (durable.length) {
-      const before = prevItems.map((it) => it && it.videoId).join(",");
-      const items = withDurable(prevItems.slice(0, KEEP));
-      const after = items.map((it) => it && it.videoId).join(",");
-      const prevChannel = prev && prev.recent && typeof prev.recent.channelId === "string" ? prev.recent.channelId : "";
-      const next = { ...(prev || { rev: 0, sections: {} }), recent: { items, at: Date.now(), channelId: prevChannel } };
-      await writeFile(target, JSON.stringify(next));
-      console.log(`bake-recent: ${items.length} services (previous lives, no channel yet)`);
-      return { changed: before !== after, count: items.length, channelId: prevChannel };
-    }
-    return { skipped: "no channel published yet", count: prevItems.length };
-  }
+  const pasted = await publishedChannel(rootDir);
+  if (!pasted) return { skipped: "no channel published yet", count: prevItems.length };
   const channelId = channelIdIn(pasted) || (await resolveChannelId(pasted).catch(() => ""));
-  if (!channelId) {
-    if (durable.length || prevItems.length) {
-      const items = withDurable(prevItems.slice(0, KEEP));
-      const next = { ...(prev || { rev: 0, sections: {} }), recent: { items, at: Date.now(), channelId: prev?.recent?.channelId || "" } };
-      await writeFile(target, JSON.stringify(next));
-      console.log(`bake-recent: channel would not resolve — kept ${items.length} services (previous lives first)`);
-      return { changed: true, count: items.length, channelId: next.recent.channelId };
-    }
-    return { skipped: "channel would not resolve", count: prevItems.length };
-  }
+  if (!channelId) return { skipped: "channel would not resolve", count: prevItems.length };
   const xml = await fetchText(`https://www.youtube.com/feeds/videos.xml?channel_id=${channelId}`).catch(() => "");
-  if (!xml) {
-    if (durable.length || prevItems.length) {
-      const items = withDurable(prevItems.slice(0, KEEP));
-      const next = { ...(prev || { rev: 0, sections: {} }), recent: { items, at: Date.now(), channelId } };
-      await writeFile(target, JSON.stringify(next));
-      console.log(`bake-recent: feed unreachable — kept ${items.length} services from ${channelId} (previous lives first)`);
-      return { changed: true, count: items.length, channelId };
-    }
-    return { skipped: "feed unreachable", count: prevItems.length };
-  }
-  const feedItems = parseFeed(xml).slice(0, KEEP);
-  if (!feedItems.length) {
-    if (durable.length || prevItems.length) {
-      const items = withDurable(prevItems.slice(0, KEEP));
-      const next = { ...(prev || { rev: 0, sections: {} }), recent: { items, at: Date.now(), channelId } };
-      await writeFile(target, JSON.stringify(next));
-      console.log(`bake-recent: feed empty — kept ${items.length} services from ${channelId} (previous lives first)`);
-      return { changed: true, count: items.length, channelId };
-    }
-    return { skipped: "feed empty", count: prevItems.length };
-  }
+  if (!xml) return { skipped: "feed unreachable", count: prevItems.length };
+  const items = parseFeed(xml).slice(0, KEEP);
+  if (!items.length) return { skipped: "feed empty", count: prevItems.length };
 
-  const items = withDurable(feedItems);
   const before = prevItems.map((it) => it && it.videoId).join(",");
-  const after = items.map((it) => it && it.videoId).join(",");
+  const after = items.map((it) => it.videoId).join(",");
   const next = { ...(prev || { rev: 0, sections: {} }), recent: { items, at: Date.now(), channelId } };
   await writeFile(target, JSON.stringify(next));
   const changed = before !== after;
-  console.log(`bake-recent: ${items.length} services from ${channelId}${durable.length ? ` (${durable.length} previous ${durable.length === 1 ? "live" : "lives"} first)` : ""}${changed ? "" : " (unchanged)"}`);
+  console.log(`bake-recent: ${items.length} services from ${channelId}${changed ? "" : " (unchanged)"}`);
   return { changed, count: items.length, channelId };
 }
 
