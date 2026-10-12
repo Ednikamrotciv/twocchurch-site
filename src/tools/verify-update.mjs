@@ -24,7 +24,7 @@
    (note 330) locks the walled-but-on-air channel follow: the owner's id with
    a clear margin or nothing, chrome with no verifiable video plays the
    channel (never a guessed video, never off), the player embeds the running
-   broadcast, and the office report carries the channel id. Run this
+   broadcast, and the office report carries the channel id. Section T (note 332) locks the dead-video net (oEmbed verdict before play, fallback with a way out, gated autoplay), same-update office reports, the shipped maintenance hold, and the fresh @twocorg recents bake. Run this
    before EVERY update zip — a single FAIL blocks the
    ship, no exceptions.
    RUN (paste the two lines into an execute_js call):
@@ -52,6 +52,7 @@ const FILES = [
   ["src/lib/jobs.ts", "ts"],
   ["src/lib/pageMap.ts", "ts"],
   ["src/components/layout.tsx", "tsx"],
+  ["src/components/blocks.tsx", "tsx"],
   ["src/App.tsx", "tsx"],
   ["scripts/build-static.mjs", "js"],
   ["scripts/serve.mjs", "js"],
@@ -62,6 +63,7 @@ const FILES = [
   ["index.html", null],
   ["src/styles/admin.css", null],
   ["APPLY_UPDATE.txt", null],
+  ["maintenance-hold.txt", null],
 ];
 
 function has(src, needle) {
@@ -618,6 +620,60 @@ export async function runAll(fs) {
     ok("report refuses a bad channel", !wCh({ ...goodCh, channelId: "UCshort" }).ok, "a malformed channel id must never store");
   } catch (e) {
     ok("channel-follow suite", false, String((e && e.message) || e).slice(0, 200));
+  }
+  /* T. no dead frame, same-update reports, hold-until-publish, fresh @twocorg
+     recents (note 332): a named video id can die (stale report, removed
+     upload) — it must never autoplay into the black frame; an old bundle's
+     office report must never steer this update; a new build must hold fresh
+     visitors on maintenance until the office publishes; Recent services bake
+     from the Oct-12 @twocorg feed. */
+  const buildNotes = Number((text["src/lib/hooks.ts"].match(/BUILD_NOTES = (\d+)/) || [])[1]) || 0;
+  const blocks = text["src/components/blocks.tsx"];
+  ok("same-update reports only", has(live, "reportMatchesBuild") && has(live, "notes: BUILD_NOTES") && has(live, "notes: number"), "an old bundle's wrong id must never steer this update");
+  ok("server keeps the reporter update", has(srvLive, "rep.notes") && has(srvLive, "notes: notes"), "the store must carry notes without trusting them");
+  ok("player verifies before playing", has(blocks, "verifyYoutubeId") && has(blocks, "peekVerified") && has(blocks, "player--dead") && has(blocks, "can't be played here") && has(blocks, "Watch on YouTube"), "a dead video must say so with a way out, never the black frame");
+  ok("watch gates autoplay", has(watchPage, "useYoutubeVerdict") && has(watchPage, "autoPlay={!!playableId}") && has(watchPage, "watchable"), "a known-dead id must never autoplay; the unverified channel follow stays one tap");
+  ok("hold ships with the update", has(text["maintenance-hold.txt"], "hold") && has(text["scripts/build-static.mjs"], "maintenance-hold.txt"), "fresh visitors must wait on maintenance until the office publishes");
+  try {
+    const seed332 = JSON.parse(text["seed.json"]);
+    const items332 = (seed332 && seed332.recent && seed332.recent.items) || [];
+    const ids332 = items332.map((it) => it && it.videoId);
+    ok("recents bake the church feed", seed332 && seed332.recent && seed332.recent.channelId === "UCQ0KIUXUV7gTZmDDlvd3ZcQ" && items332.length >= 6 && ids332.indexOf("s4bLaGUNet4") === 0 && ids332.indexOf("aT5IeCtJHFw") === 1 && ids332.every((id) => /^[\w-]{11}$/.test(String(id || ""))), "six-plus @twocorg services, newest first from the Oct-12 feed");
+  } catch (e) {
+    ok("recents bake parses", false, String((e && e.message) || e).slice(0, 160));
+  }
+  try {
+    const eb4 = await import("https://esm.sh/esbuild-wasm@0.21.5?bundle");
+    try {
+      await eb4.default.initialize({ wasmURL: "https://esm.sh/esbuild-wasm@0.21.5/esbuild.wasm" });
+    } catch {
+      /* already initialized above — transform works regardless */
+    }
+    const t4 = await eb4.default.transform(live, { loader: "ts", format: "cjs" });
+    const stubReq4 = (id) => {
+      if (id === "react") return { useEffect: () => {}, useState: (v) => [typeof v === "function" ? v() : v, () => {}], useSyncExternalStore: () => ({}) };
+      if (id === "./hooks") return { BUILD_NOTES: buildNotes, readStore: (k, fb) => fb, writeStore: () => true };
+      if (id === "./embed") return { parseYoutubeId: (v) => { const s = String(v || "").trim(); if (/^[\w-]{11}$/.test(s)) return s; const m = /[?&]v=([\w-]{11})/.exec(s); return m ? m[1] : ""; }, cleanChannelInput: (v) => String(v || "") };
+      return {};
+    };
+    const liveMod4 = { exports: {} };
+    new Function("module", "exports", "require", t4.code)(liveMod4, liveMod4.exports, stubReq4);
+    const decidePlay = liveMod4.exports.oembedPlayable;
+    const matchBuild = liveMod4.exports.reportMatchesBuild;
+    const peek = liveMod4.exports.peekVerified;
+    ok("oembed decision is strict", decidePlay(200) === true && decidePlay(400) === false && decidePlay(401) === false && decidePlay(403) === false && decidePlay(404) === false && decidePlay(410) === false && decidePlay(500) === null && decidePlay(0) === null, "200 plays, gone is gone, anything else waits");
+    ok("same-update matching", buildNotes > 0 && matchBuild({ notes: buildNotes }) === true && matchBuild({ notes: buildNotes + 1 }) === false && matchBuild({}) === false && matchBuild({ notes: 0 }) === false, "only this update's office answers steer this update");
+    ok("unasked is unknown", peek("dQw4w9WgXcQ") === null && peek("") === false, "no cache means ask, no id means dead");
+    const srvT = text["scripts/cms-server.js"];
+    const rpcT = loadVm(srvT.replace('if (!admins.has(info.conn.id)) return fail("denied");', 'if (false) return fail("denied");'), new Uint8Array(8 * 1024 * 1024));
+    const anonT = { id: "anon-notes", net: ["x", 0, 0], subscribe() {}, topics: new Set() };
+    const wT = (payload) => JSON.parse(rpcT.liveReport({ conn: anonT }, JSON.stringify(payload)));
+    const noted = { target: "https://www.youtube.com/@church/live", state: "live", videoId: "dQw4w9WgXcQ", title: "Sunday", channelId: "UCLg4NCAJxhIvD4IRV__LOFg", checkedAt: Date.now(), notes: buildNotes };
+    ok("report stores the reporter update", wT(noted).ok === true);
+    const backT = JSON.parse(rpcT.liveReport({ conn: anonT }, ""));
+    ok("report reads the update back", backT.ok === true && backT.report && backT.report.notes === buildNotes && backT.report.channelId === noted.channelId, "visitors must inherit notes with the live answer");
+  } catch (e) {
+    ok("no-dead-frame suite", false, String((e && e.message) || e).slice(0, 200));
   }
   const notes = Number((text["src/lib/hooks.ts"].match(/BUILD_NOTES = (\d+)/) || [])[1]) || 0;
   const apply = text["APPLY_UPDATE.txt"];

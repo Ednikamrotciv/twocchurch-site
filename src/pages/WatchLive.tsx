@@ -9,7 +9,7 @@ import { sermonsNewestFirst, sermonSource, sermonThumb } from "../data/sermons";
 import { useLocalState, useNow, fireToast } from "../lib/hooks";
 import { KEYS, nextService, onAir, to12h, DAY_NAMES, countdownParts, addToCalendar, mailto, clockHere, tidyCount, churchTimezone, visitorPlace, fmtDate, downloadText, serviceNoteKey, type NextServiceInfo } from "../lib/store";
 import { isFacebookVideoUrl, parseYoutubeId, platformLabel, watchUrl, youtubeThumb, type VideoPlatform, type VideoSource } from "../lib/embed";
-import { useLiveStream, liveTarget, facebookTarget } from "../lib/livestatus";
+import { useLiveStream, liveTarget, facebookTarget, useYoutubeVerdict } from "../lib/livestatus";
 import { useLibrary } from "../lib/collections";
 import { useRecentServices } from "../lib/recentstreams";
 import { Badge, Btn, Icon, IconBtn, Modal, Notice, Reveal, Rich, Section, SectionHeading, Textarea } from "../components/ui";
@@ -41,6 +41,13 @@ export function WatchLive() {
   /* Walled but on air (note 330): live with no verified video — the player
      follows the channel instead of showing the ended screen. */
   const detectedChannel = air.state === "live" && !air.videoId ? air.channelId : "";
+  /* Dead-video gate (note 332): a named id that YouTube says is gone never
+     autoplays into the black "unavailable" frame — and the unverified channel
+     follow below is always one tap, never autoplay. Unknown (offline, probe
+     down) plays exactly as before. */
+  const idVerdict = useYoutubeVerdict(detectedId);
+  const playableId = detectedId && idVerdict !== false ? detectedId : "";
+  const watchable = !!playableId || !!detectedChannel || !!parseYoutubeId(LIVE.youtubeId);
   /* Anywhere for the check to look — channel, stream link or Facebook page. */
   const configured = !!liveTarget() || !!facebookTarget();
 
@@ -94,9 +101,9 @@ export function WatchLive() {
   const liveSource: VideoSource =
     platform === "facebook"
       ? { platform: "facebook", facebookUrl: LIVE.facebookUrl }
-      : { platform: "youtube", youtubeId: detectedId || LIVE.youtubeId, youtubeChannelId: detectedChannel || undefined };
+      : { platform: "youtube", youtubeId: playableId || LIVE.youtubeId, youtubeChannelId: detectedChannel || undefined };
   const youtubeLink =
-    watchUrl({ platform: "youtube", youtubeId: detectedId || LIVE.youtubeId }) || liveTarget()?.url || "";
+    watchUrl({ platform: "youtube", youtubeId: playableId || LIVE.youtubeId }) || liveTarget()?.url || "";
 
   /* The shared on-air answer (notes 83, 133); `streaming` is the narrower screen question. */
   const streaming = air.state === "live";
@@ -214,13 +221,13 @@ export function WatchLive() {
                 </div>
               )}
 
-              {streaming && available.length > 0 ? (
+              {streaming && watchable ? (
                 <VideoPlayer
                   source={liveSource}
                   title={liveName || ct("auto.live.bc108377bb47f9e6")}
                   compact
                   live
-                  autoPlay
+                  autoPlay={!!playableId}
                 />
               ) : !onAirNow ? (
                 /* Nobody is broadcasting: the screen says so, and promises what

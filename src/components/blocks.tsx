@@ -21,6 +21,7 @@ import {
   type VideoPlatform,
   type VideoSource,
 } from "../lib/embed";
+import { peekVerified, verifyYoutubeId } from "../lib/livestatus";
 import {
   KEYS,
   fmtDate,
@@ -245,6 +246,13 @@ export function VideoPlayer({
 }) {
   const [playing, setPlaying] = useState(!!autoPlay);
   const [failed, setFailed] = useState(false);
+  /* Dead-video net (note 332): a removed or private video must never sit on
+     the black "unavailable" frame — the player says so and offers the
+     platform link instead. Channel follows and files cannot be asked, so
+     only bare YouTube ids are verified. */
+  const ytId = source?.platform === "facebook" || source?.platform === "upload" ? "" : parseYoutubeId(source?.youtubeId || "");
+  const [dead, setDead] = useState(false);
+  const [checking, setChecking] = useState(false);
   /* Titles arrive in English (sermon names, stream names) — they read in the
      visitor's language like every other line (note 225). */
   const shown = tx(title);
@@ -254,11 +262,73 @@ export function VideoPlayer({
   const platform: VideoPlatform = source?.platform === "facebook" ? "facebook" : source?.platform === "upload" ? "upload" : "youtube";
   const shell = "player" + (compact ? " player--compact" : "") + (playing ? " player--playing" : "");
 
+  /* A new source starts unjudged. */
+  useEffect(() => {
+    setDead(false);
+    setChecking(false);
+  }, [src]);
+
+  /* A click never opens a known-dead video: unknown ids are asked first
+     (a beat of "checking"), dead ones go straight to the fallback below. */
+  const open = () => {
+    if (!ytId) {
+      setPlaying(true);
+      onPlay?.();
+      return;
+    }
+    const peek = peekVerified(ytId);
+    if (peek === false) {
+      setDead(true);
+      return;
+    }
+    if (peek === true) {
+      setPlaying(true);
+      onPlay?.();
+      return;
+    }
+    setChecking(true);
+    verifyYoutubeId(ytId)
+      .then((v) => {
+        setChecking(false);
+        if (v === false) setDead(true);
+        else {
+          setPlaying(true);
+          onPlay?.();
+        }
+      })
+      .catch(() => {
+        setChecking(false);
+        setPlaying(true);
+        onPlay?.();
+      });
+  };
+
   /* The stream can start while the visitor is already sitting on the page, so
      the player has to be able to open by itself after the first render. */
   useEffect(() => {
     if (autoPlay) setPlaying(true);
   }, [autoPlay]);
+
+  /* Autoplay verifies behind the player: a dead id swaps to the fallback
+     instead of sitting on the black frame (unknown plays as before). */
+  useEffect(() => {
+    if (!playing || !ytId || dead) return;
+    if (peekVerified(ytId) === false) {
+      setDead(true);
+      return;
+    }
+    if (peekVerified(ytId) === null) {
+      let alive = true;
+      verifyYoutubeId(ytId)
+        .then((v) => {
+          if (alive && v === false) setDead(true);
+        })
+        .catch(() => {});
+      return () => {
+        alive = false;
+      };
+    }
+  }, [playing, ytId, dead, src]);
 
   if (file) {
     /* A video the office uploaded plays in the browser itself. */
@@ -284,6 +354,37 @@ export function VideoPlayer({
   }
 
   if (!src) return <div className="player player--empty">{ct("site.videoEmpty")}</div>;
+  /* A dead video never plays here: the poster stays, the visitor is told, and
+     the platform link below is the way out (note 332). */
+  if (dead) {
+    const openHref = watchUrl(source);
+    return (
+      <div className={shell + " player--dead"}>
+        {still ? (
+          <img src={still} alt="" loading="lazy" onError={() => setFailed(true)} />
+        ) : (
+          <span className={"player__still player__still--" + platform}>
+            <Icon name={platform === "upload" ? "play" : platform} size={54} />
+          </span>
+        )}
+        <span className="player__scrim" />
+        <div className="player__deadbody">
+          <p className="player__deadtitle">{shown}</p>
+          <p className="player__deadtext">{tx("This video can't be played here.")}</p>
+          {openHref && (
+            <Btn size="sm" variant="gold" href={openHref} icon="youtube" iconRight="external">
+              {tx("Watch on YouTube")}
+            </Btn>
+          )}
+        </div>
+        {live && (
+          <span className="player__live">
+            <span className="live-dot" /> {ct("live.player.badge")}
+          </span>
+        )}
+      </div>
+    );
+  }
   return (
     <div className={shell}>
       {playing ? (
@@ -299,10 +400,8 @@ export function VideoPlayer({
         <button
           type="button"
           className="player__poster"
-          onClick={() => {
-            setPlaying(true);
-            onPlay?.();
-          }}
+          onClick={open}
+          disabled={checking}
           aria-label={ct("auto.site.c358a9fa66e1e8e3", { "title": shown })}
         >
           {still ? (
@@ -316,7 +415,7 @@ export function VideoPlayer({
           <span className="player__play">
             <Icon name="play" size={26} />
           </span>
-          <span className="player__label">{shown}</span>
+          <span className="player__label">{checking ? tx("Checking the video…") : shown}</span>
           <span className={"player__source player__source--" + platform}>
             <Icon name={platform === "upload" ? "play" : platform} size={13} /> {platformLabel(platform)}
           </span>

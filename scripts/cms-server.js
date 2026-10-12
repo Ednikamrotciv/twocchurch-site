@@ -829,11 +829,15 @@ self.rpc = {
     if (videoId && !/^[\w-]{11}$/.test(videoId)) return fail("bad-report");
     var channelId = String(rep.channelId || "");
     if (channelId && !/^UC[\w-]{20,24}$/.test(channelId)) return fail("bad-report");
+    /* The reporter's own update (note 332): readers only trust their own
+       update's reports, so mixed-version office tabs cannot steer each other. */
+    var notes = Math.floor(Number(rep.notes) || 0);
+    if (!Number.isFinite(notes) || notes < 0) notes = 0;
     var title = String(rep.title || "").slice(0, 200);
     var checkedAt = Number(rep.checkedAt) || 0;
     var now = Date.now();
     if (!(checkedAt > 0) || checkedAt > now + 5 * 60 * 1000 || now - checkedAt > 10 * 60 * 1000) return fail("bad-report");
-    LIVE_REPORT = { target: target, state: rep.state, videoId: videoId, title: title, channelId: channelId, checkedAt: checkedAt, at: now };
+    LIVE_REPORT = { target: target, state: rep.state, videoId: videoId, title: title, channelId: channelId, checkedAt: checkedAt, at: now, notes: notes };
     return ok({ stored: true });
   },
 

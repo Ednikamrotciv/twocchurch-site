@@ -7,10 +7,10 @@
    channel page may be an ad or a related upload. Cached, re-checked on a timer; failures read
    "unknown". Ended broadcasts are remembered for auto-stop; Facebook only ever confirms. */
 
-import { useEffect, useSyncExternalStore } from "react";
+import { useEffect, useState, useSyncExternalStore } from "react";
 import { LIVE } from "../data/live";
 import { parseYoutubeId, cleanChannelInput } from "./embed";
-import { readStore, writeStore } from "./hooks";
+import { BUILD_NOTES, readStore, writeStore } from "./hooks";
 import { serverUrl } from "./remoteserver";
 
 export type LiveState = "live" | "off" | "unset" | "unknown";
@@ -346,14 +346,24 @@ async function fetchPageOffice(url: string): Promise<string | null> {
 }
 
 /** The office's reported on-air answer (note 318): what the office copy saw,
-    where it saw it, and when — trusted only while fresh and on this target. */
-export type LiveReport = { target: string; state: "live" | "off"; videoId: string; title: string; channelId: string; checkedAt: number };
+    where it saw it, and when — trusted only while fresh and on this target.
+    `notes` is the reporter's own update (note 332): a mixed-version office tab
+    (an old bundle still open somewhere) must never steer this one, so a report
+    from any other update is ignored and the scrape below runs instead. */
+export type LiveReport = { target: string; state: "live" | "off"; videoId: string; title: string; channelId: string; checkedAt: number; notes: number };
 /* A report older than this is ignored (the office tab closed or sleeps) and
    the check falls back to reading YouTube itself. */
 const REPORT_FRESH_MS = 150_000;
 /* Reports ride the same door as content — tiny and fast; a slow door must
    never hold up the scrape behind it. */
 const REPORT_TIMEOUT_MS = 6_000;
+
+/** Same-update reporters only (note 332), pure for the verifier: an old bundle
+    still open in some office tab reports the old code's answers (once a wrong
+    video id mid-service) — those must never steer this update. */
+export function reportMatchesBuild(rep: { notes?: unknown }): boolean {
+  return Number(rep?.notes) === BUILD_NOTES;
+}
 
 /** The latest office report, or null — public read, never throws. */
 async function fetchLiveReport(): Promise<LiveReport | null> {
@@ -374,10 +384,11 @@ async function fetchLiveReport(): Promise<LiveReport | null> {
     if (!rep || typeof rep !== "object") return null;
     const r = rep as Partial<LiveReport>;
     if (r.state !== "live" && r.state !== "off") return null;
+    if (!reportMatchesBuild(r)) return null;
     const checkedAt = Number(r.checkedAt) || 0;
     if (!(checkedAt > 0) || Date.now() - checkedAt > REPORT_FRESH_MS) return null;
     const cid = String(r.channelId || "");
-    return { target: String(r.target || ""), state: r.state, videoId: String(r.videoId || ""), title: String(r.title || ""), channelId: /^UC[\w-]{20,24}$/.test(cid) ? cid : "", checkedAt };
+    return { target: String(r.target || ""), state: r.state, videoId: String(r.videoId || ""), title: String(r.title || ""), channelId: /^UC[\w-]{20,24}$/.test(cid) ? cid : "", checkedAt, notes: BUILD_NOTES };
   } catch {
     return null;
   }
@@ -508,7 +519,7 @@ function maybeReport(status: LiveStatus) {
     if (status.state === "live" && status.platform !== "youtube") return;
     const url = liveTarget()?.url || "";
     if (!url) return;
-    reportSink({ target: url, state: status.state, videoId: status.videoId, title: status.title, channelId: status.channelId, checkedAt: status.checkedAt });
+    reportSink({ target: url, state: status.state, videoId: status.videoId, title: status.title, channelId: status.channelId, checkedAt: status.checkedAt, notes: BUILD_NOTES });
   } catch {
     /* reporting must never break the poll */
   }
@@ -751,4 +762,95 @@ export function useLiveStream(soon = false, watchFacebook = false, urgent = fals
     noteLiveTargetMayHaveChanged();
   }, [signature]);
   return { ...status, checking } as LiveStatus & { checking: boolean };
+}
+
+/* ------------------------------- playable check (note 332): never embed a
+   dead video. A stale office report (or a removed upload) can name a video id
+   that YouTube no longer plays — autoplaying it fills the screen with the
+   black "unavailable" frame. So ids are asked of YouTube's oEmbed endpoint
+   before they play: 200 means it plays, 4xx means it is gone (removed,
+   private, bad id), anything else — or a network failure — means unknown and
+   plays anyway, with the player's own fallback as the net. Direct browser
+   fetch (no proxy door needed); cached 5 minutes; in-flight asks shared. */
+
+const VERIFY_TTL_MS = 5 * 60_000;
+const VERIFY_TIMEOUT_MS = 8_000;
+const verifyCache = new Map<string, { ok: boolean; at: number }>();
+const verifyInflight = new Map<string, Promise<boolean | null>>();
+
+/** Pure for the verifier: an oEmbed answer in, playable or not. */
+export function oembedPlayable(status: number): boolean | null {
+  if (status === 200) return true;
+  if (status === 400 || status === 401 || status === 403 || status === 404 || status === 410) return false;
+  return null;
+}
+
+function oembedUrl(id: string): string {
+  return `https://www.youtube.com/oembed?url=${encodeURIComponent("https://www.youtube.com/watch?v=" + id)}&format=json`;
+}
+
+/** Cache-only peek (no fetch): true = played before, false = known dead, null = never asked. */
+export function peekVerified(videoId: string): boolean | null {
+  const id = parseYoutubeId(videoId);
+  if (!id) return false;
+  const hit = verifyCache.get(id);
+  if (!hit || Date.now() - hit.at >= VERIFY_TTL_MS) return null;
+  return hit.ok;
+}
+
+/** Is this video playable right now? true = plays, false = gone, null = could
+    not tell (offline, proxy/probe down — play anyway). Never throws. */
+export async function verifyYoutubeId(videoId: string): Promise<boolean | null> {
+  const id = parseYoutubeId(videoId);
+  if (!id) return false;
+  const peek = peekVerified(id);
+  if (peek !== null) return peek;
+  const running = verifyInflight.get(id);
+  if (running) return running;
+  const job = (async (): Promise<boolean | null> => {
+    try {
+      const ctrl = typeof AbortController !== "undefined" ? new AbortController() : null;
+      const timer = ctrl ? window.setTimeout(() => ctrl.abort(), VERIFY_TIMEOUT_MS) : 0;
+      try {
+        const res = await fetch(oembedUrl(id), { cache: "no-store" });
+        const verdict = oembedPlayable(res.status);
+        if (verdict !== null) verifyCache.set(id, { ok: verdict, at: Date.now() });
+        return verdict;
+      } finally {
+        if (timer) window.clearTimeout(timer);
+      }
+    } catch {
+      return null;
+    } finally {
+      verifyInflight.delete(id);
+    }
+  })();
+  verifyInflight.set(id, job);
+  return job;
+}
+
+/** Tri-state availability for render: true = plays, false = dead, null =
+    checking or unknown (play anyway — the player is the net). */
+export function useYoutubeVerdict(videoId: string): boolean | null {
+  const id = parseYoutubeId(videoId);
+  const [verdict, setVerdict] = useState<boolean | null>(() => peekVerified(id));
+  useEffect(() => {
+    if (!id) {
+      setVerdict(false);
+      return;
+    }
+    const peek = peekVerified(id);
+    setVerdict(peek);
+    if (peek !== null) return;
+    let alive = true;
+    verifyYoutubeId(id)
+      .then((v) => {
+        if (alive) setVerdict(v);
+      })
+      .catch(() => {});
+    return () => {
+      alive = false;
+    };
+  }, [id]);
+  return verdict;
 }

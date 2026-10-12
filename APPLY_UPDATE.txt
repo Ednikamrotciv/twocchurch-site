@@ -1,57 +1,59 @@
-APPLY THIS UPDATE (330) — LOCAL + LIVE
+APPLY THIS UPDATE (332) — LOCAL + LIVE
 =====================================
-Deployed live/admin goes on air even when YouTube walls the deployed server.
-What changed (note 330):
+No more black "unavailable" frame; one Publish reaches both copies; the
+maintenance notice holds until you publish; @twocorg + six recent services.
+What changed (note 332):
 
-- Measured cause (reference channel @pastorjerryeze, live on YouTube while the
-  deployed site said ended): through the deployed server the channel page
-  reads 200 BUT login-walled (full on-air chrome, no video id anywhere),
-  every watch page answers 502, and the public proxy is down too — so no
-  suggestion can verify, the answer collapses to "unknown", the Watch page
-  shows the ended screen, and a deployed admin tab has nothing useful to
-  report either. The loop is dead with no local tab open.
-- The fix stops needing the video id: when the channel page carries on-air
-  chrome but no suggestion verifies, the site follows the CHANNEL — the
-  player embeds the channel's running broadcast
-  (live_stream?channel=…) instead of guessing a video (never a guess: the
-  page must name its owner clearly or the answer stays unknown, never off).
-  The office report carries the channel id too, so one tab's answer still
-  moves every visitor. Local runs verify watch pages exactly as before —
-  the follow only engages where verification is impossible — so local and
-  live share the fix and the behavior.
-- DEPLOY CHECK FIRST: at last look the live version.json read 328 and the
-  published channel read @pastorjerryeze (the reference channel — NOT the
-  default). Open the Render dashboard, confirm the build finished, and
-  confirm version.json reads 330 after this one.
+- The dead frame: a named video id can die (a stale office answer, a removed
+  upload) and the player used to autoplay it into YouTube's black
+  "unavailable" screen. Now every YouTube id is asked first (oEmbed: plays /
+  gone / unknown) — the Watch page never autoplays a known-dead id, the
+  unverified channel follow is always one tap (never autoplay), and every
+  player verifies on click and behind autoplay. A dead video shows its poster
+  with "This video can't be played here." plus a Watch-on-YouTube button.
+  Unknown (offline, probe down) plays exactly as before.
+- Mixed-version poisoning ends at the protocol: the office report now carries
+  the reporter's own update, and a copy only trusts its own update's reports
+  — an old bundle still open in some tab can no longer steer this one with a
+  wrong id. (Still: reload every admin tab after deploying, and keep ONE
+  signed-in office tab open during broadcasts.)
+- Maintenance holds until publish — for real this time: maintenance-hold.txt
+  now ships in the zip (it was missing, so new builds never held). Fresh
+  visitors wait on the notice until the office publishes; publishing, then
+  the rebuild from step 8, releases everyone.
+- Recent services re-baked from the Oct-12 @twocorg feed (15 services, newest
+  SUNDAY SERVICE 11TH OCT. 2026 — every id verified playable): the Watch page
+  lists the latest six after the usual same-title folding.
+- DEPLOY CHECK FIRST: confirm the Render build finished and version.json
+  reads 332 after this one. Until it does, NOTHING below can work live.
 - RESET TO THE DEFAULT (do this publish): set *Live stream* → **YouTube
   channel to watch for live** back to exactly `@twocorg` (one "@") BEFORE
-  publishing — the restore/box currently carries @pastorjerryeze. The
+  publishing — the restore/box may still carry a debugging channel. The
   default everywhere stays @twocorg (code default, fallback bake, first
-  paints — unchanged by this update); @pastorjerryeze was the reference
-  used to prove the fix, nothing more. To re-prove it yourself during one
-  of their broadcasts, set @pastorjerryeze → publish → watch it play →
-  set @twocorg → publish again.
-- Unchanged and still locked: everything from 328 (@twocorg default),
-  326 (reset recipe), 324 (verified broadcast, no guessed videos),
-  322 (Live-tab follow + on-air chrome), 320 (doubled-"@" healing),
-  318 (office-reported on-air answer — a signed-in office tab with verified
-  ids is STILL the best reporter: exact video, exact headline; the channel
-  follow is the net underneath it, not the replacement; short cadence,
-  urgent Watch check, moved-channel re-check, button re-asks, offline
-  Publish stamps), maintenance holds until the office publishes (plain
-  reload, /admin clear); with no new update the copy stays on the last
-  published; only an explicit office action lifts maintenance; sleep/wake
-  re-serves the last publish whole; every Publish still folds live's newer
-  words in.
-- The pre-ship verifier's section S now locks the channel follow (strict
-  owner extraction, walled-live plays the channel, unnamed stays unknown,
-  player embed, report round-trip) — one FAIL blocks the ship.
+  paints — unchanged by this update).
+- Publish reaches BOTH copies: publish on LOCAL and the bake + push carry it
+  to live in a few minutes; publish on LIVE (/admin) and the signed-in
+  office copy saves it by itself within about a minute (toast confirms,
+  uploads included) — or it folds into the next local Publish, whichever
+  comes first. Either Publish blesses the update and lifts the notice on
+  both copies at once (the stamp syncs through the server).
+- Unchanged and still locked: everything from 330 (walled channel follow),
+  328 (@twocorg default), 326 (reset recipe), 324 (verified broadcast, no
+  guessed videos), 322 (Live-tab follow + on-air chrome), 320 (doubled-"@"
+  healing), 318 (office-reported on-air answer — a signed-in office tab with
+  verified ids is STILL the best reporter; short cadence, urgent Watch check,
+  moved-channel re-check, button re-asks, offline Publish stamps);
+  sleep/wake re-serves the last publish whole; every Publish still folds
+  live's newer words in.
+- The pre-ship verifier's section T now locks the dead-video net (oEmbed
+  verdict, same-update matching, player fallback, gated autoplay), the hold
+  file, and the fresh @twocorg bake — one FAIL blocks the ship.
 
 0. DEPLOY FIRST (the live site is behind — do this before anything else)
    Put this code where Render builds it (replace src/, scripts/, index.html,
    seed.json, vite.config.ts, package.json — keep data/ as-is), commit/push.
    Render: install npm install, build npm run build, start node scripts/serve.mjs.
-   Confirm https://twocchurch-site.onrender.com/version.json shows {"notes":330}.
+   Confirm https://twocchurch-site.onrender.com/version.json shows {"notes":332}.
    Until it does, NOTHING below can work on the deployed site.
 
 LOCAL (your computer)
@@ -66,8 +68,8 @@ LOCAL (your computer)
    right back", logo + message only) — this update holds until blessed.
    A plain reload must show it; no hard refresh needed. The admin console
    (/admin) must NOT show it — it boots straight into the console.
-   (Coming from 328: same steps — backup in the old folder first, then a NEW
-   folder for 330, restore, publish. The restore carries all words across the
+   (Coming from 330: same steps — backup in the old folder first, then a NEW
+   folder for 332, restore, publish. The restore carries all words across the
    jump; the first publish also folds in anything newer on the live site.)
 6. Bring your words home: #/admin → Tools → Restore the backup file → review
    → Publish. BEFORE that Publish: set *Live stream* → **YouTube channel to
@@ -75,7 +77,7 @@ LOCAL (your computer)
    debugging channel otherwise. The Publish itself folds in anything newer on
    the live site (untouched sections follow live, your edits win, uploads
    come home), so there is no second step.
-   Local lifts to 330 and the notice releases. Reload desktop + phone
+   Local lifts to 332 and the notice releases. Reload desktop + phone
    width to verify (plain reloads).
 7. Live check (local): open /watch-live while the broadcast is running on
    the YouTube channel. The player must appear within seconds and the
@@ -96,12 +98,12 @@ LOCAL (your computer)
    between changes nothing.
 9. Check: reload again with no new update — the site stays on the last
    published (no notice, published words intact). Console check:
-   window.__maintState() shows publishedNotes 330.
+   window.__maintState() shows publishedNotes 332.
 
 LIVE (Render: twocchurch-site.onrender.com)
-1. Step 0 first (deploy + version.json reads 330). Then push the step-8
+1. Step 0 first (deploy + version.json reads 332). Then push the step-8
    content commit if you have not already (the bake must be from 330 or
-   newer — a bake stamped 329 or older still waits, by design). Render
+   newer — a bake stamped 330 or older still waits, by design). Render
    rebuilds on the push by itself.
 2. The live site now waits on the maintenance notice until the publish lands
    through the bake — verify with a PLAIN reload on desktop + phone width,
@@ -113,7 +115,7 @@ LIVE (Render: twocchurch-site.onrender.com)
 3. In live /admin: set the YouTube channel to exactly `@twocorg` (one "@" —
    this is the reset: it replaces the debugging channel with the church's
    own), then Review and publish → Publish (typing alone is a draft —
-   visitors never see it until published). Publish to bless 330.
+   visitors never see it until published). Publish to bless 332.
 4. Keep a signed-in office tab open (this admin console counts), then start
    the broadcast on the YouTube channel. Open the live /watch-live: the
    player must appear within seconds and the ticking clock must vanish with
