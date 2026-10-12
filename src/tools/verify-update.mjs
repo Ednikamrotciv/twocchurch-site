@@ -19,7 +19,8 @@
    anything is called off, on-air chrome is read there, traps stay shut and
    unreadable pages stay unknown. Section Q (note 324) locks verified
    candidates: no bare first-id fallback, ordered suggestions each asked on
-   its watch page. Run this
+   its watch page. Section R (note 328) locks the shipped default: @twocorg in
+   the code default and in the fallback bake's words and recents. Run this
    before EVERY update zip — a single FAIL blocks the
    ship, no exceptions.
    RUN (paste the two lines into an execute_js call):
@@ -42,6 +43,8 @@ const FILES = [
   ["src/lib/hooks.ts", "ts"],
   ["src/data/photos.ts", "ts"],
   ["src/lib/cmsSchema.ts", "ts"],
+  ["src/data/live.ts", "ts"],
+  ["seed.json", null],
   ["src/lib/jobs.ts", "ts"],
   ["src/lib/pageMap.ts", "ts"],
   ["src/components/layout.tsx", "tsx"],
@@ -528,6 +531,21 @@ export async function runAll(fs) {
     ok("empty page names nothing", candsFn('ytInitialData{"x":1}').length === 0, "no suggestions means off, not a guess");
   } catch (e) {
     ok("verify-candidates suite", false, String((e && e.message) || e).slice(0, 200));
+  }
+  /* R. the church's channel ships everywhere (note 328): @twocorg is the code
+     default and the fallback bake's words and recents — fresh copies,
+     fallbacks and first paints never show a debugging channel. */
+  ok("code default is the church", has(text["src/data/live.ts"], 'youtubeChannel: "@twocorg"'), "a copy with no published words must still watch @twocorg");
+  try {
+    const seedObj = JSON.parse(text["seed.json"]);
+    ok("fallback words are the church", seedObj && seedObj.sections && seedObj.sections.live && seedObj.sections.live.youtubeChannel === "@twocorg", "the fallback bake must carry @twocorg, not a debugging channel");
+    ok(
+      "fallback recents are the church",
+      seedObj && seedObj.recent && seedObj.recent.channelId === "UCQ0KIUXUV7gTZmDDlvd3ZcQ" && Array.isArray(seedObj.recent.items) && seedObj.recent.items.length > 0,
+      "the baked recent list must come from the church's channel id"
+    );
+  } catch (e) {
+    ok("fallback seed parses", false, String((e && e.message) || e).slice(0, 160));
   }
   const notes = Number((text["src/lib/hooks.ts"].match(/BUILD_NOTES = (\d+)/) || [])[1]) || 0;
   const apply = text["APPLY_UPDATE.txt"];

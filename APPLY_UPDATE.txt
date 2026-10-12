@@ -1,36 +1,30 @@
-APPLY THIS UPDATE (326) — LOCAL + LIVE
+APPLY THIS UPDATE (328) — LOCAL + LIVE
 =====================================
-326 is 324 with a new update number: the verified-broadcast fix (no bare
-first-id, ordered candidates each asked on its watch page) ships unchanged —
-only the update number moves (hooks 326 = APPLY 326) so the notice and
-version read 326 instead of 324. The job this time is the reset itself:
+@twocorg in the channel field AND in every recent service — by default, not by
+retyping. What changed (note 328):
 
+- The shipped code default is now the church's own channel: `src/data/live.ts`
+  carries `youtubeChannel: "@twocorg"` instead of empty. Every fresh copy,
+  every fallback bake and every reader with no published words yet watches
+  @twocorg — never nothing, never a debugging channel.
+- The fallback bake already carries it (verified in this zip, and locked by
+  the verifier from here on): seed.json's live words read `@twocorg` and its
+  baked `recent` list was baked from the church's channel id
+  (UCQ0KIUXUV7gTZmDDlvd3ZcQ) — so first paints and fallback wakes show the
+  church's own services.
+- Runtime follows the published field as before: with `@twocorg` published,
+  Watch-live AND the Recent band both read the church's feed. So the Publish
+  in step 3/6 below is still the moment the live site flips — this update
+  only guarantees everything underneath it is already @twocorg.
 - DEPLOY CHECK FIRST: at last look the live version.json still read 320 — no
-  bundle since 320 has landed (Render still building, or pushes never
-  triggering). Open the Render dashboard, confirm the build finished, and
-  confirm version.json reads 326 after this one. Until it does, the deployed
-  site — and any admin tab on it — still runs the old code, including the
-  wrong-video bug.
-- RESET THE CHANNEL TO @twocorg (the church's own channel — verified: id
-  UCQ0KIUXUV7gTZmDDlvd3ZcQ, not live right now, only a scheduled premiere
-  "waiting" room). The debugging channels (@ApostleKathrynKrick, then
-  @dailywarfareprayer) are published words, and no update can rewrite
-  published words — only the office can. In the console (local or live
-  /admin, either joined copy): *Live stream* → **YouTube channel to watch
-  for live** → type exactly `@twocorg` (one "@") → Review and publish →
-  Publish. Both Watch-live and Recent services follow that field by
-  themselves — no retype anywhere else, no second publish.
-- VERIFY THE RESET: open the live /watch-live — it must show the Next
-  broadcast / ended screen with NO trace of Krick, Selman or warfare-prayer
-  content (no such title, no such still). Scroll to Recent services — the
-  cards must be the church's own messages again. If any foreign card
-  remains, the publish above has not landed: check Last published, then
-  plain-reload.
-- Then leave it there: every test channel pasted afterwards steers the
-  whole public site (Watch + Recent) until it is reset again. Test
-  channels belong in a video link (`youtubeId`), never in the channel
-  field — or better, test on local only.
-- Unchanged and still locked: everything from 324 (verified broadcast),
+  bundle since 320 has landed. Open the Render dashboard, confirm the build
+  finished, and confirm version.json reads 328 after this one.
+- RESET RECIPE (unchanged from 326): set *Live stream* → **YouTube channel to
+  watch for live** to exactly `@twocorg` (one "@") BEFORE publishing — the
+  restore carries the debugging channel otherwise. Verify afterwards: the
+  Watch page shows no Krick/Selman/warfare-prayer trace, and Recent services
+  shows only the church's own messages.
+- Unchanged and still locked: everything from 326/324 (verified broadcast),
   322 (Live-tab follow + on-air chrome), 320 (doubled-"@" healing),
   318 (office-reported on-air answer — keep a signed-in office tab open
   during broadcasts; short cadence, urgent Watch check, moved-channel
@@ -39,12 +33,15 @@ version read 326 instead of 324. The job this time is the reset itself:
   copy stays on the last published; only an explicit office action lifts
   maintenance; sleep/wake re-serves the last publish whole; every Publish
   still folds live's newer words in.
+- The pre-ship verifier's section R now locks the shipped default (code
+  default, fallback words, fallback recents — incl. parsing the real
+  seed.json) — one FAIL blocks the ship.
 
 0. DEPLOY FIRST (the live site is behind — do this before anything else)
    Put this code where Render builds it (replace src/, scripts/, index.html,
    seed.json, vite.config.ts, package.json — keep data/ as-is), commit/push.
    Render: install npm install, build npm run build, start node scripts/serve.mjs.
-   Confirm https://twocchurch-site.onrender.com/version.json shows {"notes":326}.
+   Confirm https://twocchurch-site.onrender.com/version.json shows {"notes":328}.
    Until it does, NOTHING below can work on the deployed site.
 
 LOCAL (your computer)
@@ -59,8 +56,8 @@ LOCAL (your computer)
    right back", logo + message only) — this update holds until blessed.
    A plain reload must show it; no hard refresh needed. The admin console
    (/admin) must NOT show it — it boots straight into the console.
-   (Coming from 324: same steps — backup in the old folder first, then a NEW
-   folder for 326, restore, publish. The restore carries all words across the
+   (Coming from 326: same steps — backup in the old folder first, then a NEW
+   folder for 328, restore, publish. The restore carries all words across the
    jump; the first publish also folds in anything newer on the live site.)
 6. Bring your words home: #/admin → Tools → Restore the backup file → review
    → Publish. BEFORE that Publish: set *Live stream* → **YouTube channel to
@@ -68,7 +65,7 @@ LOCAL (your computer)
    debugging channel otherwise. The Publish itself folds in anything newer on
    the live site (untouched sections follow live, your edits win, uploads
    come home), so there is no second step.
-   Local lifts to 326 and the notice releases. Reload desktop + phone
+   Local lifts to 328 and the notice releases. Reload desktop + phone
    width to verify (plain reloads).
 7. Live check (local): open /watch-live while the broadcast is running on
    the YouTube channel. The player must appear within seconds and the
@@ -89,12 +86,12 @@ LOCAL (your computer)
    between changes nothing.
 9. Check: reload again with no new update — the site stays on the last
    published (no notice, published words intact). Console check:
-   window.__maintState() shows publishedNotes 326.
+   window.__maintState() shows publishedNotes 328.
 
 LIVE (Render: twocchurch-site.onrender.com)
-1. Step 0 first (deploy + version.json reads 326). Then push the step-8
+1. Step 0 first (deploy + version.json reads 328). Then push the step-8
    content commit if you have not already (the bake must be from 322 or
-   newer — a bake stamped 325 or older still waits, by design). Render
+   newer — a bake stamped 327 or older still waits, by design). Render
    rebuilds on the push by itself.
 2. The live site now waits on the maintenance notice until the publish lands
    through the bake — verify with a PLAIN reload on desktop + phone width,
@@ -106,7 +103,7 @@ LIVE (Render: twocchurch-site.onrender.com)
 3. In live /admin: set the YouTube channel to exactly `@twocorg` (one "@" —
    this is the reset: it replaces the debugging channel with the church's
    own), then Review and publish → Publish (typing alone is a draft —
-   visitors never see it until published). Publish to bless 326.
+   visitors never see it until published). Publish to bless 328.
 4. Keep a signed-in office tab open (this admin console counts), then start
    the broadcast on the YouTube channel. Open the live /watch-live: the
    player must appear within seconds and the ticking clock must vanish with
