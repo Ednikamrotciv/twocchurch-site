@@ -1,26 +1,53 @@
-APPLY THIS UPDATE (365) — LOCAL + LIVE
+APPLY THIS UPDATE (367) — LOCAL + LIVE
 =====================================
-CLOSE EVERY TAB FIRST — the livestream is playing a stranger's video right
-now: the live box holds a LIVE report naming a 24/7 jazz stream ("Smooth
-Jazz & Soul R&B" by "small village" — nothing to do with @twocorg), written
-seconds ago by an office/admin tab still open somewhere (phone or computer)
-on old code that never asked whose video a suggestion was. Your published
-words are innocent (stream off, no video id) — all of the playing comes from
-that report. Close EVERY live/admin/office tab on ALL devices, wait 3 minutes
-(reports die 150 seconds after the reporter stops), reload /watch-live fresh:
-silence. THIS update then makes that class impossible (note 357 below) — but
-only a 365 office tab reports the new way, so reload every admin tab after
-deploying or a stale one keeps writing old answers.
-Measured on the live box first: it finally runs 345 (the code landed),
-but the bake is STILL empty (`{"rev":0,"notes":0,"sections":{},
-"hold":true}` — the repo's seed.json was never replaced), and the published
-words read notes 341 (behind the bundle — fresh visitors wait on the notice,
-correctly). This update is built from the office's own attached zip (update
-309 — verified byte-identical, every difference to 355 is exactly the shipped
-fix chain), outnumbers everything on the box, re-holds until you publish,
-and lands with @twocorg AND its previous livestreams ready (no reset tap,
-no retype, no blank photos) — with every take-off cleared and the slide
-uploads gone, only the welcome card left.
+You closed every tab and the old one STILL came back — measured on the live
+box: the report had gone stale (5+ minutes, nobody writing — the reporter
+really is closed), yet the screen kept playing. So the playing tab itself
+runs code older than the freshness check, or it latched the player while the
+report was fresh and never let go. THIS update ends that whole class at the
+one place no old tab can argue with — the server (note 367 below): from here
+on the box itself refuses to relay a dead or outdated answer to ANY version,
+so closing the tabs ends it within 3 minutes, permanently, and reopening an
+old tab later can never poison the site again. Step 0 is the same as ever —
+full replace (seed.json + .gitignore WITH the dot spelled out), push,
+rebuild, version.json must read 367 AND /seed.json must list sections —
+then close every tab once more, wait 3 minutes, open ONE fresh tab on the
+Render address (not the tunnel), and publish again (the last deploy reset
+the words to the bake, so the office must Review and publish).
+Measured on the live box first: bundle finally 365 (the code landed),
+/seed.json whole (7 sections, @twocorg, 15 recents), published words
+@twocorg/off/no-id — all innocent. Every second of playing comes from the
+stored office report (a 24/7 jazz stream by "Cottage Daily" this time —
+YouTube's own directory proves it is not @twocorg), written by a 341-code
+tab. After this update the box starves that report by itself.
+What changed (note 367):
+
+- FINAL solution to the stranger's video: the server now gates the relay.
+  Every bundle version — 341, 365, this one — reads the office report
+  through the same server door, so the door enforces what no old tab can be
+  trusted with: a stored answer is handed out only while it is fresh on the
+  SERVER clock (150 seconds from the moment it arrived — a closed tab's last
+  word dies here for every version at once, including versions whose own
+  code never checked), and only when its reporter runs the published update
+  or newer (the server knows that number — it is the newest update any
+  publish or adoption claimed — so a 341 tab's answers stop steering the
+  site the moment 367 is published, even while that tab sits open). A
+  gated-out answer is wiped from the store on read, not kept for later.
+  Before the first publish any fresh answer still flows, so the office can
+  prove a broadcast end to end on a new copy. Writes are unchanged
+  (signed-in office only, strict validation). Your own 367 office/live
+  reporter flows exactly as before — same target, same freshness — so a
+  real @twocorg broadcast still shows in seconds.
+- What this means for you: after 367 is deployed AND published, no sequence
+  of old tabs can ever put a foreign video on the site again. The only
+  thing an update can never do stays the same: close your own tabs and
+  reload the playing one (a player that already started keeps playing until
+  its tab goes — step 0 names the order: tabs, wait, fresh tab).
+- The pre-ship verifier's new section JJ locks all of it: the gate markers
+  plus live runs of the shipped rule (fresh flows, 5-minute-old dies,
+  pre-publish compat) and a live server round-trip (old-stamped report
+  blanked after a 367 publish, new-stamped report reads back whole).
+
 What changed (note 365):
 
 - The seed can never go missing again. Three locks: (1) the repo's own

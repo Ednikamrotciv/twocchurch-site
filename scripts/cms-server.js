@@ -381,6 +381,33 @@ var LOG = [];
    tab reports each definitive answer here and visitors read it back. A
    restart clears it and the office re-reports within a poll. */
 var LIVE_REPORT = null;
+var REPORT_RELAY_MS = 150_000;
+/* Server-side relay gate (note 367): the server is the one choke point every
+   bundle version reads through, so it enforces what no old tab can be trusted
+   with. A stored answer is relayed only while it is fresh on the SERVER clock
+   (a closed tab's last word dies here for every version at once — old bundles
+   without a freshness check can never play a dead report again) and only when
+   its reporter runs the published update or newer (NOTES is the newest update
+   any publish or adoption claimed; an outdated tab's answers — once a wrong
+   video id mid-service — never steer this site again, even while that tab is
+   still open). A gated-out answer is dropped from the store on read. Before
+   the first publish (NOTES 0) any fresh answer still flows, so the office can
+   prove a broadcast end to end on a new copy. */
+function reportRelayable(rep, floor, now) {
+  if (!rep || typeof rep !== "object") return false;
+  var at = Number(rep.at) || 0;
+  var notes = Math.floor(Number(rep.notes) || 0);
+  if (!(at > 0) || now - at > REPORT_RELAY_MS) return false;
+  if (floor > 0 && notes < floor) return false;
+  return true;
+}
+function gatedReport() {
+  if (!reportRelayable(LIVE_REPORT, NOTES, Date.now())) {
+    if (LIVE_REPORT) LIVE_REPORT = null;
+    return null;
+  }
+  return LIVE_REPORT;
+}
 /* The publish before this one: {at, rev, sections} — one undo, inside about
    15 minutes of the publish (note 291). A publish always deletes the one
    before it as the live words; this copy only lives long enough to take it
@@ -938,7 +965,7 @@ self.rpc = {
      stored — so a stale tab, a wrong channel or a forged video id can never
      put words on the visitors' screen. */
   liveReport: function (info, raw) {
-    if (!raw) return ok({ report: LIVE_REPORT });
+    if (!raw) return ok({ report: gatedReport() });
     if (!admins.has(info.conn.id)) return fail("denied");
     var rep;
     try {

@@ -24,7 +24,7 @@
    (note 330) locks the walled-but-on-air channel follow: the owner's id with
    a clear margin or nothing, chrome with no verifiable video plays the
    channel (never a guessed video, never off), the player embeds the running
-   broadcast, and the office report carries the channel id. Section T (note 332) locks the dead-video net (oEmbed verdict before play, fallback with a way out, gated autoplay), same-update office reports, the shipped maintenance hold, and the fresh @twocorg recents bake. Section U (note 334) locks the deployed update: the hold file deploys with git and step 0 lists every file (its Tools card retired in note 343 — the number lives in version.json + the console now). Section V (note 339) locks the deployed heal: the code outnumbers any mystery bundle, step 0 checks the bake's content, and the watched channel carries the reset recipe. Section W (note 341) locks the parity witness and the verified channel tap: the console tracks the live bake, and the channel tap plays a verified id or waits. Section X (note 343) locks the self-working publish (default live address, follow decision table, locked adopt door, player escape + re-ask, visible wakes, fresh @twocorg bake). Section Y (note 345) locks the one-tap @twocorg reset, the publish-time recents refresh, and the self-proving backup round-trip. Section Z (note 347) locks only-@twocorg shipping, the visitor's notice check, and the card staying gone. Section AA (note 349) locks the handle-only livestream: stamped answers, skipped foreign videos, dropped old endings, and the channel-wins screen. Section BB (note 351) locks the ready channel: a stored debugging handle boots to @twocorg with no stamp, a later edit survives, empty boots clean, and the untouched draft follows. Section CC (note 353) locks the ready recents: the restore heals the channel (announced, kept dirty), @twocorg resolves with no page read, and a failed bake never wipes. Section DD (note 355) re-locks the four retained behaviors on the rebuilt tree: automatic publish on local, perfect livestream, sleep-free Render, blank-free local backups. Section EE (note 357) locks the designated-channel gate: @twocorg's baked id, candidate provenance, the gated channel follow, videoless reports never opening the player, office-only verified ids, and the designated-only screen and tap. Section FF (note 359) locks the clean recents and slides: foreign-channel caches dropped on read, stored take-offs cleared once, the lone welcome card replanted once, drafts healed, later edits never touched. Section GG (note 361) locks the override: the per-update stamp, the full clear, the draft + browser follow, and the same-update silence. Section HH (note 363) locks the last-service fallback: the 15 @twocorg services in code, the three empty-cache doors, the same-origin read, and the proven-foreign jazz report named. Section II (note 365) locks the seed that cannot go missing: the repo-seed fallback, the red build on an empty bake, the recents riding every re-bake, and the force-tracked seed. Run this
+   broadcast, and the office report carries the channel id. Section T (note 332) locks the dead-video net (oEmbed verdict before play, fallback with a way out, gated autoplay), same-update office reports, the shipped maintenance hold, and the fresh @twocorg recents bake. Section U (note 334) locks the deployed update: the hold file deploys with git and step 0 lists every file (its Tools card retired in note 343 — the number lives in version.json + the console now). Section V (note 339) locks the deployed heal: the code outnumbers any mystery bundle, step 0 checks the bake's content, and the watched channel carries the reset recipe. Section W (note 341) locks the parity witness and the verified channel tap: the console tracks the live bake, and the channel tap plays a verified id or waits. Section X (note 343) locks the self-working publish (default live address, follow decision table, locked adopt door, player escape + re-ask, visible wakes, fresh @twocorg bake). Section Y (note 345) locks the one-tap @twocorg reset, the publish-time recents refresh, and the self-proving backup round-trip. Section Z (note 347) locks only-@twocorg shipping, the visitor's notice check, and the card staying gone. Section AA (note 349) locks the handle-only livestream: stamped answers, skipped foreign videos, dropped old endings, and the channel-wins screen. Section BB (note 351) locks the ready channel: a stored debugging handle boots to @twocorg with no stamp, a later edit survives, empty boots clean, and the untouched draft follows. Section CC (note 353) locks the ready recents: the restore heals the channel (announced, kept dirty), @twocorg resolves with no page read, and a failed bake never wipes. Section DD (note 355) re-locks the four retained behaviors on the rebuilt tree: automatic publish on local, perfect livestream, sleep-free Render, blank-free local backups. Section EE (note 357) locks the designated-channel gate: @twocorg's baked id, candidate provenance, the gated channel follow, videoless reports never opening the player, office-only verified ids, and the designated-only screen and tap. Section FF (note 359) locks the clean recents and slides: foreign-channel caches dropped on read, stored take-offs cleared once, the lone welcome card replanted once, drafts healed, later edits never touched. Section GG (note 361) locks the override: the per-update stamp, the full clear, the draft + browser follow, and the same-update silence. Section HH (note 363) locks the last-service fallback: the 15 @twocorg services in code, the three empty-cache doors, the same-origin read, and the proven-foreign jazz report named. Section II (note 365) locks the seed that cannot go missing: the repo-seed fallback, the red build on an empty bake, the recents riding every re-bake, and the force-tracked seed. Section JJ (note 367) locks the server-side relay gate: fresh on the server clock, reporter at the published update or newer, wiped when gated out. Run this
    before EVERY update zip — a single FAIL blocks the
    ship, no exceptions.
    RUN (paste the two lines into an execute_js call):
@@ -409,7 +409,7 @@ export async function runAll(fs) {
      fresh report for the same target instead of the scrape. */
   const srvLive = text["scripts/cms-server.js"];
   ok("report store exists", has(srvLive, "var LIVE_REPORT = null;"), "the server must hold the latest office answer");
-  ok("report reads public", has(srvLive, "if (!raw) return ok({ report: LIVE_REPORT });"), "visitors ask every check, no session needed");
+  ok("report reads public through the gate", has(srvLive, "if (!raw) return ok({ report: gatedReport() });"), "visitors ask every check, no session needed — the server relays only a fresh, current answer");
   ok("report writes take admin", has(srvLive, "liveReport: function (info, raw)") && has(srvLive, 'if (!admins.has(info.conn.id)) return fail("denied");'), "only the signed-in office may report");
   ok("report validates strictly", has(srvLive, 'return fail("bad-report");') && has(srvLive, "LIVE_REPORT = { target:") && has(srvLive, "now - checkedAt > 10 * 60 * 1000"), "stale tabs, wrong channels and forged ids must never reach the screen");
   ok("visitors ask the office first", has(live, "fetchLiveReport()") && has(live, "officeHit") && has(live, "officeRep.target === target.url"), "a fresh office answer must win over the scrape");
@@ -1268,6 +1268,42 @@ export async function runAll(fs) {
     ok("newest recents carried", gII.pickRecent({ items: [{ videoId: "A" }], at: 3 }, { items: [{ videoId: "B" }], at: 7 })?.items[0].videoId === "B" && gII.pickRecent({ items: [] }, null) === null, "the newest list rides, nothing invents one");
   } catch (e) {
     ok("guard suite", false, String((e && e.message) || e).slice(0, 200));
+  }
+  /* JJ. the server gates the relay (note 367): a closed tab's last word
+     dies on the server for every version at once, and an outdated tab's
+     answers stop steering the site the moment the new update is published. */
+  const srvJJ = text["scripts/cms-server.js"];
+  ok("relay gate exists", has(srvJJ, "function gatedReport()") && has(srvJJ, "function reportRelayable(rep, floor, now)") && has(srvJJ, "REPORT_RELAY_MS = 150_000"), "the read path must relay through the gate");
+  ok("relay checks server age", has(srvJJ, "now - at > REPORT_RELAY_MS"), "freshness must use the arrival stamp, never the reporter's clock");
+  ok("relay checks the update", has(srvJJ, "floor > 0 && notes < floor"), "an outdated tab must go silent once the new update publishes");
+  ok("gated answers wiped", has(srvJJ, "if (LIVE_REPORT) LIVE_REPORT = null;"), "a dead answer must not wait in the store for later");
+  try {
+    const fnJJ = new Function("rep,floor,now,ms", "var REPORT_RELAY_MS = ms;\n" + srvJJ.slice(srvJJ.indexOf("function reportRelayable"), srvJJ.indexOf("function gatedReport")) + "\nreturn reportRelayable(rep, floor, now);");
+    ok("fresh flows pre-publish", fnJJ({ at: Date.now(), notes: 341 }, 0, Date.now(), 150000) === true, "before the first publish any fresh answer still relays");
+    ok("stale dies", fnJJ({ at: Date.now() - 151000, notes: 367 }, 367, Date.now(), 150000) === false, "a 5-minute-old answer relays to no version");
+    ok("outdated dies", fnJJ({ at: Date.now(), notes: 341 }, 367, Date.now(), 150000) === false, "the 341 jazz report goes silent once 367 publishes");
+    ok("current flows", fnJJ({ at: Date.now(), notes: 367 }, 367, Date.now(), 150000) === true, "the office's own 367 answer still relays");
+    ok("nothing relays null", fnJJ(null, 367, Date.now(), 150000) === false, "no report must never become a report");
+  } catch (e) {
+    ok("relay suite", false, String((e && e.message) || e).slice(0, 200));
+  }
+  try {
+    const connJJ = { id: "t", net: ["local", 0, 0], subscribe() {}, topics: new Set() };
+    const openJJ = stubAuth(srvJJ.replace('if (!admins.has(info.conn.id)) return fail("denied");', 'if (false) return fail("denied");'));
+    const rpcJJ = loadVm(openJJ, new Uint8Array(8 * 1024 * 1024));
+    const wJJ = (payload) => JSON.parse(rpcJJ.liveReport({ conn: connJJ }, JSON.stringify(payload)));
+    const rJJ = () => JSON.parse(rpcJJ.liveReport({ conn: connJJ }, ""));
+    const repJJ = (notes) => ({ target: "https://www.youtube.com/@twocorg/live", state: "live", videoId: "xIH3-U6pG0M", title: "jazz", checkedAt: Date.now(), notes });
+    wJJ(repJJ(341));
+    ok("old answer relays pre-publish", rJJ().report && rJJ().report.videoId === "xIH3-U6pG0M", "before the publish nothing changes");
+    const pJJ = JSON.parse(rpcJJ.publish({ conn: connJJ }, JSON.stringify({ sections: { live: JSON.stringify({ youtubeChannel: "@twocorg" }) }, by: "office", changed: ["live"], notes: 367, first: true })));
+    ok("367 publishes", pJJ.ok === true, "pub=" + JSON.stringify(pJJ).slice(0, 120));
+    const afterJJ = rJJ();
+    ok("old answer dies on publish", afterJJ.ok === true && afterJJ.report === null, "the outdated tab is cut off the moment 367 publishes");
+    wJJ(repJJ(367));
+    ok("new answer flows", rJJ().report && rJJ().report.videoId === "xIH3-U6pG0M", "the current office still reports");
+  } catch (e) {
+    ok("relay round-trip", false, String((e && e.message) || e).slice(0, 200));
   }
   const notes = Number((text["src/lib/hooks.ts"].match(/BUILD_NOTES = (\d+)/) || [])[1]) || 0;
   const apply = text["APPLY_UPDATE.txt"];
