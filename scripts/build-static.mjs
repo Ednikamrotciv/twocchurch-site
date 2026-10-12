@@ -25,6 +25,11 @@ await mkdir(OUT, { recursive: true });
 try {
   await bakeSeed(ROOT, path.join(OUT, "seed.json"));
 } catch (err) {
+  /* An empty bake is a red build, never a silent shell (note 365). */
+  if (err && err.code === "EMPTY_BAKE") {
+    console.error("BUILD FAILED: " + err.message);
+    process.exit(1);
+  }
   console.warn("seed not re-baked:", err?.message || err);
 }
 

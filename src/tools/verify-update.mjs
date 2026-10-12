@@ -24,7 +24,7 @@
    (note 330) locks the walled-but-on-air channel follow: the owner's id with
    a clear margin or nothing, chrome with no verifiable video plays the
    channel (never a guessed video, never off), the player embeds the running
-   broadcast, and the office report carries the channel id. Section T (note 332) locks the dead-video net (oEmbed verdict before play, fallback with a way out, gated autoplay), same-update office reports, the shipped maintenance hold, and the fresh @twocorg recents bake. Section U (note 334) locks the deployed update: the hold file deploys with git and step 0 lists every file (its Tools card retired in note 343 — the number lives in version.json + the console now). Section V (note 339) locks the deployed heal: the code outnumbers any mystery bundle, step 0 checks the bake's content, and the watched channel carries the reset recipe. Section W (note 341) locks the parity witness and the verified channel tap: the console tracks the live bake, and the channel tap plays a verified id or waits. Section X (note 343) locks the self-working publish (default live address, follow decision table, locked adopt door, player escape + re-ask, visible wakes, fresh @twocorg bake). Section Y (note 345) locks the one-tap @twocorg reset, the publish-time recents refresh, and the self-proving backup round-trip. Section Z (note 347) locks only-@twocorg shipping, the visitor's notice check, and the card staying gone. Section AA (note 349) locks the handle-only livestream: stamped answers, skipped foreign videos, dropped old endings, and the channel-wins screen. Section BB (note 351) locks the ready channel: a stored debugging handle boots to @twocorg with no stamp, a later edit survives, empty boots clean, and the untouched draft follows. Section CC (note 353) locks the ready recents: the restore heals the channel (announced, kept dirty), @twocorg resolves with no page read, and a failed bake never wipes. Section DD (note 355) re-locks the four retained behaviors on the rebuilt tree: automatic publish on local, perfect livestream, sleep-free Render, blank-free local backups. Section EE (note 357) locks the designated-channel gate: @twocorg's baked id, candidate provenance, the gated channel follow, videoless reports never opening the player, office-only verified ids, and the designated-only screen and tap. Section FF (note 359) locks the clean recents and slides: foreign-channel caches dropped on read, stored take-offs cleared once, the lone welcome card replanted once, drafts healed, later edits never touched. Section GG (note 361) locks the override: the per-update stamp, the full clear, the draft + browser follow, and the same-update silence. Section HH (note 363) locks the last-service fallback: the 15 @twocorg services in code, the three empty-cache doors, the same-origin read, and the proven-foreign jazz report named. Run this
+   broadcast, and the office report carries the channel id. Section T (note 332) locks the dead-video net (oEmbed verdict before play, fallback with a way out, gated autoplay), same-update office reports, the shipped maintenance hold, and the fresh @twocorg recents bake. Section U (note 334) locks the deployed update: the hold file deploys with git and step 0 lists every file (its Tools card retired in note 343 — the number lives in version.json + the console now). Section V (note 339) locks the deployed heal: the code outnumbers any mystery bundle, step 0 checks the bake's content, and the watched channel carries the reset recipe. Section W (note 341) locks the parity witness and the verified channel tap: the console tracks the live bake, and the channel tap plays a verified id or waits. Section X (note 343) locks the self-working publish (default live address, follow decision table, locked adopt door, player escape + re-ask, visible wakes, fresh @twocorg bake). Section Y (note 345) locks the one-tap @twocorg reset, the publish-time recents refresh, and the self-proving backup round-trip. Section Z (note 347) locks only-@twocorg shipping, the visitor's notice check, and the card staying gone. Section AA (note 349) locks the handle-only livestream: stamped answers, skipped foreign videos, dropped old endings, and the channel-wins screen. Section BB (note 351) locks the ready channel: a stored debugging handle boots to @twocorg with no stamp, a later edit survives, empty boots clean, and the untouched draft follows. Section CC (note 353) locks the ready recents: the restore heals the channel (announced, kept dirty), @twocorg resolves with no page read, and a failed bake never wipes. Section DD (note 355) re-locks the four retained behaviors on the rebuilt tree: automatic publish on local, perfect livestream, sleep-free Render, blank-free local backups. Section EE (note 357) locks the designated-channel gate: @twocorg's baked id, candidate provenance, the gated channel follow, videoless reports never opening the player, office-only verified ids, and the designated-only screen and tap. Section FF (note 359) locks the clean recents and slides: foreign-channel caches dropped on read, stored take-offs cleared once, the lone welcome card replanted once, drafts healed, later edits never touched. Section GG (note 361) locks the override: the per-update stamp, the full clear, the draft + browser follow, and the same-update silence. Section HH (note 363) locks the last-service fallback: the 15 @twocorg services in code, the three empty-cache doors, the same-origin read, and the proven-foreign jazz report named. Section II (note 365) locks the seed that cannot go missing: the repo-seed fallback, the red build on an empty bake, the recents riding every re-bake, and the force-tracked seed. Run this
    before EVERY update zip — a single FAIL blocks the
    ship, no exceptions.
    RUN (paste the two lines into an execute_js call):
@@ -61,6 +61,7 @@ const FILES = [
   ["scripts/bake-recent.mjs", "js"],
   ["scripts/auto-push.mjs", "js"],
   ["scripts/live-follow.mjs", "js"],
+  ["scripts/seed-guard.mjs", "js"],
   ["scripts/cms-local.mjs", "js"],
   ["index.html", null],
   ["src/styles/admin.css", null],
@@ -1237,6 +1238,36 @@ export async function runAll(fs) {
     ok("no designation, no fallback", nodes.readRecentServices().items.length === 0 && nodes.designatedFallback().items.length === 0, "anywhere else answers empty as before");
   } catch (e) {
     ok("fallback suite", false, String((e && e.message) || e).slice(0, 200));
+  }
+  /* II. the seed cannot go missing (note 365): the repo seed backs
+     the bake, an empty bake fails the build out loud, recents ride every
+     re-bake, and git force-tracks the seed. */
+  const bakeII = text["scripts/bake-seed.mjs"];
+  const statII = text["scripts/build-static.mjs"];
+  const giII = text[".gitignore"];
+  const applyII = text["APPLY_UPDATE.txt"];
+  ok("guard wired", has(bakeII, 'from "./seed-guard.mjs"') && has(bakeII, "pickBakeSource(") && has(bakeII, "pickRecent("), "the bake must decide through the pure guard");
+  ok("repo seed fallback", has(bakeII, "shipping repo seed.json") && has(bakeII, "target !== rootSeedPath"), "a backend-less build must ship the repo seed whole");
+  ok("empty bake throws", has(bakeII, 'code = "EMPTY_BAKE"') && has(bakeII, "refusing to ship an empty bake"), "nowhere holding words must fail loud");
+  ok("red build", has(statII, 'err.code === "EMPTY_BAKE"') && has(statII, "process.exit(1)"), "Render must go red, never deploy a silent shell");
+  ok("recents ride along", has(bakeII, "carried = pickRecent(") && has(bakeII, "recent: fresh"), "a re-bake must never drop the previous livestreams");
+  ok("seed force-tracked", has(giII, "!seed.json"), "no *.json rule may hide the seed again");
+  ok("step zero lists dotfile", has(applyII, "maintenance-hold.txt and .gitignore"), "manual copies skip hidden files unless named");
+  try {
+    const ebII = await import("https://esm.sh/esbuild-wasm@0.21.5?bundle");
+    try { await ebII.default.initialize({ wasmURL: "https://esm.sh/esbuild-wasm@0.21.5/esbuild.wasm" }); } catch {}
+    const tcII = await ebII.default.transform(text["scripts/seed-guard.mjs"], { loader: "js", format: "cjs" });
+    const modII = { exports: {} };
+    new Function("module", "exports", "require", tcII.code)(modII, modII.exports, () => ({}));
+    const gII = modII.exports;
+    const full = { sections: { live: {}, slides: [] }, recent: { items: [{ videoId: "AAAAAAAAAAA" }], at: 9, channelId: "UCQ0KIUXUV7gTZmDDlvd3ZcQ" } };
+    ok("backend wins", gII.pickBakeSource({ backend: full, targetPrev: full, rootSeed: full }).kind === "backend", "a live backend bakes fresh words");
+    ok("target kept", gII.pickBakeSource({ backend: { sections: {} }, targetPrev: full, rootSeed: full }).kind === "target", "an empty backend keeps the file at the target");
+    ok("repo shipped", gII.pickBakeSource({ backend: null, targetPrev: { sections: {} }, rootSeed: full }).kind === "root", "a backend-less build ships the repo seed");
+    ok("empty refused", gII.pickBakeSource({ backend: null, targetPrev: null, rootSeed: { sections: {} } }).kind === "empty", "nowhere holding words must refuse");
+    ok("newest recents carried", gII.pickRecent({ items: [{ videoId: "A" }], at: 3 }, { items: [{ videoId: "B" }], at: 7 })?.items[0].videoId === "B" && gII.pickRecent({ items: [] }, null) === null, "the newest list rides, nothing invents one");
+  } catch (e) {
+    ok("guard suite", false, String((e && e.message) || e).slice(0, 200));
   }
   const notes = Number((text["src/lib/hooks.ts"].match(/BUILD_NOTES = (\d+)/) || [])[1]) || 0;
   const apply = text["APPLY_UPDATE.txt"];

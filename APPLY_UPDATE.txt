@@ -1,4 +1,4 @@
-APPLY THIS UPDATE (363) — LOCAL + LIVE
+APPLY THIS UPDATE (365) — LOCAL + LIVE
 =====================================
 CLOSE EVERY TAB FIRST — the livestream is playing a stranger's video right
 now: the live box holds a LIVE report naming a 24/7 jazz stream ("Smooth
@@ -9,7 +9,7 @@ words are innocent (stream off, no video id) — all of the playing comes from
 that report. Close EVERY live/admin/office tab on ALL devices, wait 3 minutes
 (reports die 150 seconds after the reporter stops), reload /watch-live fresh:
 silence. THIS update then makes that class impossible (note 357 below) — but
-only a 363 office tab reports the new way, so reload every admin tab after
+only a 365 office tab reports the new way, so reload every admin tab after
 deploying or a stale one keeps writing old answers.
 Measured on the live box first: it finally runs 345 (the code landed),
 but the bake is STILL empty (`{"rev":0,"notes":0,"sections":{},
@@ -21,6 +21,25 @@ fix chain), outnumbers everything on the box, re-holds until you publish,
 and lands with @twocorg AND its previous livestreams ready (no reset tap,
 no retype, no blank photos) — with every take-off cleared and the slide
 uploads gone, only the welcome card left.
+What changed (note 365):
+
+- The seed can never go missing again. Three locks: (1) the repo's own
+  seed.json is now the bake's fallback — a build farm has no backend, so an
+  empty backend ships the repo seed whole (words, recents, stamp) instead of
+  an empty shell; (2) an empty bake is a RED build, never a silent shell —
+  with nowhere holding words the build fails out loud ("refusing to ship an
+  empty bake — copy seed.json from the update zip"), so Render can never
+  again deploy 0 sections while the log looks fine; (3) the recents ride
+  every re-bake — the newest list on disk is carried into the bake and the
+  refreshed list is copied into dist too, so a re-bake never drops the
+  previous livestreams. Plus `.gitignore` now force-tracks seed.json (the
+  `!seed.json` negation beats any `*.json` rule), and step 0 lists the
+  dotfile WITH its dot spelled out — hidden files are the ones manual
+  copies skip.
+- The pre-ship verifier's new section II locks all of it, including live
+  runs of the pure guard (backend wins, target kept, repo shipped, empty
+  refused, newest recents carried).
+
 What changed (note 363):
 
 - The box told the truth this time (measured, not guessed): it still runs
@@ -223,11 +242,11 @@ What changed (note 349):
   restores: back up from the copy that HOLDS the files (if you uploaded on
   live/admin, back up on live/admin), and publish before backing up.
 - DEPLOY CHECK FIRST: confirm the Render build finished and version.json
-  reads 363 after this one. Until it does, NOTHING below can work live.
+  reads 365 after this one. Until it does, NOTHING below can work live.
 - Unchanged and still locked: everything from 357 (designated-channel gate),
   355 (rebuilt base, every fix retained), 353 (ready recents),
   351 (ready channel at boot),
-  361 (override: every old clears), 359 (clean recents + welcome slides), 349 (handle-only livestream), 347 (only-@twocorg shipping, visitor's notice check, card stays gone), 345 (one-tap reset,
+  365 (seed never missing), 363 (last-service fallback), 361 (override: every old clears), 359 (clean recents + welcome slides), 349 (handle-only livestream), 347 (only-@twocorg shipping, visitor's notice check, card stays gone), 345 (one-tap reset,
   publish-time recents, self-proving backups), 343 (live follow with no
   setup, no Tools card, player escape + re-ask, cold-start line, keep-awake
   recipe), 341 (live-bake watchdog, verified channel tap), 339 (mystery
@@ -258,18 +277,21 @@ What changed (note 349):
   (363): the 15 @twocorg services in code, the three empty-cache doors,
   the same-origin read, and the proven-foreign jazz report named — one FAIL
   blocks the ship.
+- The pre-ship verifier's new section II locks the seed that cannot go missing
+  (365): the repo-seed fallback, the red build on an empty bake, the recents riding every
+  re-bake, and the force-tracked seed — one FAIL blocks the ship.
 
 0. CLOSE TABS, THEN DEPLOY (a poisoned report is live — tabs first, code second)
    Put this code where Render builds it (replace src/, scripts/, index.html,
-   seed.json, vite.config.ts, package.json and maintenance-hold.txt — keep
+   seed.json, vite.config.ts, package.json, maintenance-hold.txt and .gitignore (dotfiles too — hidden files are skipped by manual copies) — keep
    data/ as-is), commit/push. Render: install npm install, build
    npm run build, start node scripts/serve.mjs. The Render build log must
-   say "maintenance hold on". Then prove the poisoned reporter is dead with one call (empty body POST):
+   say "maintenance hold on" (and must NOT end red on "refusing to ship an empty bake" — that means seed.json never arrived: copy it in, commit, rebuild; never deploy around a red build). Then prove the poisoned reporter is dead with one call (empty body POST):
     https://twocchurch-site.onrender.com/__cms/liveReport?conn=check — the answer must read
     no report, or a report older than 3 minutes, before you trust the Watch page. A fresh
     LIVE jazz report means a tab is still open somewhere: find it, close it, wait again.
     Confirm
-   https://twocchurch-site.onrender.com/version.json shows {"notes":363}.
+   https://twocchurch-site.onrender.com/version.json shows {"notes":365}.
    A 345 there means the push never rebuilt; replace ALL the files again.
    Then open https://twocchurch-site.onrender.com/seed.json: it must list
    sections and recent items — `"sections":{}` means the repo's seed.json
@@ -314,7 +336,7 @@ LOCAL (your computer)
    stream console's *Recent services* card: the channel already reads
    @twocorg — no reset tap. Only if it offers "Reset to @twocorg" anyway
    (a draft saved mid-edit, or a later drift), tap it — then Review and
-   publish → Publish. Local lifts to 363 and the notice releases. Reload
+   publish → Publish. Local lifts to 365 and the notice releases. Reload
    desktop + phone width to verify (plain reloads): Watch shows the player
    (or ended screen), Recent services shows @twocorg services, photos/videos
    all visible.
@@ -331,13 +353,13 @@ LOCAL (your computer)
    last published, and a sleep in between changes nothing.
 9. Check: reload again with no new update — the site stays on the last
    published (no notice, published words intact). Console check:
-   window.__maintState() shows publishedNotes 363.
+   window.__maintState() shows publishedNotes 365.
 
 LIVE (Render: twocchurch-site.onrender.com)
-1. Step 0 first (deploy + version.json reads 363 + /seed.json lists sections
+1. Step 0 first (deploy + version.json reads 365 + /seed.json lists sections
    and recents). Then push the step-8 content commit if you have not already
    (the bake must be from 363 or newer). Render rebuilds on the push by
-   itself. Then open the live /seed.json again: notes must read 363.
+   itself. Then open the live /seed.json again: notes must read 365.
 2. The live site waits on the maintenance notice until the publish lands
    through the bake — verify with a PLAIN reload on desktop + phone width,
    uploads/photos/videos showing. The live admin console stays clear
@@ -345,9 +367,9 @@ LIVE (Render: twocchurch-site.onrender.com)
 3. In live /admin, open the Live stream console's *Recent services* card: the
    channel already reads @twocorg (this boot moved it). Only if it offers
    "Reset to @twocorg" anyway, tap it — then Review and publish →
-   Publish (typing alone is a draft). Publish to bless 363. Afterwards
-   confirm on the live site itself: version.json reads 363, /seed.json
-   carries 363 words with recent items, and Recent services shows @twocorg
+   Publish (typing alone is a draft). Publish to bless 365. Afterwards
+   confirm on the live site itself: version.json reads 365, /seed.json
+   carries 365 words with recent items, and Recent services shows @twocorg
    services (the shipped bake shows them meanwhile; the publish refreshes
    them from the channel within minutes).
 4. Keep a signed-in office tab open (this admin console counts), then start
