@@ -24,7 +24,7 @@
    (note 330) locks the walled-but-on-air channel follow: the owner's id with
    a clear margin or nothing, chrome with no verifiable video plays the
    channel (never a guessed video, never off), the player embeds the running
-   broadcast, and the office report carries the channel id. Section T (note 332) locks the dead-video net (oEmbed verdict before play, fallback with a way out, gated autoplay), same-update office reports, the shipped maintenance hold, and the fresh @twocorg recents bake. Section U (note 334) locks the deployed update: the hold file deploys with git and step 0 lists every file (its Tools card retired in note 343 — the number lives in version.json + the console now). Section V (note 339) locks the deployed heal: the code outnumbers any mystery bundle, step 0 checks the bake's content, and the watched channel carries the reset recipe. Section W (note 341) locks the parity witness and the verified channel tap: the console tracks the live bake, and the channel tap plays a verified id or waits. Section X (note 343) locks the self-working publish (default live address, follow decision table, locked adopt door, player escape + re-ask, visible wakes, fresh @twocorg bake). Section Y (note 345) locks the one-tap @twocorg reset, the publish-time recents refresh, and the self-proving backup round-trip. Section Z (note 347) locks only-@twocorg shipping, the visitor's notice check, and the card staying gone. Section AA (note 349) locks the handle-only livestream: stamped answers, skipped foreign videos, dropped old endings, and the channel-wins screen. Section BB (note 351) locks the ready channel: a stored debugging handle boots to @twocorg with no stamp, a later edit survives, empty boots clean, and the untouched draft follows. Section CC (note 353) locks the ready recents: the restore heals the channel (announced, kept dirty), @twocorg resolves with no page read, and a failed bake never wipes. Section DD (note 355) re-locks the four retained behaviors on the rebuilt tree: automatic publish on local, perfect livestream, sleep-free Render, blank-free local backups. Section EE (note 357) locks the designated-channel gate: @twocorg's baked id, candidate provenance, the gated channel follow, videoless reports never opening the player, office-only verified ids, and the designated-only screen and tap. Section FF (note 359) locks the clean recents and slides: foreign-channel caches dropped on read, stored take-offs cleared once, the lone welcome card replanted once, drafts healed, later edits never touched. Section GG (note 361) locks the override: the per-update stamp, the full clear, the draft + browser follow, and the same-update silence. Run this
+   broadcast, and the office report carries the channel id. Section T (note 332) locks the dead-video net (oEmbed verdict before play, fallback with a way out, gated autoplay), same-update office reports, the shipped maintenance hold, and the fresh @twocorg recents bake. Section U (note 334) locks the deployed update: the hold file deploys with git and step 0 lists every file (its Tools card retired in note 343 — the number lives in version.json + the console now). Section V (note 339) locks the deployed heal: the code outnumbers any mystery bundle, step 0 checks the bake's content, and the watched channel carries the reset recipe. Section W (note 341) locks the parity witness and the verified channel tap: the console tracks the live bake, and the channel tap plays a verified id or waits. Section X (note 343) locks the self-working publish (default live address, follow decision table, locked adopt door, player escape + re-ask, visible wakes, fresh @twocorg bake). Section Y (note 345) locks the one-tap @twocorg reset, the publish-time recents refresh, and the self-proving backup round-trip. Section Z (note 347) locks only-@twocorg shipping, the visitor's notice check, and the card staying gone. Section AA (note 349) locks the handle-only livestream: stamped answers, skipped foreign videos, dropped old endings, and the channel-wins screen. Section BB (note 351) locks the ready channel: a stored debugging handle boots to @twocorg with no stamp, a later edit survives, empty boots clean, and the untouched draft follows. Section CC (note 353) locks the ready recents: the restore heals the channel (announced, kept dirty), @twocorg resolves with no page read, and a failed bake never wipes. Section DD (note 355) re-locks the four retained behaviors on the rebuilt tree: automatic publish on local, perfect livestream, sleep-free Render, blank-free local backups. Section EE (note 357) locks the designated-channel gate: @twocorg's baked id, candidate provenance, the gated channel follow, videoless reports never opening the player, office-only verified ids, and the designated-only screen and tap. Section FF (note 359) locks the clean recents and slides: foreign-channel caches dropped on read, stored take-offs cleared once, the lone welcome card replanted once, drafts healed, later edits never touched. Section GG (note 361) locks the override: the per-update stamp, the full clear, the draft + browser follow, and the same-update silence. Section HH (note 363) locks the last-service fallback: the 15 @twocorg services in code, the three empty-cache doors, the same-origin read, and the proven-foreign jazz report named. Run this
    before EVERY update zip — a single FAIL blocks the
    ship, no exceptions.
    RUN (paste the two lines into an execute_js call):
@@ -1051,7 +1051,7 @@ export async function runAll(fs) {
   const srvFF = text["scripts/cms-server.js"];
   const cmsFF = text["src/lib/cms.ts"];
   const applyFF = text["APPLY_UPDATE.txt"];
-  ok("foreign caches read empty", has(rsFF, "cachedChannelId !== designated) return { ...EMPTY }") && has(rsFF, "designatedChannelId()"), "a list saved for another channel must be dropped, never merged");
+  ok("foreign caches read empty", has(rsFF, "cachedChannelId !== designated) return designatedFallback();") && has(rsFF, "designatedChannelId()"), "a list saved for another channel must fall to the @twocorg fallback, never merged");
   ok("take-offs cleared once", has(srvFF, "MEDIA_CLEAN") && has(srvFF, "live359.hiddenReplays = []") && has(srvFF, "mediaClean: MEDIA_CLEAN"), "stored take-offs must go on first boot, later ones never touched");
   ok("welcome replanted once", has(srvFF, "WELCOME_SLIDE_359") && has(srvFF, 'String(slides359[0].id || "") === "welcome-home"'), "any stored slides but the lone welcome card must become it");
   ok("absent slides stay absent", has(srvFF, 'if (typeof SECTIONS.slides === "string")'), "a store with no slides keeps none — the fallback already shows welcome");
@@ -1079,7 +1079,7 @@ export async function runAll(fs) {
     const modFF = { exports: {} };
     new Function("module", "exports", "require", tcFF.code)(modFF, modFF.exports, stubFF);
     cacheFF["wom.recentstreams"] = { items: [{ videoId: "AAAAAAAAAAA", title: "Debug service", at: 5, ago: "", thumb: "", seeded: 0 }], at: 5, channelId: OTHER };
-    ok("foreign cache dropped", modFF.exports.readRecentServices().items.length === 0, "debugging videos must not survive the read");
+    ok("foreign cache dropped", modFF.exports.readRecentServices().items[0].videoId === "s4bLaGUNet4", "debugging videos must not survive the read");
     cacheFF["wom.recentstreams"] = { items: [{ videoId: "AAAAAAAAAAA", title: "Sunday service", at: 5, ago: "", thumb: "", seeded: 0 }], at: 5, channelId: OWNER };
     ok("own cache kept", modFF.exports.readRecentServices().items.length === 1, "@twocorg's list must stay");
     cacheFF["wom.recentstreams"] = { items: [{ videoId: "BBBBBBBBBBB", title: "Today's service", at: 0, ago: "", thumb: "", seeded: Date.now() }], at: 5, channelId: "" };
@@ -1194,6 +1194,49 @@ export async function runAll(fs) {
     ok("later edits survive reboot", secGG2.live.hiddenReplays.length === 1 && secGG2.slides.length === 1 && secGG2.slides[0].id === "easter", "got " + secGG2.slides[0].id);
   } catch (e) {
     ok("override suite", false, String((e && e.message) || e).slice(0, 200));
+  }
+  /* HH. the last previous livestream stands in (note 363): the 15
+     @twocorg services ship in the code for dead-proxy days, three cache doors
+     fall to them, deployed visitors read through their own host, and the stuck
+     jazz report is named so the office can prove it dead. */
+  const rsHH = text["src/lib/recentstreams.ts"];
+  const applyHH = text["APPLY_UPDATE.txt"];
+  ok("fallback ships in code", has(rsHH, "DESIGNATED_FALLBACK_ITEMS") && has(rsHH, "export function designatedFallback()"), "the previous services must survive an empty bake + dead proxies");
+  ok("fallback is the last service first", rsHH.indexOf("s4bLaGUNet4") > 0 && rsHH.indexOf("s4bLaGUNet4") < rsHH.indexOf("aT5IeCtJHFw"), "SUNDAY SERVICE, 11TH OCT. 2026 must lead");
+  ok("three cache doors", has(rsHH, "if (!cached || !Array.isArray(cached.items)) return designatedFallback();") && has(rsHH, "cachedChannelId !== designated) return designatedFallback();") && has(rsHH, "if (!items.length) return designatedFallback();"), "empty, foreign and thin caches must all fall back");
+  ok("same-origin read", has(rsHH, "fetchTextSameOrigin") && has(rsHH, "const sameOrigin = await fetchTextSameOrigin(url);") && !has(rsHH, "fetchTextLocal"), "deployed visitors must read through their own host");
+  ok("jazz named", has(applyHH, "zJvgsAhpNlo") && has(applyHH, "small\n  village"), "the office must know exactly which video is poison");
+  try {
+    const ebHH = await import("https://esm.sh/esbuild-wasm@0.21.5?bundle");
+    try { await ebHH.default.initialize({ wasmURL: "https://esm.sh/esbuild-wasm@0.21.5/esbuild.wasm" }); } catch {}
+    const tcHH = await ebHH.default.transform(rsHH, { loader: "ts", format: "cjs" });
+    const OWNER = "UCQ0KIUXUV7gTZmDDlvd3ZcQ";
+    const OTHER = "UCxxxxxxxxxxxxxxxxxxxxxx";
+    const runHH = (store, designated) => {
+      const stub = (id) => {
+        if (id === "react") return { useEffect: () => {}, useState: (v) => [v, () => {}], useRef: (v) => ({ current: v }), useSyncExternalStore: () => ({}) };
+        if (id === "./hooks") return { readStore: (k, fb) => (k in store ? store[k] : fb), writeStore: (k, v) => { store[k] = v; } };
+        if (id === "./embed") return { parseYoutubeId: (u) => /([\w-]{11})/.exec(String(u || ""))?.[1] || "", cleanChannelInput: (v) => String(v || "").trim().replace(/@@+/g, "@").replace(/\s+/g, "") };
+        if (id === "./livestatus") return { liveTarget: () => ({ url: "https://www.youtube.com/@twocorg/live", kind: "channel" }), designatedChannelId: () => designated };
+        if (id === "../data/live") return { LIVE: { youtubeChannel: "@twocorg" } };
+        return {};
+      };
+      const mod = { exports: {} };
+      new Function("module", "exports", "require", tcHH.code)(mod, mod.exports, stub);
+      return mod.exports;
+    };
+    const withDes = runHH({}, OWNER);
+    const empty = withDes.readRecentServices();
+    ok("empty cache falls back", empty.items.length === 15 && empty.items[0].videoId === "s4bLaGUNet4" && empty.channelId === OWNER, "got " + empty.items.length + " first=" + (empty.items[0] || {}).videoId);
+    const foreign = runHH({ "wom.recentstreams": { items: [{ videoId: "AAAAAAAAAAA", title: "Debug", at: 5, ago: "", thumb: "", seeded: 0 }], at: 5, channelId: OTHER } }, OWNER);
+    const f2 = foreign.readRecentServices();
+    ok("foreign cache falls back", f2.items.length === 15 && f2.items[0].videoId === "s4bLaGUNet4", "debugging videos must not survive");
+    const own = runHH({ "wom.recentstreams": { items: [{ videoId: "AAAAAAAAAAA", title: "Sunday", at: 5, ago: "", thumb: "", seeded: 0 }], at: 5, channelId: OWNER } }, OWNER);
+    ok("own cache kept", own.readRecentServices().items.length === 1, "a good list must stay");
+    const nodes = runHH({}, "");
+    ok("no designation, no fallback", nodes.readRecentServices().items.length === 0 && nodes.designatedFallback().items.length === 0, "anywhere else answers empty as before");
+  } catch (e) {
+    ok("fallback suite", false, String((e && e.message) || e).slice(0, 200));
   }
   const notes = Number((text["src/lib/hooks.ts"].match(/BUILD_NOTES = (\d+)/) || [])[1]) || 0;
   const apply = text["APPLY_UPDATE.txt"];

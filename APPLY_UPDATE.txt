@@ -1,4 +1,4 @@
-APPLY THIS UPDATE (361) — LOCAL + LIVE
+APPLY THIS UPDATE (363) — LOCAL + LIVE
 =====================================
 CLOSE EVERY TAB FIRST — the livestream is playing a stranger's video right
 now: the live box holds a LIVE report naming a 24/7 jazz stream ("Smooth
@@ -9,7 +9,7 @@ words are innocent (stream off, no video id) — all of the playing comes from
 that report. Close EVERY live/admin/office tab on ALL devices, wait 3 minutes
 (reports die 150 seconds after the reporter stops), reload /watch-live fresh:
 silence. THIS update then makes that class impossible (note 357 below) — but
-only a 361 office tab reports the new way, so reload every admin tab after
+only a 363 office tab reports the new way, so reload every admin tab after
 deploying or a stale one keeps writing old answers.
 Measured on the live box first: it finally runs 345 (the code landed),
 but the bake is STILL empty (`{"rev":0,"notes":0,"sections":{},
@@ -21,6 +21,36 @@ fix chain), outnumbers everything on the box, re-holds until you publish,
 and lands with @twocorg AND its previous livestreams ready (no reset tap,
 no retype, no blank photos) — with every take-off cleared and the slide
 uploads gone, only the welcome card left.
+What changed (note 363):
+
+- The box told the truth this time (measured, not guessed): it still runs
+  bundle 345 — 361 never deployed — with an empty bake, and it holds a
+  LIVE report naming video zJvgsAhpNlo, re-reported seconds ago by an office
+  tab on old code still open somewhere. That video is PROVEN foreign
+  (YouTube's own directory names it "Smooth Jazz & Soul R&B 24/7" by "small
+  village" — nothing to do with @twocorg), and your published words are
+  innocent (channel @twocorg, stream off, no video id). Local was already
+  right: 361 ignores all of it. So step 0 is tabs first, code second —
+  CLOSE every live/admin/office tab on ALL devices (the reporter is open
+  RIGHT NOW), wait 3 minutes, THEN deploy: version.json must read 363.
+  Then hard-reload every visitor tab (a cached 341 bundle plays the jazz and
+  no code can stop it) and check the report is dead (step 0 names the
+  one-call check).
+- The last previous livestream is now ON the site even with everything
+  down: @twocorg's 15 previous services (newest SUNDAY SERVICE, 11TH OCT.
+  2026) ship inside the code as a last-resort list. With @twocorg
+  published, Recent services shows them whenever the cache, the bake, and
+  the channel read all come back empty — and the livestream screen's still
+  IS the last service's own image. A live read, your cache, or the shipped
+  bake always wins over it; it saves itself nowhere, so take-offs and
+  publishes behave exactly as before.
+- Deployed visitors also read through their own host now: the same-origin
+  /__yt door answers on the deployed server too, so the channel read no
+  longer depends on the dead public proxies. Local behavior is unchanged.
+- The pre-ship verifier's new section HH locks all of it, including live
+  runs of the shipped fallback (empty cache, foreign cache, no designation)
+  and the same-origin door.
+
 What changed (note 361):
 
 - THIS update overrides the last one, so every old clears away. One-shot
@@ -193,11 +223,11 @@ What changed (note 349):
   restores: back up from the copy that HOLDS the files (if you uploaded on
   live/admin, back up on live/admin), and publish before backing up.
 - DEPLOY CHECK FIRST: confirm the Render build finished and version.json
-  reads 361 after this one. Until it does, NOTHING below can work live.
+  reads 363 after this one. Until it does, NOTHING below can work live.
 - Unchanged and still locked: everything from 357 (designated-channel gate),
   355 (rebuilt base, every fix retained), 353 (ready recents),
   351 (ready channel at boot),
-  359 (clean recents + welcome slides), 349 (handle-only livestream), 347 (only-@twocorg shipping, visitor's notice check, card stays gone), 345 (one-tap reset,
+  361 (override: every old clears), 359 (clean recents + welcome slides), 349 (handle-only livestream), 347 (only-@twocorg shipping, visitor's notice check, card stays gone), 345 (one-tap reset,
   publish-time recents, self-proving backups), 343 (live follow with no
   setup, no Tools card, player escape + re-ask, cold-start line, keep-awake
   recipe), 341 (live-bake watchdog, verified channel tap), 339 (mystery
@@ -224,14 +254,22 @@ What changed (note 349):
   (361): the per-update stamp, the full clear (channel, stray link,
   take-offs, slides), the draft + browser follow, and the same-update
   silence — one FAIL blocks the ship.
+- The pre-ship verifier's new section HH locks the last-service fallback
+  (363): the 15 @twocorg services in code, the three empty-cache doors,
+  the same-origin read, and the proven-foreign jazz report named — one FAIL
+  blocks the ship.
 
 0. CLOSE TABS, THEN DEPLOY (a poisoned report is live — tabs first, code second)
    Put this code where Render builds it (replace src/, scripts/, index.html,
    seed.json, vite.config.ts, package.json and maintenance-hold.txt — keep
    data/ as-is), commit/push. Render: install npm install, build
    npm run build, start node scripts/serve.mjs. The Render build log must
-   say "maintenance hold on". Confirm
-   https://twocchurch-site.onrender.com/version.json shows {"notes":361}.
+   say "maintenance hold on". Then prove the poisoned reporter is dead with one call (empty body POST):
+    https://twocchurch-site.onrender.com/__cms/liveReport?conn=check — the answer must read
+    no report, or a report older than 3 minutes, before you trust the Watch page. A fresh
+    LIVE jazz report means a tab is still open somewhere: find it, close it, wait again.
+    Confirm
+   https://twocchurch-site.onrender.com/version.json shows {"notes":363}.
    A 345 there means the push never rebuilt; replace ALL the files again.
    Then open https://twocchurch-site.onrender.com/seed.json: it must list
    sections and recent items — `"sections":{}` means the repo's seed.json
@@ -276,7 +314,7 @@ LOCAL (your computer)
    stream console's *Recent services* card: the channel already reads
    @twocorg — no reset tap. Only if it offers "Reset to @twocorg" anyway
    (a draft saved mid-edit, or a later drift), tap it — then Review and
-   publish → Publish. Local lifts to 361 and the notice releases. Reload
+   publish → Publish. Local lifts to 363 and the notice releases. Reload
    desktop + phone width to verify (plain reloads): Watch shows the player
    (or ended screen), Recent services shows @twocorg services, photos/videos
    all visible.
@@ -293,13 +331,13 @@ LOCAL (your computer)
    last published, and a sleep in between changes nothing.
 9. Check: reload again with no new update — the site stays on the last
    published (no notice, published words intact). Console check:
-   window.__maintState() shows publishedNotes 361.
+   window.__maintState() shows publishedNotes 363.
 
 LIVE (Render: twocchurch-site.onrender.com)
-1. Step 0 first (deploy + version.json reads 361 + /seed.json lists sections
+1. Step 0 first (deploy + version.json reads 363 + /seed.json lists sections
    and recents). Then push the step-8 content commit if you have not already
-   (the bake must be from 361 or newer). Render rebuilds on the push by
-   itself. Then open the live /seed.json again: notes must read 361.
+   (the bake must be from 363 or newer). Render rebuilds on the push by
+   itself. Then open the live /seed.json again: notes must read 363.
 2. The live site waits on the maintenance notice until the publish lands
    through the bake — verify with a PLAIN reload on desktop + phone width,
    uploads/photos/videos showing. The live admin console stays clear
@@ -307,9 +345,9 @@ LIVE (Render: twocchurch-site.onrender.com)
 3. In live /admin, open the Live stream console's *Recent services* card: the
    channel already reads @twocorg (this boot moved it). Only if it offers
    "Reset to @twocorg" anyway, tap it — then Review and publish →
-   Publish (typing alone is a draft). Publish to bless 361. Afterwards
-   confirm on the live site itself: version.json reads 361, /seed.json
-   carries 361 words with recent items, and Recent services shows @twocorg
+   Publish (typing alone is a draft). Publish to bless 363. Afterwards
+   confirm on the live site itself: version.json reads 363, /seed.json
+   carries 363 words with recent items, and Recent services shows @twocorg
    services (the shipped bake shows them meanwhile; the publish refreshes
    them from the channel within minutes).
 4. Keep a signed-in office tab open (this admin console counts), then start

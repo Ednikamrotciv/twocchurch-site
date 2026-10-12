@@ -111,8 +111,8 @@ function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
 
 /** Fetch a YouTube page: same-origin / office-server proxy, else public CORS proxy. */
 async function fetchText(url: string): Promise<string | null> {
-  const local = await fetchTextLocal(url);
-  if (local) return local;
+  const sameOrigin = await fetchTextSameOrigin(url);
+  if (sameOrigin) return sameOrigin;
   const office = await fetchTextOffice(url);
   if (office) return office;
   return fetchTextRemote(url);
@@ -135,12 +135,12 @@ async function fetchTextRemote(url: string): Promise<string | null> {
   }
 }
 
-/** Same-origin YouTube read for local runs (`scripts/serve.mjs` /__yt). Only
-    attempted on a local host, so the live site never pays for the detour. */
-async function fetchTextLocal(url: string): Promise<string | null> {
+/** Same-origin YouTube read (`scripts/serve.mjs` /__yt, note 363): the office
+    server AND the deployed server both answer it, so local runs and deployed
+    visitors read through their own host instead of the dead public proxies.
+    Static hosts answer nothing here and fall through below. */
+async function fetchTextSameOrigin(url: string): Promise<string | null> {
   try {
-    const host = window.location?.hostname || "";
-    if (host !== "localhost" && host !== "127.0.0.1" && host !== "") return null;
     const res = await withTimeout(fetch(`/__yt?url=${encodeURIComponent(url)}`, { cache: "no-store" }), TIMEOUT_MS);
     if (!res || !res.ok) return null;
     const text = await res.text();
@@ -347,18 +347,59 @@ export async function fetchRecentServices(): Promise<RecentServices | null> {
   return { items: merged.slice(0, KEEP), at: now, channelId: channelId || "" };
 }
 
+/* The designated channel's previous services, baked into the code (note 363):
+   every public proxy is down and the deployed bake is empty until seed.json is
+   deployed — so a standalone visitor would see no recents and no still on the
+   screen. With @twocorg published, this list stands in, newest first (read off
+   the channel feed on 2026-10-12). A live read, the cache, or the shipped bake
+   always wins over it; it never saves itself anywhere. */
+const DESIGNATED_FALLBACK_AT = 1791755357000;
+const DESIGNATED_FALLBACK_ITEMS: Array<{ videoId: string; title: string; at: number }> = [
+  { videoId: "s4bLaGUNet4", title: "SUNDAY SERVICE, 11TH OCT. 2026", at: 1791755357000 },
+  { videoId: "aT5IeCtJHFw", title: "THANKSGIVING SUNDAY SERVICE 3RD OCT. 2026", at: 1791151867000 },
+  { videoId: "3uqJoUXKds4", title: "YOUTH SUNDAY/COMMUNION SERVICE,  27TH. SEPT. 2026.", at: 1790547921000 },
+  { videoId: "OV6XtrNPGgo", title: "TEENS WEEK 2026. SUNDAY SERVICE, 20TH. SEPT. 2026.", at: 1789940337000 },
+  { videoId: "BgF97PIYPe8", title: "TEENS WEEK 2026. SUNDAY SERVICE, 20TH. SEPT. 2026.", at: 1789899897000 },
+  { videoId: "rmdEvZ_ZOXo", title: "YOUTH SUNDAY SERVICE, 20TH. SEPT. 2026.", at: 1789890601000 },
+  { videoId: "ddWq2WYrmZ8", title: "SUNDAY SERVICE, 13TH SEPT. 2026", at: 1789335610000 },
+  { videoId: "HmVTgKwA6rY", title: "FAMILY ESSENTIALS AFRICA {BUILDING STRONG MEN OF GOD, FAMILIES AND CHURCHES} SEPT 8TH 2026.", at: 1788907035000 },
+  { videoId: "eyGDEZplxJw", title: "FAMILY ESSENTIALS AFRICA {BUILDING STRONG MEN OF GOD, FAMILIES AND CHURCHES} SEPT 8TH 2026.", at: 1788904484000 },
+  { videoId: "akE7Klt3a8w", title: "FAMILY ESSENTIALS AFRICA {BUILDING STRONG MEN OF GOD, FAMILIES AND CHURCHES} SEPT 7TH 2026.", at: 1788822563000 },
+  { videoId: "KCGWV3jWROE", title: "FAMILY ESSENTIALS AFRICA {BUILDING STRONG MEN OF GOD, FAMILIES AND CHURCHES} SEPT 7TH 2026.", at: 1788788138000 },
+  { videoId: "_PD-k6SqPvg", title: "THANKSGIVING SUNDAY SERVICE, 6TH SEPT. 2026", at: 1788731683000 },
+  { videoId: "eu3xQ-XCHv4", title: "THANKSGIVING SUNDAY SERVICE, 6TH SEPT. 2026", at: 1788681346000 },
+  { videoId: "gVJP8wlL9dM", title: "It Will End in Praise - Evang Steve K Pelemo", at: 1788419927000 },
+  { videoId: "suLunbMiN78", title: "SUNDAY SERVICE, AUG. 30TH. 2026", at: 1788127709000 },
+];
+/** The fallback list — only for the designated channel, [] anywhere else. */
+export function designatedFallback(): RecentServices {
+  const designated = designatedChannelId();
+  if (!designated) return { ...EMPTY };
+  return {
+    items: DESIGNATED_FALLBACK_ITEMS.map((it) => ({
+      videoId: it.videoId,
+      title: it.title,
+      at: it.at,
+      ago: "",
+      thumb: `https://i.ytimg.com/vi/${it.videoId}/hqdefault.jpg`,
+    })),
+    at: DESIGNATED_FALLBACK_AT,
+    channelId: designated,
+  };
+}
+
 /* ----------------------------------------------------------------- caching */
 
 export function readRecentServices(): RecentServices {
   const cached = readStore<RecentServices | null>(RECENT_KEY, null);
-  if (!cached || !Array.isArray(cached.items)) return { ...EMPTY };
+  if (!cached || !Array.isArray(cached.items)) return designatedFallback();
   /* Only the designated channel's list (note 359): a cache saved for another
      channel is cleared, never merged — old debugging videos must not ride a
      fresh read forever. Seeds and empty caches pass through; the next read
      (or the baked @twocorg list) fills the card back in. */
   const cachedChannelId = String(cached.channelId || "");
   const designated = designatedChannelId();
-  if (designated && cachedChannelId && cachedChannelId !== designated) return { ...EMPTY };
+  if (designated && cachedChannelId && cachedChannelId !== designated) return designatedFallback();
   const now = Date.now();
   const items = cached.items
     .filter((it) => it && parseYoutubeId(String(it.videoId || "")))
@@ -374,6 +415,7 @@ export function readRecentServices(): RecentServices {
        moment; past a night it is no longer worth showing, and the read would
        have had it by then if it was ever going to. */
     .filter((it) => !it.seeded || now - it.seeded < SEED_MAX_MS);
+  if (!items.length) return designatedFallback();
   return { items, at: Number(cached.at) || 0, channelId: String(cached.channelId || "") };
 }
 
