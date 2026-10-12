@@ -4,7 +4,6 @@ import path from "node:path";
 import { createHash } from "node:crypto";
 import { recordSeen } from "./backup-data.mjs";
 import { notePublished } from "./auto-push.mjs";
-import { DEFAULT_LIVE_ORIGIN, pickLiveOrigin, shouldAdoptLive, adoptPatch } from "./live-follow.mjs";
 
 const STATE_SIZE = 8 * 1024 * 1024;
 
@@ -172,27 +171,9 @@ export async function createCmsHost(rootDir) {
   const selfObj = {};
   const sandbox = { state, pubsub, self: selfObj, console };
   vm.createContext(sandbox);
-  /* Live-follow token (note 343): minted fresh on every boot, handed to the
-     server code through `self` — only this process's own minute loop below
-     ever learns it (see the adoptLive rpc in cms-server.js). */
-  const adoptToken = "adopt-" + createHash("sha256").update(String(Date.now()) + ":" + String(Math.random()) + ":" + String(process.pid || 0)).digest("hex");
-  vm.runInContext(scriptSrc + "\nself.__adoptToken = " + JSON.stringify(adoptToken) + ";", sandbox, { filename: "cms-server.js" });
+  vm.runInContext(scriptSrc, sandbox, { filename: "cms-server.js" });
   const rpc = selfObj.rpc || {};
   console.log(`cms backend: running the site's own server code (${Object.keys(rpc).length} rpc methods)`);
-  /* A publish tapped on live/admin reaches this copy by itself (note 343):
-     about once a minute the loop reads the live site's published words and
-     adopts them when strictly newer — with no browser tab open. The adopted
-     save rides the normal auto-deploy out (bake, git push, redeploy), so a
-     live publish becomes sleep-proof within minutes. Never on the live box
-     itself (RENDER=true — it IS live), never without fetch, never across a
-     newer update, never from a fallback bake onto used words (see
-     live-follow.mjs). A missed round is harmless: the next minute retries,
-     and any signed-in office tab pulls the same way in between. */
-  try {
-    startLiveFollow({ rootDir, rpcCall: call, adoptToken });
-  } catch (err) {
-    console.warn("live follow skipped:", err?.message || err);
-  }
 
   function openConn(id) {
     const conn = getConn(id);
@@ -226,16 +207,6 @@ export async function createCmsHost(rootDir) {
       return { status: 500, body: JSON.stringify({ ok: false, err: "error" }) };
     }
     saveSoon();
-    /* A publish moves the words — the recents follow the channel on the same
-       cycle (note 345): without this the new channel's services took up to
-       the 20-minute loop plus a deploy to appear. Only real publishes
-       (never reads) schedule it, debounced well past the auto-push delay so
-       words and recents ride one commit. */
-    try {
-      if (method === "publish" || method === "adoptLive" || method === "undoPublish") noteRecentsDirty(rootDir);
-    } catch {
-      /* the publish itself already landed */
-    }
     return { status: 200, body: typeof out === "string" ? out : JSON.stringify(out === undefined ? { ok: true } : out) };
   }
 
@@ -248,134 +219,4 @@ export async function createCmsHost(rootDir) {
   }
 
   return { openConn, closeConn, attachSender, detachSender, call };
-}
-
-/* This folder's own update number (BUILD_NOTES in src/lib/hooks.ts) — the
-   follow never adopts across a newer update. Read fresh each round: the
-   folder can be re-extracted under a running server. */
-async function folderBuildNotes(rootDir) {
-  try {
-    const src = await readFile(path.join(rootDir, "src", "lib", "hooks.ts"), "utf8");
-    return Number((src.match(/BUILD_NOTES = (\d+)/) || [])[1]) || 0;
-  } catch {
-    return 0;
-  }
-}
-
-/* The office backend's minute loop (note 343): read the live site's
-   published words, adopt them when strictly newer. All decisions in
-   live-follow.mjs; this only moves bytes. Never throws out. */
-const FOLLOW_MS = 60 * 1000;
-let followStarted = false;
-function startLiveFollow({ rootDir, rpcCall, adoptToken }) {
-  if (followStarted) return;
-  followStarted = true;
-  if (process.env.RENDER) return; // the live box IS live — never follows
-  if (typeof fetch !== "function") {
-    console.log("live follow off (no fetch in this Node)");
-    return;
-  }
-  let running = false;
-  const round = async () => {
-    if (running) return;
-    running = true;
-    try {
-      let fileText = "";
-      try {
-        fileText = await readFile(path.join(rootDir, "cms-server.txt"), "utf8");
-      } catch {
-        /* no setup file — the default address answers (note 343) */
-      }
-      const origin = pickLiveOrigin(fileText) || DEFAULT_LIVE_ORIGIN;
-      const ctrl = typeof AbortController !== "undefined" ? new AbortController() : null;
-      const timer = ctrl ? setTimeout(() => ctrl.abort(), 20000) : 0;
-      let live = null;
-      try {
-        const res = await fetch(origin + "/__cms/getContent?conn=livefollow", {
-          method: "POST",
-          headers: { "content-type": "text/plain;charset=utf-8" },
-          body: "",
-          signal: ctrl ? ctrl.signal : undefined,
-        });
-        if (res.ok) live = await res.json().catch(() => null);
-      } catch {
-        /* live unreachable (offline, asleep, sleeping DNS) — next minute */
-      } finally {
-        if (timer) clearTimeout(timer);
-      }
-      if (!live || live.ok !== true) return;
-      const here = await rpcCall("getContent", "livefollow", "");
-      let local = null;
-      try {
-        local = JSON.parse(here.body);
-      } catch {
-        return;
-      }
-      if (!local || local.ok !== true) return;
-      let localSections = {};
-      try {
-        localSections = local.sections ? JSON.parse(local.sections) : {};
-      } catch {
-        return;
-      }
-      const fresh = !localSections || !Object.keys(localSections).length;
-      const buildNotes = await folderBuildNotes(rootDir);
-      const verdict = shouldAdoptLive(local, live, buildNotes, fresh);
-      if (verdict === "newer-update") {
-        if (!round.warnedNewer) {
-          round.warnedNewer = true;
-          console.log(`live follow: the live site is on a newer update — apply it on this copy first`);
-        }
-        return;
-      }
-      round.warnedNewer = false;
-      if (verdict !== "adopt") return;
-      const patch = adoptPatch(live.sections);
-      const ids = Object.keys(patch);
-      if (!ids.length) return;
-      const res = await rpcCall(
-        "adoptLive",
-        "livefollow",
-        JSON.stringify({ token: adoptToken, sections: patch, notes: live.notes, by: typeof live.by === "string" ? live.by : "" })
-      );
-      let out = null;
-      try {
-        out = JSON.parse(res.body);
-      } catch {
-        return;
-      }
-      if (out && out.ok === true) {
-        console.log(`live follow: adopted ${ids.length} section${ids.length === 1 ? "" : "s"} published on live/admin (${ids.slice(0, 4).join(", ")}${ids.length > 4 ? "…" : ""}) — riding auto-deploy out`);
-      }
-    } finally {
-      running = false;
-    }
-  };
-  setTimeout(() => round().catch(() => {}), 20000);
-  setInterval(() => round().catch(() => {}), FOLLOW_MS);
-}
-
-/* Recents follow the published channel on the same cycle (note 345): after
-   a real publish, re-bake the recent-services list from the newly published
-   channel, debounced well past the auto-push delay so words and recents
-   ride one commit out. Never on the live box (its own 20-minute loop owns
-   recents there, and a datacenter read of YouTube is walled anyway). Never
-   wipes: bakeRecent keeps the previous list on any failure. Never throws. */
-let recentsTimer = null;
-function noteRecentsDirty(rootDir) {
-  if (process.env.RENDER) return;
-  if (recentsTimer) clearTimeout(recentsTimer);
-  recentsTimer = setTimeout(async () => {
-    recentsTimer = null;
-    try {
-      const { bakeRecent } = await import("./bake-recent.mjs");
-      const r = await bakeRecent(rootDir);
-      if (r && r.changed) {
-        console.log(`recent services refreshed after publish (${r.count} services from ${r.channelId}) — riding auto-deploy out`);
-        notePublished(rootDir);
-      }
-    } catch (err) {
-      console.warn("recent services refresh skipped:", err?.message || err);
-    }
-  }, 90000);
 }

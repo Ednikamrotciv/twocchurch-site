@@ -53,17 +53,15 @@ export function App() {
   useRates();
   useRatesRefresh();
 
-  /* Whether the church is broadcasting, asked once for the whole site (note 133).
-     The short cadence is only worth asking for while a broadcast is expected:
-     a gathering is on the clock, or one starts within the next three quarters
-     of an hour — or the visitor sits on the Watch page itself (note 310),
-     where a YouTube start must show in seconds on live and on local alike. */
+  /* Whether the church is broadcasting, asked once for the whole site (note 133). */
   const minute = useNow(60_000);
   /* The office's Weekly services card, read on the church's own clock. */
   const gathering = nextService(SERVICES, minute, churchTimezone());
+  /* The short cadence is only worth asking for while a broadcast is expected:
+     a gathering is on the clock, or one starts within the next three quarters
+     of an hour. */
   const expecting = !!gathering && (onAir(gathering) || gathering.msUntil < 45 * 60 * 1000);
-  const onWatchPage = route.path === "/watch-live" || route.path.startsWith("/watch-live/");
-  useLiveStream(expecting || onWatchPage, false, onWatchPage);
+  useLiveStream(expecting);
 
   // Load the published content once; the version counter then re-renders the
   // page every time the office applies something.

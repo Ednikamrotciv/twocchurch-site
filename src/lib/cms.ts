@@ -10,11 +10,10 @@ import { purgeExpiredAnnouncements } from "../data/announcements";
 import { fmtDate } from "./store";
 import { fireToast } from "./hooks";
 import { createRemoteSocket, initServerUrl, refreshServerUrl, serverOverride, serverUrl, setServerOverride } from "./remoteserver";
-import { applyBakedRecent, clearRecentCaches } from "./recentstreams";
+import { applyBakedRecent } from "./recentstreams";
 import { bakedFeedSpec, feedIsNewer, peekSeed, siteFile, type FeedSeed, type FeedSpec } from "./livefeed";
 import { BUILD_NOTES } from "./hooks";
-import { setLiveReportSink } from "./livestatus";
-import { cleanChannelInput } from "./embed";
+
 export type Snapshot = Record<string, any>;
 export type CmsStatus = "connecting" | "online" | "offline" | "local";
 export type LogEntry = { rev: number; at: number; by: string; role?: string; note: string; changed: string[] };
@@ -52,10 +51,6 @@ if (typeof window !== "undefined") {
   (window as unknown as { __maintState?: () => object }).__maintState = () => ({
     publishedNotes,
     buildNotes: BUILD_NOTES,
-    liveSiteNotes,
-    liveSiteBase,
-    liveBakeNotes,
-    liveBakeSections,
     status,
     hasSocket: !!socket,
     serverInvolved: serverInvolved(),
@@ -587,16 +582,6 @@ export function applySnapshot(snap: Snapshot) {
   applied = clone(snap);
   version += 1;
   notify();
-  /* The live section binds in place (LIVE mutates, no event of its own): tell
-     the on-air poller the target may have moved — a retyped channel (draft
-     preview while the office types, published words on sync) is re-checked at
-     once instead of waiting out the timer (note 310). The poller itself
-     decides whether the address actually changed. */
-  try {
-    window.dispatchEvent(new Event("wom:live-target"));
-  } catch {
-    /* a browser that refuses events keeps the standing timer */
-  }
 }
 
 function applyOverrides(over: Snapshot, keepDraft = true) {
@@ -1016,11 +1001,6 @@ export async function publishSection(sectionId: string, note: string): Promise<P
     rememberHistory();
     overrides = { ...overrides, [sectionId]: value };
     applyOverrides(overrides);
-    /* An offline click still moves last-published on this copy (note 310):
-       the words, the stamp and the queue are all in this browser, the flush
-       carries them to the server when the connection returns, and a host
-       sleep in between changes nothing. */
-    setPublishedNotes(BUILD_NOTES);
     writeCache();
     pending = { ...(pending || {}), [sectionId]: value };
     writeJSON(PENDING_KEY, pending);
@@ -1347,134 +1327,28 @@ let livePullRunning = false;
 let lastLivePullAt = 0;
 let lastLivePullMsg = "";
 
-/* Where "live" is for this copy: the office backend's own answer, else the
-   site's own live address (note 343). Empty only on the live box itself —
-   it IS live, so its tabs never pull. */
-export const DEFAULT_LIVE_ORIGIN = "https://twocchurch-site.onrender.com";
+/* Where "live" is for this copy: the office backend's own answer. Empty on the
+   live box itself (it IS live) and on standalone copies — those never pull. */
 async function liveBaseUrl(): Promise<string> {
-  let backend = "";
   try {
     const res = await fetch("/__live-url", { cache: "no-store" });
-    if (res.ok) {
-      const data = await res.json().catch(() => null);
-      const u = String((data && data.url) || "").trim().replace(/\/+$/, "");
-      if (/^https?:\/\/[^/\s]+$/i.test(u)) backend = u;
+    if (!res.ok) return "";
+    const data = await res.json().catch(() => null);
+    const u = String((data && data.url) || "").trim().replace(/\/+$/, "");
+    if (!/^https?:\/\/[^/\s]+$/i.test(u)) return "";
+    try {
+      if (typeof window !== "undefined" && u === window.location.origin) return "";
+    } catch {
+      /* compare failed — trust the backend (the live box answers empty) */
     }
+    return u;
   } catch {
-    /* unreachable backend — fall through to the default below */
+    return "";
   }
-  const u = backend || DEFAULT_LIVE_ORIGIN;
-  try {
-    if (typeof window !== "undefined" && u === window.location.origin) return "";
-  } catch {
-    /* compare failed — trust the address (the live box answers empty) */
-  }
-  return u;
 }
 
 export function livePullStatus(): { at: number; msg: string } {
   return { at: lastLivePullAt, msg: lastLivePullMsg };
-}
-
-/* Which update the live site runs (note 334): the number its version.json
-   names, asked through the same live address the pull uses — kept for the
-   minute-tick watchdog and window.__maintState(), so a behind live site
-   still names itself in the console instead of needing version.json
-   spelunking. Null while unknown (never asked, unreachable). The live box
-   itself answers its own update: there is no other copy to lag. Never
-   throws, never toasts. */
-let liveSiteNotes: number | null = null;
-let liveSiteBase = "";
-let liveSiteCheckedAt = 0;
-export function liveSiteNotesVersion(): number | null {
-  return liveSiteNotes;
-}
-export function liveSiteBaseUrl(): string {
-  return liveSiteBase;
-}
-export async function refreshLiveSiteNotes(): Promise<number | null> {
-  try {
-    if (Date.now() - liveSiteCheckedAt < 60 * 1000) return liveSiteNotes;
-    const base = await liveBaseUrl();
-    liveSiteBase = base;
-    if (!base) {
-      if (liveSiteNotes !== BUILD_NOTES) {
-        liveSiteNotes = BUILD_NOTES;
-        notify();
-      }
-      liveSiteCheckedAt = Date.now();
-      return liveSiteNotes;
-    }
-    const ctrl = typeof AbortController !== "undefined" ? new AbortController() : null;
-    const timer = ctrl ? setTimeout(() => ctrl.abort(), 8000) : 0;
-    try {
-      const res = await fetch(base + "/version.json?t=" + Date.now(), {
-        cache: "no-store",
-        headers: { pragma: "no-cache", "cache-control": "no-cache" },
-        signal: ctrl ? ctrl.signal : undefined,
-      });
-      if (res.ok) {
-        const data = await res.json().catch(() => null);
-        const n = Math.floor(Number(data && (data as any).notes));
-        if (Number.isFinite(n) && n > 0 && n !== liveSiteNotes) {
-          liveSiteNotes = n;
-          notify();
-        }
-      }
-    } finally {
-      if (timer) clearTimeout(timer as ReturnType<typeof setTimeout>);
-    }
-    liveSiteCheckedAt = Date.now();
-    return liveSiteNotes;
-  } catch {
-    return liveSiteNotes;
-  }
-}
-
-/* Whether the live site's bake carries words (note 341): the deployed copy
-   is only the office's words when the push landed — code without the bake
-   is an empty shell (maintenance, no channel, no recents). Asked beside
-   the update number above, on the same cadence. Null while unknown, 0
-   while the bake is empty. Never throws, never toasts. */
-let liveBakeNotes: number | null = null;
-let liveBakeSections = 0;
-let liveBakeCheckedAt = 0;
-export function liveBakeNotesVersion(): number | null {
-  return liveBakeNotes;
-}
-export function liveBakeSectionCount(): number {
-  return liveBakeSections;
-}
-export async function refreshLiveBake(): Promise<void> {
-  try {
-    if (Date.now() - liveBakeCheckedAt < 60 * 1000) return;
-    liveBakeCheckedAt = Date.now();
-    const base = liveSiteBase || (await liveBaseUrl());
-    if (!base) return;
-    const ctrl = typeof AbortController !== "undefined" ? new AbortController() : null;
-    const timer = ctrl ? setTimeout(() => ctrl.abort(), 8000) : 0;
-    try {
-      const res = await fetch(base + "/seed.json?t=" + Date.now(), {
-        cache: "no-store",
-        headers: { pragma: "no-cache", "cache-control": "no-cache" },
-        signal: ctrl ? ctrl.signal : undefined,
-      });
-      if (!res.ok) return;
-      const data = await res.json().catch(() => null);
-      const raw = Math.floor(Number(data && (data as any).notes));
-      const secs = data && (data as any).sections && typeof (data as any).sections === "object" ? Object.keys((data as any).sections).length : 0;
-      const n = Number.isFinite(raw) && raw > 0 ? raw : 0;
-      if (n !== (liveBakeNotes === null ? -1 : liveBakeNotes) || secs !== liveBakeSections) {
-        liveBakeNotes = n;
-        liveBakeSections = secs;
-        notify();
-      }
-    } finally {
-      if (timer) clearTimeout(timer as ReturnType<typeof setTimeout>);
-    }
-  } catch {
-    /* unknown until the next tick */
-  }
 }
 
 type LivePullResult = { ok: boolean; error?: string; pulled?: string[]; filesRestored?: number; filesFailed?: string[] };
@@ -1743,8 +1617,6 @@ function startLivePull() {
     }
     if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
     pullFromLive().catch(() => {});
-    refreshLiveSiteNotes().catch(() => {});
-    refreshLiveBake().catch(() => {});
   };
   try {
     initialSyncDone.then(() => {
@@ -1801,11 +1673,6 @@ export async function startCms() {
   // is skipped on a proven new update, and the server sync fills the page in
   // behind it.
   const freshEyes = storedCodegenProvesNewUpdate();
-  /* A proven new update overrides the last one (note 361): the browser's old
-     recent-services + resolved-channel caches are dropped once — the shipped bake
-     and the next feed read fill the card back in. A missing codegen proves
-     nothing (fresh profile has no cache anyway), so nothing else is touched. */
-  if (freshEyes) clearRecentCaches();
   if (cached?.overrides && !freshEyes) {
     rev = cached.rev || 0;
     applyOverrides(cached.overrides);
@@ -2438,20 +2305,6 @@ export function isAuthed() {
   return authed;
 }
 
-/* Office-reported on-air answer (note 318): this copy's definitive YouTube
-   answers ride the joined server's authed socket to every other copy. Only a
-   signed-in office tab reports — visitors and signed-out tabs only read —
-   and only while joined (standalone copies keep the answer to themselves).
-   The sink is fire-and-forget: the next poll reports again. */
-setLiveReportSink((rep) => {
-  try {
-    if (!authed || !socket || status !== "online") return;
-    socket.rpc.liveReport(JSON.stringify(rep))?.catch?.(() => {});
-  } catch {
-    /* the next poll reports again */
-  }
-});
-
 /* ------------------------------------------------------------ sub-admins */
 
 /* One-time invite codes: 12 characters from an unambiguous alphabet (about 60
@@ -2703,10 +2556,6 @@ export function getDraft(): Snapshot {
   }
   dropLapsedSlides();
   migrateTestimonies();
-  healDraftChannel();
-  healDraftRecents();
-  healDraftSlides();
-  healDraftStreamLink();
   return draft;
 }
 
@@ -2720,86 +2569,6 @@ function migrateTestimonies() {
   draft.testimonies = { items, categories };
   dirty.testimonies = true;
   persistDraft();
-}
-
-/** The update itself moves stored words to @twocorg (note 351) — a draft the
-    office saved before that still names the old handle. An untouched live
-    section follows the published words here; the office's own edits always
-    win (dirty.live returns early), so the channel stays editable. Runs on
-    read, persists only when something actually moved, never notifies. */
-function healDraftChannel() {
-  try {
-    if (!draft || dirty.live) return;
-    const pubLive = (applied as any)?.live;
-    const pubCh = String(pubLive?.youtubeChannel || "").trim();
-    if (!pubCh) return;
-    const dLive = (draft as any).live;
-    if (!dLive || typeof dLive !== "object" || Array.isArray(dLive)) return;
-    if (String(dLive.youtubeChannel || "") === pubCh) return;
-    (draft as any).live = { ...dLive, youtubeChannel: pubCh };
-    persistDraft();
-  } catch {
-    /* never break the drawer */
-  }
-}
-
-/** The update itself clears stored take-offs (note 359) — a draft the office
-    saved before that still hides videos. An untouched live section follows
-    the published words here (cleared stays cleared); the office's own edits
-    always win (dirty.live returns early). Runs on read, persists only when
-    something actually moved, never notifies. */
-function healDraftRecents() {
-  try {
-    if (!draft || dirty.live) return;
-    const pubHidden = (applied as any)?.live?.hiddenReplays;
-    if (Array.isArray(pubHidden) && pubHidden.length) return;
-    const dLive = (draft as any).live;
-    if (!dLive || typeof dLive !== "object" || Array.isArray(dLive)) return;
-    if (!Array.isArray(dLive.hiddenReplays) || !dLive.hiddenReplays.length) return;
-    (draft as any).live = { ...dLive, hiddenReplays: [] };
-    persistDraft();
-  } catch {
-    /* never break the drawer */
-  }
-}
-
-/** This update overrides the last one (note 361): a stray stream link the
-    office saved before the clear follows the published words here (cleared stays
-    cleared while the channel space names the handle); the office's own edits
-    always win (dirty.live returns early). Runs on read, persists only when
-    something actually moved, never notifies. */
-function healDraftStreamLink() {
-  try {
-    if (!draft || dirty.live) return;
-    const pubId = String((applied as any)?.live?.youtubeId || "");
-    if (pubId) return;
-    const dLive = (draft as any).live;
-    if (!dLive || typeof dLive !== "object" || Array.isArray(dLive)) return;
-    if (!String(dLive.youtubeId || "")) return;
-    (draft as any).live = { ...dLive, youtubeId: "" };
-    persistDraft();
-  } catch {
-    /* never break the drawer */
-  }
-}
-
-/** The update itself replants the lone welcome card (note 359) — a draft the
-    office saved before that still carries the old uploads. An untouched
-    slides section follows the published words here; the office's own edits
-    always win (dirty.slides returns early). Runs on read, persists only when
-    something actually moved, never notifies. */
-function healDraftSlides() {
-  try {
-    if (!draft || (dirty as any).slides) return;
-    const pubSlides = (applied as any)?.slides;
-    if (!Array.isArray(pubSlides) || pubSlides.length !== 1 || String((pubSlides[0] as any)?.id || "") !== "welcome-home") return;
-    const dSlides = (draft as any).slides;
-    if (Array.isArray(dSlides) && dSlides.length === 1 && String((dSlides[0] as any)?.id || "") === "welcome-home") return;
-    (draft as any).slides = JSON.parse(JSON.stringify(pubSlides));
-    persistDraft();
-  } catch {
-    /* never break the drawer */
-  }
 }
 
 /** Lapsed slides and notices clear out of the draft (throttled; the site never shows them anyway). */
@@ -2839,12 +2608,6 @@ function dropLapsedSlides(force = false): boolean {
 
 export function setSectionValue(sectionId: string, value: any) {
   const d = getDraft();
-  /* The channel the office pasted is cleaned on the way in (note 320): a
-     doubled "@" or stray spaces can never reach the published words again. */
-  if (sectionId === "live" && value && typeof value === "object" && typeof value.youtubeChannel === "string") {
-    const clean = cleanChannelInput(value.youtubeChannel);
-    if (clean !== value.youtubeChannel) value = { ...value, youtubeChannel: clean };
-  }
   const prev = clone(d[sectionId]);
   if (JSON.stringify(prev) === JSON.stringify(value)) return;
   pushEditUndo(sectionId, prev);
@@ -3021,25 +2784,12 @@ function base64ToBlob(b64: string, type: string): Blob {
     a restore brings everything back exactly as stored. Uploads are never
     deleted server-side: they sit in data/uploads/ until the office removes
     them, and every backup carries copies regardless. */
-/** Every upload the backup must carry (note 345): the published words' files
-    plus anything the current draft points at — a backup taken before
-    publishing used to skip unsaved uploads, and the restore then showed
-    blank photos/videos on the new copy. */
-function allBackupNames(content: Snapshot): string[] {
-  const seen = new Set<string>(localUploadNames(content));
-  try {
-    if (draft) for (const name of localUploadNames(draft)) seen.add(name);
-  } catch {
-    /* the published set alone still backs up */
-  }
-  return [...seen];
-}
 export async function exportPublished(): Promise<string> {
   const content = merge(overrides);
   const base = serverUrl();
   const files: BackupFile[] = [];
   const missingFiles: string[] = [];
-  for (const name of allBackupNames(content)) {
+  for (const name of localUploadNames(content)) {
     try {
       const res = await fetch((base ? base : "") + "/data/uploads/" + name, { cache: "no-store" });
       if (!res.ok) throw 0;
@@ -3069,7 +2819,6 @@ export type ImportResult = {
   filesRestored?: number;
   filesFailed?: string[];
   filesMissing?: string[];
-  channelMoved?: string;
 };
 
 /**
@@ -3109,25 +2858,6 @@ export async function importBackup(text: string): Promise<ImportResult> {
   dirty = {};
   editUndos = [];
   for (const id of restored) dirty[id] = true;
-  /* @twocorg arrives ready, restore half (note 353): a backup saved before
-     the move still names the old handle — restoring it must not re-put the
-     debugging channel (the boot move only runs on stored words, never on a
-     draft). A restored non-@twocorg channel becomes @twocorg here, kept
-     dirty so Review shows it and Publish carries it; the result names the
-     move, and the field stays editable afterwards. */
-  let channelMoved = "";
-  try {
-    const rl = (draft as any)?.live;
-    if (rl && typeof rl === "object" && !Array.isArray(rl)) {
-      const rc = String(rl.youtubeChannel || "").trim().replace(/@@+/g, "@").replace(/\s+/g, "");
-      if (rc && rc.toLowerCase() !== "@twocorg") {
-        channelMoved = String(rl.youtubeChannel || "");
-        (draft as any).live = { ...rl, youtubeChannel: "@twocorg" };
-      }
-    }
-  } catch {
-    /* a failed clean keeps the backup's words as-is */
-  }
   persistDraft();
   notify();
   /* The photos ride home: each embedded upload is written back under its
@@ -3164,17 +2894,6 @@ export async function importBackup(text: string): Promise<ImportResult> {
             body: base64ToBlob(f.data, type),
           });
           if (!res.ok) throw 0;
-          /* Read it back (note 345): a 200 that never became a file used to
-             count as restored and left blank photos/videos. Only a file the
-             server actually serves counts. */
-          let verified = false;
-          try {
-            const check = await fetch(`${base}/data/uploads/${name}`, { cache: "no-store" });
-            verified = !!check.ok;
-          } catch {
-            verified = false;
-          }
-          if (!verified) throw 0;
           filesRestored++;
         } catch {
           if (f && typeof f.name === "string") filesFailed.push(f.name);
@@ -3182,7 +2901,7 @@ export async function importBackup(text: string): Promise<ImportResult> {
       }
     }
   }
-  return { ok: true, restored, skipped, filesRestored, filesFailed, filesMissing, channelMoved: channelMoved || undefined };
+  return { ok: true, restored, skipped, filesRestored, filesFailed, filesMissing };
 }
 
 /* ----------------------------------------------------------------- publish */
@@ -3311,11 +3030,9 @@ export async function publish(note: string, content?: Snapshot): Promise<Publish
     /* Visitors are waiting and Publish was clicked with no content changes:
        bless the current update so maintenance lifts (note 250: even with no
        server reachable — a local Publish blesses this copy, the server sync
-       carries it on when the connection returns). The stamp is cached with
-       the words (note 310), so a host sleep afterwards changes nothing. */
+       carries it on when the connection returns). */
     if (!socket || status !== "online") {
       setPublishedNotes(BUILD_NOTES);
-      writeCache();
       notify();
       return { ok: true, local: true };
     }

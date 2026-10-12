@@ -9,7 +9,7 @@ import { sermonsNewestFirst, sermonSource, sermonThumb } from "../data/sermons";
 import { useLocalState, useNow, fireToast } from "../lib/hooks";
 import { KEYS, nextService, onAir, to12h, DAY_NAMES, countdownParts, addToCalendar, mailto, clockHere, tidyCount, churchTimezone, visitorPlace, fmtDate, downloadText, serviceNoteKey, type NextServiceInfo } from "../lib/store";
 import { isFacebookVideoUrl, parseYoutubeId, platformLabel, watchUrl, youtubeThumb, type VideoPlatform, type VideoSource } from "../lib/embed";
-import { useLiveStream, liveTarget, facebookTarget, useYoutubeVerdict, isStatusForTarget, designatedChannelIdForTarget, isDesignatedChannel } from "../lib/livestatus";
+import { useLiveStream, liveTarget, facebookTarget } from "../lib/livestatus";
 import { useLibrary } from "../lib/collections";
 import { useRecentServices } from "../lib/recentstreams";
 import { Badge, Btn, Icon, IconBtn, Modal, Notice, Reveal, Rich, Section, SectionHeading, Textarea } from "../components/ui";
@@ -30,53 +30,18 @@ export function WatchLive() {
   /* The message playing above everything else. */
   const latest = replays[0];
 
-  /* Is the church on air? Asked of YouTube regularly (livestatus.ts); shared with the header.
-     The Watch page always asks on the short cadence and checks at once on open
-     (note 310): a visitor who opened this page came to see the stream, schedule
-     or no — so a YouTube start shows in seconds and the waiting clock vanishes
-     with it, on live and on local alike. */
-  const air = useLiveStream(true, false, true);
+  /* Is the church on air? Asked of YouTube regularly (livestatus.ts); shared with the header. */
   const justNow = !!info && (onAir(info) || info.msUntil < 45 * 60 * 1000);
-  /* Only the handle's own answer ever reaches the screen (note 349): an
-     answer stamped for another address (the office moved the channel since
-     the check) reads as unknown until the fresh check lands — it never
-     plays, never covers, and never filters the lists. And a stray stream
-     link is ignored while the channel space names a channel — the handle
-     wins everywhere below. */
-  const targetUrl = liveTarget()?.url || "";
-  const hasChannel = liveTarget()?.kind === "channel";
-  /* Only the designated channel ever reaches the screen (note 357): the
-     livestream must not play until @twocorg itself is live — a named video
-     from another channel, or an unverified channel follow for one, reads as
-     waiting until the fresh check proves the handle is on air. */
-  const designatedId = designatedChannelIdForTarget(targetUrl);
-  const airForTarget = isStatusForTarget(air, targetUrl)
-    ? air
-    : { ...air, state: "unknown" as const, videoId: "", title: "", channelId: "" };
-  const detectedId = airForTarget.state === "live" ? airForTarget.videoId : "";
-  /* Walled but on air (note 330): live with no verified video — the player
-     follows the channel instead of showing the ended screen. Strict (note
-     357): only the designated channel is followed, and only one tap, never
-     autoplay — anything else waits. */
-  const detectedChannel = airForTarget.state === "live" && !airForTarget.videoId && !!airForTarget.channelId && (!designatedId || airForTarget.channelId === designatedId) ? airForTarget.channelId : "";
-  /* Dead-video gate (note 332): a named id that YouTube says is gone never
-     autoplays into the black "unavailable" frame — and the unverified channel
-     follow below is always one tap, never autoplay. Unknown (offline, probe
-     down) plays exactly as before. */
-  const idVerdict = useYoutubeVerdict(detectedId);
-  /* Strict (note 357): a named video from another channel never autoplays —
-     video answers carry no channel id, so those pass; a stamped foreign one
-     does not. */
-  const playableId = detectedId && idVerdict !== false && isDesignatedChannel(airForTarget.channelId, designatedId) ? detectedId : "";
-  const watchable = !!playableId || !!detectedChannel || (!hasChannel && !!parseYoutubeId(LIVE.youtubeId));
+  const air = useLiveStream(justNow);
+  const detectedId = air.state === "live" ? air.videoId : "";
   /* Anywhere for the check to look — channel, stream link or Facebook page. */
   const configured = !!liveTarget() || !!facebookTarget();
 
   /* The two lists under the screen: recent services (read off the channel) and previous sermons (the office's write-ups). */
   const limit = recentLimit();
   const past = pastLimit();
-  const recentStreams = useRecentServices({ soon: justNow, liveNow: airForTarget.state === "live" });
-  const onScreenId = airForTarget.state === "live" ? detectedId : "";
+  const recentStreams = useRecentServices({ soon: justNow, liveNow: air.state === "live" });
+  const onScreenId = air.state === "live" ? detectedId : "";
   /* A service the office has already uploaded as a message *is* that message —
      it should not also sit in the list as a raw stream. */
   const curatedIds = new Set(replays.map((s) => parseYoutubeId(s.youtubeId || "")).filter(Boolean));
@@ -100,7 +65,7 @@ export function WatchLive() {
 
   /* The still behind the waiting and ended screens (note 133). */
   const cover =
-    (airForTarget.endedAt && airForTarget.videoId ? youtubeThumb(airForTarget.videoId) : "") ||
+    (air.endedAt && air.videoId ? youtubeThumb(air.videoId) : "") ||
     recentStreams.items[0]?.thumb ||
     (latest && sermonThumb(latest)) ||
     img("hero");
@@ -110,11 +75,11 @@ export function WatchLive() {
      gave us was the channel to watch) */
   const available = useMemo(() => {
     const list: VideoPlatform[] = [];
-    if (detectedId || detectedChannel || (!hasChannel && parseYoutubeId(LIVE.youtubeId))) list.push("youtube");
+    if (detectedId || parseYoutubeId(LIVE.youtubeId)) list.push("youtube");
     if (isFacebookVideoUrl(LIVE.facebookUrl)) list.push("facebook");
     return list;
-  }, [detectedId, detectedChannel, hasChannel, LIVE.youtubeId, LIVE.facebookUrl]);
-  const preferred: VideoPlatform = detectedId || detectedChannel ? "youtube" : LIVE.provider === "facebook" ? "facebook" : "youtube";
+  }, [detectedId, LIVE.youtubeId, LIVE.facebookUrl]);
+  const preferred: VideoPlatform = detectedId ? "youtube" : LIVE.provider === "facebook" ? "facebook" : "youtube";
   const [chosen, setChosen] = useState<VideoPlatform>(preferred);
   /* The service notepad behind the *Service notes* arrow (note 223). */
   const [notesOpen, setNotesOpen] = useState(false);
@@ -122,13 +87,11 @@ export function WatchLive() {
   const liveSource: VideoSource =
     platform === "facebook"
       ? { platform: "facebook", facebookUrl: LIVE.facebookUrl }
-      : { platform: "youtube", youtubeId: playableId || (!hasChannel ? LIVE.youtubeId : ""), youtubeChannelId: detectedChannel || undefined };
-  const youtubeLink =
-    watchUrl({ platform: "youtube", youtubeId: playableId }) ||
-    (hasChannel ? targetUrl : watchUrl({ platform: "youtube", youtubeId: LIVE.youtubeId }) || targetUrl);
+      : { platform: "youtube", youtubeId: detectedId || LIVE.youtubeId };
+  const youtubeLink = watchUrl({ platform: "youtube", youtubeId: detectedId || LIVE.youtubeId });
 
   /* The shared on-air answer (notes 83, 133); `streaming` is the narrower screen question. */
-  const streaming = airForTarget.state === "live";
+  const streaming = air.state === "live";
   const onAirNow = onAir(info);
   /* What the panel calls the broadcast while on air. */
   const liveName = tx(air.title || (info?.isLive ? info.slot.name : "") || LIVE.liveTitle || info?.slot.name || "");
@@ -243,13 +206,13 @@ export function WatchLive() {
                 </div>
               )}
 
-              {streaming && watchable ? (
+              {streaming && available.length > 0 ? (
                 <VideoPlayer
                   source={liveSource}
                   title={liveName || ct("auto.live.bc108377bb47f9e6")}
                   compact
                   live
-                  autoPlay={!!playableId}
+                  autoPlay
                 />
               ) : !onAirNow ? (
                 /* Nobody is broadcasting: the screen says so, and promises what

@@ -21,7 +21,6 @@ import {
   type VideoPlatform,
   type VideoSource,
 } from "../lib/embed";
-import { checkLiveStream, isStatusForTarget, liveTarget, peekVerified, verifyYoutubeId, isDesignatedChannel, designatedChannelIdForTarget } from "../lib/livestatus";
 import {
   KEYS,
   fmtDate,
@@ -246,184 +245,20 @@ export function VideoPlayer({
 }) {
   const [playing, setPlaying] = useState(!!autoPlay);
   const [failed, setFailed] = useState(false);
-  /* Dead-video net (note 332): a removed or private video must never sit on
-     the black "unavailable" frame — the player says so and offers the
-     platform link instead. Channel follows and files cannot be asked, so
-     only bare YouTube ids are verified. */
-  const ytId = source?.platform === "facebook" || source?.platform === "upload" ? "" : parseYoutubeId(source?.youtubeId || "");
-  /* A channel with no video id cannot be asked of oEmbed (note 341): tapping
-     it used to open the channel embed blind — when no broadcast is live,
-     YouTube answers "unavailable" inside the frame. The tap now asks the
-     check first and plays the verified broadcast id instead. Only the live
-     panel follows channels; every other sourceless tap plays as before. */
-  const followId = live && source?.platform !== "facebook" && source?.platform !== "upload" ? String(source?.youtubeChannelId || "") : "";
-  const [dead, setDead] = useState(false);
-  const [checking, setChecking] = useState(false);
-  const [notLive, setNotLive] = useState(false);
-  const [liveVideoId, setLiveVideoId] = useState("");
   /* Titles arrive in English (sermon names, stream names) — they read in the
      visitor's language like every other line (note 225). */
   const shown = tx(title);
-  const sourceKey = embedSrc(source, true);
-  const src = liveVideoId ? embedSrc({ platform: "youtube", youtubeId: liveVideoId }, true) : sourceKey;
+  const src = embedSrc(source, true);
   const file = fileSrc(source);
   const still = poster && !failed ? poster : posterFor(source);
   const platform: VideoPlatform = source?.platform === "facebook" ? "facebook" : source?.platform === "upload" ? "upload" : "youtube";
   const shell = "player" + (compact ? " player--compact" : "") + (playing ? " player--playing" : "");
-
-  /* A new source starts unjudged. */
-  useEffect(() => {
-    setDead(false);
-    setChecking(false);
-    setNotLive(false);
-    setLiveVideoId("");
-  }, [sourceKey]);
-
-  /* A click never opens a known-dead video: unknown ids are asked first
-     (a beat of "checking"), dead ones go straight to the fallback below. */
-  /* A channel tap asks first (note 341): a live broadcast plays by its own
-     verified id; silence shows the waiting poster, never YouTube's
-     "unavailable". Anything unclear plays the channel as before. */
-  const checkChannelThenPlay = () => {
-    setNotLive(false);
-    setChecking(true);
-    checkLiveStream()
-      .then((st) => {
-        /* Only the handle's answer opens the player (note 349): a tap that
-           lands after the office moved the channel waits instead of playing
-           the old address's video. */
-        if (!isStatusForTarget(st, liveTarget()?.url || "")) {
-          setChecking(false);
-          setNotLive(true);
-          return;
-        }
-        /* Only the designated channel opens the player (note 357): a live
-           answer from another channel — or an unverified channel follow
-           with no video — waits instead of playing. */
-        const designatedId = designatedChannelIdForTarget(liveTarget()?.url || "");
-        if (!isDesignatedChannel(st.channelId || "", designatedId)) {
-          setChecking(false);
-          setNotLive(true);
-          return;
-        }
-        const vid = parseYoutubeId(st.videoId || "");
-        if (st.state === "live" && vid) {
-          verifyYoutubeId(vid)
-            .then((v) => {
-              setChecking(false);
-              if (v === false) {
-                setDead(true);
-                return;
-              }
-              setLiveVideoId(vid);
-              setPlaying(true);
-              onPlay?.();
-            })
-            .catch(() => {
-              setChecking(false);
-              setLiveVideoId(vid);
-              setPlaying(true);
-              onPlay?.();
-            });
-        } else if (st.state === "live" && st.channelId && (!designatedId || st.channelId === designatedId)) {
-          setChecking(false);
-          setPlaying(true);
-          onPlay?.();
-        } else {
-          setChecking(false);
-          setNotLive(true);
-        }
-      })
-      .catch(() => {
-        setChecking(false);
-        setPlaying(true);
-        onPlay?.();
-      });
-  };
-  const open = () => {
-    if (!ytId && !followId) {
-      setPlaying(true);
-      onPlay?.();
-      return;
-    }
-    if (!ytId) {
-      checkChannelThenPlay();
-      return;
-    }
-    const peek = peekVerified(ytId);
-    if (peek === false) {
-      setDead(true);
-      return;
-    }
-    if (peek === true) {
-      setPlaying(true);
-      onPlay?.();
-      return;
-    }
-    setChecking(true);
-    verifyYoutubeId(ytId)
-      .then((v) => {
-        setChecking(false);
-        if (v === false) setDead(true);
-        else {
-          setPlaying(true);
-          onPlay?.();
-        }
-      })
-      .catch(() => {
-        setChecking(false);
-        setPlaying(true);
-        onPlay?.();
-      });
-  };
 
   /* The stream can start while the visitor is already sitting on the page, so
      the player has to be able to open by itself after the first render. */
   useEffect(() => {
     if (autoPlay) setPlaying(true);
   }, [autoPlay]);
-
-  /* Autoplay verifies behind the player: a dead id swaps to the fallback
-     instead of sitting on the black frame (unknown plays as before). */
-  useEffect(() => {
-    if (!playing || !ytId || dead) return;
-    if (peekVerified(ytId) === false) {
-      setDead(true);
-      return;
-    }
-    if (peekVerified(ytId) === null) {
-      let alive = true;
-      verifyYoutubeId(ytId)
-        .then((v) => {
-          if (alive && v === false) setDead(true);
-        })
-        .catch(() => {});
-      return () => {
-        alive = false;
-      };
-    }
-  }, [playing, ytId, dead, src]);
-
-  /* While a video plays, the verdict is re-asked every few minutes
-     (note 343): a broadcast taken down mid-play swaps to the fallback
-     instead of sitting on the black frame. Cached verdicts make each
-     re-ask free; hidden tabs skip it. */
-  useEffect(() => {
-    if (!playing || !ytId || dead) return;
-    const t = window.setInterval(() => {
-      try {
-        if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
-      } catch {
-        /* visibility unreadable — ask anyway */
-      }
-      verifyYoutubeId(ytId)
-        .then((v) => {
-          if (v === false) setDead(true);
-        })
-        .catch(() => {});
-    }, 5 * 60 * 1000);
-    return () => window.clearInterval(t);
-  }, [playing, ytId, dead]);
 
   if (file) {
     /* A video the office uploaded plays in the browser itself. */
@@ -449,71 +284,25 @@ export function VideoPlayer({
   }
 
   if (!src) return <div className="player player--empty">{ct("site.videoEmpty")}</div>;
-  /* A dead video never plays here: the poster stays, the visitor is told, and
-     the platform link below is the way out (note 332). */
-  if (dead) {
-    const openHref = watchUrl(source);
-    return (
-      <div className={shell + " player--dead"}>
-        {still ? (
-          <img src={still} alt="" loading="lazy" onError={() => setFailed(true)} />
-        ) : (
-          <span className={"player__still player__still--" + platform}>
-            <Icon name={platform === "upload" ? "play" : platform} size={54} />
-          </span>
-        )}
-        <span className="player__scrim" />
-        <div className="player__deadbody">
-          <p className="player__deadtitle">{shown}</p>
-          <p className="player__deadtext">{tx("This video can't be played here.")}</p>
-          {openHref && (
-            <Btn size="sm" variant="gold" href={openHref} icon="youtube" iconRight="external">
-              {tx("Watch on YouTube")}
-            </Btn>
-          )}
-        </div>
-        {live && (
-          <span className="player__live">
-            <span className="live-dot" /> {ct("live.player.badge")}
-          </span>
-        )}
-      </div>
-    );
-  }
   return (
     <div className={shell}>
       {playing ? (
-        <>
-          <iframe
-            className="player__frame"
-            src={src}
-            title={shown}
-            referrerPolicy={EMBED_REFERRER_POLICY}
-            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; fullscreen"
-            allowFullScreen
-          />
-          {/* The frame itself never reports a failure (note 343): a video
-              YouTube refuses to embed, blocks in this country, or takes down
-              mid-play would otherwise sit black with no way out. This link
-              is the permanent way out — on YouTube itself it always plays
-              or says why. */}
-          {platform === "youtube" && (liveVideoId || ytId) && (
-            <a
-              className="player__escape"
-              href={watchUrl({ platform: "youtube", youtubeId: liveVideoId || ytId }) || ""}
-              target="_blank"
-              rel="noreferrer"
-            >
-              {tx("Can't see the video? Watch on YouTube")}
-            </a>
-          )}
-        </>
+        <iframe
+          className="player__frame"
+          src={src}
+          title={shown}
+          referrerPolicy={EMBED_REFERRER_POLICY}
+          allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; fullscreen"
+          allowFullScreen
+        />
       ) : (
         <button
           type="button"
           className="player__poster"
-          onClick={open}
-          disabled={checking}
+          onClick={() => {
+            setPlaying(true);
+            onPlay?.();
+          }}
           aria-label={ct("auto.site.c358a9fa66e1e8e3", { "title": shown })}
         >
           {still ? (
@@ -527,7 +316,7 @@ export function VideoPlayer({
           <span className="player__play">
             <Icon name="play" size={26} />
           </span>
-          <span className="player__label">{checking ? tx(followId ? "Checking the broadcast…" : "Checking the video…") : notLive ? tx("No broadcast right now — tap to check again.") : shown}</span>
+          <span className="player__label">{shown}</span>
           <span className={"player__source player__source--" + platform}>
             <Icon name={platform === "upload" ? "play" : platform} size={13} /> {platformLabel(platform)}
           </span>

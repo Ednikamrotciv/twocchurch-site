@@ -6,7 +6,6 @@
 import { readFile, stat, mkdir, writeFile, cp, rm } from "node:fs/promises";
 import path from "node:path";
 import { createCmsHost, hashText } from "./cms-local.mjs";
-import { isLoopbackAddr } from "./live-follow.mjs";
 import { answerWithSeedFallback } from "./seed-fallback.mjs";
 import { guardAtBoot } from "./backup-data.mjs";
 import { createGeoProxy } from "./geo-proxy.mjs";
@@ -34,7 +33,7 @@ export function cmsBackend() {
       try {
         const src = await readFile(path.join(ROOT, "src", "lib", "hooks.ts"), "utf8");
         const n = Number((src.match(/BUILD_NOTES = (\d+)/) || [])[1]) || 0;
-        if (n) console.log(`dev server: site update ${n} (version.json shows the same number)`);
+        if (n) console.log(`dev server: site update ${n} (Admin > Tools shows the same number)`);
       } catch {
         /* stamp unreadable — the page stamp still shows */
       }
@@ -206,12 +205,6 @@ export function cmsBackend() {
           const rpcMatch = pathname.match(/^\/__cms\/([A-Za-z0-9_]+)$/);
           if (rpcMatch && req.method === "POST") {
             const id = url.searchParams.get("conn") || "anon";
-            /* Live-follow adoption (note 343) opens to this machine only. */
-            if (rpcMatch[1] === "adoptLive" && !isLoopbackAddr(req.socket && req.socket.remoteAddress)) {
-              res.writeHead(403, { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" });
-              res.end(JSON.stringify({ ok: false, err: "denied" }));
-              return;
-            }
             let body = "";
             req.setEncoding("utf8");
             req.on("data", (chunk) => {
@@ -287,8 +280,7 @@ export function cmsBackend() {
              videos home instead of silently losing them. */
           if (pathname === "/__restore-file" && req.method === "POST") {
             const ctype = String(req.headers["content-type"] || "").split(";")[0].trim().toLowerCase();
-            /* Restored backups carry every upload kind the office uses (note 345). */
-            if (!ctype.startsWith("image/") && !ctype.startsWith("video/") && !ctype.startsWith("audio/")) {
+            if (!ctype.startsWith("image/") && !ctype.startsWith("video/")) {
               res.writeHead(400, { "cache-control": "no-store" });
               res.end("bad filetype");
               return;

@@ -1,7 +1,6 @@
 import { readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { createCmsHost } from "./cms-local.mjs";
-import { pickBakeSource, pickRecent } from "./seed-guard.mjs";
 
 /* Re-bake seed.json (the published snapshot static hosts read) from the
    office's local store (data/cms-state.bin). Run it after publishing:
@@ -11,14 +10,6 @@ import { pickBakeSource, pickRecent } from "./seed-guard.mjs";
    "forget what was baked"). */
 export async function bakeSeed(rootDir, outPath) {
   const target = outPath || path.join(rootDir, "seed.json");
-  const rootSeedPath = path.join(rootDir, "seed.json");
-  const readJson = async (p) => {
-    try {
-      return JSON.parse(await readFile(p, "utf8"));
-    } catch {
-      return null;
-    }
-  };
   const cms = await createCmsHost(rootDir);
   cms.openConn("bake");
   const r = await cms.call("getContent", "bake", "");
@@ -32,23 +23,7 @@ export async function bakeSeed(rootDir, outPath) {
         console.log(`bake-seed: backend is empty — keeping existing seed.json (${Object.keys(prev.sections).length} sections)`);
         return { kept: true, count: Object.keys(prev.sections).length };
       }
-    } catch { /* no usable seed here — the repo copy is next */ }
-    /* Empty backend and nothing usable at the target (note 365): ship the
-       repo's own seed.json whole — words, recents, stamp — instead of an
-       empty shell. A build farm has no backend; the repo seed IS the words. */
-    if (target !== rootSeedPath) {
-      const repo = await readJson(rootSeedPath);
-      if (pickBakeSource({ backend: null, targetPrev: null, rootSeed: repo }).kind === "root") {
-        await writeFile(target, JSON.stringify(repo));
-        console.log(`bake-seed: backend is empty — shipping repo seed.json (${Object.keys(repo.sections).length} sections)`);
-        return { kept: true, count: Object.keys(repo.sections).length, from: "root" };
-      }
-    }
-    /* Nowhere has words (note 365): fail LOUD — build-static.mjs turns
-       this into a red build, so an empty bake can never deploy silently. */
-    const empty = new Error("bake-seed: refusing to ship an empty bake — the backend is empty and no seed.json with sections was found. Copy seed.json from the update zip next to package.json and rebuild.");
-    empty.code = "EMPTY_BAKE";
-    throw empty;
+    } catch { /* no usable seed — write the empty one below */ }
   }
   const rev = typeof res.rev === "number" ? res.rev : 0;
   /* Never wipe the publish stamp with an empty bake (note 279): a backend
@@ -76,11 +51,7 @@ export async function bakeSeed(rootDir, outPath) {
       if (typeof prev?.at === "number") at = prev.at;
     } catch { /* no previous history — ships empty */ }
   }
-  /* The recents ride the same file (note 365): the backend knows no `recent`,
-     so carry the newest list already on disk — the refresh below overwrites
-     with fresher. Without this a re-bake silently drops the list. */
-  const carried = pickRecent((await readJson(rootSeedPath))?.recent, (await readJson(target))?.recent);
-  await writeFile(target, JSON.stringify({ rev, notes, sections, log, by, at, ...(carried ? { recent: carried } : {}) }));
+  await writeFile(target, JSON.stringify({ rev, notes, sections, log, by, at }));
   console.log(`bake-seed: baked ${ids.length} sections into ${path.relative(rootDir, target)}`);
   /* The recent-services list ships in the same file, so every copy paints the
      same services as the preview (see bake-recent.mjs). Best effort — a missed
@@ -90,17 +61,6 @@ export async function bakeSeed(rootDir, outPath) {
     await bakeRecent(rootDir);
   } catch (err) {
     console.warn("recent services not re-baked:", err?.message || err);
-  }
-  /* The refresh above writes the repo seed only (note 365): copy its list
-     into this bake too, so dist ships the same services as the preview. */
-  if (target !== rootSeedPath) {
-    try {
-      const fresh = (await readJson(rootSeedPath))?.recent;
-      if (fresh && Array.isArray(fresh.items) && fresh.items.length) {
-        const cur = (await readJson(target)) || {};
-        await writeFile(target, JSON.stringify({ ...cur, recent: fresh }));
-      }
-    } catch { /* the carried list above stands */ }
   }
   return { kept: false, count: ids.length };
 }

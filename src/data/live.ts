@@ -56,10 +56,8 @@ export const LIVE = {
   provider: "youtube" as VideoPlatform,
   /** A YouTube video id, or any YouTube link — the id is pulled out of it. */
   youtubeId: "",
-  /** The church's YouTube channel (handle, id or link); the office types it in the console (note 112).
-      Shipped as the church's own address (note 328) so every fresh copy, every fallback bake and every
-      reader with no published words yet watches @twocorg — never nothing, never a debugging channel. */
-  youtubeChannel: "@twocorg",
+  /** The church's YouTube channel (handle, id or link); the office types it in the console (note 112). */
+  youtubeChannel: "",
   /** A public Facebook video / live-video link. */
   facebookUrl: "",
   /** Finished-service count; oldest drops off as new ones come off air. */
