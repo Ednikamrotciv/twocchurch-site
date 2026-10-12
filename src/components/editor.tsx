@@ -1987,10 +1987,13 @@ export function ToolsPage() {
      answer lands through the cms subscription and re-renders this page. */
   useEffect(() => {
     cms.refreshLiveSiteNotes().catch(() => {});
+    cms.refreshLiveBake().catch(() => {});
   }, []);
   const liveNotes = cms.liveSiteNotesVersion();
   const liveBase = cms.liveSiteBaseUrl();
   const publishedFrom = cms.publishedNotesVersion();
+  const bakeNotes = cms.liveBakeNotesVersion();
+  const bakeSections = cms.liveBakeSectionCount();
   const watchedChannel = String(LIVE.youtubeChannel || "");
 
   const doRevert = async () => {
@@ -2101,6 +2104,15 @@ export function ToolsPage() {
               The site still watches {watchedChannel ? watchedChannel : "nothing"} — set Live stream → YouTube channel to watch for live
               to exactly @twocorg, then Publish. Typing alone is a draft; only Publish moves it, and the recent services follow the
               published channel within the hour.
+            </Notice>
+          )}
+          <p>
+            Live bake carries <b>{bakeNotes === null ? "…" : bakeNotes === 0 || bakeSections === 0 ? "no words" : `update ${bakeNotes} words`}</b>.
+          </p>
+          {bakeNotes !== null && (bakeNotes === 0 || bakeSections === 0) && (
+            <Notice icon="alert" tone="gold">
+              The live site's bake is empty — publish on this console, watch the terminal for "auto-deploy: new words pushed", then
+              confirm /seed.json shows the new update. Code without the bake is an empty shell.
             </Notice>
           )}
           {typeof liveNotes === "number" && liveNotes < BUILD_NOTES && (

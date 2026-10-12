@@ -1,11 +1,24 @@
-APPLY THIS UPDATE (339) — LOCAL + LIVE
+APPLY THIS UPDATE (341) — LOCAL + LIVE
 =====================================
-The deployed copy heals: new code outnumbers the mystery bundle, step 0
-gains a content check, and Tools shows the watched channel. Plus everything
-from 334: the hold file deploys with git, step 0 lists every file, Tools
-names both updates; no black "unavailable" frame; one Publish reaches both
-copies; maintenance holds until you publish; @twocorg + six recent services.
-What changed (note 339):
+Deployed matches local: the bake gets a watchdog, the channel tap verifies
+before it plays, and every Publish lands the words. Plus everything from
+339: the mystery bundle outnumbered, seed content check, watched channel;
+the hold file deploys with git; no black "unavailable" frame; one Publish
+reaches both copies; maintenance holds until you publish; @twocorg + six
+recent services.
+What changed (note 341):
+
+- Deployed exactly like local, and no more "unavailable": the live site's
+  bake gets a watchdog — the Tools Site-update card now also shows what the
+  live bake carries ("no words" while the push hasn't landed, with the
+  publish-and-watch-the-terminal recipe inline), refreshed every minute and
+  on opening Tools. And the last "unavailable" hole closes: tapping the
+  channel follow used to open the channel embed blind (no broadcast live =
+  YouTube's unavailable inside the frame) — the tap now asks the check
+  first: a live broadcast plays by its own verified id, silence shows "No
+  broadcast right now — tap to check again.", and anything unclear plays
+  the channel as before. Bare video ids keep the note-332 net (asked first,
+  dead ones never play).
 
 - The deployed copy: measured on the live box, its bundle reports an update
   no zip ever shipped (337 — a hand-edited or mixed folder counts as
@@ -48,7 +61,7 @@ What changed (note 339):
   SUNDAY SERVICE 11TH OCT. 2026 — every id verified playable): the Watch page
   lists the latest six after the usual same-title folding.
 - DEPLOY CHECK FIRST: confirm the Render build finished and version.json
-  reads 339 after this one. Until it does, NOTHING below can work live.
+  reads 341 after this one. Until it does, NOTHING below can work live.
 - RESET TO THE DEFAULT (do this publish): set *Live stream* → **YouTube
   channel to watch for live** back to exactly `@twocorg` (one "@") BEFORE
   publishing — the restore/box may still carry a debugging channel. The
@@ -60,8 +73,9 @@ What changed (note 339):
   uploads included) — or it folds into the next local Publish, whichever
   comes first. Either Publish blesses the update and lifts the notice on
   both copies at once (the stamp syncs through the server).
-- Unchanged and still locked: everything from 334 (git-shipped hold,
-   step-0 file list, Tools update card), 332 (no dead frame,
+- Unchanged and still locked: everything from 339 (mystery bundle
+   outnumbered, seed content check, watched channel), 334 (git-shipped
+   hold, step-0 file list, Tools update card), 332 (no dead frame,
    publish both ways, hold file, fresh recents), 330 (walled channel follow),
   328 (@twocorg default), 326 (reset recipe), 324 (verified broadcast, no
   guessed videos), 322 (Live-tab follow + on-air chrome), 320 (doubled-"@"
@@ -70,11 +84,11 @@ What changed (note 339):
   moved-channel re-check, button re-asks, offline Publish stamps);
   sleep/wake re-serves the last publish whole; every Publish still folds
   live's newer words in.
-- The pre-ship verifier's sections T, U and V now lock the dead-video net
+- The pre-ship verifier's sections T, U, V and W now lock the dead-video net
   (oEmbed verdict, same-update matching, player fallback, gated autoplay),
   the hold file, the fresh @twocorg bake, the git-shipped hold, the step-0
-  file list, the Tools update card, the watched-channel readout, and the
-  seed content check — one FAIL blocks the ship.
+  file list, the Tools update card, the watched-channel readout, the seed
+  content check, the live-bake watchdog, and the verified channel tap — one FAIL blocks the ship.
 
 0. DEPLOY FIRST (the live site is behind — do this before anything else)
    Put this code where Render builds it (replace src/, scripts/, index.html,
@@ -82,7 +96,7 @@ What changed (note 339):
    data/ as-is), commit/push. Render: install npm install, build
    npm run build, start node scripts/serve.mjs. The Render build log must
    say "maintenance hold on". Confirm
-   https://twocchurch-site.onrender.com/version.json shows {"notes":339}.
+   https://twocchurch-site.onrender.com/version.json shows {"notes":341}.
    A 337 there matches no shipped update — a hand-edited or mixed folder
    also counts as not-deployed; replace ALL the files again. Then open
    https://twocchurch-site.onrender.com/seed.json: it must list sections
@@ -104,7 +118,7 @@ LOCAL (your computer)
    A plain reload must show it; no hard refresh needed. The admin console
    (/admin) must NOT show it — it boots straight into the console.
    (Coming from 330: same steps — backup in the old folder first, then a NEW
-   folder for 339, restore, publish. The restore carries all words across the
+   folder for 341, restore, publish. The restore carries all words across the
    jump; the first publish also folds in anything newer on the live site.)
 6. Bring your words home: #/admin → Tools → Restore the backup file → review
    → Publish. BEFORE that Publish: set *Live stream* → **YouTube channel to
@@ -112,7 +126,7 @@ LOCAL (your computer)
    debugging channel otherwise. The Publish itself folds in anything newer on
    the live site (untouched sections follow live, your edits win, uploads
    come home), so there is no second step.
-   Local lifts to 339 and the notice releases. Reload desktop + phone
+   Local lifts to 341 and the notice releases. Reload desktop + phone
    width to verify (plain reloads).
 7. Live check (local): open /watch-live while the broadcast is running on
    the YouTube channel. The player must appear within seconds and the
@@ -133,13 +147,15 @@ LOCAL (your computer)
    between changes nothing.
 9. Check: reload again with no new update — the site stays on the last
    published (no notice, published words intact). Console check:
-   window.__maintState() shows publishedNotes 339.
+   window.__maintState() shows publishedNotes 341.
 
 LIVE (Render: twocchurch-site.onrender.com)
-1. Step 0 first (deploy + version.json reads 339). Then push the step-8
-   content commit if you have not already (the bake must be from 339 or
-   newer — a bake stamped 339 or older still waits, by design). Render
-   rebuilds on the push by itself.
+1. Step 0 first (deploy + version.json reads 341). Then push the step-8
+   content commit if you have not already (the bake must be from 341 or
+   newer — a bake stamped 341 or older still waits, by design). Render
+   rebuilds on the push by itself. Then open the live /seed.json again:
+   notes must read 341 — until it does, the deployed copy is still the
+   empty shell, no matter what the code version says.
 2. The live site now waits on the maintenance notice until the publish lands
    through the bake — verify with a PLAIN reload on desktop + phone width,
    uploads/photos/videos showing. The live admin console stays clear
@@ -150,11 +166,11 @@ LIVE (Render: twocchurch-site.onrender.com)
 3. In live /admin: set the YouTube channel to exactly `@twocorg` (one "@" —
    this is the reset: it replaces the debugging channel with the church's
    own), then Review and publish → Publish (typing alone is a draft —
-   visitors never see it until published). Publish to bless 339. Afterwards
-   Admin > Tools → Site update must show the live site on 339 and the
-   watched channel @twocorg; the recents follow the published channel
-   within the hour (the shipped bake already shows @twocorg services
-   meanwhile).
+   visitors never see it until published). Publish to bless 341. Afterwards
+   Admin > Tools → Site update must show the live site on 341, the bake
+   carrying 341 words, and the watched channel @twocorg; the recents follow
+   the published channel within the hour (the shipped bake already shows
+   @twocorg services meanwhile).
 4. Keep a signed-in office tab open (this admin console counts), then start
    the broadcast on the YouTube channel. Open the live /watch-live: the
    player must appear within seconds and the ticking clock must vanish with

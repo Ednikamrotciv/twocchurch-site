@@ -54,6 +54,8 @@ if (typeof window !== "undefined") {
     buildNotes: BUILD_NOTES,
     liveSiteNotes,
     liveSiteBase,
+    liveBakeNotes,
+    liveBakeSections,
     status,
     hasSocket: !!socket,
     serverInvolved: serverInvolved(),
@@ -1424,6 +1426,52 @@ export async function refreshLiveSiteNotes(): Promise<number | null> {
   }
 }
 
+/* Whether the live site's bake carries words (note 341): the deployed copy
+   is only the office's words when the push landed — code without the bake
+   is an empty shell (maintenance, no channel, no recents). Asked beside
+   the update number above, on the same cadence. Null while unknown, 0
+   while the bake is empty. Never throws, never toasts. */
+let liveBakeNotes: number | null = null;
+let liveBakeSections = 0;
+let liveBakeCheckedAt = 0;
+export function liveBakeNotesVersion(): number | null {
+  return liveBakeNotes;
+}
+export function liveBakeSectionCount(): number {
+  return liveBakeSections;
+}
+export async function refreshLiveBake(): Promise<void> {
+  try {
+    if (Date.now() - liveBakeCheckedAt < 60 * 1000) return;
+    liveBakeCheckedAt = Date.now();
+    const base = liveSiteBase || (await liveBaseUrl());
+    if (!base) return;
+    const ctrl = typeof AbortController !== "undefined" ? new AbortController() : null;
+    const timer = ctrl ? setTimeout(() => ctrl.abort(), 8000) : 0;
+    try {
+      const res = await fetch(base + "/seed.json?t=" + Date.now(), {
+        cache: "no-store",
+        headers: { pragma: "no-cache", "cache-control": "no-cache" },
+        signal: ctrl ? ctrl.signal : undefined,
+      });
+      if (!res.ok) return;
+      const data = await res.json().catch(() => null);
+      const raw = Math.floor(Number(data && (data as any).notes));
+      const secs = data && (data as any).sections && typeof (data as any).sections === "object" ? Object.keys((data as any).sections).length : 0;
+      const n = Number.isFinite(raw) && raw > 0 ? raw : 0;
+      if (n !== (liveBakeNotes === null ? -1 : liveBakeNotes) || secs !== liveBakeSections) {
+        liveBakeNotes = n;
+        liveBakeSections = secs;
+        notify();
+      }
+    } finally {
+      if (timer) clearTimeout(timer as ReturnType<typeof setTimeout>);
+    }
+  } catch {
+    /* unknown until the next tick */
+  }
+}
+
 type LivePullResult = { ok: boolean; error?: string; pulled?: string[]; filesRestored?: number; filesFailed?: string[] };
 
 async function fetchLiveContent(base: string): Promise<any | null> {
@@ -1691,6 +1739,7 @@ function startLivePull() {
     if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
     pullFromLive().catch(() => {});
     refreshLiveSiteNotes().catch(() => {});
+    refreshLiveBake().catch(() => {});
   };
   try {
     initialSyncDone.then(() => {

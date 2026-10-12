@@ -24,7 +24,7 @@
    (note 330) locks the walled-but-on-air channel follow: the owner's id with
    a clear margin or nothing, chrome with no verifiable video plays the
    channel (never a guessed video, never off), the player embeds the running
-   broadcast, and the office report carries the channel id. Section T (note 332) locks the dead-video net (oEmbed verdict before play, fallback with a way out, gated autoplay), same-update office reports, the shipped maintenance hold, and the fresh @twocorg recents bake. Section U (note 334) locks the deployed update: the hold file deploys with git, step 0 lists every file, and Tools names both updates. Section V (note 339) locks the deployed heal: the code outnumbers any mystery bundle, step 0 checks the bake's content, and Tools shows the watched channel with the reset recipe. Run this
+   broadcast, and the office report carries the channel id. Section T (note 332) locks the dead-video net (oEmbed verdict before play, fallback with a way out, gated autoplay), same-update office reports, the shipped maintenance hold, and the fresh @twocorg recents bake. Section U (note 334) locks the deployed update: the hold file deploys with git, step 0 lists every file, and Tools names both updates. Section V (note 339) locks the deployed heal: the code outnumbers any mystery bundle, step 0 checks the bake's content, and Tools shows the watched channel with the reset recipe. Section W (note 341) locks the parity witness and the verified channel tap: Tools shows the live bake, and the channel tap plays a verified id or waits. Run this
    before EVERY update zip — a single FAIL blocks the
    ship, no exceptions.
    RUN (paste the two lines into an execute_js call):
@@ -710,6 +710,19 @@ export async function runAll(fs) {
   } catch (e) {
     ok("shipped bake parses", false, String((e && e.message) || e).slice(0, 160));
   }
+  /* W. deployed matches local, no unavailable (note 341): parity had no
+     witness (code without the bake is an empty shell), and the channel tap
+     opened the embed blind. Tools must show the live bake, and the tap
+     must verify first. */
+  const cmsW = text["src/lib/cms.ts"];
+  const edW = text["src/components/editor.tsx"];
+  const blocksW = text["src/components/blocks.tsx"];
+  const applyW = text["APPLY_UPDATE.txt"];
+  ok("office tracks the live bake", has(cmsW, "liveBakeNotesVersion") && has(cmsW, "refreshLiveBake") && has(cmsW, 'base + "/seed.json') && has(cmsW, "liveBakeSections"), "parity needs a witness, not a version number alone");
+  ok("bake watchdog runs itself", has(cmsW, "refreshLiveBake().catch"), "the minute-tick and Tools must keep it fresh");
+  ok("tools shows the bake", has(edW, "Live bake carries") && has(edW, "liveBakeNotesVersion") && has(edW, "new words pushed"), "an empty bake must name its fix inline");
+  ok("channel tap verifies first", has(blocksW, "checkLiveStream") && has(blocksW, "liveVideoId") && has(blocksW, "checkChannelThenPlay") && has(blocksW, "No broadcast right now"), "a blind channel embed is YouTube's unavailable waiting to happen");
+  ok("push-land check in apply", has(applyW, "empty shell"), "the checklist must confirm the words landed, not just the code");
   const notes = Number((text["src/lib/hooks.ts"].match(/BUILD_NOTES = (\d+)/) || [])[1]) || 0;
   const apply = text["APPLY_UPDATE.txt"];
   ok("update number consistent", notes > 0 && has(apply, `APPLY THIS UPDATE (${notes})`), "hooks=" + notes);

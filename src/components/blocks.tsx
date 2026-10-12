@@ -21,7 +21,7 @@ import {
   type VideoPlatform,
   type VideoSource,
 } from "../lib/embed";
-import { peekVerified, verifyYoutubeId } from "../lib/livestatus";
+import { checkLiveStream, peekVerified, verifyYoutubeId } from "../lib/livestatus";
 import {
   KEYS,
   fmtDate,
@@ -251,12 +251,21 @@ export function VideoPlayer({
      platform link instead. Channel follows and files cannot be asked, so
      only bare YouTube ids are verified. */
   const ytId = source?.platform === "facebook" || source?.platform === "upload" ? "" : parseYoutubeId(source?.youtubeId || "");
+  /* A channel with no video id cannot be asked of oEmbed (note 341): tapping
+     it used to open the channel embed blind — when no broadcast is live,
+     YouTube answers "unavailable" inside the frame. The tap now asks the
+     check first and plays the verified broadcast id instead. Only the live
+     panel follows channels; every other sourceless tap plays as before. */
+  const followId = live && source?.platform !== "facebook" && source?.platform !== "upload" ? String(source?.youtubeChannelId || "") : "";
   const [dead, setDead] = useState(false);
   const [checking, setChecking] = useState(false);
+  const [notLive, setNotLive] = useState(false);
+  const [liveVideoId, setLiveVideoId] = useState("");
   /* Titles arrive in English (sermon names, stream names) — they read in the
      visitor's language like every other line (note 225). */
   const shown = tx(title);
-  const src = embedSrc(source, true);
+  const sourceKey = embedSrc(source, true);
+  const src = liveVideoId ? embedSrc({ platform: "youtube", youtubeId: liveVideoId }, true) : sourceKey;
   const file = fileSrc(source);
   const still = poster && !failed ? poster : posterFor(source);
   const platform: VideoPlatform = source?.platform === "facebook" ? "facebook" : source?.platform === "upload" ? "upload" : "youtube";
@@ -266,14 +275,62 @@ export function VideoPlayer({
   useEffect(() => {
     setDead(false);
     setChecking(false);
-  }, [src]);
+    setNotLive(false);
+    setLiveVideoId("");
+  }, [sourceKey]);
 
   /* A click never opens a known-dead video: unknown ids are asked first
      (a beat of "checking"), dead ones go straight to the fallback below. */
+  /* A channel tap asks first (note 341): a live broadcast plays by its own
+     verified id; silence shows the waiting poster, never YouTube's
+     "unavailable". Anything unclear plays the channel as before. */
+  const checkChannelThenPlay = () => {
+    setNotLive(false);
+    setChecking(true);
+    checkLiveStream()
+      .then((st) => {
+        const vid = parseYoutubeId(st.videoId || "");
+        if (st.state === "live" && vid) {
+          verifyYoutubeId(vid)
+            .then((v) => {
+              setChecking(false);
+              if (v === false) {
+                setDead(true);
+                return;
+              }
+              setLiveVideoId(vid);
+              setPlaying(true);
+              onPlay?.();
+            })
+            .catch(() => {
+              setChecking(false);
+              setLiveVideoId(vid);
+              setPlaying(true);
+              onPlay?.();
+            });
+        } else if (st.state === "live") {
+          setChecking(false);
+          setPlaying(true);
+          onPlay?.();
+        } else {
+          setChecking(false);
+          setNotLive(true);
+        }
+      })
+      .catch(() => {
+        setChecking(false);
+        setPlaying(true);
+        onPlay?.();
+      });
+  };
   const open = () => {
-    if (!ytId) {
+    if (!ytId && !followId) {
       setPlaying(true);
       onPlay?.();
+      return;
+    }
+    if (!ytId) {
+      checkChannelThenPlay();
       return;
     }
     const peek = peekVerified(ytId);
@@ -415,7 +472,7 @@ export function VideoPlayer({
           <span className="player__play">
             <Icon name="play" size={26} />
           </span>
-          <span className="player__label">{checking ? tx("Checking the video…") : shown}</span>
+          <span className="player__label">{checking ? tx(followId ? "Checking the broadcast…" : "Checking the video…") : notLive ? tx("No broadcast right now — tap to check again.") : shown}</span>
           <span className={"player__source player__source--" + platform}>
             <Icon name={platform === "upload" ? "play" : platform} size={13} /> {platformLabel(platform)}
           </span>
