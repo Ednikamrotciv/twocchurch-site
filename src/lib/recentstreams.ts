@@ -48,8 +48,10 @@ const SOON_MS = 90_000;
 const BURST_MS = 6 * 60_000;
 /** How long a just-ended service waits for YouTube to publish it. */
 const SEED_MAX_MS = 12 * 60 * 60 * 1000;
-/** Give the proxy this long before calling a read a failure. */
-const TIMEOUT_MS = 20_000;
+/** Give the proxy this long before calling a read a failure (note 371:
+    three doors at the old 20 seconds each held the deployed feed up to a
+    minute past a dead proxy — eight is plenty for YouTube to answer). */
+const TIMEOUT_MS = 8_000;
 
 const EMPTY: RecentServices = { items: [], at: 0, channelId: "" };
 
@@ -74,6 +76,11 @@ async function resolveChannelId(): Promise<string> {
   if (!pasted) return "";
   const direct = channelIdIn(pasted);
   if (direct) return direct;
+  /* The designated handle answers from its baked id (note 371): @twocorg is
+     known without any page read, so the first feed on a fresh browser skips
+     the whole proxy cascade instead of waiting it out. */
+  const designated = designatedChannelId(pasted);
+  if (designated) return designated;
 
   const cached = readStore<{ value?: string; id?: string } | null>(CHANNEL_KEY, null);
   if (cached && cached.value === pasted && cached.id) return String(cached.id);

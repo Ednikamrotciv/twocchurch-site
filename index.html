@@ -19,11 +19,40 @@
 
 <script>
   window.__womBootErrors = [];
+  /* Name the failed file (note 373): a resource error event carries no
+     message (String(event) is "[object Event]"), so describe the element —
+     the next "Could not start" names the file instead of an object. */
+  function __womDescribeErr(e) {
+    try {
+      var t = e && e.target;
+      if (t && t !== window && t.tagName) {
+        var url = t.src || t.href || "";
+        return "could not load " + String(t.tagName).toLowerCase() + (url ? " " + url : "") + " — reload once; if it repeats, the host's files are mixed";
+      }
+      if (e && e.message) return String(e.message);
+    } catch (_) {}
+    try { return String(e); } catch (_) { return "unknown boot error"; }
+  }
   window.addEventListener("error", function (e) {
-    window.__womBootErrors.push(String((e && e.message) || e));
+    window.__womBootErrors.push(__womDescribeErr(e));
+    /* A file that fails before React boots (a stale cached page naming a
+       pruned bundle, a mid-deploy load, a tunnel hiccup) heals with one
+       plain reload — try it once per tab instead of sitting black. */
+    try {
+      var t = e && e.target;
+      if (t && t !== window && t.tagName) {
+        var root = document.getElementById("root");
+        if ((!root || !root.hasChildNodes()) && window.sessionStorage && !window.sessionStorage.getItem("wom.boot.retried")) {
+          window.sessionStorage.setItem("wom.boot.retried", "1");
+          window.location.reload();
+        }
+      }
+    } catch (_) {}
   }, true);
   window.addEventListener("unhandledrejection", function (e) {
-    window.__womBootErrors.push("Promise: " + String((e && e.reason && (e.reason.message || e.reason)) || e));
+    var r = e && e.reason;
+    var msg = (r && (r.message || r.statusText)) || (typeof r === "string" ? r : null) || "a background task failed before boot — reload once";
+    window.__womBootErrors.push("Promise: " + msg);
   });
   window.setTimeout(function () {
     var root = document.getElementById("root");

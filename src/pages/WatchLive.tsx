@@ -11,7 +11,7 @@ import { KEYS, nextService, onAir, to12h, DAY_NAMES, countdownParts, addToCalend
 import { isFacebookVideoUrl, parseYoutubeId, platformLabel, watchUrl, youtubeThumb, type VideoPlatform, type VideoSource } from "../lib/embed";
 import { useLiveStream, liveTarget, facebookTarget, useYoutubeVerdict, isStatusForTarget, designatedChannelIdForTarget, isDesignatedChannel } from "../lib/livestatus";
 import { useLibrary } from "../lib/collections";
-import { useRecentServices } from "../lib/recentstreams";
+import { useRecentServices, designatedFallback } from "../lib/recentstreams";
 import { Badge, Btn, Icon, IconBtn, Modal, Notice, Reveal, Rich, Section, SectionHeading, Textarea } from "../components/ui";
 import { PageHead } from "../components/layout";
 import { LiveWaiting } from "../components/liveclock";
@@ -98,10 +98,15 @@ export function WatchLive() {
   const pastCards = replays.filter((s) => s.id !== latest?.id && !fallbackIds.has(s.id)).slice(0, past);
   const platformLinks = platformWatchLinks();
 
-  /* The still behind the waiting and ended screens (note 133). */
+  /* The still behind the waiting and ended screens (note 133): the ended
+     broadcast's frame, else the newest recent service's own thumbnail, else
+     the designated channel's last previous service standing in by itself
+     (note 371 — @twocorg's latest thumbnail even before any read settles),
+     else a sermon still, else the hero. */
   const cover =
     (airForTarget.endedAt && airForTarget.videoId ? youtubeThumb(airForTarget.videoId) : "") ||
     recentStreams.items[0]?.thumb ||
+    designatedFallback().items[0]?.thumb ||
     (latest && sermonThumb(latest)) ||
     img("hero");
 

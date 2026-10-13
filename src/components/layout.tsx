@@ -1,8 +1,8 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { tx } from "../lib/i18n";
 import { Link, navigate, useRoute } from "../lib/router";
-import { useHotkey, useMediaQuery, useScrollProgress, useTheme, useNow, useClickOutside, useBodyLock } from "../lib/hooks";
-import { exitMaintenancePreview } from "../lib/cms";
+import { useHotkey, useMediaQuery, useScrollProgress, useTheme, useNow, useClickOutside, useBodyLock, BUILD_NOTES } from "../lib/hooks";
+import { exitMaintenancePreview, publishedNotesVersion } from "../lib/cms";
 import { nextService, onAir, countdownParts, to12h, DAY_SHORT, fmtDate, zoneYear, clockAt, churchTimezone, visitorPlace } from "../lib/store";
 import { SITE, SERVICES, NAV, FOOTER_LINKS, LOGO_MARK } from "../data/site";
 import { siteFile } from "../lib/livefeed";
@@ -563,6 +563,9 @@ export function MaintenanceSite() {
         <img className="maint__mark" src={siteFile(LOGO_MARK)} alt="" aria-hidden="true" />
         <h1>We&rsquo;ll be right back</h1>
         <p>The site is being updated. Please check back shortly.</p>
+        {/* Which update waits for which publish (note 371): when the notice
+            itself is ever reported missing, one glance names the reason. */}
+        <p className="maint__notes">Update {BUILD_NOTES} · awaiting the office publish (last publish: update {publishedNotesVersion()})</p>
       </main>
     </div>
   );
