@@ -43,10 +43,13 @@ export function parseYoutubeId(input: string): string {
   return value.replace(/[^\w-]/g, "").slice(0, 20);
 }
 
-export function youtubeEmbed(id: string, autoplay = true): string {
+export function youtubeEmbed(id: string, autoplay = true, muted = false): string {
   const video = parseYoutubeId(id);
   if (!video) return "";
-  return `https://www.youtube.com/embed/${video}?rel=0&modestbranding=1&playsinline=1${autoplay ? "&autoplay=1" : ""}`;
+  /* Muted starts (note 383): browsers block unmuted autoplay, so anything the
+     site starts by itself begins muted (YouTube offers its own tap-to-unmute);
+     a tap the visitor made plays with sound as before. */
+  return `https://www.youtube.com/embed/${video}?rel=0&modestbranding=1&playsinline=1${autoplay ? "&autoplay=1" : ""}${muted ? "&mute=1" : ""}`;
 }
 
 /** A channel id (`UC…`): the only address the channel player takes. */
@@ -59,10 +62,10 @@ export function isYoutubeChannelId(input: unknown): boolean {
     while the channel page reads 200), so when the channel page is on air but
     names no verifiable video, the player follows the channel instead of
     guessing a video — on live and on local alike. */
-export function youtubeChannelEmbed(channelId: string, autoplay = true): string {
+export function youtubeChannelEmbed(channelId: string, autoplay = true, muted = false): string {
   if (!isYoutubeChannelId(channelId)) return "";
   const id = String(channelId).trim();
-  return `https://www.youtube.com/embed/live_stream?channel=${id}&rel=0&modestbranding=1&playsinline=1${autoplay ? "&autoplay=1" : ""}`;
+  return `https://www.youtube.com/embed/live_stream?channel=${id}&rel=0&modestbranding=1&playsinline=1${autoplay ? "&autoplay=1" : ""}${muted ? "&mute=1" : ""}`;
 }
 
 export function youtubeWatch(id: string): string {
@@ -156,11 +159,11 @@ export function isFileVideo(source: VideoSource): boolean {
 }
 
 /** The <iframe> address — empty for an uploaded file (it plays in a <video>). */
-export function embedSrc(source: VideoSource, autoplay = true): string {
+export function embedSrc(source: VideoSource, autoplay = true, muted = false): string {
   if (!source) return "";
   if (source.platform === "facebook") return facebookEmbed(source.facebookUrl || "", autoplay);
   if (source.platform === "upload") return "";
-  return youtubeEmbed(source.youtubeId || "", autoplay) || youtubeChannelEmbed(source.youtubeChannelId || "", autoplay);
+  return youtubeEmbed(source.youtubeId || "", autoplay, muted) || youtubeChannelEmbed(source.youtubeChannelId || "", autoplay, muted);
 }
 
 /** The file address for an uploaded video. */

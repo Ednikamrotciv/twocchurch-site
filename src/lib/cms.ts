@@ -1783,6 +1783,46 @@ async function foldLiveInto(target: Snapshot | null, onlyId?: string): Promise<{
   return { snapshot: snap, folded };
 }
 
+/* Freshness watch (note 383): the server shouts every publish down the socket,
+   but a tab that missed the shout sits stale — desktop tabs especially, which
+   stay visible for hours and never refocus (mobiles heal through
+   background/foreground refocus syncs). So every connected tab also asks the
+   server's tiny rev stamp on the short cadence and pulls when it moved: local,
+   mobile and desktop, deployed and office alike land the same publish within
+   the same half minute. No session needed — the stamp is a public read, and
+   the pull below is the same guarded path the shout itself takes. */
+let contentWatchStarted = false;
+let contentWatchRunning = false;
+function startContentWatch() {
+  if (contentWatchStarted) return;
+  contentWatchStarted = true;
+  const tick = async () => {
+    try {
+      if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
+      if (!socket || status !== "online" || contentWatchRunning) return;
+      contentWatchRunning = true;
+      try {
+        const raw = await socket.rpc.contentRev("");
+        const r = typeof raw === "string" ? JSON.parse(raw) : raw;
+        if (r && r.ok && typeof r.rev === "number" && r.rev !== rev) await syncFromServer().catch(() => {});
+      } finally {
+        contentWatchRunning = false;
+      }
+    } catch {
+      contentWatchRunning = false;
+    }
+  };
+  window.setInterval(() => {
+    tick().catch(() => {});
+  }, 30_000);
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "visible") tick().catch(() => {});
+  });
+  window.addEventListener("online", () => {
+    tick().catch(() => {});
+  });
+}
+
 /* The automatic half runs in any signed-in office tab: right after boot, every
    minute, and whenever the tab comes back or the network returns. Visitors'
    tabs never poll (no session, no sign-in) — and copies with no live address
@@ -1912,6 +1952,9 @@ export async function startCms() {
     watchForServer();
     /* Live publishes pull themselves home while an office tab is open. */
     startLivePull();
+    /* ...and every connected tab re-asks the rev stamp, so a missed shout
+       still lands the publish within the half minute. */
+    startContentWatch();
     setBootReady();
     return;
   }
@@ -1943,6 +1986,9 @@ export async function startCms() {
   connect();
   /* Live publishes pull themselves home while an office tab is open. */
   startLivePull();
+  /* ...and every connected tab re-asks the rev stamp, so a missed shout
+     still lands the publish within the half minute. */
+  startContentWatch();
   try {
     await Promise.race([
       initialSyncDone,

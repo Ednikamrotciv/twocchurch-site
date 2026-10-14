@@ -1,16 +1,37 @@
-APPLY THIS UPDATE (381) — QUIET WAITING PAGE, THEN BOTH HOSTS
-==============================================================
-The waiting page no longer prints its numbers: the "Update N · awaiting
-the office publish (last publish: update M)" small print is gone at the
-church's request (`src/components/layout.tsx`). The notice itself is
-unchanged — same gate, same bypasses, same "We'll be right back" — only
-the small print is removed, with its now-unused number reads. ORDER
-stays: apply 381 locally, publish ON 381, wait for the terminal's
-"auto-deploy: new words pushed", THEN commit+push the full step-0 set
-(src/, scripts/, index.html, seed.json, .gitignore WITH the dot spelled
-out, maintenance-hold.txt) and rebuild BOTH hosts; version.json must read
-381 AND /seed.json must list sections on both; reload ALL admin tabs; keep
-the office server running.
+APPLY THIS UPDATE (383) — PUBLISH LANDS EVERYWHERE, LIVE PLAYS BY ITSELF
+==========================================================================
+Three fixes. (1) Deployed desktop missed publishes: visitor tabs only
+learned of a publish through the socket shout, so a tab that missed it sat
+stale (desktops sit visible for hours and never refocus; mobiles healed
+through background/foreground syncs). Every connected tab now also asks
+the server's tiny rev stamp every 30 seconds and pulls when it moved —
+mobile, desktop, deployed and local land the same publish within the same
+half minute, shout or no shout. (2) The live screen plays by itself: when
+the check says live, the player opens with no tap — verified broadcast,
+walled channel follow, or stream link — starting muted so browsers never
+block it (YouTube offers its own tap-to-unmute); a tap the visitor made
+still plays with sound. This is the pictured fix: no more poster with a
+play button while LIVE. (3) The drawer field is now "Guest channel"
+("Temporary" removed). ORDER stays: apply 383 locally, publish ON 383,
+wait for the terminal's "auto-deploy: new words pushed", THEN commit+push
+the full step-0 set (src/, scripts/, index.html, seed.json, .gitignore
+WITH the dot spelled out, maintenance-hold.txt) and rebuild BOTH hosts;
+version.json must read 383 AND /seed.json must list sections on both;
+reload ALL admin tabs; keep the office server running.
+What changed (note 383):
+
+- Publish lands everywhere (`scripts/cms-server.js`, `src/lib/cms.ts`):
+  new public `contentRev` stamp (rev/notes/at, no words, no session) plus
+  `startContentWatch` on every connected tab (30s visible-and-online ask,
+  guarded single flight, focus/online re-asks; the pull is the same guarded
+  path the shout takes).
+- Live plays by itself (`src/lib/embed.ts`, `src/components/blocks.tsx`,
+  `src/pages/WatchLive.tsx`): embeds take muted starts (default off, all
+  old outputs byte-identical); the player self-starts muted and only taps
+  play with sound; the Watch screen autoplays whenever the check says live.
+- Guest rename (`src/lib/cmsSchema.ts`): label "Guest channel".
+- The pre-ship verifier moves the autoplay gate marker and its new section
+  RR locks all of it.
 What changed (note 381):
 
 - Quiet waiting page (`src/components/layout.tsx`): the numbers line and

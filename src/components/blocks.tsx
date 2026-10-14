@@ -261,11 +261,18 @@ export function VideoPlayer({
   const [checking, setChecking] = useState(false);
   const [notLive, setNotLive] = useState(false);
   const [liveVideoId, setLiveVideoId] = useState("");
+  /* A tap the visitor made plays with sound; anything the site starts by
+     itself (note 383) begins muted below, because browsers block unmuted
+     autoplay. */
+  const [userOpened, setUserOpened] = useState(false);
   /* Titles arrive in English (sermon names, stream names) — they read in the
      visitor's language like every other line (note 225). */
   const shown = tx(title);
   const sourceKey = embedSrc(source, true);
-  const src = liveVideoId ? embedSrc({ platform: "youtube", youtubeId: liveVideoId }, true) : sourceKey;
+  /* A self-start begins muted (note 383): a broadcast that comes on air while
+     the visitor watches must open and play with no tap — YouTube offers its
+     own tap-to-unmute. A tap the visitor made plays with sound as before. */
+  const src = liveVideoId ? embedSrc({ platform: "youtube", youtubeId: liveVideoId }, true) : playing && !userOpened ? embedSrc(source, true, true) : sourceKey;
   const file = fileSrc(source);
   const still = poster && !failed ? poster : posterFor(source);
   const platform: VideoPlatform = source?.platform === "facebook" ? "facebook" : source?.platform === "upload" ? "upload" : "youtube";
@@ -277,6 +284,7 @@ export function VideoPlayer({
     setChecking(false);
     setNotLive(false);
     setLiveVideoId("");
+    setUserOpened(false);
   }, [sourceKey]);
 
   /* A click never opens a known-dead video: unknown ids are asked first
@@ -347,6 +355,7 @@ export function VideoPlayer({
       });
   };
   const open = () => {
+    setUserOpened(true);
     if (!ytId && !followId) {
       setPlaying(true);
       onPlay?.();

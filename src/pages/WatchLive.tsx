@@ -269,7 +269,11 @@ export function WatchLive() {
                   title={liveName || ct("auto.live.bc108377bb47f9e6")}
                   compact
                   live
-                  autoPlay={!!playableId}
+                  /* The check says live, so the screen plays by itself (note
+                     383) — a verified broadcast, a walled channel follow, or
+                     the stream link all open with no tap, muted so browsers
+                     never block the start. */
+                  autoPlay={streaming && watchable}
                 />
               ) : !onAirNow ? (
                 /* Nobody is broadcasting: the screen says so, and promises what

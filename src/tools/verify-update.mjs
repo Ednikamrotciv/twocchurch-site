@@ -640,7 +640,7 @@ export async function runAll(fs) {
   ok("same-update reports only", has(live, "reportMatchesBuild") && has(live, "notes: BUILD_NOTES") && has(live, "notes: number"), "an old bundle's wrong id must never steer this update");
   ok("server keeps the reporter update", has(srvLive, "rep.notes") && has(srvLive, "notes: notes"), "the store must carry notes without trusting them");
   ok("player verifies before playing", has(blocks, "verifyYoutubeId") && has(blocks, "peekVerified") && has(blocks, "player--dead") && has(blocks, "can't be played here") && has(blocks, "Watch on YouTube"), "a dead video must say so with a way out, never the black frame");
-  ok("watch gates autoplay", has(watchPage, "useYoutubeVerdict") && has(watchPage, "autoPlay={!!playableId}") && has(watchPage, "watchable"), "a known-dead id must never autoplay; the unverified channel follow stays one tap");
+  ok("watch plays live by itself", has(watchPage, "useYoutubeVerdict") && has(watchPage, "autoPlay={streaming && watchable}") && has(watchPage, "watchable"), "when the check says live the screen must open with no tap");
   ok("hold ships with the update", has(text["maintenance-hold.txt"], "hold") && has(text["scripts/build-static.mjs"], "maintenance-hold.txt"), "fresh visitors must wait on maintenance until the office publishes");
   try {
     const seed332 = JSON.parse(text["seed.json"]);
@@ -1442,6 +1442,48 @@ export async function runAll(fs) {
   ok("numbers line gone", !has(layQQ, "maint__notes") && !has(layQQ, "awaiting the office publish"), "no update numbers anywhere on the waiting page");
   ok("notice still waits", has(layQQ, "We&rsquo;ll be right back") && has(layQQ, "Please check back shortly"), "the notice itself stays");
   ok("no dangling number reads", !has(layQQ, "BUILD_NOTES") && !has(layQQ, "publishedNotesVersion"), "unused number plumbing must go with the line");
+  /* RR. publish lands everywhere, live plays by itself (note 383): a missed
+     shout heals within the half minute on every copy; the live screen opens
+     with no tap, muted so browsers never block it. */
+  const srvRR = text["scripts/cms-server.js"];
+  const cmsRR = text["src/lib/cms.ts"];
+  const embRR = text["src/lib/embed.ts"];
+  const blocksRR = text["src/components/blocks.tsx"];
+  const watchRR = text["src/pages/WatchLive.tsx"];
+  const schemaRR = text["src/lib/cmsSchema.ts"];
+  ok("rev stamp is public", has(srvRR, "contentRev: function (info)") && has(srvRR, "return ok({ rev: REV, notes: NOTES, at: AT });"), "visitors must read the stamp with no session");
+  ok("every tab watches the stamp", has(cmsRR, "function startContentWatch()") && has(cmsRR, "socket.rpc.contentRev") && has(cmsRR, "30_000") && cmsRR.split("startContentWatch();").length >= 3, "local, mobile and desktop must all pull a missed publish");
+  ok("watch pulls the guarded path", has(cmsRR, "r.rev !== rev") && has(cmsRR, "await syncFromServer()"), "the stamp must lead to the same sync the shout takes");
+  ok("self-starts are muted", has(blocksRR, "userOpened") && has(blocksRR, "embedSrc(source, true, true)") && has(blocksRR, "setUserOpened(true)"), "only a visitor tap may play with sound");
+  ok("screen autoplays live", has(watchRR, "autoPlay={streaming && watchable}"), "verified, follow or link — no poster while LIVE");
+  ok("guest renamed", has(schemaRR, 'label: "Guest channel"') && !has(schemaRR, "Temporary guest channel"), "the drawer must not say Temporary");
+  try {
+    const ebRR = await import("https://esm.sh/esbuild-wasm@0.21.5?bundle");
+    try { await ebRR.default.initialize({ wasmURL: "https://esm.sh/esbuild-wasm@0.21.5/esbuild.wasm" }); } catch {}
+    const teRR = await ebRR.default.transform(embRR, { loader: "ts", format: "cjs" });
+    const modRR = { exports: {} };
+    new Function("module", "exports", teRR.code)(modRR, modRR.exports);
+    const yte = modRR.exports.youtubeEmbed;
+    const che = modRR.exports.youtubeChannelEmbed;
+    const srcOf = modRR.exports.embedSrc;
+    const VID = "dQw4w9WgXcQ";
+    const OWNER_RR = "UCQ0KIUXUV7gTZmDDlvd3ZcQ";
+    ok("muted start mutes", yte(VID, true, true).indexOf("&autoplay=1&mute=1") !== -1, "a self-start must carry mute");
+    ok("old outputs identical", yte(VID, true) === "https://www.youtube.com/embed/" + VID + "?rel=0&modestbranding=1&playsinline=1&autoplay=1" && yte(VID, false).indexOf("autoplay") === -1 && yte(VID, false).indexOf("mute") === -1, "two-arg calls must build exactly what they built");
+    ok("channel muted start mutes", che(OWNER_RR, true, true).indexOf("live_stream?channel=" + OWNER_RR) !== -1 && che(OWNER_RR, true, true).indexOf("&mute=1") !== -1, "a followed channel must self-start too");
+    ok("channel default identical", che(OWNER_RR, false) === "https://www.youtube.com/embed/live_stream?channel=" + OWNER_RR + "&rel=0&modestbranding=1&playsinline=1", "the old two-arg channel build must not move");
+    ok("muted src threads through", srcOf({ platform: "youtube", youtubeChannelId: OWNER_RR }, true, true).indexOf("&mute=1") !== -1 && srcOf({ platform: "youtube", youtubeChannelId: OWNER_RR }, true).indexOf("mute") === -1, "the player must choose per open");
+    const connRR = { id: "t", net: ["local", 0, 0], subscribe() {}, topics: new Set() };
+    const stRR = new Uint8Array(8 * 1024 * 1024);
+    const rpcRR = loadVm(stubAuth(srvRR), stRR);
+    const rev0 = JSON.parse(rpcRR.contentRev({ conn: connRR }, ""));
+    ok("stamp reads empty", rev0.ok === true && rev0.rev === 0 && typeof rev0.at === "number", "a fresh box stamps rev 0");
+    const pubRR = JSON.parse(rpcRR.publish({ conn: connRR }, JSON.stringify({ sections: { live: JSON.stringify({ youtubeChannel: "@twocorg" }) }, by: "office", changed: ["live"], notes: 383, first: true })));
+    const rev1 = JSON.parse(rpcRR.contentRev({ conn: connRR }, ""));
+    ok("stamp follows publish", pubRR.ok === true && rev1.ok === true && rev1.rev === 1 && rev1.notes === 383, "the watch must see every publish move");
+  } catch (e) {
+    ok("publish-everywhere suite", false, String((e && e.message) || e).slice(0, 200));
+  }
   const notes = Number((text["src/lib/hooks.ts"].match(/BUILD_NOTES = (\d+)/) || [])[1]) || 0;
   const apply = text["APPLY_UPDATE.txt"];
   ok("update number consistent", notes > 0 && has(apply, `APPLY THIS UPDATE (${notes})`), "hooks=" + notes);

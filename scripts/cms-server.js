@@ -959,6 +959,14 @@ self.rpc = {
     });
   },
 
+  /* Freshness stamp (note 383): the tiny rev/notes/at answer every connected
+     tab asks on the short cadence, so a publish whose socket shout was missed
+     still lands within the half minute on every copy. Public read — it names
+     no words, only whether the words moved. */
+  contentRev: function (info) {
+    return ok({ rev: REV, notes: NOTES, at: AT });
+  },
+
   /* Office-reported on-air answer (note 318): reads are public (visitors ask
      every check); writes take an admin connection (the signed-in office tab).
      Only strict, recent answers are kept — anything else is refused, never
