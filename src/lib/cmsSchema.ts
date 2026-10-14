@@ -1010,6 +1010,7 @@ const CONTENT_SECTIONS: SectionDef[] = [
       { path: "provider", label: "Plays by default", type: "select", options: STREAM_PLATFORMS, optionLabels: VIDEO_PLATFORM_LABELS },
       { path: "youtubeId", label: "YouTube stream link", type: "text", placeholder: "https://www.youtube.com/watch?v=…" },
       { path: "youtubeChannel", label: "YouTube channel to watch for live", type: "text", placeholder: "@yourchurch" },
+      { path: "externalYoutubeChannel", label: "Temporary guest channel", type: "text", placeholder: "@guestchannel", hint: "A one-off livestream from another channel. It plays while it is live, never reaches Recent services, and the site returns to the main channel by itself when it ends. Leave empty otherwise." },
       { path: "facebookUrl", label: "Facebook stream link", type: "text", placeholder: "https://www.facebook.com/…/videos/…" },
       { path: "recentLimit", label: "How many recent services to show", type: "number", min: 1, max: 24 },
       { path: "turnaroundHours", label: "Hours until a service is written up", type: "number", min: 1, max: 72 },

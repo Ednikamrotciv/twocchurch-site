@@ -21,7 +21,7 @@ import {
   type VideoPlatform,
   type VideoSource,
 } from "../lib/embed";
-import { checkLiveStream, isStatusForTarget, liveTarget, peekVerified, verifyYoutubeId, isDesignatedChannel, designatedChannelIdForTarget } from "../lib/livestatus";
+import { checkLiveStream, isStatusForTarget, liveTarget, guestTarget, isGuestTargetUrl, peekVerified, verifyYoutubeId, isDesignatedChannel, designatedChannelIdForTarget } from "../lib/livestatus";
 import {
   KEYS,
   fmtDate,
@@ -291,17 +291,20 @@ export function VideoPlayer({
       .then((st) => {
         /* Only the handle's answer opens the player (note 349): a tap that
            lands after the office moved the channel waits instead of playing
-           the old address's video. */
-        if (!isStatusForTarget(st, liveTarget()?.url || "")) {
+           the old address's video. The temporary guest's own answer opens it
+           the same way while IT is live (note 379). */
+        const guestWatchUrl = guestTarget()?.url || "";
+        if (!isStatusForTarget(st, liveTarget()?.url || "") && !(guestWatchUrl && isStatusForTarget(st, guestWatchUrl))) {
           setChecking(false);
           setNotLive(true);
           return;
         }
         /* Only the designated channel opens the player (note 357): a live
            answer from another channel — or an unverified channel follow
-           with no video — waits instead of playing. */
+           with no video — waits instead of playing. The guest's own stamped
+           answer passes while IT is live (note 379). */
         const designatedId = designatedChannelIdForTarget(liveTarget()?.url || "");
-        if (!isDesignatedChannel(st.channelId || "", designatedId)) {
+        if (!isDesignatedChannel(st.channelId || "", designatedId) && !(guestWatchUrl && isGuestTargetUrl(st.target || "", guestWatchUrl))) {
           setChecking(false);
           setNotLive(true);
           return;
@@ -325,7 +328,10 @@ export function VideoPlayer({
               setPlaying(true);
               onPlay?.();
             });
-        } else if (st.state === "live" && st.channelId && (!designatedId || st.channelId === designatedId)) {
+        } else if (
+          (st.state === "live" && st.channelId && (!designatedId || st.channelId === designatedId)) ||
+          (guestWatchUrl && st.state === "live" && !!st.channelId && isGuestTargetUrl(st.target || "", guestWatchUrl))
+        ) {
           setChecking(false);
           setPlaying(true);
           onPlay?.();

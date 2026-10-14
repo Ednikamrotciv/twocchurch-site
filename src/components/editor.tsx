@@ -21,7 +21,7 @@ import {
 import { PageHead } from "../components/layout";
 import { SearchBox, eventDate } from "../components/blocks";
 import { fireToast, useNow } from "../lib/hooks";
-import { readLiveStatus, recheckLiveNow } from "../lib/livestatus";
+import { readLiveStatus, recheckLiveNow, guestTarget, isGuestTargetUrl } from "../lib/livestatus";
 import { SITE, SERVICES, img } from "../data/site";
 import { recentLimit } from "../data/live";
 import { ytWatch } from "../data/sermons";
@@ -792,10 +792,18 @@ export function LiveControlPanel() {
   const stop = () => {
     write({ isLive: false, liveCut: Date.now(), liveEndedBy: "office", liveCommandAt: Date.now() });
     recheckLiveNow();
-    /* An ended service seeds Recent services now; every open page re-reads the channel. */
+    /* An ended service seeds Recent services now; every open page re-reads the channel.
+       A temporary guest never seeds (note 379): its ending leaves the main
+       channel's list — and the last-service still — alone. */
     const aired = readLiveStatus();
-    askForRecentServices(aired.videoId ? { videoId: aired.videoId, title: aired.title } : undefined);
-    fireToast("Stopped. The finished service is in Recent services, and the site is counting down to the next gathering.", "info");
+    const airedGuest = isGuestTargetUrl(aired.target || "", guestTarget()?.url || "");
+    askForRecentServices(!airedGuest && aired.videoId ? { videoId: aired.videoId, title: aired.title } : undefined);
+    fireToast(
+      airedGuest
+        ? "Stopped. The guest stream is off the site — the main channel's services are untouched."
+        : "Stopped. The finished service is in Recent services, and the site is counting down to the next gathering.",
+      "info"
+    );
   };
 
   const askedToPublish = waited ? " Publish to make it public." : "";

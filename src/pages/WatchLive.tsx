@@ -9,7 +9,7 @@ import { sermonsNewestFirst, sermonSource, sermonThumb } from "../data/sermons";
 import { useLocalState, useNow, fireToast } from "../lib/hooks";
 import { KEYS, nextService, onAir, to12h, DAY_NAMES, countdownParts, addToCalendar, mailto, clockHere, tidyCount, churchTimezone, visitorPlace, fmtDate, downloadText, serviceNoteKey, type NextServiceInfo } from "../lib/store";
 import { isFacebookVideoUrl, parseYoutubeId, platformLabel, watchUrl, youtubeThumb, type VideoPlatform, type VideoSource } from "../lib/embed";
-import { useLiveStream, liveTarget, facebookTarget, useYoutubeVerdict, isStatusForTarget, designatedChannelIdForTarget, isDesignatedChannel } from "../lib/livestatus";
+import { useLiveStream, liveTarget, guestTarget, isGuestTargetUrl, facebookTarget, useYoutubeVerdict, isStatusForTarget, designatedChannelIdForTarget, isDesignatedChannel } from "../lib/livestatus";
 import { useLibrary } from "../lib/collections";
 import { useRecentServices, designatedFallback } from "../lib/recentstreams";
 import { Badge, Btn, Icon, IconBtn, Modal, Notice, Reveal, Rich, Section, SectionHeading, Textarea } from "../components/ui";
@@ -45,6 +45,15 @@ export function WatchLive() {
      wins everywhere below. */
   const targetUrl = liveTarget()?.url || "";
   const hasChannel = liveTarget()?.kind === "channel";
+  /* A temporary guest channel (note 379): a one-off livestream from another
+     address. Its answer is gated on its own stamp like the main one below —
+     while IT is live the screen plays it; the moment it ends the main
+     answer below owns the screen again, with the main still and recents. */
+  const guestUrl = guestTarget()?.url || "";
+  const guestAir = guestUrl && isStatusForTarget(air, guestUrl)
+    ? air
+    : { ...air, state: "unknown" as const, videoId: "", title: "", channelId: "" };
+  const guestLive = guestAir.state === "live";
   /* Only the designated channel ever reaches the screen (note 357): the
      livestream must not play until @twocorg itself is live — a named video
      from another channel, or an unverified channel follow for one, reads as
@@ -53,12 +62,17 @@ export function WatchLive() {
   const airForTarget = isStatusForTarget(air, targetUrl)
     ? air
     : { ...air, state: "unknown" as const, videoId: "", title: "", channelId: "" };
-  const detectedId = airForTarget.state === "live" ? airForTarget.videoId : "";
+  /* What the screen plays (note 379): the guest while IT is live, else the
+     main answer above. The still, the ended video and the lists below stay
+     main-owned — a guest ending returns every one of them untouched. */
+  const screenAir = guestLive ? guestAir : airForTarget;
+  const detectedId = screenAir.state === "live" ? screenAir.videoId : "";
   /* Walled but on air (note 330): live with no verified video — the player
      follows the channel instead of showing the ended screen. Strict (note
      357): only the designated channel is followed, and only one tap, never
-     autoplay — anything else waits. */
-  const detectedChannel = airForTarget.state === "live" && !airForTarget.videoId && !!airForTarget.channelId && (!designatedId || airForTarget.channelId === designatedId) ? airForTarget.channelId : "";
+     autoplay — anything else waits. A live guest's own channel follows the
+     same way (note 379): one tap, never autoplay. */
+  const detectedChannel = screenAir.state === "live" && !screenAir.videoId && !!screenAir.channelId && (guestLive ? isGuestTargetUrl(screenAir.target, guestUrl) : (!designatedId || screenAir.channelId === designatedId)) ? screenAir.channelId : "";
   /* Dead-video gate (note 332): a named id that YouTube says is gone never
      autoplays into the black "unavailable" frame — and the unverified channel
      follow below is always one tap, never autoplay. Unknown (offline, probe
@@ -66,8 +80,9 @@ export function WatchLive() {
   const idVerdict = useYoutubeVerdict(detectedId);
   /* Strict (note 357): a named video from another channel never autoplays —
      video answers carry no channel id, so those pass; a stamped foreign one
-     does not. */
-  const playableId = detectedId && idVerdict !== false && isDesignatedChannel(airForTarget.channelId, designatedId) ? detectedId : "";
+     does not. The guest's own stamped video plays while IT is live (note
+     379) — everything else about it already says the guest address. */
+  const playableId = detectedId && idVerdict !== false && (isDesignatedChannel(airForTarget.channelId, designatedId) || (guestLive && isGuestTargetUrl(screenAir.target, guestUrl))) ? detectedId : "";
   const watchable = !!playableId || !!detectedChannel || (!hasChannel && !!parseYoutubeId(LIVE.youtubeId));
   /* Anywhere for the check to look — channel, stream link or Facebook page. */
   const configured = !!liveTarget() || !!facebookTarget();
@@ -76,7 +91,7 @@ export function WatchLive() {
   const limit = recentLimit();
   const past = pastLimit();
   const recentStreams = useRecentServices({ soon: justNow, liveNow: airForTarget.state === "live" });
-  const onScreenId = airForTarget.state === "live" ? detectedId : "";
+  const onScreenId = screenAir.state === "live" ? detectedId : "";
   /* A service the office has already uploaded as a message *is* that message —
      it should not also sit in the list as a raw stream. */
   const curatedIds = new Set(replays.map((s) => parseYoutubeId(s.youtubeId || "")).filter(Boolean));
@@ -130,10 +145,10 @@ export function WatchLive() {
       : { platform: "youtube", youtubeId: playableId || (!hasChannel ? LIVE.youtubeId : ""), youtubeChannelId: detectedChannel || undefined };
   const youtubeLink =
     watchUrl({ platform: "youtube", youtubeId: playableId }) ||
-    (hasChannel ? targetUrl : watchUrl({ platform: "youtube", youtubeId: LIVE.youtubeId }) || targetUrl);
+    (guestLive && guestUrl ? guestUrl : hasChannel ? targetUrl : watchUrl({ platform: "youtube", youtubeId: LIVE.youtubeId }) || targetUrl);
 
   /* The shared on-air answer (notes 83, 133); `streaming` is the narrower screen question. */
-  const streaming = airForTarget.state === "live";
+  const streaming = screenAir.state === "live";
   const onAirNow = onAir(info);
   /* What the panel calls the broadcast while on air. */
   const liveName = tx(air.title || (info?.isLive ? info.slot.name : "") || LIVE.liveTitle || info?.slot.name || "");

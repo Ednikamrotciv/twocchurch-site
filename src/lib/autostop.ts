@@ -6,7 +6,7 @@ import * as cms from "./cms";
 import { fireToast } from "./hooks";
 import { nextService, churchTimezone } from "./store";
 import { SERVICES } from "../data/site";
-import { useLiveStream, type LiveStatus } from "./livestatus";
+import { useLiveStream, type LiveStatus, guestTarget, isGuestTargetUrl } from "./livestatus";
 import { askForRecentServices } from "./recentstreams";
 
 /** The live section as the office's own draft has it. */
@@ -38,9 +38,11 @@ function stopForStream(live: any, air: LiveStatus): boolean {
     liveCut: endedAt,
     liveEndedBy: "channel",
   });
-  /* File the finished service into Recent services now. */
+  /* File the finished service into Recent services now — unless it was the
+     temporary guest (note 379): a guest ending files nothing, and the screen
+     is already back on the main channel. */
   askForRecentServices(
-    air.platform === "youtube" && air.videoId ? { videoId: air.videoId, title: air.title } : undefined
+    air.platform === "youtube" && air.videoId && !isGuestTargetUrl(air.target || "", guestTarget()?.url || "") ? { videoId: air.videoId, title: air.title } : undefined
   );
 
   const where = air.platform === "facebook" ? "Facebook" : "YouTube";

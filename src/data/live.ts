@@ -60,6 +60,11 @@ export const LIVE = {
       Shipped as the church's own address (note 328) so every fresh copy, every fallback bake and every
       reader with no published words yet watches @twocorg — never nothing, never a debugging channel. */
   youtubeChannel: "@twocorg",
+  /** A temporary guest channel (note 379): a one-off livestream from another
+      address. Empty unless the office sets it. It plays while IT is live,
+      never reaches Recent services, and the site returns to youtubeChannel
+      by itself when it ends. */
+  externalYoutubeChannel: "",
   /** A public Facebook video / live-video link. */
   facebookUrl: "",
   /** Finished-service count; oldest drops off as new ones come off air. */

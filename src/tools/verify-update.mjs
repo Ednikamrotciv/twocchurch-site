@@ -48,6 +48,7 @@ const FILES = [
   ["src/lib/hooks.ts", "ts"],
   ["src/data/photos.ts", "ts"],
   ["src/lib/cmsSchema.ts", "ts"],
+  ["src/lib/autostop.ts", "ts"],
   ["src/data/live.ts", "ts"],
   ["seed.json", null],
   ["src/lib/jobs.ts", "ts"],
@@ -402,7 +403,7 @@ export async function runAll(fs) {
   ok("watch checks at once", has(live, "urgent") && has(watch, "useLiveStream(true, false, true)"), "the Watch page must not wait out the freshness window");
   ok("app hurries on watch", has(app, 'onWatchPage') && has(app, "expecting || onWatchPage"), "the header must follow the stream on the Watch page");
   ok("moved channel jumps the queue", has(live, "wom:live-target") && has(live, "noteLiveTargetMayHaveChanged") && has(live, "export function recheckLiveNow()") && has(cms, 'window.dispatchEvent(new Event("wom:live-target"))'), "a retyped channel must be re-checked at once on live and local");
-  ok("office buttons re-ask", has(ed, "recheckLiveNow()") && has(ed, 'import { readLiveStatus, recheckLiveNow } from "../lib/livestatus"'), "Start/Continue/Stop must ask the channel at once");
+  ok("office buttons re-ask", has(ed, "recheckLiveNow()") && has(ed, 'import { readLiveStatus, recheckLiveNow, guestTarget, isGuestTargetUrl } from "../lib/livestatus"'), "Start/Continue/Stop must ask the channel at once");
   ok("section publish stamps offline", has(cms, "An offline click still moves last-published on this copy"), "a per-section Publish while offline must move the stamp like the whole-site one");
   ok("bless caches offline", has(cms, "The stamp is cached with"), "a bless-only Publish while offline must cache the stamp with the words");
   /* N. office-reported on-air answer (note 318): the deployed server cannot
@@ -1324,7 +1325,7 @@ export async function runAll(fs) {
   const layLL = text["src/components/layout.tsx"];
   const recLL = text["src/lib/recentstreams.ts"];
   const watchLL = text["src/pages/WatchLive.tsx"];
-  ok("notice names numbers", has(layLL, "awaiting the office publish (last publish: update"), "a missing notice must report its reason at a glance");
+  ok("notice numbers retired", !has(layLL, "awaiting the office publish (last publish: update") && !has(layLL, "maint__notes"), "the waiting page must not print update numbers");
   ok("feed fails fast", has(recLL, "const TIMEOUT_MS = 8_000;"), "dead proxies must not hold the deployed feed a minute");
   ok("designated skips the read", has(recLL, "const designated = designatedChannelId(pasted);") && has(recLL, "if (designated) return designated;"), "@twocorg is known without any page read");
   ok("cover stands in the still", has(watchLL, "designatedFallback().items[0]?.thumb"), "the ended screen takes the last previous thumbnail with no read needed");
@@ -1370,8 +1371,77 @@ export async function runAll(fs) {
   const bsOO = text["scripts/bake-seed.mjs"];
   const brOO = text["scripts/bake-recent.mjs"];
   ok("host takes the follow flag", has(locOO, "createCmsHost(rootDir, opts)") && has(locOO, "if (opts && opts.follow)"), "the loop must be asked for, never assumed");
-  ok("servers opt in", has(srvOO, "createCmsHost(ROOT, { follow: true })") && has(viteOO, "createCmsHost(ROOT, { follow: true })"), "npm start and npm run dev keep following live");
+  ok("servers opt in", has(srvOO, "createCmsHost(ROOT, { follow: true })") && has(viteOO, "{ follow: true }"), "npm start and npm run dev keep following live");
+  ok("dev-only follow", has(viteOO, "config.command === \"serve\" ? { follow: true } : undefined"), "the vite hook also runs for vite build, where no loop may start");
   ok("bakes stay loop-free", has(bsOO, "createCmsHost(rootDir);") && has(brOO, "createCmsHost(rootDir);") && !has(bsOO, "follow: true") && !has(brOO, "follow: true"), "no bake may start the minute timer");
+  /* PP. temporary guest channel (note 379): a one-off livestream from another
+     address plays while IT is live, never seeds recents, and everything falls
+     back to the main channel when it ends. */
+  const livePP = text["src/lib/livestatus.ts"];
+  const watchPP = text["src/pages/WatchLive.tsx"];
+  const blocksPP = text["src/components/blocks.tsx"];
+  const editorPP = text["src/components/editor.tsx"];
+  const autoPP = text["src/lib/autostop.ts"];
+  const cmsPP = text["src/lib/cms.ts"];
+  const schemaPP = text["src/lib/cmsSchema.ts"];
+  const liveDefPP = text["src/data/live.ts"];
+  const seedPP = text["seed.json"];
+  ok("guest target reads its own field", has(livePP, "export function guestTarget(channelInput?: string)") && has(livePP, "LIVE.externalYoutubeChannel"), "the guest slot must never read the main channel");
+  ok("guest stamp is its own gate", has(livePP, "export function isGuestTargetUrl(targetUrl: string, guestUrl: string)"), "only the guest's own answer may stand for the guest");
+  ok("guest asked first, main decides the rest", has(livePP, "const guest = guestTarget()") && has(livePP, "const officeGuest = guest && officeRep && officeRep.target === guest.url") && has(livePP, "const guestLive = guestAns.state === \"live\""), "guest-live must win the screen; guest off/unknown must fall through");
+  ok("guest never ends the main screen", has(livePP, "const targetUrl = (guestLive && guest ? guest.url : target?.url)"), "the stamp — and the report after it — must say the winner");
+  ok("office reports the winner", has(livePP, 'const url = String(status.target || "") || liveTarget()?.url || ""'), "a guest-live answer must steer visitors to the guest");
+  ok("retype still silences", has(livePP, 'url !== (liveTarget()?.url || "") && url !== (guestTarget()?.url || "")'), "a moved channel must never report");
+  ok("screen plays the guest", has(watchPP, "const screenAir = guestLive ? guestAir : airForTarget") && has(watchPP, "const guestLive = guestAir.state"), "guest-live plays; its end returns the main screen");
+  ok("guest follow is one tap", has(watchPP, "guestLive ? isGuestTargetUrl(screenAir.target, guestUrl)"), "a walled guest follows its own channel, never autoplay");
+  ok("tap opens the guest", has(blocksPP, "guestTarget()?.url") && has(blocksPP, "isGuestTargetUrl(st.target"), "a tap on a guest-live screen must play, not wait");
+  ok("guest never seeds recents", has(editorPP, "isGuestTargetUrl(aired.target") && has(autoPP, "isGuestTargetUrl(air.target"), "a guest ending files nothing");
+  ok("guest pastes clean", has(cmsPP, "cleanChannelInput(value.externalYoutubeChannel)"), "a doubled @ must never break the guest slot");
+  ok("drawer carries the slot", has(schemaPP, 'path: "externalYoutubeChannel"') && has(liveDefPP, "externalYoutubeChannel"), "the office needs the field; the code needs the default");
+  ok("bake carries the slot", has(seedPP, '"externalYoutubeChannel":""'), "fresh copies must read an empty guest, never undefined");
+  try {
+    const ebPP = await import("https://esm.sh/esbuild-wasm@0.21.5?bundle");
+    try { await ebPP.default.initialize({ wasmURL: "https://esm.sh/esbuild-wasm@0.21.5/esbuild.wasm" }); } catch {}
+    const grabPP = (src, name) => {
+      const from = src.indexOf("export function " + name + "(");
+      /* The body brace is the LAST "{" on the signature line: a return-type
+         annotation may carry its own balanced braces earlier on the same
+         line (e.g. `: { url: string; ... } | null {`). */
+      const eol = src.indexOf("\n", from);
+      const body = src.lastIndexOf("{", eol);
+      let depth = 0, end = -1;
+      for (let i = body; i < src.length && end < 0; i++) {
+        const ch = src[i];
+        if (ch === "{") depth++;
+        else if (ch === "}") { depth--; if (depth === 0) end = i + 1; }
+      }
+      return src.slice(from, end).replace("export function", "function");
+    };
+    const setupPP = "function cleanChannelInput(s){ return String(s || \"\").trim().replace(/@@+/g, \"@\").replace(/\\s+/g, \"\"); }\nvar LIVE = { externalYoutubeChannel: \"\" };\n";
+    const tcGuest = await ebPP.default.transform(setupPP + grabPP(livePP, "guestTarget") + "\nmodule.exports = guestTarget;", { loader: "ts", format: "cjs" });
+    const modGuest = { exports: {} };
+    new Function("module", "exports", tcGuest.code)(modGuest, modGuest.exports);
+    const guestTargetFn = modGuest.exports;
+    ok("guest handle resolves", guestTargetFn("@guestchan")?.url === "https://www.youtube.com/@guestchan/live" && guestTargetFn("@guestchan")?.kind === "channel");
+    ok("guest empty is null", guestTargetFn("") === null && guestTargetFn("   ") === null);
+    ok("guest doubled @ heals", guestTargetFn("@@guestchan")?.url === "https://www.youtube.com/@guestchan/live");
+    ok("guest id resolves", guestTargetFn("UCQ0KIUXUV7gTZmDDlvd3ZcQ")?.url === "https://www.youtube.com/channel/UCQ0KIUXUV7gTZmDDlvd3ZcQ/live");
+    const tcIsGuest = await ebPP.default.transform(grabPP(livePP, "isGuestTargetUrl") + "\nmodule.exports = isGuestTargetUrl;", { loader: "ts", format: "cjs" });
+    const modIsGuest = { exports: {} };
+    new Function("module", "exports", tcIsGuest.code)(modIsGuest, modIsGuest.exports);
+    const isGuest = modIsGuest.exports;
+    ok("own stamp stands", isGuest("https://www.youtube.com/@guestchan/live", "https://www.youtube.com/@guestchan/live") === true);
+    ok("foreign stamp falls", isGuest("https://www.youtube.com/@twocorg/live", "https://www.youtube.com/@guestchan/live") === false);
+    ok("empty guest waits", isGuest("https://www.youtube.com/@twocorg/live", "") === false && isGuest("", "https://www.youtube.com/@guestchan/live") === false);
+  } catch (e) {
+    ok("guest suite", false, String((e && e.message) || e).slice(0, 200));
+  }
+  /* QQ. quiet waiting page (note 381): the notice keeps waiting, but the
+     update-numbers small print is gone at the church's request. */
+  const layQQ = text["src/components/layout.tsx"];
+  ok("numbers line gone", !has(layQQ, "maint__notes") && !has(layQQ, "awaiting the office publish"), "no update numbers anywhere on the waiting page");
+  ok("notice still waits", has(layQQ, "We&rsquo;ll be right back") && has(layQQ, "Please check back shortly"), "the notice itself stays");
+  ok("no dangling number reads", !has(layQQ, "BUILD_NOTES") && !has(layQQ, "publishedNotesVersion"), "unused number plumbing must go with the line");
   const notes = Number((text["src/lib/hooks.ts"].match(/BUILD_NOTES = (\d+)/) || [])[1]) || 0;
   const apply = text["APPLY_UPDATE.txt"];
   ok("update number consistent", notes > 0 && has(apply, `APPLY THIS UPDATE (${notes})`), "hooks=" + notes);

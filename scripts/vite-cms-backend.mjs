@@ -43,7 +43,10 @@ export function cmsBackend() {
       } catch {
         /* same snapshot-and-recover as scripts/serve.mjs — never fatal */
       }
-      cms = await createCmsHost(ROOT, { follow: true });
+      /* Follow live only while serving (note 377): this hook also runs for
+         `vite build`, where a minute loop would hold the build process open
+         forever — exactly how the Vercel deploy got stuck. */
+      cms = await createCmsHost(ROOT, config && config.command === "serve" ? { follow: true } : undefined);
       outDir = path.resolve(config.root || ROOT, (config.build && config.build.outDir) || "dist");
     },
     /* Dev only: the shim connects the page to this backend (sign-in, publish,

@@ -2901,6 +2901,12 @@ export function setSectionValue(sectionId: string, value: any) {
     const clean = cleanChannelInput(value.youtubeChannel);
     if (clean !== value.youtubeChannel) value = { ...value, youtubeChannel: clean };
   }
+  /* The temporary guest pastes clean too (note 379): a doubled "@" or stray
+     spaces can never point the guest slot at nothing either. */
+  if (sectionId === "live" && value && typeof value === "object" && typeof value.externalYoutubeChannel === "string") {
+    const cleanGuest = cleanChannelInput(value.externalYoutubeChannel);
+    if (cleanGuest !== value.externalYoutubeChannel) value = { ...value, externalYoutubeChannel: cleanGuest };
+  }
   const prev = clone(d[sectionId]);
   if (JSON.stringify(prev) === JSON.stringify(value)) return;
   pushEditUndo(sectionId, prev);

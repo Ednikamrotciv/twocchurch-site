@@ -1,29 +1,63 @@
-APPLY THIS UPDATE (377) — UNSTICK VERCEL, THEN BOTH HOSTS
-==========================================================
-Measured first: the Vercel deploy takes so long it looks stuck — and it
-is. `npm run build` runs bake-seed/bake-recent, both open the content
-host, and the host started the minute live-follow loop unconditionally;
-that timer keeps the build process alive forever, so the deploy never
-finishes (Render builds fine only because RENDER=true is set there, which
-skips the loop). TWO ways out, either works alone: (1) NOW, with the
-current 375 sources — cancel the stuck deployment, add environment
-variable RENDER=true in the Vercel dashboard, redeploy; the build then
-finishes in minutes and the shipped site is identical (the loop is
-serving-only; static hosting never runs it). (2) THIS update (note 377
-below) fixes it for every host: the loop starts only where serving asked
-for it. After 377 lands the RENDER variable can stay or go — harmless
-either way. ORDER for the replica stays: apply 377 locally, publish ON
-377, wait for the terminal's "auto-deploy: new words pushed", THEN
-commit+push the full step-0 set (src/, scripts/, index.html, seed.json,
-.gitignore WITH the dot spelled out, maintenance-hold.txt) and rebuild
-BOTH hosts; version.json must read 377 AND /seed.json must list sections
-on both; reload ALL admin tabs; keep the office server running (its follow
-loop still runs — only builds stopped starting it).
+APPLY THIS UPDATE (381) — QUIET WAITING PAGE, THEN BOTH HOSTS
+==============================================================
+The waiting page no longer prints its numbers: the "Update N · awaiting
+the office publish (last publish: update M)" small print is gone at the
+church's request (`src/components/layout.tsx`). The notice itself is
+unchanged — same gate, same bypasses, same "We'll be right back" — only
+the small print is removed, with its now-unused number reads. ORDER
+stays: apply 381 locally, publish ON 381, wait for the terminal's
+"auto-deploy: new words pushed", THEN commit+push the full step-0 set
+(src/, scripts/, index.html, seed.json, .gitignore WITH the dot spelled
+out, maintenance-hold.txt) and rebuild BOTH hosts; version.json must read
+381 AND /seed.json must list sections on both; reload ALL admin tabs; keep
+the office server running.
+What changed (note 381):
+
+- Quiet waiting page (`src/components/layout.tsx`): the numbers line and
+  its comment are deleted; the `BUILD_NOTES` / `publishedNotesVersion`
+  reads go with it. Nothing else on the page moves.
+- The pre-ship verifier retires the LL numbers assertion (it now locks the
+  absence) and its new section QQ locks the quiet page.
+What changed (note 379):
+New: the Live stream drawer gains a "Temporary guest channel" field for a
+one-off livestream from another YouTube address. Paste the guest handle
+only when the event needs it; an empty guest changes nothing. While the
+guest is live the Watch screen plays IT (a verified broadcast autoplays; a
+walled-but-on-air guest is one tap, like the main channel). The guest never
+reaches Recent services — Stop files nothing for it — and the moment its
+stream ends the screen is back on the main channel by itself, with the main
+ended screen, the last-@twocorg-service still, and the @twocorg recents
+exactly as before. The office report steers visitors to the guest while it
+is live and back afterwards; same-update trust and the server relay gate
+are unchanged. ORDER stays: apply 379 locally, publish ON 379, wait for
+the terminal's "auto-deploy: new words pushed", THEN commit+push the full
+step-0 set (src/, scripts/, index.html, seed.json, .gitignore WITH the dot
+spelled out, maintenance-hold.txt) and rebuild BOTH hosts; version.json
+must read 379 AND /seed.json must list sections on both; reload ALL admin
+tabs; keep the office server running.
+What changed (note 379):
+
+- Temporary guest channel (`src/data/live.ts`, `src/lib/cmsSchema.ts`,
+  `src/lib/livestatus.ts`, `src/pages/WatchLive.tsx`,
+  `src/components/blocks.tsx`, `src/components/editor.tsx`,
+  `src/lib/autostop.ts`, `src/lib/cms.ts`, `seed.json`): new live field
+  `externalYoutubeChannel` (drawer field with its own hint; cleaned on
+  write like the main handle; shipped empty in the code default and the
+  bake). The check asks the guest first with its own office-report match;
+  guest-live wins the screen and the report, guest off/unknown falls
+  through to the main answer — so no guest video can ever seed the ended
+  screen, the still, or Recent services. The channel tap accepts
+  guest-stamped answers. No server change was needed (guest targets pass
+  the existing youtube-URL validation; the per-update clear only touches
+  the main channel fields, never the guest slot).
+- The pre-ship verifier's new section PP locks all of it (wiring markers +
+  live runs of the shipped guest target and stamp gate).
 What changed (note 377):
 
 - Builds always exit (`scripts/cms-local.mjs`): `createCmsHost` takes opts
-  — only `follow: true` starts the minute live-follow loop (`npm start` in
-  `scripts/serve.mjs`, `npm run dev` in `scripts/vite-cms-backend.mjs`).
+  — only `follow: true` starts the minute live-follow loop (`npm start`,
+  and `npm run dev` only while serving — the vite hook also runs for `vite
+  build`, where it passes nothing).
   bake-seed/bake-recent pass nothing, so static-host builds (Vercel and
   anywhere else) finish and exit instead of hanging on a live timer.
   Measured on the live box first: Render builds these same sources fine

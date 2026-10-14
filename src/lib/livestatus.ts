@@ -83,6 +83,34 @@ export function liveTarget(): { url: string; kind: "channel" | "video" } | null 
   return null;
 }
 
+/** Where to ask the temporary guest (note 379): a one-off livestream from
+    another address. Same shapes as the main target above; null unless the
+    office set the guest field. Takes an explicit input for the verifier so
+    the shipped rule runs without the store. */
+export function guestTarget(channelInput?: string): { url: string; kind: "channel" | "video" } | null {
+  const raw = cleanChannelInput(channelInput === undefined ? String(LIVE.externalYoutubeChannel || "") : channelInput);
+  if (raw) {
+    const id = /(UC[\w-]{20,24})/.exec(raw);
+    if (id) return { url: `https://www.youtube.com/channel/${id[1]}/live`, kind: "channel" };
+    const at = /youtube\.com\/@([\w.-]+)/i.exec(raw) || /^@([\w.-]+)$/.exec(raw);
+    if (at) return { url: `https://www.youtube.com/@${at[1]}/live`, kind: "channel" };
+    const legacy = /youtube\.com\/(?:c|user)\/([\w.-]+)/i.exec(raw);
+    if (legacy) return { url: `https://www.youtube.com/${/\/user\//i.test(raw) ? "user" : "c"}/${legacy[1]}/live`, kind: "channel" };
+    if (/^[\w.-]+$/.test(raw)) return { url: `https://www.youtube.com/@${raw}/live`, kind: "channel" };
+    return null;
+  }
+  return null;
+}
+
+/** True while an answer is stamped for the guest address (note 379), pure
+    for the verifier: only the guest's own answer may stand for the guest —
+    anything else waits on the main channel. */
+export function isGuestTargetUrl(targetUrl: string, guestUrl: string): boolean {
+  const t = String(targetUrl || "");
+  const g = String(guestUrl || "");
+  return !!t && !!g && t === g;
+}
+
 /** Where to ask Facebook (live video or page); empty when unset. */
 export function facebookTarget(): string {
   const raw = String(LIVE.facebookUrl || "").trim();
@@ -544,18 +572,36 @@ async function fetchLiveReport(): Promise<LiveReport | null> {
 /** Ask YouTube whether we are broadcasting, right now. */
 export async function checkLiveStream(opts: { facebook?: boolean } = {}): Promise<LiveStatus> {
   const target = liveTarget();
+  /* A temporary guest channel (note 379): a one-off livestream from another
+     address. It is asked first and wins while IT is live; its off/unknown
+     answers change nothing and the main channel below decides — so the ended
+     screen, the still and Recent services stay the main channel's own. */
+  const guest = guestTarget();
   const fbUrl = opts.facebook ? facebookTarget() : "";
-  if (!target && !fbUrl) return { ...EMPTY, state: "unset", checkedAt: Date.now() };
+  if (!target && !guest && !fbUrl) return { ...EMPTY, state: "unset", checkedAt: Date.now() };
 
   /* A fresh office report wins over the scrape (note 318): the deployed
      server cannot read YouTube itself (bot wall — the page comes back with a
      login wall and no live marker), but the office copy can, so while the
      office is open and reporting, visitors take its answer. A stale report,
      or one for another address, changes nothing — the scrape below runs. */
-  const officeRep = target ? await fetchLiveReport() : null;
+  const officeRep = target || guest ? await fetchLiveReport() : null;
   /* A videoless "live" report is an unverified follow (note 357): it never
      opens the player — the scrape below runs and usually waits. */
   const officeHit = target && officeRep && officeRep.target === target.url && reportCarriesVideo(officeRep) ? officeRep : null;
+  /* The guest's own report, matched the same way (note 379): only an answer
+     stamped for the guest address may stand for the guest. */
+  const officeGuest = guest && officeRep && officeRep.target === guest.url && reportCarriesVideo(officeRep) ? officeRep : null;
+  const guestHtml = guest && !officeGuest ? await fetchPage(guest.url) : null;
+  const guestAns: { state: LiveState; videoId: string; title: string; channelId: string } = !guest
+    ? { state: "unset", videoId: "", title: "", channelId: "" }
+    : officeGuest
+    ? officeGuest.state === "live"
+      ? { state: "live", videoId: officeGuest.videoId, title: officeGuest.title, channelId: officeGuest.channelId }
+      : { state: "off", videoId: "", title: "", channelId: "" }
+    : guestHtml === null
+    ? { state: "unknown", videoId: "", title: "", channelId: "" }
+    : await resolveYoutube(guest, guestHtml);
   const html = target && !officeHit ? await fetchPage(target.url) : null;
   const youtube: { state: LiveState; videoId: string; title: string; channelId: string } = !target
     ? { state: "unset", videoId: "", title: "", channelId: "" }
@@ -569,9 +615,10 @@ export async function checkLiveStream(opts: { facebook?: boolean } = {}): Promis
 
   /* Facebook is asked only when YouTube has not already answered "live" — it is
      the office's drawer that asks, and this is the one case it can add
-     something: a service that is only on Facebook (SPEC note 111). */
+     something: a service that is only on Facebook (SPEC note 111). A live
+     guest answers first too (note 379): Facebook never overrides it. */
   let facebook: { state: LiveState; videoId: string; title: string; channelId: string } = { state: "unset", videoId: "", title: "", channelId: "" };
-  if (fbUrl && youtube.state !== "live") {
+  if (fbUrl && youtube.state !== "live" && guestAns.state !== "live") {
     const fbHtml = await fetchPage(fbUrl);
     if (fbHtml !== null) {
       const parsed = parseFacebookLivePage(fbHtml);
@@ -579,12 +626,21 @@ export async function checkLiveStream(opts: { facebook?: boolean } = {}): Promis
     }
   }
 
+  /* The guest wins while IT is live (note 379): its verified broadcast plays
+     on the screen; everything else about the answer — the stamp below, the
+     office report after it — says the guest address, so the main channel's
+     ended screen never inherits the guest's video. */
+  const guestLive = guestAns.state === "live"
+    ? { platform: "youtube" as LivePlatform, videoId: guestAns.videoId, title: guestAns.title, channelId: guestAns.channelId }
+    : null;
+
   const found =
-    youtube.state === "live"
+    guestLive ||
+    (youtube.state === "live"
       ? { platform: "youtube" as LivePlatform, videoId: youtube.videoId, title: youtube.title, channelId: youtube.channelId }
       : facebook.state === "live"
       ? { platform: "facebook" as LivePlatform, videoId: facebook.videoId, title: facebook.title, channelId: "" }
-      : null;
+      : null);
 
   const state: LiveState = found
     ? "live"
@@ -595,7 +651,7 @@ export async function checkLiveStream(opts: { facebook?: boolean } = {}): Promis
     : "unknown";
 
   const checkedAt = Date.now();
-  const targetUrl = target?.url || "";
+  const targetUrl = (guestLive && guest ? guest.url : target?.url) || "";
   const next: LiveStatus = { state, platform: found?.platform || "", videoId: found?.videoId || "", title: found?.title || "", channelId: found?.channelId || "", target: targetUrl, checkedAt, endedAt: 0 };
 
   /* A watched broadcast's ending sticks until one comes back (autostop) — but
@@ -675,8 +731,14 @@ function maybeReport(status: LiveStatus) {
        channel-live answer names no video, so reporting it would steer every
        visitor's player at a guess — it stays local, and the readers wait. */
     if (status.state === "live" && !status.videoId) return;
-    const url = liveTarget()?.url || "";
+    /* The winning address reports (note 379): a guest-live answer carries the
+       guest stamp, so the office steers visitors to the guest broadcast —
+       and back to the main channel with the next answer after it ends. */
+    const url = String(status.target || "") || liveTarget()?.url || "";
     if (!url) return;
+    /* ...and only while that address is still watched (note 379): a retype
+       since the check silences the old answer, guest or main alike. */
+    if (url !== (liveTarget()?.url || "") && url !== (guestTarget()?.url || "")) return;
     /* An answer checked for another address (the channel moved since) never
        reports (note 349): the office must not steer visitors to the old
        handle's video. */
@@ -758,7 +820,7 @@ function wantsUrgent() {
     The channel is editable in the console, so this moves whenever the office
     retypes it (note 310). */
 function targetSignature() {
-  return `${liveTarget()?.url || ""}|${wantsFacebook() ? facebookTarget() : ""}`;
+  return `${liveTarget()?.url || ""}|${guestTarget()?.url || ""}|${wantsFacebook() ? facebookTarget() : ""}`;
 }
 
 /** The same signature for components: they re-ask when it moves. */
