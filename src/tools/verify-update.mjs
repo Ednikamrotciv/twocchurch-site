@@ -54,6 +54,7 @@ const FILES = [
   ["src/lib/pageMap.ts", "ts"],
   ["src/components/layout.tsx", "tsx"],
   ["src/components/blocks.tsx", "tsx"],
+  ["src/components/slides.tsx", "tsx"],
   ["src/App.tsx", "tsx"],
   ["scripts/build-static.mjs", "js"],
   ["scripts/serve.mjs", "js"],
@@ -1334,6 +1335,43 @@ export async function runAll(fs) {
   ok("boot names the file", has(htmlMM, "__womDescribeErr") && has(htmlMM, "could not load ") && has(htmlMM, "(url ? \" \" + url : \"\")"), "the banner must name the failed file");
   ok("boot never objects", has(htmlMM, "unknown boot error") && !has(htmlMM, "String((e && e.message) || e)"), "no path may stringify an event again");
   ok("boot heals once", has(htmlMM, "wom.boot.retried") && has(htmlMM, "window.location.reload()"), "a stale page or mid-deploy load must heal with one reload, never loop");
+  /* NN. dead photos fall back to welcome (note 375): a wiped upload answers
+     with a page, not a picture — the slide must paint welcome, never black. */
+  const sNN = text["src/components/slides.tsx"];
+  ok("slide-photo decision is pure", has(sNN, "export function resolveSlidePhoto(named: string, welcome: string, dead: boolean)"), "the choice must be unit-runnable");
+  ok("every flat face goes through it", has(sNN, "const original = resolveSlidePhoto(named, welcome, useDeadPhoto(named))"), "no face may paint a named photo unasked");
+  ok("probe skips non-photos", has(sNN, "isSlideVideoUrl(url) || url.startsWith(\"data:\") || url.startsWith(\"blob:\")"), "films and composed frames must never count as dead");
+  try {
+    const ebNN = await import("https://esm.sh/esbuild-wasm@0.21.5?bundle");
+    try { await ebNN.default.initialize({ wasmURL: "https://esm.sh/esbuild-wasm@0.21.5/esbuild.wasm" }); } catch {}
+    const from = sNN.indexOf("export function resolveSlidePhoto(");
+    let depthNN = 0, endNN = -1, openedNN = false;
+    for (let i = from; i < sNN.length && endNN < 0; i++) {
+      const ch = sNN[i];
+      if (ch === "{") { depthNN++; openedNN = true; }
+      else if (ch === "}") { depthNN--; if (openedNN && depthNN === 0) endNN = i + 1; }
+    }
+    const tcNN = await ebNN.default.transform(sNN.slice(from, endNN).replace("export function", "function"), { loader: "ts", format: "cjs" });
+    const modNN = { exports: {} };
+    new Function("module", "exports", tcNN.code + "\nmodule.exports = resolveSlidePhoto;")(modNN, modNN.exports);
+    const decide = modNN.exports;
+    ok("empty paints welcome", decide("", "W", false) === "W" && decide("", "W", true) === "W");
+    ok("dead named paints welcome", decide("https://host/data/uploads/x.jpeg", "W", true) === "W");
+    ok("live named keeps painting", decide("https://host/data/uploads/x.jpeg", "W", false) === "https://host/data/uploads/x.jpeg");
+    ok("dead welcome stays welcome", decide("W", "W", true) === "W");
+  } catch (e) {
+    ok("slide-photo suite", false, String((e && e.message) || e).slice(0, 200));
+  }
+  /* OO. builds always exit (note 377): the follow loop is opt-in for serving
+     processes — bakes must never start it, or static-host builds hang. */
+  const locOO = text["scripts/cms-local.mjs"];
+  const srvOO = text["scripts/serve.mjs"];
+  const viteOO = text["scripts/vite-cms-backend.mjs"];
+  const bsOO = text["scripts/bake-seed.mjs"];
+  const brOO = text["scripts/bake-recent.mjs"];
+  ok("host takes the follow flag", has(locOO, "createCmsHost(rootDir, opts)") && has(locOO, "if (opts && opts.follow)"), "the loop must be asked for, never assumed");
+  ok("servers opt in", has(srvOO, "createCmsHost(ROOT, { follow: true })") && has(viteOO, "createCmsHost(ROOT, { follow: true })"), "npm start and npm run dev keep following live");
+  ok("bakes stay loop-free", has(bsOO, "createCmsHost(rootDir);") && has(brOO, "createCmsHost(rootDir);") && !has(bsOO, "follow: true") && !has(brOO, "follow: true"), "no bake may start the minute timer");
   const notes = Number((text["src/lib/hooks.ts"].match(/BUILD_NOTES = (\d+)/) || [])[1]) || 0;
   const apply = text["APPLY_UPDATE.txt"];
   ok("update number consistent", notes > 0 && has(apply, `APPLY THIS UPDATE (${notes})`), "hooks=" + notes);

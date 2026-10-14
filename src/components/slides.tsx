@@ -293,6 +293,46 @@ function useVideoFrame(url: string): { poster: string; framed: string } {
 
 /* --------------------------------------------------------------------- one slide */
 
+/** Which photo a slide paints (note 375), pure for the verifier: an empty or
+    unloadable address falls back to the welcome photo — never a black face. */
+export function resolveSlidePhoto(named: string, welcome: string, dead: boolean): string {
+  if (!named) return welcome;
+  if (dead && named !== welcome) return welcome;
+  return named;
+}
+
+/** True while a named photo address will never paint (note 375): probed once
+    with a decoding load. Films, data/blob addresses and empties are not photos
+    and never count. The composer reads the same address through the browser
+    cache, so the probe costs no second download. */
+function useDeadPhoto(url: string): boolean {
+  const [dead, setDead] = useState(false);
+  useEffect(() => {
+    setDead(false);
+    if (!url || isSlideVideoUrl(url) || url.startsWith("data:") || url.startsWith("blob:")) return;
+    let alive = true;
+    const img = new Image();
+    img.onload = () => {
+      if (alive) setDead(false);
+    };
+    img.onerror = () => {
+      if (alive) setDead(true);
+    };
+    try {
+      img.src = url;
+    } catch {
+      if (alive) setDead(true);
+    }
+    return () => {
+      alive = false;
+      try {
+        img.removeAttribute("src");
+      } catch {}
+    };
+  }, [url]);
+  return dead;
+}
+
 /**
  * One announcement, composed. `index` and `total` are the slide's place in the
  * space — the *Numbered plate* design prints them.
@@ -320,9 +360,14 @@ export function AnnouncementSlide({
   /** A film that ran to its end hands the rhythm on at once. */
   onVideoEnded?: () => void;
 }) {
-  /* A slide with no picture of its own still has to look finished: the welcome
-     photo stands in until the office uploads one (see `photoOr`). */
-  const original = photoOr(slide.image, "welcome");
+  /* A named photo can still paint nothing (note 375): a wiped office-server
+     upload answers with the app's own fallback page (HTTP 200, text/html) —
+     no error status, just an unloadable "picture". The frame below would cut
+     darkness round it and the space would sit black, so a photo that fails to
+     decode falls back to the welcome photo exactly like an empty one. */
+  const named = photoOr(slide.image, "welcome");
+  const welcome = photoOr("", "welcome");
+  const original = resolveSlidePhoto(named, welcome, useDeadPhoto(named));
   /* A film upload plays as it is — visitors work it with the player's own
      volume and time-range controls, flat face only (the 3D stage plays it
      silently while it turns, see slides3d). */

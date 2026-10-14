@@ -55,7 +55,7 @@ function clearPublishLog(state, scriptSrc) {
   }
 }
 
-export async function createCmsHost(rootDir) {
+export async function createCmsHost(rootDir, opts) {
   /* The site's own content server (sign-in, publishing, uploads, live
      updates): one plain code file, run here in Node for `npm run dev` and
      `npm start` alike. */
@@ -188,10 +188,17 @@ export async function createCmsHost(rootDir) {
      newer update, never from a fallback bake onto used words (see
      live-follow.mjs). A missed round is harmless: the next minute retries,
      and any signed-in office tab pulls the same way in between. */
-  try {
-    startLiveFollow({ rootDir, rpcCall: call, adoptToken });
-  } catch (err) {
-    console.warn("live follow skipped:", err?.message || err);
+  /* The minute loop is a SERVING process's job (note 377): `npm start` and
+     `npm run dev` opt in below. One-shot users of this host (bake-seed,
+     bake-recent — and through them every static-host build) must never start
+     it: its minute timer kept build processes alive forever, which is exactly
+     how a Vercel deploy got stuck mid-build. */
+  if (opts && opts.follow) {
+    try {
+      startLiveFollow({ rootDir, rpcCall: call, adoptToken });
+    } catch (err) {
+      console.warn("live follow skipped:", err?.message || err);
+    }
   }
 
   function openConn(id) {

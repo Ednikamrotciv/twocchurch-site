@@ -68,7 +68,7 @@ const cms = await (async () => {
   } catch (err) {
     console.warn("content backup skipped:", err?.message || err);
   }
-  return createCmsHost(ROOT);
+  return createCmsHost(ROOT, { follow: true });
 })();
 const geoProxy = createGeoProxy();
 

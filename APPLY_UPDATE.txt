@@ -1,21 +1,48 @@
-APPLY THIS UPDATE (373) — LOCAL + LIVE
-=====================================
-The admin shows "Could not start: [object Event]" on a black screen: a
-script or stylesheet failed to load before React booted (a stale cached
-page naming a pruned bundle, a load mid-deploy, or a tunnel hiccup), and
-the old banner stringified the error event into "[object Event]" — naming
-nothing. Measured on the live box first: the live box is intact (/admin serves its page,
-its JS bundle and its CSS all answer 200), so the failure sits in the copy
-that tab opened, not the code. This update (note 373 below) makes the
-banner name the failed file AND reloads once by itself to heal exactly
-this: a second load that still fails then shows the filename, and the fix
-is reloading once or redeploying whole (never a mixed folder). Step 0 is
-the same as ever — full replace (seed.json + .gitignore WITH the dot
-spelled out), push, rebuild, version.json must read 373 AND /seed.json
-must list sections — then reload the admin tab ONCE (it heals itself from
-here on); fresh-profile notice check BEFORE publishing, restore, Review
-and publish; reload ALL admin tabs; office server running.
-What changed (note 373):
+APPLY THIS UPDATE (377) — UNSTICK VERCEL, THEN BOTH HOSTS
+==========================================================
+Measured first: the Vercel deploy takes so long it looks stuck — and it
+is. `npm run build` runs bake-seed/bake-recent, both open the content
+host, and the host started the minute live-follow loop unconditionally;
+that timer keeps the build process alive forever, so the deploy never
+finishes (Render builds fine only because RENDER=true is set there, which
+skips the loop). TWO ways out, either works alone: (1) NOW, with the
+current 375 sources — cancel the stuck deployment, add environment
+variable RENDER=true in the Vercel dashboard, redeploy; the build then
+finishes in minutes and the shipped site is identical (the loop is
+serving-only; static hosting never runs it). (2) THIS update (note 377
+below) fixes it for every host: the loop starts only where serving asked
+for it. After 377 lands the RENDER variable can stay or go — harmless
+either way. ORDER for the replica stays: apply 377 locally, publish ON
+377, wait for the terminal's "auto-deploy: new words pushed", THEN
+commit+push the full step-0 set (src/, scripts/, index.html, seed.json,
+.gitignore WITH the dot spelled out, maintenance-hold.txt) and rebuild
+BOTH hosts; version.json must read 377 AND /seed.json must list sections
+on both; reload ALL admin tabs; keep the office server running (its follow
+loop still runs — only builds stopped starting it).
+What changed (note 377):
+
+- Builds always exit (`scripts/cms-local.mjs`): `createCmsHost` takes opts
+  — only `follow: true` starts the minute live-follow loop (`npm start` in
+  `scripts/serve.mjs`, `npm run dev` in `scripts/vite-cms-backend.mjs`).
+  bake-seed/bake-recent pass nothing, so static-host builds (Vercel and
+  anywhere else) finish and exit instead of hanging on a live timer.
+  Measured on the live box first: Render builds these same sources fine
+  (RENDER=true skips the loop there) while the Vercel build never exits —
+  the timer, not the bundle, is the difference.
+- The pre-ship verifier's new section OO locks all of it (servers opt in,
+  bakes stay loop-free).
+What changed (note 375):
+
+- Dead photos wear welcome (`src/components/slides.tsx`): new pure
+  `resolveSlidePhoto` (empty or unloadable paints the welcome photo, a live
+  photo keeps painting) + a `useDeadPhoto` probe (one decoding load per
+  address; films, data/blob addresses and empties never count; the composer
+  reads through the browser cache, so no second download); every flat face
+  goes through it. The shipped seed stays welcome-only — no seed change —
+  and the rebuild resets the host's memory to it, so the 5 dead slides die
+  with the deploy.
+- The pre-ship verifier's new section NN locks all of it (wiring markers +
+  live runs of the shipped decision).
 
 - The boot banner diagnoses itself (`index.html`): resource errors carry
   no message, so the collector now describes the element — "could not

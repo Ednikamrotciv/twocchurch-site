@@ -43,7 +43,7 @@ export function cmsBackend() {
       } catch {
         /* same snapshot-and-recover as scripts/serve.mjs — never fatal */
       }
-      cms = await createCmsHost(ROOT);
+      cms = await createCmsHost(ROOT, { follow: true });
       outDir = path.resolve(config.root || ROOT, (config.build && config.build.outDir) || "dist");
     },
     /* Dev only: the shim connects the page to this backend (sign-in, publish,
