@@ -195,8 +195,13 @@ export function WatchLive() {
      switch — never the bare service clock — and never another channel's
      livestream while the screen sits shut after an end. */
   const onAirNow = displayLive(info) && !shutNow;
-  /* What the panel calls the broadcast while on air. */
-  const liveName = tx(air.title || (info?.isLive ? info.slot.name : "") || LIVE.liveTitle || info?.slot.name || "");
+  /* What the panel calls the broadcast while on air (notes 133, 405): the
+     detected stream's own title; else the gathering the clock has on — or the
+     next one, so a Play press for a coming broadcast names it instead of the
+     office's standing headline; a forced guest with no detected title keeps
+     the headline, since the church schedule never names a guest event. */
+  const guestForcedOnly = (guestLive || !!(LIVE as any).guestIsLive) && !LIVE.isLive && airForTarget.state !== "live";
+  const liveName = tx(air.title || (guestForcedOnly ? LIVE.liveTitle : info?.slot.name || LIVE.liveTitle) || "");
   const streamCountdown = info ? countdownParts(info.msUntil) : null;
 
 

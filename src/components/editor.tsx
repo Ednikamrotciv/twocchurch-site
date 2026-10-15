@@ -21,7 +21,7 @@ import {
 import { PageHead } from "../components/layout";
 import { SearchBox, eventDate } from "../components/blocks";
 import { fireToast, useNow } from "../lib/hooks";
-import { readLiveStatus, recheckLiveNow, guestTarget, isGuestTargetUrl } from "../lib/livestatus";
+import { readLiveStatus, recheckLiveNow, guestTarget, isGuestTargetUrl, useLiveStream, liveTarget, isStatusForTarget } from "../lib/livestatus";
 import { SITE, SERVICES, img } from "../data/site";
 import { recentLimit } from "../data/live";
 import { ytWatch } from "../data/sermons";
@@ -774,6 +774,13 @@ export function LiveTransportButtons() {
      no stamp, so there is nothing held: play begins fresh. */
   const heldSession = since > 0;
   const onNow = isOn || clockLive;
+  /* The slot's own on-air light (note 405): the blinking red dot sits in
+     this row while the main channel is live — the check's answer for the
+     main address, or the office's own switch — so the office sees at a
+     glance which field is on air. The countdown alone never lights it. */
+  const airNow = useLiveStream();
+  const mainUrl = liveTarget()?.url || "";
+  const mainLive = (!!mainUrl && airNow.state === "live" && isStatusForTarget(airNow, mainUrl)) || isOn;
   const ready = !!(
     String(live.youtubeChannel || "").trim() ||
     String(live.youtubeId || "").trim() ||
@@ -852,6 +859,11 @@ export function LiveTransportButtons() {
           <Btn size="sm" variant="ghost" icon="stop" onClick={stop} title="Stop the livestream" ariaLabel="Stop the livestream">
             Stop
           </Btn>
+          {mainLive && (
+            <span className="live-badge transport-row__live" role="status">
+              <span className="live-dot" aria-hidden="true" /> Live
+            </span>
+          )}
         </div>
       </div>
       {onNow && !ready && (
@@ -881,6 +893,12 @@ export function GuestTransportButtons() {
   useCmsTick();
   const live = draftLive();
   const guestOn = !!(live as any).guestIsLive;
+  /* The guest slot's own on-air light (note 405): the blinking red dot sits
+     in this row while the guest address is live — the check's answer for the
+     typed guest field, or the guest row's own switch. */
+  const guestAirNow = useLiveStream();
+  const guestUrlNow = guestTarget(String((live as any).externalYoutubeChannel || ""))?.url || "";
+  const guestLiveNow = (!!guestUrlNow && guestAirNow.state === "live" && isStatusForTarget(guestAirNow, guestUrlNow)) || guestOn;
   /** Write the newest draft, so two presses in a row never fight each other. */
   const write = (patch: Record<string, any>) => {
     const latest = cms.getDraft().live || {};
@@ -930,6 +948,11 @@ export function GuestTransportButtons() {
           <Btn size="sm" variant="ghost" icon="stop" onClick={stop} title="Stop the livestream" ariaLabel="Stop the livestream">
             Stop
           </Btn>
+          {guestLiveNow && (
+            <span className="live-badge transport-row__live" role="status">
+              <span className="live-dot" aria-hidden="true" /> Live
+            </span>
+          )}
         </div>
       </div>
     </div>

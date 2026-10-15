@@ -919,6 +919,11 @@
 .transport-row__btns {
   margin: 0;
 }
+/* The slot's on-air light (note 405): the blinking red dot rides in the
+   row itself, pushed to the row's end while its slot is live. */
+.transport-row__live {
+  margin-left: auto;
+}
 
 .admin__live-note {
   margin: 0;

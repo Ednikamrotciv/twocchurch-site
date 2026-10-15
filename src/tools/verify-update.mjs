@@ -405,7 +405,7 @@ export async function runAll(fs) {
   ok("watch checks at once", has(live, "urgent") && has(watch, "useLiveStream(true, false, true)"), "the Watch page must not wait out the freshness window");
   ok("app hurries on watch", has(app, 'onWatchPage') && has(app, "expecting || onWatchPage"), "the header must follow the stream on the Watch page");
   ok("moved channel jumps the queue", has(live, "wom:live-target") && has(live, "noteLiveTargetMayHaveChanged") && has(live, "export function recheckLiveNow()") && has(cms, 'window.dispatchEvent(new Event("wom:live-target"))'), "a retyped channel must be re-checked at once on live and local");
-  ok("office buttons re-ask", has(ed, "recheckLiveNow()") && has(ed, 'import { readLiveStatus, recheckLiveNow, guestTarget, isGuestTargetUrl } from "../lib/livestatus"'), "Start/Continue/Stop must ask the channel at once");
+  ok("office buttons re-ask", has(ed, "recheckLiveNow()") && has(ed, 'import { readLiveStatus, recheckLiveNow, guestTarget, isGuestTargetUrl, useLiveStream, liveTarget, isStatusForTarget } from "../lib/livestatus"'), "Start/Continue/Stop must ask the channel at once");
   ok("section publish stamps offline", has(cms, "An offline click still moves last-published on this copy"), "a per-section Publish while offline must move the stamp like the whole-site one");
   ok("bless caches offline", has(cms, "The stamp is cached with"), "a bless-only Publish while offline must cache the stamp with the words");
   /* N. office-reported on-air answer (note 318): the deployed server cannot
@@ -1149,8 +1149,8 @@ export async function runAll(fs) {
   const rsGG = text["src/lib/recentstreams.ts"];
   const lsGG = text["src/lib/livestatus.ts"];
   const applyGG = text["APPLY_UPDATE.txt"];
-  ok("override stamp per-update", has(srvGG, "var OVERRIDE_CLEAN = 0;") && has(srvGG, "overrideClean: OVERRIDE_CLEAN") && has(srvGG, "OVERRIDE_NO_403 = 403") && has(srvGG, "OVERRIDE_CLEAN !== OVERRIDE_NO_403"), "the clear must re-run on every new update, not once ever");
-  ok("override clears everything old", has(srvGG, "live403.youtubeChannel = \"@twocorg\"") && has(srvGG, "live403.youtubeId = \"\"") && has(srvGG, "live403.hiddenReplays = []") && has(srvGG, "live403.externalYoutubeChannel = \"\"") && has(srvGG, "live403.guestIsLive = false") && has(srvGG, "WELCOME_SLIDE_359") && has(srvGG, "String(slides403[0].id || \"\") === \"welcome-home\""), "channel, stray link, guest, guest switch, take-offs and slides must all go");
+  ok("override stamp per-update", has(srvGG, "var OVERRIDE_CLEAN = 0;") && has(srvGG, "overrideClean: OVERRIDE_CLEAN") && has(srvGG, "OVERRIDE_NO_405 = 405") && has(srvGG, "OVERRIDE_CLEAN !== OVERRIDE_NO_405"), "the clear must re-run on every new update, not once ever");
+  ok("override clears everything old", has(srvGG, "live405.youtubeChannel = \"@twocorg\"") && has(srvGG, "live405.youtubeId = \"\"") && has(srvGG, "live405.hiddenReplays = []") && has(srvGG, "live405.externalYoutubeChannel = \"\"") && has(srvGG, "live405.guestIsLive = false") && has(srvGG, "WELCOME_SLIDE_359") && has(srvGG, "String(slides405[0].id || \"\") === \"welcome-home\""), "channel, stray link, guest, guest switch, take-offs and slides must all go");
   ok("override never blesses", has(srvGG, "no rev bump") && has(srvGG, "later office work is never touched"), "the clear must not publish");
   ok("draft stray link heals", has(cmsGG, "healDraftStreamLink()") && has(cmsGG, "(draft as any).live = { ...dLive, youtubeId: \"\" }"), "an untouched draft must follow the words");
   ok("browser caches drop on new update", has(rsGG, "export function clearRecentCaches()") && has(cmsGG, "if (freshEyes) clearRecentCaches();"), "old cards must not ride into the new update");
@@ -1663,7 +1663,7 @@ export async function runAll(fs) {
   const seedXX = text["seed.json"];
   const edXX = text["src/components/editor.tsx"];
   const applyXX = text["APPLY_UPDATE.txt"];
-  ok("override is this update", has(srvXX, "OVERRIDE_NO_403 = 403") && has(srvXX, 'live403.externalYoutubeChannel = ""'), "first boot must re-run the clear, guest included");
+  ok("override is this update", has(srvXX, "OVERRIDE_NO_405 = 405") && has(srvXX, 'live405.externalYoutubeChannel = ""'), "first boot must re-run the clear, guest included");
   ok("guest ships empty", has(seedXX, '"externalYoutubeChannel":""'), "no copy may open with a guest set");
   ok("buttons still arm", has(edXX, "liveCommandAt: Date.now()") && has(edXX, "Pause the livestream") && has(edXX, "Play the livestream") && has(edXX, 'icon="stop"'), "removing the paragraph must not touch the transport");
   ok("promise text gone", !has(edXX, "Play and pause are one button") && !has(edXX, "there is nothing to publish"), "the drawer keeps only the unconfigured warning");
@@ -1755,7 +1755,23 @@ export async function runAll(fs) {
   } catch (e) {
     ok("guest-gate suite", false, String((e && e.message) || e).slice(0, 200));
   }
-  const notes = Number((text["src/lib/hooks.ts"].match(/BUILD_NOTES = (\d+)/) || [])[1]) || 0;
+    /* CCC. the next broadcast names the screen, each slot lights its own
+     dot (note 405): a Play press for a coming gathering names it instead of
+     the standing headline (a forced guest keeps the headline), and each
+     transport row carries its own blinking on-air light. */
+  const watchCCC = text["src/pages/WatchLive.tsx"];
+  const edCCC = text["src/components/editor.tsx"];
+  const cssCCC = text["src/styles/admin.css"];
+  const srvCCC = text["scripts/cms-server.js"];
+  const applyCCC = text["APPLY_UPDATE.txt"];
+  ok("press names the next gathering", has(watchCCC, "guestForcedOnly") && has(watchCCC, "info?.slot.name || LIVE.liveTitle"), "a midweek press must not read Sunday");
+  ok("forced guest keeps the headline", has(watchCCC, "guestForcedOnly ? LIVE.liveTitle"), "the schedule never names a guest event");
+  ok("each row lights its own slot", has(edCCC, "const mainLive = ") && has(edCCC, "const guestLiveNow = ") && has(edCCC, "transport-row__live") && has(edCCC, "isStatusForTarget(airNow, mainUrl)") && has(edCCC, "isStatusForTarget(guestAirNow, guestUrlNow)"), "one row must never light for the other");
+  ok("dots blink without extra polling", has(edCCC, "useLiveStream()") && has(edCCC, "live-dot"), "the rows subscribe to the shared check");
+  ok("dots sit at the row end", has(cssCCC, ".transport-row__live"), "the light must fit the field area");
+  ok("override is this update", has(srvCCC, "OVERRIDE_NO_405 = 405"), "first boot must re-run the clear");
+  ok("apply leads with naming and dots", has(applyCCC, "NEXT BROADCAST NAMES THE SCREEN") && has(applyCCC, "LIGHTS ITS OWN DOT"), "the office must meet the heading and the lights first");
+const notes = Number((text["src/lib/hooks.ts"].match(/BUILD_NOTES = (\d+)/) || [])[1]) || 0;
   const apply = text["APPLY_UPDATE.txt"];
   ok("update number consistent", notes > 0 && has(apply, `APPLY THIS UPDATE (${notes})`), "hooks=" + notes);
   return out.join("\n");
