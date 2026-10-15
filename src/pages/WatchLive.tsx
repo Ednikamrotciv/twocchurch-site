@@ -107,12 +107,15 @@ export function WatchLive() {
      379) — everything else about it already says the guest address. */
   const playableId = detectedId && idVerdict !== false && (isDesignatedChannel(airForTarget.channelId, designatedId) || (guestLive && isGuestTargetUrl(screenAir.target, guestUrl))) ? detectedId : "";
   const watchable = !!playableId || !!detectedChannel || fbLive || (!hasChannel && !!parseYoutubeId(LIVE.youtubeId));
-  /* Play means play (note 403): the office pressed Play for a slot and
-     published it, yet the read cannot confirm a broadcast (bot wall) — so
-     the screen opens the commanded channel itself instead of sitting on the
-     waiting clock. Only while the read says unknown (a verified off stays on
-     the clock), only the commanded slot, only with a known channel id — and
-     a detected broadcast still wins first. */
+  /* Play means play for the guest, patience for the main (notes 403, 409):
+     the office pressed Play for a slot and published it, yet the read cannot
+     confirm a broadcast (bot wall) — so the commanded GUEST channel opens by
+     itself instead of sitting on the waiting clock, while a pressed MAIN with
+     no detected broadcast waits on the clock below (autoplay only works once
+     the main livestream has started live on the channel). Only while the read
+     says unknown (a verified off stays on the clock), only the commanded
+     slot, only with a known channel id — and a detected broadcast still wins
+     first. */
   const overrideMain = !!LIVE.isLive && hasChannel && !guestLive && screenAir.state !== "live" && airForTarget.state === "unknown" && !shutNow;
   const overrideGuest = !!(LIVE as any).guestIsLive && !!guestUrl && !guestLive && screenAir.state !== "live" && guestAir.state === "unknown" && !shutNow;
   const overrideId = overrideMain ? designatedChannelIdForTarget(targetUrl) : overrideGuest ? designatedChannelIdForTarget(guestUrl) : "";
@@ -190,7 +193,18 @@ export function WatchLive() {
     (guestLive && guestUrl ? guestUrl : hasChannel ? targetUrl : watchUrl({ platform: "youtube", youtubeId: LIVE.youtubeId }) || targetUrl);
 
   /* The shared on-air answer (notes 83, 133); `streaming` is the narrower screen question. */
-  const streaming = screenAir.state === "live" && !shutNow;
+  /* The main channel plays only on the office's Play press (note 407) AND a
+     detected live answer (note 409): press alone never autoplays — autoplay
+     only works once the main livestream has started live on the channel. A
+     broadcast the check finds with no switch behind it never autoplays — the
+     guest still opens on detection while IT is live, and Facebook plays while
+     IT is live (configuring it is the intent). */
+  const streaming = screenAir.state === "live" && !shutNow && (guestLive || fbLive || !!LIVE.isLive);
+  /* Live but unpressed (note 407): the main address reads live with no switch
+     behind it — the screen waits on the ticking clock (never the ended screen:
+     something IS live), naming the gathering, until the office presses Play.
+     The shut latch still closes first. */
+  const waitingForClick = !shutNow && !LIVE.isLive && !guestLive && !fbLive && airForTarget.state === "live";
   /* What the badges show (note 385): the stream itself, or the office's
      switch — never the bare service clock — and never another channel's
      livestream while the screen sits shut after an end. */
@@ -326,23 +340,27 @@ export function WatchLive() {
                      itself the moment the broadcast starts. */
                   autoPlay={streaming && watchable}
                 />
-              ) : overrideId ? (
+              ) : overrideGuest && overrideId ? (
                 <VideoPlayer
                   source={{ platform: "youtube", youtubeId: "", youtubeChannelId: overrideId }}
                   title={liveName || ct("auto.live.bc108377bb47f9e6")}
                   compact
                   live
-                  /* The office commanded this slot (note 403): Play is
-                     published, the read is walled — so the commanded channel
-                     opens by itself instead of the waiting clock, WITH SOUND
-                     like every live. A verified off still waits; a detected
-                     broadcast still wins. */
+                  /* The office commanded the guest slot (notes 403, 409): the
+                     guest Play is published and the read is walled — so that
+                     commanded channel opens by itself instead of the waiting
+                     clock, WITH SOUND like every live. The MAIN slot never
+                     opens here: a pressed main with no detected broadcast
+                     waits on the clock below — autoplay only works once the
+                     main livestream has started live on the channel. A
+                     verified off still waits; a detected broadcast still
+                     wins. */
                   autoPlay
                 />
-              ) : !onAirNow ? (
+              ) : !onAirNow && !waitingForClick ? (
                 /* Nobody is broadcasting: the screen says so, and promises what
                    happens next — over the last stream's own still, dimmed. The
-                   player opens the service by itself the moment the stream
+                   player opens the service by itself once Play is published for the stream
                    starts (src/lib/livestatus.ts). The main channel's previous
                    services sit right under it (note 391), so the moment a live
                    ends its thumbnails are already on the screen. */

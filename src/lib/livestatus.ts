@@ -816,6 +816,13 @@ export function liveNow(): boolean {
   return snapshot.status.state === "live";
 }
 
+/** Is the temporary guest address the one broadcasting right now (note 407)?
+    Pure for the verifier: only the guest's own stamped answer counts. */
+export function guestLiveNow(): boolean {
+  const g = guestTarget()?.url || "";
+  return !!g && snapshot.status.state === "live" && isStatusForTarget(snapshot.status, g);
+}
+
 /** The watched broadcast's ending (0 when none): the stream's way to stop the site. */
 export function liveEndedAt(): number {
   return Number(snapshot.status.endedAt) || 0;

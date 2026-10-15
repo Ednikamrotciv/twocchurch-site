@@ -810,7 +810,7 @@ export function LiveTransportButtons() {
     recheckLiveNow();
     fireToast(
       ready
-        ? "Manual override on — Publish sends it. @twocorg starts by itself when live."
+        ? "Manual override on — Publish sends it. The screen plays it once published."
         : "Manual override on — Publish sends it. Paste the stream link or the channel to watch below.",
       "success"
     );
@@ -871,7 +871,7 @@ export function LiveTransportButtons() {
           <Icon name="alert" size={14} />
           <span>
             Nothing is set to play yet. Paste the stream link, or the channel to watch, in the fields above — until then
-            the Watch live screen stays on the countdown, and opens the service by itself the moment the stream starts.
+            the Watch live screen stays on the countdown until Play is pressed and published.
           </span>
         </p>
       )}

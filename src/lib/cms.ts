@@ -1891,6 +1891,10 @@ export async function startCms() {
      and the next feed read fill the card back in. A missing codegen proves
      nothing (fresh profile has no cache anyway), so nothing else is touched. */
   if (freshEyes) clearRecentCaches();
+  /* ...and the draft's guest slot with them (note 407): carried-over guest
+     words — the field and both guest keys — go once per update, dirty or
+     not, so no unsaved guest row rides into the new update. */
+  if (freshEyes) clearDraftGuestSlot();
   if (cached?.overrides && !freshEyes) {
     rev = cached.rev || 0;
     applyOverrides(cached.overrides);
@@ -2861,6 +2865,22 @@ function healDraftRecents() {
     one follows the published words here (cleared stays cleared); the office's
     own edits always win (dirty.live returns early). Runs on read, persists
     only when something actually moved, never notifies. */
+/** A proven new update empties the guest slot in the draft too (note 407),
+    even a dirty one: the office retypes a guest per event, so a carried-over
+    guest is never work worth keeping — while every other draft edit is left
+    exactly as the office left it. Runs once per update (freshEyes below),
+    persists only when something actually moved, never notifies. */
+function clearDraftGuestSlot() {
+  try {
+    const dLive = (draft as any)?.live;
+    if (!dLive || typeof dLive !== "object" || Array.isArray(dLive)) return;
+    if (!String(dLive.externalYoutubeChannel || "") && !(dLive as any).guestIsLive && !(dLive as any).guestCommandAt) return;
+    (draft as any).live = { ...dLive, externalYoutubeChannel: "", guestIsLive: false, guestCommandAt: 0 };
+    persistDraft();
+  } catch {
+    /* never break boot */
+  }
+}
 function healDraftGuest() {
   try {
     if (!draft || dirty.live) return;

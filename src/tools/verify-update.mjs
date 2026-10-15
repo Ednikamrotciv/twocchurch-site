@@ -55,6 +55,7 @@ const FILES = [
   ["src/lib/pageMap.ts", "ts"],
   ["src/components/layout.tsx", "tsx"],
   ["src/components/blocks.tsx", "tsx"],
+  ["src/components/ErrorBoundary.tsx", "tsx"],
   ["src/lib/store.ts", "ts"],
   ["src/pages/Home.tsx", "tsx"],
   ["src/components/slides.tsx", "tsx"],
@@ -1149,8 +1150,8 @@ export async function runAll(fs) {
   const rsGG = text["src/lib/recentstreams.ts"];
   const lsGG = text["src/lib/livestatus.ts"];
   const applyGG = text["APPLY_UPDATE.txt"];
-  ok("override stamp per-update", has(srvGG, "var OVERRIDE_CLEAN = 0;") && has(srvGG, "overrideClean: OVERRIDE_CLEAN") && has(srvGG, "OVERRIDE_NO_405 = 405") && has(srvGG, "OVERRIDE_CLEAN !== OVERRIDE_NO_405"), "the clear must re-run on every new update, not once ever");
-  ok("override clears everything old", has(srvGG, "live405.youtubeChannel = \"@twocorg\"") && has(srvGG, "live405.youtubeId = \"\"") && has(srvGG, "live405.hiddenReplays = []") && has(srvGG, "live405.externalYoutubeChannel = \"\"") && has(srvGG, "live405.guestIsLive = false") && has(srvGG, "WELCOME_SLIDE_359") && has(srvGG, "String(slides405[0].id || \"\") === \"welcome-home\""), "channel, stray link, guest, guest switch, take-offs and slides must all go");
+  ok("override stamp per-update", has(srvGG, "var OVERRIDE_CLEAN = 0;") && has(srvGG, "overrideClean: OVERRIDE_CLEAN") && has(srvGG, "OVERRIDE_NO_409 = 409") && has(srvGG, "OVERRIDE_CLEAN !== OVERRIDE_NO_409"), "the clear must re-run on every new update, not once ever");
+  ok("override clears everything old", has(srvGG, "live409.youtubeChannel = \"@twocorg\"") && has(srvGG, "live409.youtubeId = \"\"") && has(srvGG, "live409.hiddenReplays = []") && has(srvGG, "live409.externalYoutubeChannel = \"\"") && has(srvGG, "live409.guestIsLive = false") && has(srvGG, "WELCOME_SLIDE_359") && has(srvGG, "String(slides409[0].id || \"\") === \"welcome-home\""), "channel, stray link, guest, guest switch, take-offs and slides must all go");
   ok("override never blesses", has(srvGG, "no rev bump") && has(srvGG, "later office work is never touched"), "the clear must not publish");
   ok("draft stray link heals", has(cmsGG, "healDraftStreamLink()") && has(cmsGG, "(draft as any).live = { ...dLive, youtubeId: \"\" }"), "an untouched draft must follow the words");
   ok("browser caches drop on new update", has(rsGG, "export function clearRecentCaches()") && has(cmsGG, "if (freshEyes) clearRecentCaches();"), "old cards must not ride into the new update");
@@ -1489,8 +1490,9 @@ export async function runAll(fs) {
     ok("publish-everywhere suite", false, String((e && e.message) || e).slice(0, 200));
   }
   /* SS. LIVE waits for the stream, every fix arrives clean, no take-over,
-     close on any end (notes 385, 387): badges ask displayLive (stream or
-     switch, never the bare clock) while cadence still asks onAir; the override
+     close on any end (notes 385, 387, 407): badges ask displayLive (pressed
+     main, live guest or switch, never the bare clock — the main never opens
+     unpressed) while cadence still asks onAir; the override
      stamp is 385 and clears the guest slot with the rest; untouched drafts and
      restores follow; a guest ending into a live main shuts the screen; note
      387 extends the shut to ANY end on the off reading (unknown never closes),
@@ -1510,7 +1512,7 @@ export async function runAll(fs) {
   ok("cadence still hears the clock", has(storeSS, "export function onAir(info?: NextServiceInfo | null): boolean") && has(appSS, "onAir(gathering)") && has(watchSS, "onAir(info) || info.msUntil"), "detection must stay armed around services");
   ok("badges ask displayLive", has(laySS, "displayLive(info)") && has(homeSS, "displayLive(info)") && has(blocksSS, "displayLive(info)") && has(watchSS, "displayLive(info) && !shutNow"), "pill, hero, card and panel must all wait for the stream");
   ok("bare clock lights nothing", !has(laySS, "const live = onAir(info);") && !has(homeSS, "{onAir(info) ? (") && !has(blocksSS, "const live = onAir(info);") && !has(watchSS, "const onAirNow = onAir(info);"), "no badge may read the clock answer");
-  ok("screen shuts after an end", has(watchSS, "nextScreenShut(shut, shutPrevRef.current, guestUrl, screenAir.state") && has(watchSS, "const streaming = screenAir.state === \"live\" && !shutNow;") && has(liveSS, "export function nextScreenShut(") && has(liveSS, "export type ScreenShut") && has(watchSS, "screenAir.state === \"off\""), "any end must close the screen, never hand another channel over");
+  ok("screen shuts after an end", has(watchSS, "nextScreenShut(shut, shutPrevRef.current, guestUrl, screenAir.state") && has(watchSS, "const streaming = screenAir.state === \"live\" && !shutNow && (guestLive || fbLive || !!LIVE.isLive);") && has(liveSS, "export function nextScreenShut(") && has(liveSS, "export type ScreenShut") && has(watchSS, "screenAir.state === \"off\""), "any end must close the screen, never hand another channel over");
   ok("guest still clears", has(cmsSS, "healDraftGuest()") && has(cmsSS, "(draft as any).live = { ...dLive, externalYoutubeChannel: \"\" }") && has(cmsSS, "guestCleared: guestCleared || undefined") && has(edSS, "res.guestCleared"), "untouched drafts and restores must follow the clear");
   ok("drawer carries no promise text", !has(edSS, "the LIVE badge and the player wait for the stream itself") && !has(edSS, "Play and pause are one button") && !has(edSS, "the site is showing live by itself") && has(edSS, "Nothing is set to play yet"), "the promise paragraph is gone but functional — the unconfigured warning stays");
   ok("apply leads with the shut", has(applySS, "never plays another channel's livestream by itself"), "the office must meet the closed screen first");
@@ -1550,24 +1552,26 @@ export async function runAll(fs) {
     ok("same channel restart plays", shutFn(heldSS, "", GUEST_SS, true, MAIN_SS) === null);
     ok("guest restart re-arms", shutFn(heldSS, MAIN_SS, GUEST_SS, true, GUEST_SS) === null);
     ok("other new edge re-arms", shutFn(heldSS, MAIN_SS, GUEST_SS, true, OTHER_SS) === null);
-    const setupSS = "var LIVESS = { isLive: false, liveCut: 0, liveCommandAt: 0, liveSince: 0 };\nvar DETSS = { now: false, endedAt: 0 };\nfunction liveNow(){ return DETSS.now; }\nfunction liveEndedAt(){ return DETSS.endedAt; }\n";
+    const setupSS = "var LIVESS = { isLive: false, liveCut: 0, liveCommandAt: 0, liveSince: 0 };\nvar DETSS = { now: false, guest: false, endedAt: 0 };\nfunction liveNow(){ return DETSS.now; }\nfunction guestLiveNow(){ return DETSS.guest; }\nfunction liveEndedAt(){ return DETSS.endedAt; }\n";
     const tcDisp = await ebSS.default.transform(setupSS + grabSS(storeSS, "streamCut").replace(/LIVE/g, "LIVESS") + "\n" + grabSS(storeSS, "displayLive").replace(/LIVE/g, "LIVESS") + "\nmodule.exports = { displayLive: displayLive, __set: function (l, d) { Object.assign(LIVESS, l); Object.assign(DETSS, d); } };", { loader: "ts", format: "cjs" });
     const modDisp = { exports: {} };
     new Function("module", "exports", tcDisp.code)(modDisp, modDisp.exports);
     const dispFn = modDisp.exports.displayLive;
     const setSS = modDisp.exports.__set;
     const TSS = Date.now();
-    setSS({ isLive: false, liveCut: 0, liveCommandAt: 0, liveSince: 0 }, { now: true, endedAt: 0 });
-    ok("detected stream shows", dispFn({ isLive: false, at: new Date(TSS) }) === true);
-    setSS({ isLive: true }, { now: false });
+    setSS({ isLive: false, liveCut: 0, liveCommandAt: 0, liveSince: 0 }, { now: true, guest: false, endedAt: 0 });
+    ok("main detection alone stays quiet", dispFn({ isLive: false, at: new Date(TSS) }) === false);
+    setSS({ isLive: false, liveCut: 0, liveCommandAt: 0, liveSince: 0 }, { now: false, guest: true, endedAt: 0 });
+    ok("guest detection opens", dispFn({ isLive: false, at: new Date(TSS) }) === true);
+    setSS({ isLive: true }, { now: false, guest: false });
     ok("office switch shows", dispFn({ isLive: false, at: new Date(TSS) }) === true);
-    setSS({ isLive: false }, {});
+    setSS({ isLive: false }, { now: false, guest: false });
     ok("bare clock stays quiet", dispFn({ isLive: true, at: new Date(TSS) }) === false);
     ok("quiet stays quiet", dispFn({ isLive: false, at: new Date(TSS) }) === false && dispFn(null) === false && dispFn(undefined) === false);
-    setSS({ isLive: true, liveCut: TSS, liveCommandAt: 0, liveSince: 0 }, { now: false, endedAt: TSS - 1000 });
+    setSS({ isLive: true, liveCut: TSS, liveCommandAt: 0, liveSince: 0 }, { now: false, guest: false, endedAt: TSS - 1000 });
     ok("stop holds through the gathering", dispFn({ isLive: true, at: new Date(TSS - 5000) }) === false);
-    setSS({}, { now: true });
-    ok("detected stream beats a stop", dispFn({ isLive: true, at: new Date(TSS - 5000) }) === true);
+    setSS({ isLive: true, liveCut: TSS, liveCommandAt: 0, liveSince: 0 }, { now: true, guest: false, endedAt: TSS - 1000 });
+    ok("main detection never beats a stop", dispFn({ isLive: true, at: new Date(TSS - 5000) }) === false);
   } catch (e) {
     ok("shut-and-display suite", false, String((e && e.message) || e).slice(0, 200));
   }
@@ -1663,7 +1667,7 @@ export async function runAll(fs) {
   const seedXX = text["seed.json"];
   const edXX = text["src/components/editor.tsx"];
   const applyXX = text["APPLY_UPDATE.txt"];
-  ok("override is this update", has(srvXX, "OVERRIDE_NO_405 = 405") && has(srvXX, 'live405.externalYoutubeChannel = ""'), "first boot must re-run the clear, guest included");
+  ok("override is this update", has(srvXX, "OVERRIDE_NO_409 = 409") && has(srvXX, 'live409.externalYoutubeChannel = ""'), "first boot must re-run the clear, guest included");
   ok("guest ships empty", has(seedXX, '"externalYoutubeChannel":""'), "no copy may open with a guest set");
   ok("buttons still arm", has(edXX, "liveCommandAt: Date.now()") && has(edXX, "Pause the livestream") && has(edXX, "Play the livestream") && has(edXX, 'icon="stop"'), "removing the paragraph must not touch the transport");
   ok("promise text gone", !has(edXX, "Play and pause are one button") && !has(edXX, "there is nothing to publish"), "the drawer keeps only the unconfigured warning");
@@ -1710,11 +1714,12 @@ export async function runAll(fs) {
   ok("delete answers first tap", has(cmsAAA, "export function sectionHasPublishableRemovals(") && has(adminAAA, "sectionHasPublishableRemovals(edit.sectionId)") && has(adminAAA, "onClick={() => erase(edit)}"), "Delete must not look dead where it only drops the draft");
   ok("rows are styled compact", has(cssAAA, ".transport-row"), "the two rows must fit the field area");
   ok("apply leads with the rows", has(applyAAA, "EACH FIELD HAS ITS BUTTONS"), "the office must meet the per-field rows first");
-  /* BBB. each field commands its own slot, Play opens the channel (note
-     403): the main row never touches the guest slot and the guest row never
-     touches the main switch, the guest keys gate on their own stamp, the
-     badges hear the guest switch, and a published Play opens the commanded
-     channel itself while the read is walled. */
+  /* BBB. each field commands its own slot, guest Play opens the channel
+     (notes 403, 409): the main row never touches the guest slot and the
+     guest row never touches the main switch, the guest keys gate on their own
+     stamp, the badges hear the guest switch, and a published guest Play opens
+     its commanded channel while the read is walled — a pressed main waits for
+     detection. */
   const edBBB = text["src/components/editor.tsx"];
   const cmsBBB = text["src/lib/cms.ts"];
   const storeBBB = text["src/lib/store.ts"];
@@ -1725,7 +1730,7 @@ export async function runAll(fs) {
   ok("slots never cross", has(edBBB, "export function GuestTransportButtons()") && has(edBBB, "guestCommandAt: Date.now()") && !has(edBBB, "guestWasSet") && has(edBBB, "Main only: the guest slot is never touched here"), "one row must not arm or clear the other");
   ok("guest keys gated on their stamp", has(cmsBBB, "out.guestIsLive") && has(cmsBBB, "guestCommandAt"), "only a guest click may send the guest state");
   ok("badges hear the guest switch", has(storeBBB, "(LIVE as any).guestIsLive"), "a forced guest must light LIVE too");
-  ok("play opens the commanded channel", has(watchBBB, "const overrideId = ") && has(watchBBB, "(!streaming && overrideId)") && has(watchBBB, ") : overrideId ? ("), "a published Play must open the channel, not the clock");
+  ok("guest press opens its walled channel", has(watchBBB, "const overrideId = ") && has(watchBBB, "(!streaming && overrideId)") && has(watchBBB, ") : overrideGuest && overrideId ? (") && !has(watchBBB, ") : overrideId ? (") && has(watchBBB, "(guestLive || fbLive || !!LIVE.isLive)"), "a published guest Play may open the channel, a pressed main waits for detection — and only a live slot plays by itself");
   ok("follow is unknown-only", has(watchBBB, 'airForTarget.state === "unknown"') && has(watchBBB, 'guestAir.state === "unknown"'), "a verified off must stay on the clock");
   ok("guest keys ship false", has(liveBBB, "guestIsLive: false") && has(seedBBB, '"guestIsLive":false'), "no copy may open with a guest forced");
   ok("apply leads own-slot", has(applyBBB, "EACH FIELD COMMANDS ITS OWN SLOT"), "the office must meet the independent rows first");
@@ -1769,8 +1774,41 @@ export async function runAll(fs) {
   ok("each row lights its own slot", has(edCCC, "const mainLive = ") && has(edCCC, "const guestLiveNow = ") && has(edCCC, "transport-row__live") && has(edCCC, "isStatusForTarget(airNow, mainUrl)") && has(edCCC, "isStatusForTarget(guestAirNow, guestUrlNow)"), "one row must never light for the other");
   ok("dots blink without extra polling", has(edCCC, "useLiveStream()") && has(edCCC, "live-dot"), "the rows subscribe to the shared check");
   ok("dots sit at the row end", has(cssCCC, ".transport-row__live"), "the light must fit the field area");
-  ok("override is this update", has(srvCCC, "OVERRIDE_NO_405 = 405"), "first boot must re-run the clear");
+  ok("override is this update", has(srvCCC, "OVERRIDE_NO_409 = 409"), "first boot must re-run the clear");
   ok("apply leads with naming and dots", has(applyCCC, "NEXT BROADCAST NAMES THE SCREEN") && has(applyCCC, "LIGHTS ITS OWN DOT"), "the office must meet the heading and the lights first");
+  /* DDD. the main waits for the Play press, the guest arrives empty, the
+     crash names itself (note 407): no bare main detection opens badges or
+     player (the guest still opens on detection); an unpressed live main waits
+     on the clock; the draft guest sweeps once per update; the boundary prints
+     the route and logs the stack. */
+  const storeDDD = text["src/lib/store.ts"];
+  const liveDDD = text["src/lib/livestatus.ts"];
+  const watchDDD = text["src/pages/WatchLive.tsx"];
+  const cmsDDD = text["src/lib/cms.ts"];
+  const edDDD = text["src/components/editor.tsx"];
+  const boundDDD = text["src/components/ErrorBoundary.tsx"];
+  const srvDDD = text["scripts/cms-server.js"];
+  const applyDDD = text["APPLY_UPDATE.txt"];
+  ok("main detection opens nothing", has(storeDDD, "if (guestLiveNow()) return true;") && !has(storeDDD, "is on air, or the office's switch says so"), "badges must wait for the press");
+  ok("guest answer is pure", has(liveDDD, "export function guestLiveNow(): boolean"), "only the guest stamp counts");
+  ok("player waits for the press", has(watchDDD, "(guestLive || fbLive || !!LIVE.isLive)") && has(watchDDD, "const waitingForClick = !shutNow"), "an unpressed live main never autoplays");
+  ok("unpressed live waits, never ends", has(watchDDD, "!onAirNow && !waitingForClick ? ("), "something IS live — the clock, not the ended screen");
+  ok("draft guest sweeps per update", has(cmsDDD, "function clearDraftGuestSlot()") && has(cmsDDD, "if (freshEyes) clearDraftGuestSlot();"), "no unsaved guest row rides in");
+  ok("drawer follows the press rule", has(edDDD, "until Play is pressed and published") && has(edDDD, "The screen plays it once published."), "no copy may promise self-start");
+  ok("crash names its page", has(boundDDD, "componentStack") && has(boundDDD, "Page: ${this.state.route}"), "the next screenshot must name the page");
+  ok("override is this update", has(srvDDD, "OVERRIDE_NO_409 = 409"), "first boot must re-run the clear");
+  ok("apply leads with press and empty", has(applyDDD, "MAIN WAITS FOR THE PLAY PRESS") && has(applyDDD, "GUEST ARRIVES EMPTY"), "the office must meet the press rule first");
+  /* EEE. autoplay only when the main is live (note 409): a pressed main with
+     an unknown read waits on the clock — only the commanded guest slot opens
+     walled; a pressed main with a detected broadcast still plays by itself. */
+  const watchEEE = text["src/pages/WatchLive.tsx"];
+  const srvEEE = text["scripts/cms-server.js"];
+  const applyEEE = text["APPLY_UPDATE.txt"];
+  ok("main press never autoplays walled", has(watchEEE, ") : overrideGuest && overrideId ? (") && !has(watchEEE, ") : overrideId ? (") && has(watchEEE, "const overrideMain = "), "a pressed main must wait for detection, not open the channel");
+  ok("pressed-live main still plays", has(watchEEE, "(guestLive || fbLive || !!LIVE.isLive)") && has(watchEEE, "autoPlay={streaming && watchable}") && has(watchEEE, "const waitingForClick = !shutNow"), "press plus detection must still autoplay with sound");
+  ok("guest press still opens walled", has(watchEEE, "const overrideGuest = ") && has(watchEEE, 'guestAir.state === "unknown"'), "a published guest Play must still open its channel");
+  ok("override is this update", has(srvEEE, "OVERRIDE_NO_409 = 409"), "first boot must re-run the clear");
+  ok("apply leads with detection-gated autoplay", has(applyEEE, "AUTOPLAY ONLY WHEN THE MAIN IS LIVE"), "the office must meet the detection rule first");
 const notes = Number((text["src/lib/hooks.ts"].match(/BUILD_NOTES = (\d+)/) || [])[1]) || 0;
   const apply = text["APPLY_UPDATE.txt"];
   ok("update number consistent", notes > 0 && has(apply, `APPLY THIS UPDATE (${notes})`), "hooks=" + notes);

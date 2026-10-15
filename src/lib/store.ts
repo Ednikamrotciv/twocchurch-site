@@ -2,7 +2,7 @@ import { fireToast } from "./hooks";
 import { ct } from "../data/copy";
 import { currentLang, tx } from "./i18n";
 import { LIVE } from "../data/live";
-import { liveEndedAt, liveNow } from "./livestatus";
+import { guestLiveNow, liveEndedAt, liveNow } from "./livestatus";
 import { COUNTRY_CURRENCY, FALLBACK_RATES } from "../data/currencies";
 
 export const KEYS = {
@@ -469,15 +469,16 @@ export function onAir(info?: NextServiceInfo | null): boolean {
   return true;
 }
 
-/** What the badges and the Watch screen SHOW (note 385): the stream itself
-    is on air, or the office's switch says so. The service clock alone never
-    lights LIVE — it only counts down and arms the short cadence — so the
-    site stays quiet when nothing was published and nothing is broadcasting,
-    while a YouTube start still opens the screen by itself the moment the
-    check finds it. Cadence callers (App's `expecting`, Watch's `justNow`,
-    the recents burst, autostop) stay on `onAir` above. */
+/** What the badges and the Watch screen SHOW (notes 385, 407): the office's
+    switch says so — the main channel never opens the site by itself any more,
+    only a Play press (published) lights it. The temporary guest still opens on
+    detection (typing the field is the office's intent for a one-off), and the
+    service clock alone never lights LIVE — it only counts down and arms the
+    short cadence. Cadence callers (App's `expecting`, Watch's `justNow`, the
+    recents burst, autostop) stay on `onAir` above, so the check still finds a
+    YouTube start in seconds and the admin dots still light. */
 export function displayLive(info?: NextServiceInfo | null): boolean {
-  if (liveNow()) return true;
+  if (guestLiveNow()) return true;
   /* A guest the office forced on (note 403): its own switch lights the
      badges while the event runs — set only by the guest row's buttons,
      cleared with the slot, never the bare clock. */
