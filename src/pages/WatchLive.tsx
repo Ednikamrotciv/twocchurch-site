@@ -121,6 +121,16 @@ export function WatchLive() {
   const overrideId = overrideMain ? designatedChannelIdForTarget(targetUrl) : overrideGuest ? designatedChannelIdForTarget(guestUrl) : "";
   /* Anywhere for the check to look — channel, stream link or Facebook page. */
   const configured = !!liveTarget() || !!facebookTarget();
+  /* The shared on-air answer (notes 83, 133); `streaming` is the narrower screen question. Declared
+     here, before `liveSource` (note 411): the initializer below reads it, and reading a later
+     declaration crashed the page (`Cannot access 'streaming' before initialization`). */
+  /* The main channel plays only on the office's Play press (note 407) AND a
+     detected live answer (note 409): press alone never autoplays — autoplay
+     only works once the main livestream has started live on the channel. A
+     broadcast the check finds with no switch behind it never autoplays — the
+     guest still opens on detection while IT is live, and Facebook plays while
+     IT is live (configuring it is the intent). */
+  const streaming = screenAir.state === "live" && !shutNow && (guestLive || fbLive || !!LIVE.isLive);
 
   /* The two lists under the screen: recent services (read off the channel) and previous sermons (the office's write-ups). */
   const limit = recentLimit();
@@ -192,14 +202,7 @@ export function WatchLive() {
     watchUrl({ platform: "youtube", youtubeId: playableId }) ||
     (guestLive && guestUrl ? guestUrl : hasChannel ? targetUrl : watchUrl({ platform: "youtube", youtubeId: LIVE.youtubeId }) || targetUrl);
 
-  /* The shared on-air answer (notes 83, 133); `streaming` is the narrower screen question. */
-  /* The main channel plays only on the office's Play press (note 407) AND a
-     detected live answer (note 409): press alone never autoplays — autoplay
-     only works once the main livestream has started live on the channel. A
-     broadcast the check finds with no switch behind it never autoplays — the
-     guest still opens on detection while IT is live, and Facebook plays while
-     IT is live (configuring it is the intent). */
-  const streaming = screenAir.state === "live" && !shutNow && (guestLive || fbLive || !!LIVE.isLive);
+  /* The `streaming` answer lives above, beside `overrideId` (note 411). */
   /* Live but unpressed (note 407): the main address reads live with no switch
      behind it — the screen waits on the ticking clock (never the ended screen:
      something IS live), naming the gathering, until the office presses Play.
