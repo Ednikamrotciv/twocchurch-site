@@ -884,6 +884,19 @@ export function revertSection(sectionId: string): { ok: boolean; label?: string 
   return { ok: true, label: def.label };
 }
 
+/** Whether Delete on the unsaved list can publish removals (note 401), pure
+    for the verifier: list sections — and object sections carrying a deletable
+    list — keep the two-tap confirm that publishes just what was taken off.
+    Every other section's Delete only ever drops the draft edit (see
+    `dropAddedAndRevertedEdits` bailing out above), so it answers on the first
+    tap like Put back instead of looking dead. */
+export function sectionHasPublishableRemovals(sectionId: string): boolean {
+  const def = sectionById(sectionId);
+  if (!def) return false;
+  if (def.kind === "list") return !def.fixed;
+  return !!def.deletableItems;
+}
+
 /** Keep only a list section's removals, so Delete publishes just what was taken off (undoable). */
 export function dropAddedAndRevertedEdits(sectionId: string): {
   ok: boolean;

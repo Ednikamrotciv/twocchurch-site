@@ -822,29 +822,29 @@ try {
    any slides but the lone welcome card replanted — and since note 385 the
    temporary guest channel too, so every fix arrives fresh, new and clean. No
    stamp, no rev bump, no publish — later office work is never touched. */
-var OVERRIDE_NO_399 = 399;
+var OVERRIDE_NO_401 = 401;
 try {
-  if (OVERRIDE_CLEAN !== OVERRIDE_NO_399) {
-    OVERRIDE_CLEAN = OVERRIDE_NO_399;
+  if (OVERRIDE_CLEAN !== OVERRIDE_NO_401) {
+    OVERRIDE_CLEAN = OVERRIDE_NO_401;
     try {
-      var live399 = JSON.parse(SECTIONS.live || "null");
-      if (live399 && typeof live399 === "object" && !Array.isArray(live399)) {
-        var ch399 = String(live399.youtubeChannel || "").trim().replace(/@@+/g, "@").replace(/\s+/g, "");
-        var touched399 = false;
-        if (ch399 && ch399.toLowerCase() !== "@twocorg") { live399.youtubeChannel = "@twocorg"; touched399 = true; }
-        if (typeof live399.youtubeId === "string" && live399.youtubeId) { live399.youtubeId = ""; touched399 = true; }
-        if (typeof live399.externalYoutubeChannel === "string" && live399.externalYoutubeChannel) { live399.externalYoutubeChannel = ""; touched399 = true; }
-        if (Array.isArray(live399.hiddenReplays) && live399.hiddenReplays.length) { live399.hiddenReplays = []; touched399 = true; }
-        if (touched399) setSection("live", JSON.stringify(live399));
+      var live401 = JSON.parse(SECTIONS.live || "null");
+      if (live401 && typeof live401 === "object" && !Array.isArray(live401)) {
+        var ch401 = String(live401.youtubeChannel || "").trim().replace(/@@+/g, "@").replace(/\s+/g, "");
+        var touched401 = false;
+        if (ch401 && ch401.toLowerCase() !== "@twocorg") { live401.youtubeChannel = "@twocorg"; touched401 = true; }
+        if (typeof live401.youtubeId === "string" && live401.youtubeId) { live401.youtubeId = ""; touched401 = true; }
+        if (typeof live401.externalYoutubeChannel === "string" && live401.externalYoutubeChannel) { live401.externalYoutubeChannel = ""; touched401 = true; }
+        if (Array.isArray(live401.hiddenReplays) && live401.hiddenReplays.length) { live401.hiddenReplays = []; touched401 = true; }
+        if (touched401) setSection("live", JSON.stringify(live401));
       }
     } catch (e) {
       /* a broken live section is the restore's work, not ours */
     }
     try {
       if (typeof SECTIONS.slides === "string") {
-        var slides399 = JSON.parse(SECTIONS.slides);
-        var onlyWelcome399 = Array.isArray(slides399) && slides399.length === 1 && slides399[0] && typeof slides399[0] === "object" && String(slides399[0].id || "") === "welcome-home";
-        if (!onlyWelcome399) setSection("slides", JSON.stringify(WELCOME_SLIDE_359));
+        var slides401 = JSON.parse(SECTIONS.slides);
+        var onlyWelcome401 = Array.isArray(slides401) && slides401.length === 1 && slides401[0] && typeof slides401[0] === "object" && String(slides401[0].id || "") === "welcome-home";
+        if (!onlyWelcome401) setSection("slides", JSON.stringify(WELCOME_SLIDE_359));
       }
     } catch (e) {
       try { setSection("slides", JSON.stringify(WELCOME_SLIDE_359)); } catch (e2) {}

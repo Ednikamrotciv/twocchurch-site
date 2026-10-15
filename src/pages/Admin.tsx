@@ -996,12 +996,30 @@ function UnsavedView({
                   <Icon name="chevronRight" size={16} className="ejob__chev" />
                 </button>
                 <span className="unsaved__btns">
-                  <ConfirmIcon
-                    className="unsaved__delete"
-                    onConfirm={() => erase(edit)}
-                    title={`Delete from the live site now — what was taken off leaves everywhere at once, and it does not come back`}
-                    label="Delete"
-                  />
+                  {/* Delete publishes just the removals where a section has
+                      any (note 140) — everywhere else it only ever drops the
+                      draft edit, so it answers on the first tap like Put back
+                      instead of looking dead (note 401). */}
+                  {cms.sectionHasPublishableRemovals(edit.sectionId) ? (
+                    <ConfirmIcon
+                      className="unsaved__delete"
+                      onConfirm={() => erase(edit)}
+                      title={`Delete from the live site now — what was taken off leaves everywhere at once, and it does not come back`}
+                      label="Delete"
+                    />
+                  ) : (
+                    <button
+                      type="button"
+                      className="admin__danger-btn unsaved__delete"
+                      onClick={() => erase(edit)}
+                      title={`Delete — drop this unsaved edit`}
+                    >
+                      <Icon name="trash" size={14} />
+                      <span className="admin__danger-btn-label" aria-live="polite">
+                        <span className="is-shown">Delete</span>
+                      </span>
+                    </button>
+                  )}
                   <button
                     type="button"
                     className="unsaved__revert"

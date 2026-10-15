@@ -739,21 +739,24 @@ export function LiveEndingPanel({ onOpen, children }: { onOpen: (id: string) => 
 
 /* ----------------------------------- the livestream transport: one play/pause button, one stop button */
 
-/** Play / pause on one button, stop on another (notes 389, 391): the stopped
-    card is gone — the office works the stream from two buttons beside the
-    channel fields, and every click stamps `liveCommandAt`. The main channel
-    needs no click to start (note 399): @twocorg opens the screen by itself
-    the moment YouTube is live — Play is only the manual override (a walled
-    read, or a badge the office wants forced). Pause HOLDS the
-    session without ending it (the session start is kept, so play picks the
-    same session back up); stop ENDS it (the start is cleared and the finished
-    service files itself, so the next play begins fresh). Publish sends the
-    on-air state ONLY when a click stamped a newer command than what is
-    published (see `gateLiveCommand` in src/lib/cms.ts) — an unclicked Publish
-    leaves the site's on-air state alone, whatever the draft says. The buttons
-    never gate a live end: when the broadcast ends the screen closes at once
-    onto the main channel's previous-service thumbnails, published or not — a
-    natural end needs no publish (note 393). */
+/** Play / pause on one button, stop on another, for EACH channel field
+    (notes 389, 391, 401): the stopped card is gone — the office works the
+    stream from two compact rows beside the channel fields, and every click
+    stamps `liveCommandAt`. The main channel needs no click to start
+    (note 399): @twocorg opens the screen by itself the moment YouTube is
+    live — Play is only the manual override (a walled read, or a badge the
+    office wants forced). Pause HOLDS the session without ending it (the
+    session start is kept, so play picks the same session back up); stop
+    ENDS it (the start is cleared and the finished service files itself, so
+    the next play begins fresh) — and a stop always empties the guest slot
+    with it, so the guest field is empty again after every stop. Publish
+    sends the on-air state ONLY when a click stamped a newer command than
+    what is published (see `gateLiveCommand` in src/lib/cms.ts) — an
+    unclicked Publish leaves the site's on-air state alone, whatever the
+    draft says. The buttons never gate a live end: when the broadcast ends
+    the screen closes at once onto the main channel's previous-service
+    thumbnails, published or not — a natural end needs no publish
+    (note 393). */
 export function LiveTransportButtons() {
   useCmsTick();
   const now = useNow(20000);
@@ -806,6 +809,29 @@ export function LiveTransportButtons() {
       "success"
     );
   };
+  /* The guest row's play is the same override, but it needs a guest first
+     (note 401): with an empty guest slot there is nothing to override, so
+     the tap names the field instead of touching the main channel. */
+  const playGuest = () => {
+    const latest = cms.getDraft().live || {};
+    if (!String((latest as any).externalYoutubeChannel || "").trim()) {
+      fireToast("Type the guest channel first — there is no guest to override.", "info");
+      return;
+    }
+    play();
+  };
+  /* Empty the guest slot in the draft (note 401): unstamped, like any hand
+     edit — the next Publish carries it, and the screen already follows the
+     check back to the main channel whether published or not. */
+  const clearGuest = () => {
+    const latest = cms.getDraft().live || {};
+    if (!String((latest as any).externalYoutubeChannel || "").trim()) {
+      fireToast("Guest channel is already empty.", "info");
+      return;
+    }
+    cms.setSectionValue("live", { ...latest, externalYoutubeChannel: "" });
+    fireToast("Guest channel cleared — Publish sends it.", "info");
+  };
   /* Pause holds the broadcast without ending it (note 391): the session start
      is kept — no `liveSince` key here — so play picks the same session back
      up, and the finished service is NOT filed. */
@@ -816,9 +842,12 @@ export function LiveTransportButtons() {
   };
   /* Stop ends the session (note 391): the start is cleared, so the next play
      begins fresh — and the finished service files itself under Recent
-     services. */
+     services. A stop always empties the guest slot with it (note 401), so
+     the guest field is empty again after every stop. */
   const stop = () => {
-    write({ isLive: false, liveSince: 0, liveCut: Date.now(), liveEndedBy: "office", liveCommandAt: Date.now() });
+    const latest = cms.getDraft().live || {};
+    const guestWasSet = String((latest as any).externalYoutubeChannel || "").trim() !== "";
+    write({ isLive: false, liveSince: 0, liveCut: Date.now(), liveEndedBy: "office", liveCommandAt: Date.now(), ...(guestWasSet ? { externalYoutubeChannel: "" } : {}) });
     recheckLiveNow();
     /* An ended service seeds Recent services now; every open page re-reads the channel.
        A temporary guest never seeds (note 379): its ending leaves the main
@@ -832,24 +861,48 @@ export function LiveTransportButtons() {
         : "Stopped. Publish sends it — the finished service files itself under Recent services.",
       "info"
     );
+    if (guestWasSet) fireToast("Guest channel is empty again — Publish sends it.", "info");
   };
 
   return (
     <div className="admin__transport">
-      <span className={onNow ? "live-dot" : "live-dot live-dot--off"} aria-hidden="true" />
-      <div className="btn-row">
-        {onNow ? (
-          <Btn variant="gold" icon="pause" onClick={pause}>
-            Pause the livestream
+      <div className="transport-row">
+        <span className="transport-row__who">Main channel</span>
+        <span className={onNow ? "live-dot" : "live-dot live-dot--off"} aria-hidden="true" />
+        <div className="btn-row transport-row__btns">
+          {onNow ? (
+            <Btn size="sm" variant="gold" icon="pause" onClick={pause} title="Pause the livestream" ariaLabel="Pause the livestream">
+              Pause
+            </Btn>
+          ) : (
+            <Btn size="sm" variant="gold" icon="play" onClick={play} title="Play the livestream" ariaLabel="Play the livestream">
+              Play
+            </Btn>
+          )}
+          <Btn size="sm" variant="ghost" icon="stop" onClick={stop} title="Stop the livestream" ariaLabel="Stop the livestream">
+            Stop
           </Btn>
-        ) : (
-          <Btn variant="gold" icon="play" onClick={play}>
-            Play the livestream
+        </div>
+      </div>
+      <div className="transport-row">
+        <span className="transport-row__who">Guest channel</span>
+        <div className="btn-row transport-row__btns">
+          {onNow ? (
+            <Btn size="sm" variant="gold" icon="pause" onClick={pause} title="Pause the livestream" ariaLabel="Pause the livestream">
+              Pause
+            </Btn>
+          ) : (
+            <Btn size="sm" variant="gold" icon="play" onClick={playGuest} title="Play the livestream" ariaLabel="Play the livestream">
+              Play
+            </Btn>
+          )}
+          <Btn size="sm" variant="ghost" icon="stop" onClick={stop} title="Stop the livestream" ariaLabel="Stop the livestream">
+            Stop
           </Btn>
-        )}
-        <Btn variant="ghost" icon="stop" onClick={stop}>
-          Stop
-        </Btn>
+          <Btn size="sm" variant="quiet" icon="close" onClick={clearGuest} title="Clear the guest channel" ariaLabel="Clear the guest channel">
+            Clear
+          </Btn>
+        </div>
       </div>
       {onNow && !ready && (
         <p className="admin__live-warn">

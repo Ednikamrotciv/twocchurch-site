@@ -14,6 +14,18 @@ function draftLive(): any {
   return cms.getDraft().live || {};
 }
 
+/** Empty a finished guest slot in the draft (note 401): unstamped, like any
+    hand edit — the next Publish carries it, while the screen already follows
+    the check back to the main channel whether published or not. Only ever
+    clears, never fills, and toasts only when something actually moved. */
+function clearIdleGuest(): boolean {
+  const latest = cms.getDraft().live || {};
+  if (!String((latest as any).externalYoutubeChannel || "").trim()) return false;
+  cms.setSectionValue("live", { ...latest, externalYoutubeChannel: "" });
+  fireToast("The guest channel is empty again — Publish sends it.", "info");
+  return true;
+}
+
 /** End the session the way *Stop the livestream* does — the stream itself ended. */
 function stopForStream(live: any, air: LiveStatus): boolean {
   const endedAt = Number(air.endedAt) || 0;
@@ -31,6 +43,10 @@ function stopForStream(live: any, air: LiveStatus): boolean {
      need to publish. A guest ending still files nothing. */
   if (!live.isLive && !clockLive) {
     const guestEnd = isGuestTargetUrl(air.target || "", guestTarget()?.url || "");
+    /* A finished guest empties its own slot (note 401) — unstamped, so the
+       screen is already back on the main channel and the next Publish simply
+       carries the empty slot. */
+    if (guestEnd) clearIdleGuest();
     if (air.platform !== "youtube" || !air.videoId || guestEnd) return false;
     cms.setSectionValue("live", {
       ...live,
@@ -66,10 +82,13 @@ function stopForStream(live: any, air: LiveStatus): boolean {
      alone, whatever else it carries. */
   /* File the finished service into Recent services now — unless it was the
      temporary guest (note 379): a guest ending files nothing, and the screen
-     is already back on the main channel. */
+     is already back on the main channel. A finished guest empties its own
+     slot too (note 401). */
+  const airedGuest = isGuestTargetUrl(air.target || "", guestTarget()?.url || "");
   askForRecentServices(
-    air.platform === "youtube" && air.videoId && !isGuestTargetUrl(air.target || "", guestTarget()?.url || "") ? { videoId: air.videoId, title: air.title } : undefined
+    air.platform === "youtube" && air.videoId && !airedGuest ? { videoId: air.videoId, title: air.title } : undefined
   );
+  if (airedGuest) clearIdleGuest();
 
   const where = air.platform === "facebook" ? "Facebook" : "YouTube";
   fireToast(

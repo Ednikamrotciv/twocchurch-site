@@ -901,6 +901,34 @@
   color: var(--crimson-2);
 }
 
+/* The per-field livestream transport (note 401): two compact rows — one for
+   the main channel, one for the guest — that sit in the field area instead
+   of one big block between the fields. */
+.admin__transport {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  margin: 0.3rem 0 0.45rem;
+}
+.transport-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+.transport-row__who {
+  flex: none;
+  min-width: 6.5rem;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--faint);
+}
+.transport-row__btns {
+  margin: 0;
+}
+
 .admin__live-note {
   margin: 0;
   font-size: 0.8rem;
