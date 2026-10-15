@@ -6,7 +6,7 @@ import * as cms from "./cms";
 import { fireToast } from "./hooks";
 import { nextService, churchTimezone } from "./store";
 import { SERVICES } from "../data/site";
-import { useLiveStream, type LiveStatus, guestTarget, isGuestTargetUrl } from "./livestatus";
+import { useLiveStream, type LiveStatus, guestTarget, isGuestTargetUrl, liveTarget } from "./livestatus";
 import { askForRecentServices } from "./recentstreams";
 
 /** The live section as the office's own draft has it. */
@@ -25,8 +25,30 @@ function stopForStream(live: any, air: LiveStatus): boolean {
   const now = new Date();
   const info = nextService(SERVICES, now, churchTimezone());
   const clockLive = !!info?.isLive && !(cut >= info.at.getTime());
-  /* Nothing was on air: nothing to end. */
-  if (!live.isLive && !clockLive) return false;
+  /* Nothing was on air: nothing to end — unless the main channel self-started
+     (note 399): @twocorg needs no Play press and no Publish, so a seen-live
+     main-channel ending still files itself with no stamp and no
+     need to publish. A guest ending still files nothing. */
+  if (!live.isLive && !clockLive) {
+    const guestEnd = isGuestTargetUrl(air.target || "", guestTarget()?.url || "");
+    if (air.platform !== "youtube" || !air.videoId || guestEnd) return false;
+    cms.setSectionValue("live", {
+      ...live,
+      isLive: false,
+      liveCut: endedAt,
+      liveEndedBy: "channel",
+    });
+    /* No stamp, by design (note 393): a natural end needs no publish — the
+       screen already fell back to the previous services by itself — so the
+       command stays unstamped and the next Publish leaves the on-air state
+       alone, whatever else it carries. */
+    askForRecentServices({ videoId: air.videoId, title: air.title });
+    fireToast(
+      "The @twocorg stream ended by itself — no need to publish, the screen is back on the previous services. The finished service is in Recent services.",
+      "info"
+    );
+    return true;
+  }
   /* The ending must belong to this session; the office's word beats it. */
   const started =
     Number(live.liveCommandAt) || Number(live.liveSince) || (info?.isLive ? info.at.getTime() : 0);
@@ -62,8 +84,10 @@ export function useAutoStopLive(enabled = true) {
   /* The office's own Start/Stop re-render this. */
   cms.useCmsVersion();
   const live = draftLive();
-  /* Only the switch is passed: the check runs fast once it has seen the church on air. */
-  const air = useLiveStream(!!live.isLive, true);
+  /* The main channel is watched even with the switch off (note 399): @twocorg
+     starts by itself with no Play press, so the drawer keeps the short
+     cadence — and the office report fresh — whenever its address is set. */
+  const air = useLiveStream(!!live.isLive || !!liveTarget(), true);
 
   const offStreak = useRef(0);
   const handled = useRef(0);

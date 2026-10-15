@@ -1149,8 +1149,8 @@ export async function runAll(fs) {
   const rsGG = text["src/lib/recentstreams.ts"];
   const lsGG = text["src/lib/livestatus.ts"];
   const applyGG = text["APPLY_UPDATE.txt"];
-  ok("override stamp per-update", has(srvGG, "var OVERRIDE_CLEAN = 0;") && has(srvGG, "overrideClean: OVERRIDE_CLEAN") && has(srvGG, "OVERRIDE_NO_397 = 397") && has(srvGG, "OVERRIDE_CLEAN !== OVERRIDE_NO_397"), "the clear must re-run on every new update, not once ever");
-  ok("override clears everything old", has(srvGG, "live397.youtubeChannel = \"@twocorg\"") && has(srvGG, "live397.youtubeId = \"\"") && has(srvGG, "live397.hiddenReplays = []") && has(srvGG, "live397.externalYoutubeChannel = \"\"") && has(srvGG, "WELCOME_SLIDE_359") && has(srvGG, "String(slides397[0].id || \"\") === \"welcome-home\""), "channel, stray link, guest, take-offs and slides must all go");
+  ok("override stamp per-update", has(srvGG, "var OVERRIDE_CLEAN = 0;") && has(srvGG, "overrideClean: OVERRIDE_CLEAN") && has(srvGG, "OVERRIDE_NO_399 = 399") && has(srvGG, "OVERRIDE_CLEAN !== OVERRIDE_NO_399"), "the clear must re-run on every new update, not once ever");
+  ok("override clears everything old", has(srvGG, "live399.youtubeChannel = \"@twocorg\"") && has(srvGG, "live399.youtubeId = \"\"") && has(srvGG, "live399.hiddenReplays = []") && has(srvGG, "live399.externalYoutubeChannel = \"\"") && has(srvGG, "WELCOME_SLIDE_359") && has(srvGG, "String(slides399[0].id || \"\") === \"welcome-home\""), "channel, stray link, guest, take-offs and slides must all go");
   ok("override never blesses", has(srvGG, "no rev bump") && has(srvGG, "later office work is never touched"), "the clear must not publish");
   ok("draft stray link heals", has(cmsGG, "healDraftStreamLink()") && has(cmsGG, "(draft as any).live = { ...dLive, youtubeId: \"\" }"), "an untouched draft must follow the words");
   ok("browser caches drop on new update", has(rsGG, "export function clearRecentCaches()") && has(cmsGG, "if (freshEyes) clearRecentCaches();"), "old cards must not ride into the new update");
@@ -1663,7 +1663,7 @@ export async function runAll(fs) {
   const seedXX = text["seed.json"];
   const edXX = text["src/components/editor.tsx"];
   const applyXX = text["APPLY_UPDATE.txt"];
-  ok("override is this update", has(srvXX, "OVERRIDE_NO_397 = 397") && has(srvXX, 'live397.externalYoutubeChannel = ""'), "first boot must re-run the clear, guest included");
+  ok("override is this update", has(srvXX, "OVERRIDE_NO_399 = 399") && has(srvXX, 'live399.externalYoutubeChannel = ""'), "first boot must re-run the clear, guest included");
   ok("guest ships empty", has(seedXX, '"externalYoutubeChannel":""'), "no copy may open with a guest set");
   ok("buttons still arm", has(edXX, "liveCommandAt: Date.now()") && has(edXX, "Pause the livestream") && has(edXX, "Play the livestream") && has(edXX, 'icon="stop"'), "removing the paragraph must not touch the transport");
   ok("promise text gone", !has(edXX, "Play and pause are one button") && !has(edXX, "there is nothing to publish"), "the drawer keeps only the unconfigured warning");
@@ -1680,6 +1680,18 @@ export async function runAll(fs) {
   ok("ended still stays youtube-owned", has(watchYY, 'airForTarget.platform !== "facebook" ? youtubeThumb(airForTarget.videoId)'), "a facebook ending must not seed the still");
   ok("bake ships no stale cut", has(seedYY, '"liveCut":0'), "fresh copies must not inherit a cut");
   ok("apply leads with the facebook fix", has(applyYY, "FACEBOOK"), "the office must meet the routing first");
+  /* ZZ. the main channel starts by itself (note 399): no Play press and no
+     Publish — the drawer keeps the short cadence on the main address and a
+     seen-live main ending files itself unstamped, while the transport stays
+     armed and the checklist leads with the self-start. */
+  const autoZZ = text["src/lib/autostop.ts"];
+  const edZZ = text["src/components/editor.tsx"];
+  const applyZZ = text["APPLY_UPDATE.txt"];
+  ok("drawer watches the main address", has(autoZZ, "liveTarget") && has(autoZZ, "useLiveStream(!!live.isLive || !!liveTarget(), true)"), "no Play press may slow the office report");
+  ok("main ending files itself unstamped", has(autoZZ, "self-started") && has(autoZZ, 'liveEndedBy: "channel"') && has(autoZZ, "no need to publish"), "a self-started main ending must close the books with no publish");
+  ok("guest ending still files nothing", has(autoZZ, "guestEnd") && has(autoZZ, "if (air.platform !== \"youtube\" || !air.videoId || guestEnd) return false"), "the guest must never seed the main list");
+  ok("play is the manual override", has(edZZ, "Play is only the manual override") && has(edZZ, "liveCommandAt: Date.now()"), "the buttons keep working, the main needs no press");
+  ok("apply leads with the self-start", has(applyZZ, "THE MAIN CHANNEL STARTS BY ITSELF"), "the office must meet the no-press rule first");
   const notes = Number((text["src/lib/hooks.ts"].match(/BUILD_NOTES = (\d+)/) || [])[1]) || 0;
   const apply = text["APPLY_UPDATE.txt"];
   ok("update number consistent", notes > 0 && has(apply, `APPLY THIS UPDATE (${notes})`), "hooks=" + notes);

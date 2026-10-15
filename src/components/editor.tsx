@@ -741,7 +741,10 @@ export function LiveEndingPanel({ onOpen, children }: { onOpen: (id: string) => 
 
 /** Play / pause on one button, stop on another (notes 389, 391): the stopped
     card is gone — the office works the stream from two buttons beside the
-    channel fields, and every click stamps `liveCommandAt`. Pause HOLDS the
+    channel fields, and every click stamps `liveCommandAt`. The main channel
+    needs no click to start (note 399): @twocorg opens the screen by itself
+    the moment YouTube is live — Play is only the manual override (a walled
+    read, or a badge the office wants forced). Pause HOLDS the
     session without ending it (the session start is kept, so play picks the
     same session back up); stop ENDS it (the start is cleared and the finished
     service files itself, so the next play begins fresh). Publish sends the
@@ -798,8 +801,8 @@ export function LiveTransportButtons() {
     recheckLiveNow();
     fireToast(
       ready
-        ? "You are on air. Publish sends it."
-        : "You are on air. Paste the stream link or the channel to watch below — Publish sends it.",
+        ? "Manual override on — Publish sends it. @twocorg starts by itself when live."
+        : "Manual override on — Publish sends it. Paste the stream link or the channel to watch below.",
       "success"
     );
   };

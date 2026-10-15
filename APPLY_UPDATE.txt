@@ -1,26 +1,34 @@
-APPLY THIS UPDATE (397) — ARRIVES FRESH WITH THE NOTICE ON, GUEST EMPTY, NO PROMISE TEXT, NO STALE NUMBERS
+APPLY THIS UPDATE (399) — THE MAIN CHANNEL STARTS BY ITSELF, ARRIVES FRESH WITH THE NOTICE ON, GUEST EMPTY
 ==================================================================================================================================
-The office's standing rule, enforced again (no box access this round — the
-cause needs no box): every fix ARRIVES FRESH — first boot re-runs the whole
-clear once on every copy (channel to @twocorg, stray link dropped, take-offs
-cleared, slides replanted, and any channel removed from the guest slot, which
-ships and stays empty), the maintenance notice is ACTIVE until the office
-publishes, and nothing plays live unasked. Two removals. (a) The promise
-paragraph under the transport is gone — Play/pause stays one button and stop
-stays another, pause holds, stop ends and files, PUBLISH ONLY SENDS A CLICKED
-COMMAND, and A NATURAL END NEEDS NO PUBLISH: play to start, then publish;
-pause to hold it, then publish; stop to end one that has not ended by itself,
-then publish — the buttons work exactly as before, only the text is removed.
-(b) The stale update numbers are gone: no "old copy" banner, no "Update N is
-live" banner, no cross-tab shout — a tab never accuses the update again. What
-stays: the shipped update identity (version.json + BUILD_NOTES), the
-maintenance gate itself, the 30-second poll with its retried reload onto newer
-code, the server relay gate, and the same-update report trust. Still true, one per line so nothing hides: no live is EVER MUTED. The screen closes immediately any live ends. It never plays another channel's livestream by itself. PLAY/PAUSE IS ONE BUTTON and STOP IS ANOTHER. THE BUTTONS NEVER GATE A LIVE END. PUBLISH ONLY SENDS A CLICKED COMMAND. A NATURAL END NEEDS NO PUBLISH. ORDER stays: apply 397 locally, publish ON 397, wait for
+THE MAIN CHANNEL STARTS BY ITSELF (no box access this round — the cause needs
+no box): @twocorg is the main account, so it needs no Play press and no
+Publish to open the screen — whenever the channel is live on YouTube the site
+plays it, with sound, and the moment it ends the screen closes at once onto
+the main previous-service thumbnails. Play stays only the manual override (a
+walled read, or a badge the office wants forced); pause still holds and stop
+still ends, each with its Publish. Every fix still ARRIVES FRESH — first boot
+re-runs the whole clear once on every copy (channel to @twocorg, stray link
+dropped, take-offs cleared, slides replanted, and any channel removed from the
+guest slot, which ships and stays empty), the maintenance notice is ACTIVE
+until the office publishes, and nothing plays live unasked. Still true, one per line so nothing hides: no live is EVER MUTED. The screen closes immediately any live ends. It never plays another channel's livestream by itself. PLAY/PAUSE IS ONE BUTTON and STOP IS ANOTHER. THE BUTTONS NEVER GATE A LIVE END. PUBLISH ONLY SENDS A CLICKED COMMAND. A NATURAL END NEEDS NO PUBLISH: the main starts by itself with no press; play to override, then publish; pause to hold it, then publish; stop to end one that has not ended by itself, then publish. ORDER stays: apply 399 locally, publish ON 399, wait for
 the terminal's "auto-deploy: new words pushed", THEN commit+push the full
 step-0 set (src/, scripts/, index.html, seed.json, .gitignore WITH the dot
 spelled out, maintenance-hold.txt) and rebuild BOTH hosts; version.json must
-read 397 AND /seed.json must list sections on both; reload ALL admin tabs;
+read 399 AND /seed.json must list sections on both; reload ALL admin tabs;
 keep the office server running.
+What changed (note 399):
+The drawer watched the office switch only (`src/lib/autostop.ts`): with the
+switch off and the clock outside service hours a main-channel ending filed
+nothing and the drawer idled on the slow cadence — so without a Play press the
+books never closed and the office report lagged. The main channel now starts
+(and ends) by itself: the drawer keeps the short cadence whenever its address
+is set, and a seen-live main-channel YouTube ending files itself into Recent
+services with no stamp and no publish (a guest ending still files nothing).
+The transport keeps every button (`src/components/editor.tsx`): Play is the
+manual override, pause holds, stop ends and files — each still sends on
+Publish. The override stamp is 399, so first boot re-runs the whole clear once
+on every copy. The pre-ship verifier renumbers the GG/XX stamp needles and
+its new section ZZ locks the self-starting main.
 What changed (note 397):
 FACEBOOK live now plays as FACEBOOK. A Facebook broadcast's numeric video id
 no longer enters the YouTube path (it opened as a broken YouTube embed, or was
