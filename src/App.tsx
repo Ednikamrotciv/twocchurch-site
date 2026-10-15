@@ -3,7 +3,7 @@ import { useRoute, navigate, ADMIN_PREFIX } from "./lib/router";
 import { Header, Footer, ScrollTop, SkipLink, MaintenanceSite, PreviewBanner, BootSplash } from "./components/layout";
 import { Toaster } from "./components/ui";
 import { ErrorBoundary } from "./components/ErrorBoundary";
-import { startCms, useCmsVersion, useCmsReady, useMaintenance, usePreviewingWhileWaiting, useStaleBuild, checkStaleBuild, startStaleCoReload } from "./lib/cms";
+import { startCms, useCmsVersion, useCmsReady, useMaintenance, usePreviewingWhileWaiting, useStaleBuild, checkStaleBuild } from "./lib/cms";
 import { mountShaderBackground } from "./lib/shaderbg";
 import { startVisitorClock, useVisitorClock, useVisitorClockRefresh } from "./lib/visitor";
 import { useI18nTick, ensureI18n, setProtectedValues, i18nAsk, chooseLang, dismissAsk } from "./lib/i18n";
@@ -74,9 +74,6 @@ export function App() {
        retried with a normal reload — never a hard refresh — and re-checked
        while the tab stays open, so an update that lands later still takes). */
     void checkStaleBuild().catch(() => {});
-    /* One tab's discovery moves every tab (note 369): background tabs
-       throttle their own poll, so they jump on the shout instead. */
-    startStaleCoReload();
     const onVis = () => {
       if (document.visibilityState === "visible") void checkStaleBuild().catch(() => {});
     };

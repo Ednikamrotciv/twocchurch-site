@@ -42,10 +42,6 @@ try {
 } catch {
   /* storage may be blocked — startCms re-reads later */
 }
-/** The update number the running content was last published from (note 250). */
-export function publishedNotesVersion(): number {
-  return publishedNotes;
-}
 /* Why the maintenance notice is or isn't showing (note 278): call from the
    console as window.__maintState() on the deployed copy. */
 if (typeof window !== "undefined") {
@@ -227,15 +223,6 @@ export function usePreviewingWhileWaiting(): boolean {
   return maintenanceShouldWait();
 }
 
-/** True while this copy is older than what this browser has already seen
-    (note 252): the office opened an old extract or an old build — the running
-    update is lower than the last-published stamp. The footer already names the
-    old number; Admin says so out loud with the way out. */
-export function useOlderCopy(): boolean {
-  useCmsVersion();
-  useSyncExternalStore(subscribe, () => stateObj);
-  return publishedNotes > BUILD_NOTES;
-}
 /* A deployed host can serve a newer bundle than this tab runs (desktop cached
    the old JS while the phone fetched the new one): the two modes then decide
    maintenance from different BUILD_NOTES and disagree. When version.json names
@@ -306,10 +293,6 @@ export function checkStaleBuild(): Promise<void> {
          sticking with first paint — the old bundle waits, it never plays live. */
       version += 1;
       notify();
-      /* All tabs jump together (note 369): background tabs throttle their
-         timers, so the tab that learns of the update shouts it — every other
-         tab re-checks at once instead of waiting for its own poll. */
-      announceNewUpdate(staleNewerNotes);
       /* Retryable guard: a few attempts inside a few minutes, then stop
          reloading but KEEP waiting (maintenance stays, no live flash, no
          infinite loop). A reload that still serves the old bundle retries. */
@@ -340,58 +323,6 @@ export function checkStaleBuild(): Promise<void> {
     staleCheckRunning = null;
   });
   return staleCheckRunning;
-}
-
-/* Cross-tab update shout (note 369): one BroadcastChannel message plus a
-   localStorage ping for browsers without the channel — every tab re-checks
-   the moment ANY tab learns the host serves newer code. */
-const STALE_BC_NAME = "wom.cms.newUpdate";
-const STALE_PING_KEY = "wom.cms.newUpdatePing";
-let staleBc: BroadcastChannel | null = null;
-let staleListenersOn = false;
-/** Which update the host is known to serve above this bundle (0 = none). */
-export function staleWaitingNotes(): number {
-  return staleNewerNotes;
-}
-function staleChannel(): BroadcastChannel | null {
-  try {
-    if (typeof BroadcastChannel === "undefined") return null;
-    if (!staleBc) staleBc = new BroadcastChannel(STALE_BC_NAME);
-    return staleBc;
-  } catch {
-    return null;
-  }
-}
-function announceNewUpdate(notes: number): void {
-  try {
-    const ch = staleChannel();
-    if (ch) ch.postMessage({ notes });
-  } catch {}
-  try {
-    localStorage.setItem(STALE_PING_KEY, JSON.stringify({ notes, at: Date.now() }));
-  } catch {}
-}
-/** Hear another tab's shout (note 369): call once at boot. */
-export function startStaleCoReload(): void {
-  if (staleListenersOn) return;
-  staleListenersOn = true;
-  const hear = (notes: unknown) => {
-    if (typeof notes === "number" && Math.floor(notes) > BUILD_NOTES) {
-      void checkStaleBuild().catch(() => {});
-    }
-  };
-  try {
-    const ch = staleChannel();
-    if (ch) ch.onmessage = (e) => hear(e && (e as MessageEvent).data && (e as MessageEvent).data.notes);
-  } catch {}
-  try {
-    window.addEventListener("storage", (e) => {
-      if (!e || e.key !== STALE_PING_KEY || !e.newValue) return;
-      try {
-        hear(JSON.parse(e.newValue).notes);
-      } catch {}
-    });
-  } catch {}
 }
 
 /* Forget everything this browser kept from older copies (note 252): cached

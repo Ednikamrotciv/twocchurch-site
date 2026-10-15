@@ -1,5 +1,58 @@
-APPLY THIS UPDATE (393) — A NATURAL END NEEDS NO PUBLISH; PLAY STARTS, PAUSE HOLDS, STOP ENDS, EACH WITH A PUBLISH
+APPLY THIS UPDATE (397) — ARRIVES FRESH WITH THE NOTICE ON, GUEST EMPTY, NO PROMISE TEXT, NO STALE NUMBERS
 ==================================================================================================================================
+The office's standing rule, enforced again (no box access this round — the
+cause needs no box): every fix ARRIVES FRESH — first boot re-runs the whole
+clear once on every copy (channel to @twocorg, stray link dropped, take-offs
+cleared, slides replanted, and any channel removed from the guest slot, which
+ships and stays empty), the maintenance notice is ACTIVE until the office
+publishes, and nothing plays live unasked. Two removals. (a) The promise
+paragraph under the transport is gone — Play/pause stays one button and stop
+stays another, pause holds, stop ends and files, PUBLISH ONLY SENDS A CLICKED
+COMMAND, and A NATURAL END NEEDS NO PUBLISH: play to start, then publish;
+pause to hold it, then publish; stop to end one that has not ended by itself,
+then publish — the buttons work exactly as before, only the text is removed.
+(b) The stale update numbers are gone: no "old copy" banner, no "Update N is
+live" banner, no cross-tab shout — a tab never accuses the update again. What
+stays: the shipped update identity (version.json + BUILD_NOTES), the
+maintenance gate itself, the 30-second poll with its retried reload onto newer
+code, the server relay gate, and the same-update report trust. Still true, one per line so nothing hides: no live is EVER MUTED. The screen closes immediately any live ends. It never plays another channel's livestream by itself. PLAY/PAUSE IS ONE BUTTON and STOP IS ANOTHER. THE BUTTONS NEVER GATE A LIVE END. PUBLISH ONLY SENDS A CLICKED COMMAND. A NATURAL END NEEDS NO PUBLISH. ORDER stays: apply 397 locally, publish ON 397, wait for
+the terminal's "auto-deploy: new words pushed", THEN commit+push the full
+step-0 set (src/, scripts/, index.html, seed.json, .gitignore WITH the dot
+spelled out, maintenance-hold.txt) and rebuild BOTH hosts; version.json must
+read 397 AND /seed.json must list sections on both; reload ALL admin tabs;
+keep the office server running.
+What changed (note 397):
+FACEBOOK live now plays as FACEBOOK. A Facebook broadcast's numeric video id
+no longer enters the YouTube path (it opened as a broken YouTube embed, or was
+killed by the dead-video net into a waiting clock while LIVE showed) — the
+screen prefers Facebook while IT is live and embeds it with sound, the ended
+still stays YouTube-owned, and the bake ships no stale cut (liveCut 0). The
+override stamp is 397, so first boot re-runs the whole clear once on every
+copy. Still true, one per line so nothing hides:
+no live is EVER MUTED.
+The screen closes immediately any live ends.
+It never plays another channel's livestream by itself.
+PLAY/PAUSE IS ONE BUTTON and STOP IS ANOTHER.
+THE BUTTONS NEVER GATE A LIVE END.
+PUBLISH ONLY SENDS A CLICKED COMMAND.
+A NATURAL END NEEDS NO PUBLISH: play to start, then publish; pause to hold it, then publish; stop to end one that has not ended by itself, then publish.
+What changed (note 395):
+
+- Arrives fresh, notice on, guest empty (`scripts/cms-server.js`, seed.json):
+  the override stamp is 395, so first boot re-runs the whole clear once on
+  every copy — and any channel in the guest slot goes with it; the slot ships
+  empty and stays empty, so no livestream plays unasked. The hold ships, so
+  the maintenance notice is active until the office publishes.
+- Promise text removed, still functional (`src/components/editor.tsx`): the
+  paragraph under the transport is deleted; the toggle, the stop, the hold/end
+  split and the click-to-send gate work exactly as before.
+- Stale update numbers removed (`src/lib/cms.ts`, `src/App.tsx`,
+  `src/pages/Admin.tsx`): the old-copy banner, the "Update N is live" banner,
+  the waiting-number plumbing and the cross-tab shout are deleted. Tabs still
+  poll the host every 30 seconds and reload onto newer code by themselves.
+- The pre-ship verifier amends sections SS, KK, GG and WW to the removals and
+  the new stamp, and its new section XX locks the arrival.
+What changed (note 393):
 The office corrects the rule (no box access this round — the cause needs no
 box): when a stream ends by itself there is nothing to publish — the screen is
 already back on the previous services. Publish pairs with the buttons only:

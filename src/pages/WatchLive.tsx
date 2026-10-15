@@ -85,7 +85,11 @@ export function WatchLive() {
     if (shutNext !== shut) setShut(shutNext);
   });
   const shutNow = shutNext;
-  const detectedId = screenAir.state === "live" ? screenAir.videoId : "";
+  /* A Facebook live is not a YouTube id (note 397): its numeric video id must
+     never enter the YouTube path — it would open as a broken YouTube embed
+     instead of the Facebook broadcast. */
+  const fbLive = screenAir.state === "live" && screenAir.platform === "facebook" && isFacebookVideoUrl(LIVE.facebookUrl);
+  const detectedId = screenAir.state === "live" && screenAir.platform !== "facebook" ? screenAir.videoId : "";
   /* Walled but on air (note 330): live with no verified video — the player
      follows the channel instead of showing the ended screen. Strict (note
      357): only the designated channel is followed, and only one tap, never
@@ -102,7 +106,7 @@ export function WatchLive() {
      does not. The guest's own stamped video plays while IT is live (note
      379) — everything else about it already says the guest address. */
   const playableId = detectedId && idVerdict !== false && (isDesignatedChannel(airForTarget.channelId, designatedId) || (guestLive && isGuestTargetUrl(screenAir.target, guestUrl))) ? detectedId : "";
-  const watchable = !!playableId || !!detectedChannel || (!hasChannel && !!parseYoutubeId(LIVE.youtubeId));
+  const watchable = !!playableId || !!detectedChannel || fbLive || (!hasChannel && !!parseYoutubeId(LIVE.youtubeId));
   /* Anywhere for the check to look — channel, stream link or Facebook page. */
   const configured = !!liveTarget() || !!facebookTarget();
 
@@ -146,7 +150,7 @@ export function WatchLive() {
      (note 371 — @twocorg's latest thumbnail even before any read settles),
      else a sermon still, else the hero. */
   const cover =
-    (airForTarget.endedAt && airForTarget.videoId ? youtubeThumb(airForTarget.videoId) : "") ||
+    (airForTarget.endedAt && airForTarget.videoId && airForTarget.platform !== "facebook" ? youtubeThumb(airForTarget.videoId) : "") ||
     recentStreams.items[0]?.thumb ||
     designatedFallback().items[0]?.thumb ||
     (latest && sermonThumb(latest)) ||
@@ -160,14 +164,16 @@ export function WatchLive() {
     if (detectedId || detectedChannel || (!hasChannel && parseYoutubeId(LIVE.youtubeId))) list.push("youtube");
     if (isFacebookVideoUrl(LIVE.facebookUrl)) list.push("facebook");
     return list;
-  }, [detectedId, detectedChannel, hasChannel, LIVE.youtubeId, LIVE.facebookUrl]);
-  const preferred: VideoPlatform = detectedId || detectedChannel ? "youtube" : LIVE.provider === "facebook" ? "facebook" : "youtube";
+  }, [detectedId, detectedChannel, hasChannel, LIVE.youtubeId, LIVE.facebookUrl, fbLive]);
+  const preferred: VideoPlatform = fbLive ? "facebook" : detectedId || detectedChannel ? "youtube" : LIVE.provider === "facebook" ? "facebook" : "youtube";
   const [chosen, setChosen] = useState<VideoPlatform>(preferred);
   /* The service notepad behind the *Service notes* arrow (note 223). */
   const [notesOpen, setNotesOpen] = useState(false);
   const platform: VideoPlatform | null = available.includes(chosen) ? chosen : available[0] || null;
   const liveSource: VideoSource =
-    platform === "facebook"
+    fbLive
+      ? { platform: "facebook", facebookUrl: LIVE.facebookUrl }
+      : platform === "facebook"
       ? { platform: "facebook", facebookUrl: LIVE.facebookUrl }
       : { platform: "youtube", youtubeId: playableId || (!hasChannel ? LIVE.youtubeId : ""), youtubeChannelId: detectedChannel || undefined };
   const youtubeLink =

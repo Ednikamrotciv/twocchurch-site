@@ -1149,8 +1149,8 @@ export async function runAll(fs) {
   const rsGG = text["src/lib/recentstreams.ts"];
   const lsGG = text["src/lib/livestatus.ts"];
   const applyGG = text["APPLY_UPDATE.txt"];
-  ok("override stamp per-update", has(srvGG, "var OVERRIDE_CLEAN = 0;") && has(srvGG, "overrideClean: OVERRIDE_CLEAN") && has(srvGG, "OVERRIDE_NO_385 = 385") && has(srvGG, "OVERRIDE_CLEAN !== OVERRIDE_NO_385"), "the clear must re-run on every new update, not once ever");
-  ok("override clears everything old", has(srvGG, "live385.youtubeChannel = \"@twocorg\"") && has(srvGG, "live385.youtubeId = \"\"") && has(srvGG, "live385.hiddenReplays = []") && has(srvGG, "live385.externalYoutubeChannel = \"\"") && has(srvGG, "WELCOME_SLIDE_359") && has(srvGG, "String(slides385[0].id || \"\") === \"welcome-home\""), "channel, stray link, guest, take-offs and slides must all go");
+  ok("override stamp per-update", has(srvGG, "var OVERRIDE_CLEAN = 0;") && has(srvGG, "overrideClean: OVERRIDE_CLEAN") && has(srvGG, "OVERRIDE_NO_397 = 397") && has(srvGG, "OVERRIDE_CLEAN !== OVERRIDE_NO_397"), "the clear must re-run on every new update, not once ever");
+  ok("override clears everything old", has(srvGG, "live397.youtubeChannel = \"@twocorg\"") && has(srvGG, "live397.youtubeId = \"\"") && has(srvGG, "live397.hiddenReplays = []") && has(srvGG, "live397.externalYoutubeChannel = \"\"") && has(srvGG, "WELCOME_SLIDE_359") && has(srvGG, "String(slides397[0].id || \"\") === \"welcome-home\""), "channel, stray link, guest, take-offs and slides must all go");
   ok("override never blesses", has(srvGG, "no rev bump") && has(srvGG, "later office work is never touched"), "the clear must not publish");
   ok("draft stray link heals", has(cmsGG, "healDraftStreamLink()") && has(cmsGG, "(draft as any).live = { ...dLive, youtubeId: \"\" }"), "an untouched draft must follow the words");
   ok("browser caches drop on new update", has(rsGG, "export function clearRecentCaches()") && has(cmsGG, "if (freshEyes) clearRecentCaches();"), "old cards must not ride into the new update");
@@ -1311,16 +1311,16 @@ export async function runAll(fs) {
   } catch (e) {
     ok("relay round-trip", false, String((e && e.message) || e).slice(0, 200));
   }
-  /* KK. every browser looks new (note 369): a 30-second poll, tabs that
-     shout the news to each other, and the office tab wearing the wait. */
+  /* KK. every browser looks new (notes 369, 395): a 30-second poll with a
+     retried reload onto newer code — and since 395 no cross-tab shout, no
+     waiting number, and no accusing banner on the office tab. */
   const cmsKK = text["src/lib/cms.ts"];
   const appKK = text["src/App.tsx"];
   const admKK = text["src/pages/Admin.tsx"];
   ok("poll is faster", has(appKK, "}, 30_000);") && has(appKK, "checkStaleBuild"), "the host must be asked every 30 seconds, not 60");
-  ok("tabs shout", has(cmsKK, "function announceNewUpdate(notes: number)") && has(cmsKK, "new BroadcastChannel(STALE_BC_NAME)") && has(cmsKK, "STALE_PING_KEY, JSON.stringify"), "the learning tab must tell every other tab at once");
-  ok("tabs hear", has(cmsKK, "export function startStaleCoReload()") && has(appKK, "startStaleCoReload()"), "every tab must re-check on another tab's shout, from boot");
-  ok("waiting number exposed", has(cmsKK, "export function staleWaitingNotes()"), "the banner must name the live update");
-  ok("admin wears the wait", has(admKK, "cms.useStaleBuild()") && has(admKK, "Update {cms.staleWaitingNotes()} is live") && has(admKK, "window.location.reload()"), "the office tab must say so out loud with a way back");
+  ok("no cross-tab shout", !has(cmsKK, "announceNewUpdate") && !has(cmsKK, "STALE_BC_NAME") && !has(cmsKK, "STALE_PING_KEY") && !has(cmsKK, "startStaleCoReload") && !has(appKK, "startStaleCoReload"), "no update-number shout may pass between tabs");
+  ok("no waiting number", !has(cmsKK, "staleWaitingNotes"), "no banner may name the live update");
+  ok("admin wears no wait", !has(admKK, "Update {cms.staleWaitingNotes()} is live") && !has(admKK, "This is an old copy") && !has(admKK, "cms.useStaleBuild()") && !has(admKK, "cms.useOlderCopy()"), "the office tab must not accuse the update");
   /* LL. notice numbers, fast feed, guaranteed still (note 371): the waiting
      page names its numbers, proxy doors fail fast with a baked resolve for
      the designated handle, and the cover stands in the last previous
@@ -1512,7 +1512,7 @@ export async function runAll(fs) {
   ok("bare clock lights nothing", !has(laySS, "const live = onAir(info);") && !has(homeSS, "{onAir(info) ? (") && !has(blocksSS, "const live = onAir(info);") && !has(watchSS, "const onAirNow = onAir(info);"), "no badge may read the clock answer");
   ok("screen shuts after an end", has(watchSS, "nextScreenShut(shut, shutPrevRef.current, guestUrl, screenAir.state") && has(watchSS, "const streaming = screenAir.state === \"live\" && !shutNow;") && has(liveSS, "export function nextScreenShut(") && has(liveSS, "export type ScreenShut") && has(watchSS, "screenAir.state === \"off\""), "any end must close the screen, never hand another channel over");
   ok("guest still clears", has(cmsSS, "healDraftGuest()") && has(cmsSS, "(draft as any).live = { ...dLive, externalYoutubeChannel: \"\" }") && has(cmsSS, "guestCleared: guestCleared || undefined") && has(edSS, "res.guestCleared"), "untouched drafts and restores must follow the clear");
-  ok("drawer promises the countdown", has(edSS, "the LIVE badge and the player wait for the stream itself") && !has(edSS, "the site is showing live by itself") && has(edSS, "stays on the countdown, and opens the service by itself"), "the console must not promise a live screen the site will not show");
+  ok("drawer carries no promise text", !has(edSS, "the LIVE badge and the player wait for the stream itself") && !has(edSS, "Play and pause are one button") && !has(edSS, "the site is showing live by itself") && has(edSS, "Nothing is set to play yet"), "the promise paragraph is gone but functional — the unconfigured warning stays");
   ok("apply leads with the shut", has(applySS, "never plays another channel's livestream by itself"), "the office must meet the closed screen first");
   try {
     const ebSS = await import("https://esm.sh/esbuild-wasm@0.21.5?bundle");
@@ -1582,7 +1582,7 @@ export async function runAll(fs) {
   ok("embeds never silence", embTT.indexOf("mute") === -1, "no live address may carry a mute");
   ok("player drops the silent path", !has(blocksTT, "userOpened") && has(blocksTT, ": sourceKey;"), "every opening must play with its audio");
   ok("watch passes the off reading", has(watchTT, "screenAir.state === \"off\""), "guest, main or office stop — any end must close");
-  ok("ended screen stands on the main still", has(watchTT, "airForTarget.endedAt && airForTarget.videoId ? youtubeThumb(airForTarget.videoId)") && has(watchTT, "designatedFallback().items[0]?.thumb"), "just-ended frame, else newest recent, else the last previous service");
+  ok("ended screen stands on the main still", has(watchTT, "airForTarget.endedAt && airForTarget.videoId && airForTarget.platform !== \"facebook\" ? youtubeThumb(airForTarget.videoId)") && has(watchTT, "designatedFallback().items[0]?.thumb"), "just-ended frame, else newest recent, else the last previous service");
   ok("apply leads with sound and the close", has(applyTT, "EVER MUTED") && has(applyTT, "closes immediately"), "the office must meet the sound and the closed screen first");
   /* UU. transport buttons by the channels, publish only sends a clicked
      command (note 389): the stopped card is gone, play/pause/stop sit under
@@ -1652,9 +1652,34 @@ export async function runAll(fs) {
   const edWW = text["src/components/editor.tsx"];
   const cmsWW = text["src/lib/cms.ts"];
   const applyWW = text["APPLY_UPDATE.txt"];
-  ok("drawer teaches the rule", has(edWW, "there is nothing to publish") && has(edWW, "pause holds the session and play picks it up again"), "play/pause/stop with publish, never a publish for an end");
+  ok("drawer teaches nothing extra", !has(edWW, "there is nothing to publish") && !has(edWW, "Play and pause are one button"), "the rule lives in the checklist now, not in the drawer");
   ok("gate holds the unstamped end", has(cmsWW, "a natural end stamps nothing and needs no publish"), "the next publish must move only what the office changed");
   ok("apply leads with the rule", has(applyWW, "A NATURAL END NEEDS NO PUBLISH") && has(applyWW, "pause to hold it, then publish") && has(applyWW, "stop to end one"), "the office must meet the rule first");
+  /* XX. the fix arrives fresh with the notice on, the guest empty, no promise
+     text, no stale numbers (note 395): the override stamp is this update, the
+     guest slot ships and stays empty, the drawer paragraph is gone while the
+     buttons and the gate still work, and no banner names an update. */
+  const srvXX = text["scripts/cms-server.js"];
+  const seedXX = text["seed.json"];
+  const edXX = text["src/components/editor.tsx"];
+  const applyXX = text["APPLY_UPDATE.txt"];
+  ok("override is this update", has(srvXX, "OVERRIDE_NO_397 = 397") && has(srvXX, 'live397.externalYoutubeChannel = ""'), "first boot must re-run the clear, guest included");
+  ok("guest ships empty", has(seedXX, '"externalYoutubeChannel":""'), "no copy may open with a guest set");
+  ok("buttons still arm", has(edXX, "liveCommandAt: Date.now()") && has(edXX, "Pause the livestream") && has(edXX, "Play the livestream") && has(edXX, 'icon="stop"'), "removing the paragraph must not touch the transport");
+  ok("promise text gone", !has(edXX, "Play and pause are one button") && !has(edXX, "there is nothing to publish"), "the drawer keeps only the unconfigured warning");
+  ok("apply leads fresh", has(applyXX, "ARRIVES FRESH") && has(applyXX, "A NATURAL END NEEDS NO PUBLISH"), "the office must meet the fresh arrival first");
+  /* YY. Facebook live plays as Facebook (note 397): its numeric video id must
+     never enter the YouTube path, the screen prefers Facebook while IT is live,
+     and the ended still stays YouTube-owned. The bake ships no stale cut. */
+  const watchYY = text["src/pages/WatchLive.tsx"];
+  const seedYY = text["seed.json"];
+  const applyYY = text["APPLY_UPDATE.txt"];
+  ok("facebook never enters youtube", has(watchYY, 'screenAir.platform !== "facebook" ? screenAir.videoId : ""') && has(watchYY, 'const fbLive = screenAir.state === "live"'), "a numeric facebook id must not open as youtube");
+  ok("facebook live is watchable", has(watchYY, "|| fbLive ||") && has(watchYY, 'fbLive ? "facebook"'), "the screen must prefer facebook while it is live");
+  ok("facebook live plays facebook", has(watchYY, "fbLive") && has(watchYY, '{ platform: "facebook", facebookUrl: LIVE.facebookUrl }'), "the player must embed facebook, with sound");
+  ok("ended still stays youtube-owned", has(watchYY, 'airForTarget.platform !== "facebook" ? youtubeThumb(airForTarget.videoId)'), "a facebook ending must not seed the still");
+  ok("bake ships no stale cut", has(seedYY, '"liveCut":0'), "fresh copies must not inherit a cut");
+  ok("apply leads with the facebook fix", has(applyYY, "FACEBOOK"), "the office must meet the routing first");
   const notes = Number((text["src/lib/hooks.ts"].match(/BUILD_NOTES = (\d+)/) || [])[1]) || 0;
   const apply = text["APPLY_UPDATE.txt"];
   ok("update number consistent", notes > 0 && has(apply, `APPLY THIS UPDATE (${notes})`), "hooks=" + notes);

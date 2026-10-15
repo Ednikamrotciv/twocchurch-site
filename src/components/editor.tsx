@@ -857,13 +857,6 @@ export function LiveTransportButtons() {
           </span>
         </p>
       )}
-      <p className="field__hint">
-        Play and pause are one button — pause holds the session and play picks it up again, stop ends it and files
-        the service. A click arms the command — Publish sends the livestream only when one of them was clicked, otherwise
-        the site's on-air state is left alone — the LIVE badge and the player wait for the stream itself: the screen
-        stays on the countdown, and opens the service by itself the moment the channel goes live. When the stream ends
-        by itself there is nothing to publish — the screen is already back on the previous services.
-      </p>
     </div>
   );
 }
