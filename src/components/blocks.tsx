@@ -53,7 +53,7 @@ import {
   mapEmbedUrl,
   uid,
   pickForDay,
-  onAir,
+  displayLive,
 } from "../lib/store";
 import { SITE, STATS, SERVICES, img, type Person } from "../data/site";
 import { photoOr } from "../data/photos";
@@ -261,18 +261,12 @@ export function VideoPlayer({
   const [checking, setChecking] = useState(false);
   const [notLive, setNotLive] = useState(false);
   const [liveVideoId, setLiveVideoId] = useState("");
-  /* A tap the visitor made plays with sound; anything the site starts by
-     itself (note 383) begins muted below, because browsers block unmuted
-     autoplay. */
-  const [userOpened, setUserOpened] = useState(false);
-  /* Titles arrive in English (sermon names, stream names) — they read in the
-     visitor's language like every other line (note 225). */
+  /* Sound on (note 387): every opening plays with its audio — a tap, or a
+     broadcast the site starts by itself the moment it goes live. Every live
+     from a channel carries its sound. */
   const shown = tx(title);
   const sourceKey = embedSrc(source, true);
-  /* A self-start begins muted (note 383): a broadcast that comes on air while
-     the visitor watches must open and play with no tap — YouTube offers its
-     own tap-to-unmute. A tap the visitor made plays with sound as before. */
-  const src = liveVideoId ? embedSrc({ platform: "youtube", youtubeId: liveVideoId }, true) : playing && !userOpened ? embedSrc(source, true, true) : sourceKey;
+  const src = liveVideoId ? embedSrc({ platform: "youtube", youtubeId: liveVideoId }, true) : sourceKey;
   const file = fileSrc(source);
   const still = poster && !failed ? poster : posterFor(source);
   const platform: VideoPlatform = source?.platform === "facebook" ? "facebook" : source?.platform === "upload" ? "upload" : "youtube";
@@ -284,7 +278,6 @@ export function VideoPlayer({
     setChecking(false);
     setNotLive(false);
     setLiveVideoId("");
-    setUserOpened(false);
   }, [sourceKey]);
 
   /* A click never opens a known-dead video: unknown ids are asked first
@@ -355,7 +348,6 @@ export function VideoPlayer({
       });
   };
   const open = () => {
-    setUserOpened(true);
     if (!ytId && !followId) {
       setPlaying(true);
       onPlay?.();
@@ -1368,8 +1360,8 @@ export function NextServiceCard() {
      city too — Lagos reads as London the moment the address moves. */
   const when = clockHere(info.slot.time, info.slot.day, zone);
   const city = visitorPlace() || HQ.city;
-  /* The office's switch or the clock — whichever says we are on air wins. */
-  const live = onAir(info);
+  /* The office's switch or the stream itself — whichever says we are on air wins (note 385). */
+  const live = displayLive(info);
   return (
     <div className={"next-service" + (live ? " next-service--live" : "")}>
       <Eyebrow>{live ? ct("auto.site.06bfee249b41bda5") : ct("auto.site.19d68ad8b3328ba1")}</Eyebrow>

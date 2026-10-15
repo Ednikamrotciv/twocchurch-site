@@ -115,13 +115,14 @@ video / live-video link) and which one `provider` opens
 first. Facebook supplies no thumbnail, so the player shows a platform-tinted gradient poster — that
 is expected, not a broken image.
 
-**Going on air is the drawer's job** (`LiveControlPanel` in `src/components/editor.tsx`, SPEC note
-106): the *Live stream* section opens on the state in words (*You are on air right now* / *The stream
-has been stopped* / *The stream is off air*), a line saying since when and how long, and the buttons —
-**Start the livestream** (a new session: `LIVE.isLive` on and `liveSince` stamped), **Continue the
-livestream** (the same session back on air after a stop, keeping its start so "on air since 10:04"
-keeps counting) and **Stop the livestream** (`isLive` off, `liveCut` stamped, at which point the panel
-promises the finished service files itself into *Recent services*). A stop during a scheduled
+**Going on air is the drawer's job** (`LiveTransportButtons` in `src/components/editor.tsx`, SPEC note
+106): the *Live stream* section works the stream from two buttons beside the channel fields — **Play the
+livestream** (a stopped session back on air where it held, else a new session: `LIVE.isLive` on and
+`liveSince` stamped), **Pause the livestream** (off air with the session kept, so play picks it back up),
+and **Stop** (`isLive` off, `liveCut` stamped, at which point the finished service files itself into
+*Recent services*). Every click stamps `liveCommandAt`, and Publish sends the on-air state ONLY when a
+click stamped a newer command than what is published (SPEC note 389) — an unclicked Publish leaves the
+site's on-air state alone. A stop during a scheduled
 gathering also silences that gathering for the rest of its hours (`LIVE.liveCut`; `nextService` steps
 over it), so the pages count down to the next gathering instead of printing `0h 0m` until the hours
 run out. The state itself is still content — `LIVE.isLive` plus the two timestamps in
@@ -159,8 +160,9 @@ every **45s** when a service is on the clock or a stream is running, and every *
 come back. A failed check is *unknown*, never *not live*, so a flaky proxy can only fall back to the
 old behaviour — the office's own on-air state (the *Live stream* section's **Start** / **Continue** /
 **Stop** buttons, which write `LIVE.isLive`) and, when there is nothing to check at all, the service
-clock. **The office's switch is read through `onAir()` in `src/lib/store.ts`** (switch, clock, or the
-stream itself — SPEC note 133), so
+clock. **The badges read `displayLive()` in `src/lib/store.ts`** (the office's
+switch or the stream itself — never the bare clock, SPEC note 385); the short
+cadence still asks `onAir()` (switch, clock, or the stream — SPEC note 133), so
 pressing **Start the livestream** puts the whole site on air — the header's service pill, the home
 hero and next-gathering card and the Watch live panel — rather than the panel alone; with no stream
 configured at all the panel heads the next scheduled service and counts down to it (SPEC note 83).
@@ -396,7 +398,7 @@ src/
     editor.tsx            the office's widgets — status pill, dashboard, photo upload, field
                           video upload (which re-cuts a picture to the slide frame when the field
                           asks it to), publish + tools modals (shared by the drawer), the live
-                          controls (LiveControlPanel) and the events *Happening now* panel
+                          controls (LiveTransportButtons) and the events *Happening now* panel
     layout.tsx            top bar + live service pill, header, menu dropdown, command palette,
                           footer, page head, scroll-to-top
     blocks.tsx            sermon/branch/event/testimony/ministry/person cards, video

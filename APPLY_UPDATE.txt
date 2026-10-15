@@ -1,5 +1,142 @@
-APPLY THIS UPDATE (383) — PUBLISH LANDS EVERYWHERE, LIVE PLAYS BY ITSELF
-==========================================================================
+APPLY THIS UPDATE (393) — A NATURAL END NEEDS NO PUBLISH; PLAY STARTS, PAUSE HOLDS, STOP ENDS, EACH WITH A PUBLISH
+==================================================================================================================================
+The office corrects the rule (no box access this round — the cause needs no
+box): when a stream ends by itself there is nothing to publish — the screen is
+already back on the previous services. Publish pairs with the buttons only:
+PLAY/PAUSE IS ONE BUTTON, STOP IS ANOTHER — play to start the livestream, then
+publish; pause to hold it, then publish; stop to end one that has not ended by
+itself, then publish. THE BUTTONS NEVER GATE A LIVE END, and a natural end
+stamps nothing: autostop files the finished service and tells the drawer, and
+the next Publish leaves the on-air state alone. PUBLISH ONLY SENDS A CLICKED COMMAND still holds for every button press and hand edits. Still true: no live
+is EVER MUTED; the screen closes immediately any live ends onto the main
+thumbnail; it never plays another channel's livestream by itself. ORDER stays:
+apply 393 locally, publish ON 393, wait for the terminal's "auto-deploy: new
+words pushed", THEN commit+push the full step-0 set (src/, scripts/,
+index.html, seed.json, .gitignore WITH the dot spelled out,
+maintenance-hold.txt) and rebuild BOTH hosts; version.json must read 393 AND
+/seed.json must list sections on both; reload ALL admin tabs; keep the office
+server running.
+What changed (note 393):
+
+- A natural end needs no publish (`src/lib/autostop.ts`, `src/lib/cms.ts`,
+  `src/components/editor.tsx`): autostop stamps nothing — it files the
+  finished service (a guest ending still files nothing) and toasts "no need to
+  publish, the screen is back on the previous services" — and the gate holds
+  every unstamped write out of every publish, so the next Publish moves only
+  what the office changed. The drawer hint teaches the rule: play to start,
+  then publish; pause to hold, then publish; stop to end one that has not
+  ended by itself, then publish; when the stream ends by itself there is
+  nothing to publish.
+- The pre-ship verifier amends sections UU and VV to the unstamped end and its
+  new section WW locks the rule.
+What changed (note 391):
+Three changes at the office's words (no box access this round — the cause
+needs no box). The office wants: play/pause as one button and stop as another
+button; the buttons must not affect live ends — when a live ends, it ends at
+once onto the main channel's previous-service thumbnails. (a) PLAY/PAUSE IS ONE
+BUTTON, STOP IS ANOTHER: the transport under the channel fields stays two
+buttons — one Play/Pause toggle and one Stop — but they finally do different
+things: pause HOLDS the session (the start is kept, so play picks the same
+session back up and nothing files itself), stop ENDS it (the start is cleared
+and the finished service files itself under Recent services, so the next play
+begins fresh). Still true from the last updates: no live is EVER MUTED; the
+screen closes immediately any live ends onto the main thumbnail; it never plays another channel's livestream by itself. (b) THE BUTTONS NEVER GATE A LIVE END: a natural ending
+now arms itself — autostop stamps the command like a Stop click — so the next
+Publish carries the ending with no Stop press needed (the drawer now says
+press Publish). PUBLISH ONLY SENDS A CLICKED COMMAND still holds for starts,
+pauses and hand edits: an unclicked Publish leaves the site's on-air state
+alone. (c) THE ENDED SCREEN SHOWS THE MAIN PREVIOUS-SERVICE THUMBNAILS: the
+moment a live ends, the Watch screen sits on the main channel's last ended
+thumbnail with up to six previous-service cards right under it (the live list,
+else the baked @twocorg list standing in; take-offs honoured; a guest ending
+files nothing and shows nothing of its own). ORDER
+stays: apply 391 locally, publish ON 391, wait for the terminal's
+"auto-deploy: new words pushed", THEN commit+push the full step-0 set (src/,
+scripts/, index.html, seed.json, .gitignore WITH the dot spelled out,
+maintenance-hold.txt) and rebuild BOTH hosts; version.json must read 391 AND
+/seed.json must list sections on both; reload ALL admin tabs; keep the office
+server running.
+What changed (note 391):
+
+- One play/pause button plus stop (`src/components/editor.tsx`): the transport
+  under the guest + main channel fields stays two buttons — one Play/Pause
+  toggle and one Stop — but pause now holds (the `liveSince` start is kept, so
+  play resumes the same session and no service files itself) while stop ends
+  (the start is cleared to 0 and the finished service files itself with the
+  guest guard, so the next play begins fresh).
+- The buttons never gate a live end (`src/lib/autostop.ts`, `src/lib/cms.ts`):
+  autostop stamps `liveCommandAt` on the stream's own ending like a Stop
+  click, so the next Publish carries it with no Stop press needed; the toast
+  now says press Publish. The gate itself is unchanged — starts, pauses and
+  hand edits still travel only on a clicked command.
+- The ended screen shows the main previous-service thumbnails
+  (`src/pages/WatchLive.tsx`, `src/styles/pages.css`): up to six
+  previous-service cards sit right under the ended stage (the live list, else
+  the baked @twocorg fallback; take-offs honoured), so the moment a live ends
+  its thumbnails are already on the screen.
+- The pre-ship verifier amends section UU to the self-armed end and its new
+  section VV locks all of it.
+What changed (note 389):
+Three changes at the office's words (no box access this round — the cause
+needs no box). The office wants: the stopped card removed and replaced with
+play/pause and stop buttons near the guest + main channel area; Publish sends
+the livestream only when one of those buttons was clicked; and the guest helper
+text ("A one-off livestream from another channel … Leave empty otherwise.")
+removed. (a) TRANSPORT BUTTONS BY THE CHANNELS: the "The stream has been
+stopped" card with Continue / Start-new is gone — Play, Pause and Stop sit
+right under the channel fields. Play picks a held session back up, else starts
+fresh; pause holds without ending; stop ends and files the service. Still true
+from the last update: no live is EVER MUTED; the screen closes immediately any
+live ends onto the main thumbnail; it never plays another channel's livestream by itself. (b) PUBLISH
+ONLY SENDS A CLICKED COMMAND: every button click stamps the command, and the
+publish — full or per-section, online or offline — carries the on-air state
+only when a click stamped a newer command than what is published. Autostop and
+hand edits never stamp it, so if no button was clicked, Publish leaves the
+site's on-air state alone (every other field still travels). After a natural
+end: press Stop, then Publish. (c) GUEST HINT REMOVED: the helper under Guest
+channel is gone; label and placeholder stay. ORDER
+stays: apply 389 locally, publish ON 389, wait for the terminal's
+"auto-deploy: new words pushed", THEN commit+push the full step-0 set (src/,
+scripts/, index.html, seed.json, .gitignore WITH the dot spelled out,
+maintenance-hold.txt) and rebuild BOTH hosts; version.json must read 389 AND
+/seed.json must list sections on both; reload ALL admin tabs; keep the office
+server running.
+What changed (note 389):
+
+- Transport buttons by the channels (`src/components/editor.tsx`,
+  `src/pages/Admin.tsx`): the stopped card is gone — no more "The stream has
+  been stopped" with Continue / Start-new. The office works the stream from
+  Play / Pause / Stop sitting right under the guest + main channel fields.
+  Play picks a held session back up, else starts fresh; pause holds without
+  ending; stop ends and files the service. Every click stamps the command.
+- Publish only sends a clicked command (`src/lib/cms.ts`, `src/lib/autostop.ts`):
+  `gateLiveCommand()` holds the on-air fields (`isLive`, `liveSince`, `liveCut`,
+  `liveCommandAt`, `liveEndedBy`) out of every publish — full and per-section,
+  online and offline — unless play, pause or stop stamped a newer `liveCommandAt`
+  than what is published. Autostop and hand edits never stamp it, so an
+  unclicked Publish leaves the site's on-air state alone while every other
+  field still travels. After a natural end: press Stop, then Publish.
+- Guest hint removed (`src/lib/cmsSchema.ts`): the "A one-off livestream from
+  another channel … Leave empty otherwise." helper is gone; the field keeps its
+  "Guest channel" label and placeholder.
+- The pre-ship verifier's new section UU locks all of it.
+What changed (note 387):
+
+- Sound on (`src/lib/embed.ts`, `src/components/blocks.tsx`): the `muted`
+  path is gone — `youtubeEmbed` / `youtubeChannelEmbed` / `embedSrc` take no
+  mute, and the player drops `userOpened`. Every opening plays WITH SOUND,
+  tapped or self-started: a broadcast's audio opens by itself the moment the
+  stream starts.
+- Screen closes the moment a live ends (`src/lib/livestatus.ts`,
+  `src/pages/WatchLive.tsx`): `nextScreenShut()` takes the off reading and
+  shuts on ANY end — guest, main, or office Stop+Publish — so the player
+  unmounts at once and the screen shows the main channel's last ended
+  thumbnail (just-ended frame, else newest recent, else @twocorg's last
+  previous service). Unknown never closes; another channel's livestream never
+  plays by itself; only a new live edge re-arms, so starts still open with
+  sound.
+- The pre-ship verifier reworks RR to the sound-on locks, extends SS to the
+  close-on-any-end suite, and its new section TT locks the ended screen.
 Three fixes. (1) Deployed desktop missed publishes: visitor tabs only
 learned of a publish through the socket shout, so a tab that missed it sat
 stale (desktops sit visible for hours and never refocus; mobiles healed

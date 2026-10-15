@@ -2,7 +2,7 @@ import React, { useState } from "react";
 import { Link } from "../lib/router";
 import { tx } from "../lib/i18n";
 import { useNow, useToasts } from "../lib/hooks";
-import { nextService, onAir, countdownParts, to12h, DAY_NAMES, fmtDate, zoneYear, clockHere, churchTimezone, visitorPlace } from "../lib/store";
+import { nextService, displayLive, countdownParts, to12h, DAY_NAMES, fmtDate, zoneYear, clockHere, churchTimezone, visitorPlace } from "../lib/store";
 import { SITE, SERVICES, VALUES, MINISTRIES, img } from "../data/site";
 import { BRANCHES, HQ, branchFlag, branchZone } from "../data/branches";
 import { sermonsNewestFirst, sermonDate } from "../data/sermons";
@@ -66,7 +66,7 @@ export function Home() {
             </Btn>
           </Reveal>
           <Reveal delay={300} className="hero__meta">
-            {onAir(info) ? (
+            {displayLive(info) ? (
               <span className="hero__live">
                 <span className="live-dot" />{" "}
                 {/* The office's switch can put us on air with no gathering to

@@ -34,8 +34,6 @@ import {
   clockAt,
   DAY_SHORT,
   fmtDate,
-  fmtDuration,
-  fmtTime,
   MONTH_SHORT,
   nextService,
   churchTimezone,
@@ -739,10 +737,21 @@ export function LiveEndingPanel({ onOpen, children }: { onOpen: (id: string) => 
   );
 }
 
-/* -------------------------------------- the livestream: start, stop, continue */
+/* ----------------------------------- the livestream transport: one play/pause button, one stop button */
 
-/** Start / Continue / Stop for the broadcast; the panel reports whichever "on air" is speaking. */
-export function LiveControlPanel() {
+/** Play / pause on one button, stop on another (notes 389, 391): the stopped
+    card is gone — the office works the stream from two buttons beside the
+    channel fields, and every click stamps `liveCommandAt`. Pause HOLDS the
+    session without ending it (the session start is kept, so play picks the
+    same session back up); stop ENDS it (the start is cleared and the finished
+    service files itself, so the next play begins fresh). Publish sends the
+    on-air state ONLY when a click stamped a newer command than what is
+    published (see `gateLiveCommand` in src/lib/cms.ts) — an unclicked Publish
+    leaves the site's on-air state alone, whatever the draft says. The buttons
+    never gate a live end: when the broadcast ends the screen closes at once
+    onto the main channel's previous-service thumbnails, published or not — a
+    natural end needs no publish (note 393). */
+export function LiveTransportButtons() {
   useCmsTick();
   const now = useNow(20000);
   const live = draftLive();
@@ -751,30 +760,35 @@ export function LiveControlPanel() {
   const cut = Number(live.liveCut) || 0;
   /* The head-office gathering, read the same way the site reads a visitor's —
      the office broadcasts that branch's services, and it is the schedule the
-     panel is really about. */
+     buttons are really about. */
   const info = nextService(SERVICES, now, churchTimezone());
   const clockLive = !!info?.isLive && !(cut >= info.at.getTime());
+  /* A paused session waits to be picked back up (note 391): pause keeps the
+     session start, stop clears it — so play resumes a hold but begins fresh
+     after an end. A site left on air from before this panel existed carries
+     no stamp, so there is nothing held: play begins fresh. */
+  const heldSession = since > 0;
   const onNow = isOn || clockLive;
-  const justStopped = !onNow && cut > 0 && now.getTime() - cut < 8 * 60 * 60 * 1000;
   const ready = !!(
     String(live.youtubeChannel || "").trim() ||
     String(live.youtubeId || "").trim() ||
     String(live.facebookUrl || "").trim()
   );
-  const waited = cms.pendingSections().includes("live");
-  /* When the office's session was never stamped — a site left on air from
-     before this panel existed, or the clock's own gathering — the gathering's
-     start is the honest beginning of the broadcast. */
-  const clockStart = info?.isLive ? info.at.getTime() : 0;
-  const started = since || clockStart;
-  const minutes = started ? Math.max(0, Math.round((now.getTime() - started) / 60000)) : 0;
-
   /** Write the newest draft, so two presses in a row never fight each other. */
   const write = (patch: Record<string, any>) => {
     const latest = cms.getDraft().live || {};
     cms.setSectionValue("live", { ...latest, ...patch });
   };
-  const start = () => {
+  /* Play picks a held session back up where it paused, else begins a fresh
+     one at the current time — either way the click stamps the command, and
+     Publish sends it. */
+  const play = () => {
+    if (heldSession) {
+      write({ isLive: true, liveCut: 0, liveEndedBy: "office", liveCommandAt: Date.now() });
+      recheckLiveNow();
+      fireToast("Back on air — Publish sends it.", "success");
+      return;
+    }
     write({ isLive: true, liveSince: Date.now(), liveCut: 0, liveEndedBy: "office", liveCommandAt: Date.now() });
     /* A new session: read the channel now, so a service that has just been
        published shows up without waiting for the ten-minute timer. */
@@ -782,15 +796,26 @@ export function LiveControlPanel() {
     /* …and ask the on-air check at once (note 310): if the stream is already
        up on the channel the site flips to it in seconds, on live and local. */
     recheckLiveNow();
-    fireToast("You are on air. Publish to put the live state on the public site.", "success");
+    fireToast(
+      ready
+        ? "You are on air. Publish sends it."
+        : "You are on air. Paste the stream link or the channel to watch below — Publish sends it.",
+      "success"
+    );
   };
-  const resume = () => {
-    write({ isLive: true, liveCut: 0, liveEndedBy: "office", liveCommandAt: Date.now(), liveSince: started || Date.now() });
-    recheckLiveNow();
-    fireToast("Back on air — the site is showing LIVE NOW again.", "success");
-  };
-  const stop = () => {
+  /* Pause holds the broadcast without ending it (note 391): the session start
+     is kept — no `liveSince` key here — so play picks the same session back
+     up, and the finished service is NOT filed. */
+  const pause = () => {
     write({ isLive: false, liveCut: Date.now(), liveEndedBy: "office", liveCommandAt: Date.now() });
+    recheckLiveNow();
+    fireToast("Paused — play picks the same session back up. Publish sends it.", "info");
+  };
+  /* Stop ends the session (note 391): the start is cleared, so the next play
+     begins fresh — and the finished service files itself under Recent
+     services. */
+  const stop = () => {
+    write({ isLive: false, liveSince: 0, liveCut: Date.now(), liveEndedBy: "office", liveCommandAt: Date.now() });
     recheckLiveNow();
     /* An ended service seeds Recent services now; every open page re-reads the channel.
        A temporary guest never seeds (note 379): its ending leaves the main
@@ -800,92 +825,46 @@ export function LiveControlPanel() {
     askForRecentServices(!airedGuest && aired.videoId ? { videoId: aired.videoId, title: aired.title } : undefined);
     fireToast(
       airedGuest
-        ? "Stopped. The guest stream is off the site — the main channel's services are untouched."
-        : "Stopped. The finished service is in Recent services, and the site is counting down to the next gathering.",
+        ? "Stopped. The guest stream is off the site — Publish sends it."
+        : "Stopped. Publish sends it — the finished service files itself under Recent services.",
       "info"
     );
   };
 
-  const askedToPublish = waited ? " Publish to make it public." : "";
-  /* Whether the last session ended by itself — the stream went off air, and the
-     drawer stopped with it (see `useAutoStopLive` in src/lib/autostop.ts). */
-  const endedByItself = justStopped && live.liveEndedBy === "channel";
-
-  const headline = onNow
-    ? "You are on air right now"
-    : justStopped
-    ? endedByItself
-      ? "The stream ended, so the site stopped by itself"
-      : "The stream has been stopped"
-    : "The stream is off air";
-  const status = onNow
-    ? started
-      ? `On air since ${fmtTime(started)}${minutes >= 1 ? ` — ${fmtDuration(minutes)}` : ""}.`
-      : "The site is showing LIVE NOW and the player is open on the Watch live page."
-    : justStopped
-    ? endedByItself
-      ? `The stream stopped on its own at ${fmtTime(cut)}, so the site went off air with it. The finished service is already under Recent services.`
-      : `Stopped at ${fmtTime(cut)}. The finished service appears under Recent services on the Watch live page by itself.`
-    : "Nothing is broadcasting — the site is counting down to the next gathering.";
-  const note = onNow
-    ? clockLive && !isOn
-      ? `Your service times have ${info?.slot.name || "a gathering"} on right now, so the site is showing live by itself. It goes back to counting down when the gathering ends — or press Stop to end it now.` +
-        askedToPublish
-      : "Visitors see LIVE NOW across the site and the player opens on its own. You can press Stop when the service closes — or leave it: the site stops by itself the moment the stream ends on the channel it watches." +
-        askedToPublish
-    : justStopped
-    ? endedByItself
-      ? waited
-        ? "Publish to take the live state off the website — until you do, visitors still see LIVE NOW. Continue puts it back on air if you are streaming again."
-        : "Nothing to file: the service is in Recent services, and the site is counting down to the next gathering. Continue puts it back on air if you are streaming again."
-      : "Continue picks the same session up where it stopped, and keeps counting how long it has been on air. Start begins a fresh one at the current time."
-    : "Go on air at any time — for a moved service, a vigil, or a broadcast that is not on the schedule." +
-      askedToPublish;
-
   return (
-    <Card className={"admin__live" + (onNow ? " is-on" : justStopped ? " is-stopped" : "")}>
-      <div className="admin__live-top">
-        <span className={onNow ? "live-dot" : "live-dot live-dot--off"} aria-hidden="true" />
-        <div className="admin__live-copy">
-          <b>{headline}</b>
-          <em>{status}</em>
-        </div>
+    <div className="admin__transport">
+      <span className={onNow ? "live-dot" : "live-dot live-dot--off"} aria-hidden="true" />
+      <div className="btn-row">
+        {onNow ? (
+          <Btn variant="gold" icon="pause" onClick={pause}>
+            Pause the livestream
+          </Btn>
+        ) : (
+          <Btn variant="gold" icon="play" onClick={play}>
+            Play the livestream
+          </Btn>
+        )}
+        <Btn variant="ghost" icon="stop" onClick={stop}>
+          Stop
+        </Btn>
       </div>
-
       {onNow && !ready && (
         <p className="admin__live-warn">
           <Icon name="alert" size={14} />
           <span>
-            Nothing is set to play yet. Paste the stream link, or the channel to watch, in the fields below — until then
-            the Watch live screen tells visitors the service is on and that we will be live shortly, and plays the last
-            message under its ticking clock.
+            Nothing is set to play yet. Paste the stream link, or the channel to watch, in the fields above — until then
+            the Watch live screen stays on the countdown, and opens the service by itself the moment the stream starts.
           </span>
         </p>
       )}
-
-      <div className="btn-row">
-        {onNow ? (
-          <Btn variant="crimson" icon="stop" onClick={stop}>
-            Stop the livestream
-          </Btn>
-        ) : justStopped ? (
-          <>
-            <Btn icon="play" onClick={resume}>
-              Continue the livestream
-            </Btn>
-            <Btn variant="ghost" icon="live" onClick={start}>
-              Start a new livestream
-            </Btn>
-          </>
-        ) : (
-          <Btn icon="live" onClick={start}>
-            Start the livestream
-          </Btn>
-        )}
-      </div>
-
-      <p className="admin__live-note">{note}</p>
-    </Card>
+      <p className="field__hint">
+        Play and pause are one button — pause holds the session and play picks it up again, stop ends it and files
+        the service. A click arms the command — Publish sends the livestream only when one of them was clicked, otherwise
+        the site's on-air state is left alone — the LIVE badge and the player wait for the stream itself: the screen
+        stays on the countdown, and opens the service by itself the moment the channel goes live. When the stream ends
+        by itself there is nothing to publish — the screen is already back on the previous services.
+      </p>
+    </div>
   );
 }
 
@@ -2090,10 +2069,13 @@ export function ToolsPage() {
         const chanBit = res.channelMoved
           ? ` Channel in the backup was ${res.channelMoved} — set to @twocorg (change it back in the Live stream console if that was intentional).`
           : "";
+        const guestBit = res.guestCleared
+          ? ` Guest channel in the backup was ${res.guestCleared} — cleared, since every update arrives with an empty guest slot (paste it back in the Live stream console if that event is still on).`
+          : "";
         fireToast(
           left
-            ? `Brought back ${n} ${n === 1 ? "section" : "sections"} — review, then Publish. ${left} ${left === 1 ? "section" : "sections"} from the backup no longer exist in this update and ${left === 1 ? "was" : "were"} left out.${imgBit}${missBit}${chanBit}`
-            : `Brought back ${n} ${n === 1 ? "section" : "sections"} — review, then Publish to put it live.${imgBit}${missBit}${chanBit}`,
+            ? `Brought back ${n} ${n === 1 ? "section" : "sections"} — review, then Publish. ${left} ${left === 1 ? "section" : "sections"} from the backup no longer exist in this update and ${left === 1 ? "was" : "were"} left out.${imgBit}${missBit}${chanBit}${guestBit}`
+            : `Brought back ${n} ${n === 1 ? "section" : "sections"} — review, then Publish to put it live.${imgBit}${missBit}${chanBit}${guestBit}`,
           "success"
         );
       }

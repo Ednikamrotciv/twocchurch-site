@@ -469,6 +469,21 @@ export function onAir(info?: NextServiceInfo | null): boolean {
   return true;
 }
 
+/** What the badges and the Watch screen SHOW (note 385): the stream itself
+    is on air, or the office's switch says so. The service clock alone never
+    lights LIVE — it only counts down and arms the short cadence — so the
+    site stays quiet when nothing was published and nothing is broadcasting,
+    while a YouTube start still opens the screen by itself the moment the
+    check finds it. Cadence callers (App's `expecting`, Watch's `justNow`,
+    the recents burst, autostop) stay on `onAir` above. */
+export function displayLive(info?: NextServiceInfo | null): boolean {
+  if (liveNow()) return true;
+  if (!LIVE.isLive) return false;
+  const cut = streamCut();
+  if (cut && cut >= (info?.isLive ? info.at.getTime() : 0)) return false;
+  return true;
+}
+
 export function countdownParts(ms: number) {
   const total = Math.max(0, Math.floor(ms / 1000));
   return {

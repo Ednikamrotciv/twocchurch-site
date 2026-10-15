@@ -812,37 +812,39 @@ try {
   /* a failed clear must never break boot — the console still stands */
 }
 
-/* This update overrides the last one (note 361): one-shot flags from older
+/* This update overrides the last one (notes 361, 385): one-shot flags from older
    updates (351/352's channel move, 359's media clear) can never run again, so
    anything that drifted since — a restored debugging channel, a stray stream
    link, re-hidden take-offs, re-added slides — would ride along forever. The
    stamp carries the update number itself, so the first boot of THIS update (and
    every future one) re-runs the whole clear once, on every copy that runs it:
    stored channel back to @twocorg, stray youtubeId dropped, take-offs cleared,
-   any slides but the lone welcome card replanted. No stamp, no rev bump, no
-   publish — later office work is never touched. */
-var OVERRIDE_NO_361 = 361;
+   any slides but the lone welcome card replanted — and since note 385 the
+   temporary guest channel too, so every fix arrives fresh, new and clean. No
+   stamp, no rev bump, no publish — later office work is never touched. */
+var OVERRIDE_NO_385 = 385;
 try {
-  if (OVERRIDE_CLEAN !== OVERRIDE_NO_361) {
-    OVERRIDE_CLEAN = OVERRIDE_NO_361;
+  if (OVERRIDE_CLEAN !== OVERRIDE_NO_385) {
+    OVERRIDE_CLEAN = OVERRIDE_NO_385;
     try {
-      var live361 = JSON.parse(SECTIONS.live || "null");
-      if (live361 && typeof live361 === "object" && !Array.isArray(live361)) {
-        var ch361 = String(live361.youtubeChannel || "").trim().replace(/@@+/g, "@").replace(/\s+/g, "");
-        var touched361 = false;
-        if (ch361 && ch361.toLowerCase() !== "@twocorg") { live361.youtubeChannel = "@twocorg"; touched361 = true; }
-        if (typeof live361.youtubeId === "string" && live361.youtubeId) { live361.youtubeId = ""; touched361 = true; }
-        if (Array.isArray(live361.hiddenReplays) && live361.hiddenReplays.length) { live361.hiddenReplays = []; touched361 = true; }
-        if (touched361) setSection("live", JSON.stringify(live361));
+      var live385 = JSON.parse(SECTIONS.live || "null");
+      if (live385 && typeof live385 === "object" && !Array.isArray(live385)) {
+        var ch385 = String(live385.youtubeChannel || "").trim().replace(/@@+/g, "@").replace(/\s+/g, "");
+        var touched385 = false;
+        if (ch385 && ch385.toLowerCase() !== "@twocorg") { live385.youtubeChannel = "@twocorg"; touched385 = true; }
+        if (typeof live385.youtubeId === "string" && live385.youtubeId) { live385.youtubeId = ""; touched385 = true; }
+        if (typeof live385.externalYoutubeChannel === "string" && live385.externalYoutubeChannel) { live385.externalYoutubeChannel = ""; touched385 = true; }
+        if (Array.isArray(live385.hiddenReplays) && live385.hiddenReplays.length) { live385.hiddenReplays = []; touched385 = true; }
+        if (touched385) setSection("live", JSON.stringify(live385));
       }
     } catch (e) {
       /* a broken live section is the restore's work, not ours */
     }
     try {
       if (typeof SECTIONS.slides === "string") {
-        var slides361 = JSON.parse(SECTIONS.slides);
-        var onlyWelcome361 = Array.isArray(slides361) && slides361.length === 1 && slides361[0] && typeof slides361[0] === "object" && String(slides361[0].id || "") === "welcome-home";
-        if (!onlyWelcome361) setSection("slides", JSON.stringify(WELCOME_SLIDE_359));
+        var slides385 = JSON.parse(SECTIONS.slides);
+        var onlyWelcome385 = Array.isArray(slides385) && slides385.length === 1 && slides385[0] && typeof slides385[0] === "object" && String(slides385[0].id || "") === "welcome-home";
+        if (!onlyWelcome385) setSection("slides", JSON.stringify(WELCOME_SLIDE_359));
       }
     } catch (e) {
       try { setSection("slides", JSON.stringify(WELCOME_SLIDE_359)); } catch (e2) {}

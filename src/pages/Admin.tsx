@@ -12,7 +12,7 @@ import {
   CurrentEventPanel,
   Dashboard,
   FieldControl,
-  LiveControlPanel,
+  LiveTransportButtons,
   LiveEndingPanel,
   RecentServicesPanel,
   LoginGate,
@@ -1233,6 +1233,16 @@ function SectionBlock({
   /* Drawn at the section foot; Sermons-side, not stream-side (see LiveEndingPanel). */
   const pastField = def.id === "live" ? def.fields.find((f) => f.path === "pastLimit") : undefined;
   const formFields = pastField ? def.fields.filter((f) => f !== pastField) : def.fields;
+  /* The transport buttons sit right under the channel fields (note 389): the
+     guest field first, else the main channel field — so play, pause and stop
+     are worked beside the addresses they command. */
+  const liveSplitAt =
+    def.id === "live"
+      ? Math.max(
+          formFields.findIndex((f) => f.path === "externalYoutubeChannel"),
+          formFields.findIndex((f) => f.path === "youtubeChannel")
+        )
+      : -1;
 
   const field = (f: SectionDef["fields"][number], get: () => any, set: (v: any) => void) => (
     <FieldControl
@@ -1263,11 +1273,15 @@ function SectionBlock({
         <div className="pblock__body">
           {def.blurb ? <p className="pblock__blurb">{def.blurb}</p> : null}
 
-          {def.id === "live" && <LiveControlPanel />}
-
           {def.kind === "object" ? (
             <div className="admin__form">
-              {formFields.map((f) =>
+              {formFields.slice(0, liveSplitAt + 1).map((f) =>
+                field(f, () => getPath(value, f.path), (v) => {
+                  patch((next) => setPath(next, f.path, v));
+                })
+              )}
+              {def.id === "live" && <LiveTransportButtons />}
+              {formFields.slice(liveSplitAt + 1).map((f) =>
                 field(f, () => getPath(value, f.path), (v) => {
                   patch((next) => setPath(next, f.path, v));
                 })

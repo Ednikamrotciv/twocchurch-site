@@ -1049,6 +1049,38 @@ export function dropAddedAndRevertedEdits(sectionId: string): {
 }
 
 /** Publish one section now; the rest stay as they are. Works offline (staged). */
+/* ------------------------------------------- the livestream transport gate */
+
+/** Publish sends the livestream's on-air state only when play, pause or stop
+    stamped a newer command than what is published (notes 389, 391, 393) — pure
+    for the verifier. Every transport click stamps `liveCommandAt` with the
+    click time; the stream's own ending and hand edits never stamp it
+    (note 393: a natural end needs no publish — the screen follows the check
+    back to the previous services by itself), so an unclicked Publish keeps
+    the published on-air state whatever the draft says, while every other
+    field of the section still travels. */
+export function gateLiveCommand(live: any, publishedLive: any): any {
+  if (!live || typeof live !== "object") return live;
+  const at = Number((live as any).liveCommandAt) || 0;
+  const pub = Number((publishedLive as any)?.liveCommandAt) || 0;
+  if (at > pub) return live;
+  const out = { ...(live as any) };
+  if (publishedLive && typeof publishedLive === "object") {
+    for (const k of ["isLive", "liveSince", "liveCut", "liveCommandAt", "liveEndedBy"]) out[k] = (publishedLive as any)[k];
+  }
+  return out;
+}
+
+/** The publish snapshot with an unclicked on-air state held back (note 389):
+    never mutates — the held-back section is a copy, everything else shared. */
+function gateLiveSnapshot(snap: Snapshot): Snapshot {
+  const lv = (snap as any)?.live;
+  if (!lv || typeof lv !== "object") return snap;
+  const gated = gateLiveCommand(lv, publishedSection("live"));
+  if (gated === lv) return snap;
+  return { ...(snap as any), live: gated };
+}
+
 export async function publishSection(sectionId: string, note: string): Promise<PublishResult> {
   const def = sectionById(sectionId);
   if (!def || !draft) return { ok: false, error: "nothing-to-do" };
@@ -1061,7 +1093,11 @@ export async function publishSection(sectionId: string, note: string): Promise<P
   /* Publish folds live's newer words in first (note 309) — an office edit to
      this section still wins over live. */
   await foldLiveInto(draft, sectionId);
-  const value = clone(draft[sectionId]);
+  let value = clone(draft[sectionId]);
+  /* The transport arms the send (notes 389, 391, 393): without a clicked play,
+     pause or stop newer than what is published, the on-air state stays out of
+     the patch — a natural end stamps nothing and needs no publish. */
+  if (sectionId === "live") value = gateLiveCommand(value, publishedSection("live"));
   if (sameJSON(value, publishedSection(sectionId))) {
     delete dirty[sectionId];
     persistDraft();
@@ -2809,6 +2845,7 @@ export function getDraft(): Snapshot {
   healDraftRecents();
   healDraftSlides();
   healDraftStreamLink();
+  healDraftGuest();
   return draft;
 }
 
@@ -2859,6 +2896,27 @@ function healDraftRecents() {
     if (!dLive || typeof dLive !== "object" || Array.isArray(dLive)) return;
     if (!Array.isArray(dLive.hiddenReplays) || !dLive.hiddenReplays.length) return;
     (draft as any).live = { ...dLive, hiddenReplays: [] };
+    persistDraft();
+  } catch {
+    /* never break the drawer */
+  }
+}
+
+/** Every fix arrives fresh, new and clean (note 385): the update itself clears
+    the temporary guest channel (see the override stamp in
+    scripts/cms-server.js) — a draft the office saved before that still names
+    one follows the published words here (cleared stays cleared); the office's
+    own edits always win (dirty.live returns early). Runs on read, persists
+    only when something actually moved, never notifies. */
+function healDraftGuest() {
+  try {
+    if (!draft || dirty.live) return;
+    const pubGuest = String((applied as any)?.live?.externalYoutubeChannel || "");
+    if (pubGuest) return;
+    const dLive = (draft as any).live;
+    if (!dLive || typeof dLive !== "object" || Array.isArray(dLive)) return;
+    if (!String(dLive.externalYoutubeChannel || "")) return;
+    (draft as any).live = { ...dLive, externalYoutubeChannel: "" };
     persistDraft();
   } catch {
     /* never break the drawer */
@@ -3178,6 +3236,7 @@ export type ImportResult = {
   filesFailed?: string[];
   filesMissing?: string[];
   channelMoved?: string;
+  guestCleared?: string;
 };
 
 /**
@@ -3224,6 +3283,12 @@ export async function importBackup(text: string): Promise<ImportResult> {
      dirty so Review shows it and Publish carries it; the result names the
      move, and the field stays editable afterwards. */
   let channelMoved = "";
+  /* Every fix arrives fresh (note 385): a backup saved while a guest event
+     was set must not re-put it — the guest slot clears on every update, so a
+     restored guest is dropped here, kept dirty so Review shows it and Publish
+     carries it; the result names the clear, and the field stays editable
+     afterwards for the next one-off. */
+  let guestCleared = "";
   try {
     const rl = (draft as any)?.live;
     if (rl && typeof rl === "object" && !Array.isArray(rl)) {
@@ -3231,6 +3296,11 @@ export async function importBackup(text: string): Promise<ImportResult> {
       if (rc && rc.toLowerCase() !== "@twocorg") {
         channelMoved = String(rl.youtubeChannel || "");
         (draft as any).live = { ...rl, youtubeChannel: "@twocorg" };
+      }
+      const rg = String((draft as any)?.live?.externalYoutubeChannel || "");
+      if (rg) {
+        guestCleared = rg;
+        (draft as any).live = { ...(draft as any).live, externalYoutubeChannel: "" };
       }
     }
   } catch {
@@ -3290,7 +3360,7 @@ export async function importBackup(text: string): Promise<ImportResult> {
       }
     }
   }
-  return { ok: true, restored, skipped, filesRestored, filesFailed, filesMissing, channelMoved: channelMoved || undefined };
+  return { ok: true, restored, skipped, filesRestored, filesFailed, filesMissing, channelMoved: channelMoved || undefined, guestCleared: guestCleared || undefined };
 }
 
 /* ----------------------------------------------------------------- publish */
@@ -3407,7 +3477,10 @@ export async function publish(note: string, content?: Snapshot): Promise<Publish
      did not touch take live's words, the office's own edits win. Never fails —
      anything unclear publishes exactly as before. */
   const fold = await foldLiveInto(content || draft);
-  const snapshot = fold.snapshot || applied;
+  /* The transport arms the send (notes 389, 391, 393): without a clicked play,
+     pause or stop newer than what is published, the on-air state stays out of
+     the patch — a natural end stamps nothing and needs no publish. */
+  const snapshot = gateLiveSnapshot(fold.snapshot || applied);
   const { sections, changed } = buildPatch(snapshot);
 
   if (!changed.length) {

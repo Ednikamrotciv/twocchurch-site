@@ -3,7 +3,7 @@ import { tx } from "../lib/i18n";
 import { Link, navigate, useRoute } from "../lib/router";
 import { useHotkey, useMediaQuery, useScrollProgress, useTheme, useNow, useClickOutside, useBodyLock } from "../lib/hooks";
 import { exitMaintenancePreview } from "../lib/cms";
-import { nextService, onAir, countdownParts, to12h, DAY_SHORT, fmtDate, zoneYear, clockAt, churchTimezone, visitorPlace } from "../lib/store";
+import { nextService, displayLive, countdownParts, to12h, DAY_SHORT, fmtDate, zoneYear, clockAt, churchTimezone, visitorPlace } from "../lib/store";
 import { SITE, SERVICES, NAV, FOOTER_LINKS, LOGO_MARK } from "../data/site";
 import { siteFile } from "../lib/livefeed";
 import { BRANCHES, HQ } from "../data/branches";
@@ -49,8 +49,9 @@ function ServicePill() {
   /* The office's Weekly services card, read on the church's own clock. */
   const info = nextService(SERVICES, now, churchTimezone());
   if (!info) return null;
-  /* The office's *We are on air now* switch, or the clock (SPEC note 83). */
-  const live = onAir(info);
+  /* The office's *We are on air now* switch, or the stream itself (note
+     385) — never the bare service clock, which only counts down. */
+  const live = displayLive(info);
   return (
     <div className={"service-pill" + (live ? " service-pill--live" : "")}>
       {live ? (

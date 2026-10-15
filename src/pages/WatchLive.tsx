@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { tx } from "../lib/i18n";
 import { Link } from "../lib/router";
 import { SITE, SERVICES, img } from "../data/site";
@@ -7,9 +7,9 @@ import { ct } from "../data/copy";
 import { BRANCHES, DEFAULT_BRANCH_ID, HQ } from "../data/branches";
 import { sermonsNewestFirst, sermonSource, sermonThumb } from "../data/sermons";
 import { useLocalState, useNow, fireToast } from "../lib/hooks";
-import { KEYS, nextService, onAir, to12h, DAY_NAMES, countdownParts, addToCalendar, mailto, clockHere, tidyCount, churchTimezone, visitorPlace, fmtDate, downloadText, serviceNoteKey, type NextServiceInfo } from "../lib/store";
+import { KEYS, nextService, onAir, displayLive, to12h, DAY_NAMES, countdownParts, addToCalendar, mailto, clockHere, tidyCount, churchTimezone, visitorPlace, fmtDate, downloadText, serviceNoteKey, type NextServiceInfo } from "../lib/store";
 import { isFacebookVideoUrl, parseYoutubeId, platformLabel, watchUrl, youtubeThumb, type VideoPlatform, type VideoSource } from "../lib/embed";
-import { useLiveStream, liveTarget, guestTarget, isGuestTargetUrl, facebookTarget, useYoutubeVerdict, isStatusForTarget, designatedChannelIdForTarget, isDesignatedChannel } from "../lib/livestatus";
+import { useLiveStream, liveTarget, guestTarget, isGuestTargetUrl, facebookTarget, useYoutubeVerdict, isStatusForTarget, designatedChannelIdForTarget, isDesignatedChannel, nextScreenShut, type ScreenShut } from "../lib/livestatus";
 import { useLibrary } from "../lib/collections";
 import { useRecentServices, designatedFallback } from "../lib/recentstreams";
 import { Badge, Btn, Icon, IconBtn, Modal, Notice, Reveal, Rich, Section, SectionHeading, Textarea } from "../components/ui";
@@ -47,8 +47,9 @@ export function WatchLive() {
   const hasChannel = liveTarget()?.kind === "channel";
   /* A temporary guest channel (note 379): a one-off livestream from another
      address. Its answer is gated on its own stamp like the main one below —
-     while IT is live the screen plays it; the moment it ends the main
-     answer below owns the screen again, with the main still and recents. */
+     while IT is live the screen plays it; the moment it ends the screen
+     closes onto the main still (note 387) — never another channel's
+     livestream — with the still and recents main-owned as ever. */
   const guestUrl = guestTarget()?.url || "";
   const guestAir = guestUrl && isStatusForTarget(air, guestUrl)
     ? air
@@ -66,6 +67,24 @@ export function WatchLive() {
      main answer above. The still, the ended video and the lists below stay
      main-owned — a guest ending returns every one of them untouched. */
   const screenAir = guestLive ? guestAir : airForTarget;
+  /* Shut the moment a live ends (notes 385, 387): when the screen's broadcast
+     reads off — the guest ending, the main ending, or the office stopping it —
+     the screen closes at once onto the main channel's last ended thumbnail
+     instead of playing on or handing another channel's livestream over. A mere
+     unknown (probe down, offline) never closes anything. The latch lifts only
+     on a new live edge, so a livestream that starts still opens by itself,
+     with sound. The transition is pure (`nextScreenShut`); the previous screen
+     address lives in a ref, the latch in state, computed on the render so the
+     player never flashes open for a single frame. */
+  const shutPrevRef = useRef("");
+  const [shut, setShut] = useState<ScreenShut>(null);
+  const nowLiveTarget = screenAir.state === "live" ? String(screenAir.target || "") : "";
+  const shutNext = nextScreenShut(shut, shutPrevRef.current, guestUrl, screenAir.state === "live", nowLiveTarget, screenAir.state === "off");
+  useEffect(() => {
+    shutPrevRef.current = nowLiveTarget;
+    if (shutNext !== shut) setShut(shutNext);
+  });
+  const shutNow = shutNext;
   const detectedId = screenAir.state === "live" ? screenAir.videoId : "";
   /* Walled but on air (note 330): live with no verified video — the player
      follows the channel instead of showing the ended screen. Strict (note
@@ -102,6 +121,14 @@ export function WatchLive() {
   const recentItems = recentStreams.items
     .filter((it) => it.videoId !== onScreenId && !curatedIds.has(it.videoId) && !takenOff.has(it.videoId))
     .slice(0, limit);
+  /* The thumbnails the ended screen shows at once (note 391): the main
+     channel's previous services — the live list, else the baked @twocorg
+     list standing in by itself — newest first, take-offs honoured. A guest
+     ending never lands here: `recentItems` is main-owned by construction. */
+  const endedThumbs = (recentItems.length
+    ? recentItems
+    : designatedFallback().items.filter((it) => !takenOff.has(it.videoId))
+  ).slice(0, 6);
   /* Nothing to read (no channel set yet, or the read failed): keep the section
      useful with the newest messages the site already holds. */
   const recentFallback = recentItems.length
@@ -148,8 +175,11 @@ export function WatchLive() {
     (guestLive && guestUrl ? guestUrl : hasChannel ? targetUrl : watchUrl({ platform: "youtube", youtubeId: LIVE.youtubeId }) || targetUrl);
 
   /* The shared on-air answer (notes 83, 133); `streaming` is the narrower screen question. */
-  const streaming = screenAir.state === "live";
-  const onAirNow = onAir(info);
+  const streaming = screenAir.state === "live" && !shutNow;
+  /* What the badges show (note 385): the stream itself, or the office's
+     switch — never the bare service clock — and never another channel's
+     livestream while the screen sits shut after an end. */
+  const onAirNow = displayLive(info) && !shutNow;
   /* What the panel calls the broadcast while on air. */
   const liveName = tx(air.title || (info?.isLive ? info.slot.name : "") || LIVE.liveTitle || info?.slot.name || "");
   const streamCountdown = info ? countdownParts(info.msUntil) : null;
@@ -269,17 +299,21 @@ export function WatchLive() {
                   title={liveName || ct("auto.live.bc108377bb47f9e6")}
                   compact
                   live
-                  /* The check says live, so the screen plays by itself (note
-                     383) — a verified broadcast, a walled channel follow, or
-                     the stream link all open with no tap, muted so browsers
-                     never block the start. */
+                  /* The check says live, so the screen plays by itself (notes
+                     383, 387) — a verified broadcast, a walled channel follow,
+                     or the stream link all open with no tap, WITH SOUND: no
+                     live from a channel is ever muted, and the audio opens by
+                     itself the moment the broadcast starts. */
                   autoPlay={streaming && watchable}
                 />
               ) : !onAirNow ? (
                 /* Nobody is broadcasting: the screen says so, and promises what
                    happens next — over the last stream's own still, dimmed. The
                    player opens the service by itself the moment the stream
-                   starts (src/lib/livestatus.ts). */
+                   starts (src/lib/livestatus.ts). The main channel's previous
+                   services sit right under it (note 391), so the moment a live
+                   ends its thumbnails are already on the screen. */
+                <>
                 <div className="live-ended">
                   {cover && <img className="live-ended__bg" src={cover} alt="" loading="lazy" />}
                   <span className="live-ended__scrim" aria-hidden="true" />
@@ -304,6 +338,14 @@ export function WatchLive() {
                     </div>
                   </div>
                 </div>
+                {endedThumbs.length > 0 && (
+                  <div className="live-ended__thumbs">
+                    {endedThumbs.map((it) => (
+                      <RecentServiceCard key={it.videoId} item={it} />
+                    ))}
+                  </div>
+                )}
+                </>
               ) : configured ? (
                 /* Service on, stream not open yet: last still under the ticking clock (note 133). */
                 <LiveWaiting cover={cover} />

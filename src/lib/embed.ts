@@ -43,13 +43,13 @@ export function parseYoutubeId(input: string): string {
   return value.replace(/[^\w-]/g, "").slice(0, 20);
 }
 
-export function youtubeEmbed(id: string, autoplay = true, muted = false): string {
+export function youtubeEmbed(id: string, autoplay = true): string {
   const video = parseYoutubeId(id);
   if (!video) return "";
-  /* Muted starts (note 383): browsers block unmuted autoplay, so anything the
-     site starts by itself begins muted (YouTube offers its own tap-to-unmute);
-     a tap the visitor made plays with sound as before. */
-  return `https://www.youtube.com/embed/${video}?rel=0&modestbranding=1&playsinline=1${autoplay ? "&autoplay=1" : ""}${muted ? "&mute=1" : ""}`;
+  /* Sound on (note 387): every live from a channel plays with its audio —
+     anything the site plays, tapped or self-started, carries its sound, and
+     the stream's audio opens by itself the moment the broadcast starts. */
+  return `https://www.youtube.com/embed/${video}?rel=0&modestbranding=1&playsinline=1${autoplay ? "&autoplay=1" : ""}`;
 }
 
 /** A channel id (`UC…`): the only address the channel player takes. */
@@ -62,10 +62,10 @@ export function isYoutubeChannelId(input: unknown): boolean {
     while the channel page reads 200), so when the channel page is on air but
     names no verifiable video, the player follows the channel instead of
     guessing a video — on live and on local alike. */
-export function youtubeChannelEmbed(channelId: string, autoplay = true, muted = false): string {
+export function youtubeChannelEmbed(channelId: string, autoplay = true): string {
   if (!isYoutubeChannelId(channelId)) return "";
   const id = String(channelId).trim();
-  return `https://www.youtube.com/embed/live_stream?channel=${id}&rel=0&modestbranding=1&playsinline=1${autoplay ? "&autoplay=1" : ""}${muted ? "&mute=1" : ""}`;
+  return `https://www.youtube.com/embed/live_stream?channel=${id}&rel=0&modestbranding=1&playsinline=1${autoplay ? "&autoplay=1" : ""}`;
 }
 
 export function youtubeWatch(id: string): string {
@@ -158,12 +158,14 @@ export function isFileVideo(source: VideoSource): boolean {
   return source?.platform === "upload" && isUploadVideoUrl(source.uploadUrl || "");
 }
 
-/** The <iframe> address — empty for an uploaded file (it plays in a <video>). */
-export function embedSrc(source: VideoSource, autoplay = true, muted = false): string {
+/** The <iframe> address — empty for an uploaded file (it plays in a <video>).
+    Sound on (note 387): no silent path remains — every address plays with
+    its audio, tapped or self-started. */
+export function embedSrc(source: VideoSource, autoplay = true): string {
   if (!source) return "";
   if (source.platform === "facebook") return facebookEmbed(source.facebookUrl || "", autoplay);
   if (source.platform === "upload") return "";
-  return youtubeEmbed(source.youtubeId || "", autoplay, muted) || youtubeChannelEmbed(source.youtubeChannelId || "", autoplay, muted);
+  return youtubeEmbed(source.youtubeId || "", autoplay) || youtubeChannelEmbed(source.youtubeChannelId || "", autoplay);
 }
 
 /** The file address for an uploaded video. */

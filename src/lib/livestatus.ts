@@ -345,6 +345,36 @@ export function inheritEnded(
   return { endedAt: 0, videoId: "", title: "", channelId: "", platform: "" };
 }
 
+/** The screen closes the moment a live ends (notes 385, 387), pure for the
+    verifier: the Watch screen shuts when its broadcast ends and never plays
+    another channel's livestream by itself. `wasLiveTarget` is the screen's
+    live address on the previous answer ("" when it was not playing),
+    `nowLiveTarget` the live address now ("" unless live), `isOff` whether the
+    screen's answer now reads ended (a mere unknown — probe down, offline —
+    never closes anything). Only the guest-to-other hand-over shuts on a live
+    answer; every true end shuts on the off answer, so the player unmounts at
+    once and the screen falls back to the main channel's last ended thumbnail.
+    The latch lifts on a new live edge on another reading (a fresh start —
+    guest or main — still opens by itself, with sound), never on quiet. */
+export type ScreenShut = { playing: string } | null;
+export function nextScreenShut(prevShut: ScreenShut, wasLiveTarget: string, guestUrl: string, isLive: boolean, nowLiveTarget: string, isOff = false): ScreenShut {
+  const was = String(wasLiveTarget || "");
+  const guest = String(guestUrl || "");
+  const now = String(nowLiveTarget || "");
+  /* A new live edge while the screen sits shut re-arms first (note 387): a
+     livestream that starts still opens by itself — the reading moved since the
+     last answer, so this is a start, not the same broadcast continuing. */
+  if (prevShut && isLive && now && now !== was) return null;
+  /* The temporary guest was the screen's broadcast and its ending would hand
+     a live main channel to the screen: shut instead — the screen closes and
+     never plays another channel's livestream by itself. */
+  if (was && guest && was === guest && isLive && now && now !== guest) return { playing: now };
+  /* Any end (note 387): the screen's broadcast reads off, so the screen
+     closes at once onto the main channel's last ended thumbnail. */
+  if (was && isOff) return { playing: was };
+  return prevShut;
+}
+
 /** The walled-but-on-air answer (note 330), pure for the verifier: a channel
     page carrying on-air chrome that no suggestion confirmed plays the channel
     when the page names its owner clearly — otherwise it stays `unknown`, never

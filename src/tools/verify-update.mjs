@@ -55,6 +55,8 @@ const FILES = [
   ["src/lib/pageMap.ts", "ts"],
   ["src/components/layout.tsx", "tsx"],
   ["src/components/blocks.tsx", "tsx"],
+  ["src/lib/store.ts", "ts"],
+  ["src/pages/Home.tsx", "tsx"],
   ["src/components/slides.tsx", "tsx"],
   ["src/App.tsx", "tsx"],
   ["scripts/build-static.mjs", "js"],
@@ -1147,8 +1149,8 @@ export async function runAll(fs) {
   const rsGG = text["src/lib/recentstreams.ts"];
   const lsGG = text["src/lib/livestatus.ts"];
   const applyGG = text["APPLY_UPDATE.txt"];
-  ok("override stamp per-update", has(srvGG, "var OVERRIDE_CLEAN = 0;") && has(srvGG, "overrideClean: OVERRIDE_CLEAN") && has(srvGG, "OVERRIDE_NO_361 = 361") && has(srvGG, "OVERRIDE_CLEAN !== OVERRIDE_NO_361"), "the clear must re-run on every new update, not once ever");
-  ok("override clears everything old", has(srvGG, "live361.youtubeChannel = \"@twocorg\"") && has(srvGG, "live361.youtubeId = \"\"") && has(srvGG, "live361.hiddenReplays = []") && has(srvGG, "WELCOME_SLIDE_359") && has(srvGG, "String(slides361[0].id || \"\") === \"welcome-home\""), "channel, stray link, take-offs and slides must all go");
+  ok("override stamp per-update", has(srvGG, "var OVERRIDE_CLEAN = 0;") && has(srvGG, "overrideClean: OVERRIDE_CLEAN") && has(srvGG, "OVERRIDE_NO_385 = 385") && has(srvGG, "OVERRIDE_CLEAN !== OVERRIDE_NO_385"), "the clear must re-run on every new update, not once ever");
+  ok("override clears everything old", has(srvGG, "live385.youtubeChannel = \"@twocorg\"") && has(srvGG, "live385.youtubeId = \"\"") && has(srvGG, "live385.hiddenReplays = []") && has(srvGG, "live385.externalYoutubeChannel = \"\"") && has(srvGG, "WELCOME_SLIDE_359") && has(srvGG, "String(slides385[0].id || \"\") === \"welcome-home\""), "channel, stray link, guest, take-offs and slides must all go");
   ok("override never blesses", has(srvGG, "no rev bump") && has(srvGG, "later office work is never touched"), "the clear must not publish");
   ok("draft stray link heals", has(cmsGG, "healDraftStreamLink()") && has(cmsGG, "(draft as any).live = { ...dLive, youtubeId: \"\" }"), "an untouched draft must follow the words");
   ok("browser caches drop on new update", has(rsGG, "export function clearRecentCaches()") && has(cmsGG, "if (freshEyes) clearRecentCaches();"), "old cards must not ride into the new update");
@@ -1179,7 +1181,7 @@ export async function runAll(fs) {
     ];
     const stGG = new Uint8Array(8 * 1024 * 1024);
     const rGG0 = loadVm(stubAuth(srvGG), stGG);
-    const p0 = pubGG(rGG0, { live: JSON.stringify({ youtubeChannel: "@debugging", youtubeId: "AAAAAAAAAAA", hiddenReplays: ["BBBBBBBBBBB"] }), slides: JSON.stringify(uploadsGG) }, { first: true });
+    const p0 = pubGG(rGG0, { live: JSON.stringify({ youtubeChannel: "@debugging", youtubeId: "AAAAAAAAAAA", externalYoutubeChannel: "@guestchan", hiddenReplays: ["BBBBBBBBBBB"] }), slides: JSON.stringify(uploadsGG) }, { first: true });
     ok("gg fixture publishes", p0.ok === true, "pub=" + JSON.stringify(p0).slice(0, 120));
     stripOverride(stGG);
     const rGG1 = loadVm(stubAuth(srvGG), stGG);
@@ -1188,14 +1190,15 @@ export async function runAll(fs) {
     const liveGG = secGG.live;
     ok("override moves channel", liveGG.youtubeChannel === "@twocorg", "got " + liveGG.youtubeChannel);
     ok("override drops stray link", liveGG.youtubeId === "", "got " + liveGG.youtubeId);
+    ok("override clears the guest", liveGG.externalYoutubeChannel === "", "got " + liveGG.externalYoutubeChannel);
     ok("override clears take-offs", Array.isArray(liveGG.hiddenReplays) && liveGG.hiddenReplays.length === 0, "got " + JSON.stringify(liveGG.hiddenReplays));
     ok("override replants welcome", Array.isArray(secGG.slides) && secGG.slides.length === 1 && secGG.slides[0].id === "welcome-home", "got " + (secGG.slides[0] || {}).id);
     ok("override stamps nothing", afterGG.notes === 361, "notes=" + afterGG.notes);
-    const p1 = pubGG(rGG1, { live: JSON.stringify({ youtubeChannel: "@twocorg", youtubeId: "", hiddenReplays: ["CCCCCCCCCCC"] }), slides: JSON.stringify([{ id: "easter", image: "x", headline: "Easter", line: "", active: true }]) });
+    const p1 = pubGG(rGG1, { live: JSON.stringify({ youtubeChannel: "@twocorg", youtubeId: "", externalYoutubeChannel: "@newevent", hiddenReplays: ["CCCCCCCCCCC"] }), slides: JSON.stringify([{ id: "easter", image: "x", headline: "Easter", line: "", active: true }]) });
     ok("gg second publish", p1.ok === true, "pub=" + JSON.stringify(p1).slice(0, 120));
     const rGG2 = loadVm(stubAuth(srvGG), stGG);
     const secGG2 = JSON.parse(getGG(rGG2).sections);
-    ok("later edits survive reboot", secGG2.live.hiddenReplays.length === 1 && secGG2.slides.length === 1 && secGG2.slides[0].id === "easter", "got " + secGG2.slides[0].id);
+    ok("later edits survive reboot", secGG2.live.hiddenReplays.length === 1 && secGG2.slides.length === 1 && secGG2.slides[0].id === "easter" && secGG2.live.externalYoutubeChannel === "@newevent", "got " + secGG2.slides[0].id);
   } catch (e) {
     ok("override suite", false, String((e && e.message) || e).slice(0, 200));
   }
@@ -1442,9 +1445,10 @@ export async function runAll(fs) {
   ok("numbers line gone", !has(layQQ, "maint__notes") && !has(layQQ, "awaiting the office publish"), "no update numbers anywhere on the waiting page");
   ok("notice still waits", has(layQQ, "We&rsquo;ll be right back") && has(layQQ, "Please check back shortly"), "the notice itself stays");
   ok("no dangling number reads", !has(layQQ, "BUILD_NOTES") && !has(layQQ, "publishedNotesVersion"), "unused number plumbing must go with the line");
-  /* RR. publish lands everywhere, live plays by itself (note 383): a missed
-     shout heals within the half minute on every copy; the live screen opens
-     with no tap, muted so browsers never block it. */
+  /* RR. publish lands everywhere, live plays by itself WITH SOUND (notes 383,
+     387): a missed shout heals within the half minute on every copy; the live
+     screen opens with no tap, and no live from a channel is ever silenced —
+     the embeds take no mute and the player has no silent path. */
   const srvRR = text["scripts/cms-server.js"];
   const cmsRR = text["src/lib/cms.ts"];
   const embRR = text["src/lib/embed.ts"];
@@ -1454,7 +1458,7 @@ export async function runAll(fs) {
   ok("rev stamp is public", has(srvRR, "contentRev: function (info)") && has(srvRR, "return ok({ rev: REV, notes: NOTES, at: AT });"), "visitors must read the stamp with no session");
   ok("every tab watches the stamp", has(cmsRR, "function startContentWatch()") && has(cmsRR, "socket.rpc.contentRev") && has(cmsRR, "30_000") && cmsRR.split("startContentWatch();").length >= 3, "local, mobile and desktop must all pull a missed publish");
   ok("watch pulls the guarded path", has(cmsRR, "r.rev !== rev") && has(cmsRR, "await syncFromServer()"), "the stamp must lead to the same sync the shout takes");
-  ok("self-starts are muted", has(blocksRR, "userOpened") && has(blocksRR, "embedSrc(source, true, true)") && has(blocksRR, "setUserOpened(true)"), "only a visitor tap may play with sound");
+  ok("self-starts play with sound", has(blocksRR, "embedSrc(source, true)") && !has(blocksRR, "userOpened") && !has(blocksRR, "embedSrc(source, true, true)"), "no opening — tapped or self-started — may lose its audio");
   ok("screen autoplays live", has(watchRR, "autoPlay={streaming && watchable}"), "verified, follow or link — no poster while LIVE");
   ok("guest renamed", has(schemaRR, 'label: "Guest channel"') && !has(schemaRR, "Temporary guest channel"), "the drawer must not say Temporary");
   try {
@@ -1468,22 +1472,189 @@ export async function runAll(fs) {
     const srcOf = modRR.exports.embedSrc;
     const VID = "dQw4w9WgXcQ";
     const OWNER_RR = "UCQ0KIUXUV7gTZmDDlvd3ZcQ";
-    ok("muted start mutes", yte(VID, true, true).indexOf("&autoplay=1&mute=1") !== -1, "a self-start must carry mute");
+    ok("no live ever silenced", yte(VID, true, true).indexOf("mute") === -1 && yte(VID, true).indexOf("mute") === -1, "even a legacy muted call must play with sound");
     ok("old outputs identical", yte(VID, true) === "https://www.youtube.com/embed/" + VID + "?rel=0&modestbranding=1&playsinline=1&autoplay=1" && yte(VID, false).indexOf("autoplay") === -1 && yte(VID, false).indexOf("mute") === -1, "two-arg calls must build exactly what they built");
-    ok("channel muted start mutes", che(OWNER_RR, true, true).indexOf("live_stream?channel=" + OWNER_RR) !== -1 && che(OWNER_RR, true, true).indexOf("&mute=1") !== -1, "a followed channel must self-start too");
+    ok("channel never silenced", che(OWNER_RR, true, true).indexOf("live_stream?channel=" + OWNER_RR) !== -1 && che(OWNER_RR, true, true).indexOf("mute") === -1, "a followed channel must self-start with sound too");
     ok("channel default identical", che(OWNER_RR, false) === "https://www.youtube.com/embed/live_stream?channel=" + OWNER_RR + "&rel=0&modestbranding=1&playsinline=1", "the old two-arg channel build must not move");
-    ok("muted src threads through", srcOf({ platform: "youtube", youtubeChannelId: OWNER_RR }, true, true).indexOf("&mute=1") !== -1 && srcOf({ platform: "youtube", youtubeChannelId: OWNER_RR }, true).indexOf("mute") === -1, "the player must choose per open");
+    ok("sound src threads through", srcOf({ platform: "youtube", youtubeChannelId: OWNER_RR }, true, true).indexOf("mute") === -1 && srcOf({ platform: "youtube", youtubeChannelId: OWNER_RR }, true).indexOf("mute") === -1, "the player must never build a silent address");
     const connRR = { id: "t", net: ["local", 0, 0], subscribe() {}, topics: new Set() };
     const stRR = new Uint8Array(8 * 1024 * 1024);
     const rpcRR = loadVm(stubAuth(srvRR), stRR);
     const rev0 = JSON.parse(rpcRR.contentRev({ conn: connRR }, ""));
     ok("stamp reads empty", rev0.ok === true && rev0.rev === 0 && typeof rev0.at === "number", "a fresh box stamps rev 0");
-    const pubRR = JSON.parse(rpcRR.publish({ conn: connRR }, JSON.stringify({ sections: { live: JSON.stringify({ youtubeChannel: "@twocorg" }) }, by: "office", changed: ["live"], notes: 383, first: true })));
+    const pubRR = JSON.parse(rpcRR.publish({ conn: connRR }, JSON.stringify({ sections: { live: JSON.stringify({ youtubeChannel: "@twocorg" }) }, by: "office", changed: ["live"], notes: 387, first: true })));
     const rev1 = JSON.parse(rpcRR.contentRev({ conn: connRR }, ""));
-    ok("stamp follows publish", pubRR.ok === true && rev1.ok === true && rev1.rev === 1 && rev1.notes === 383, "the watch must see every publish move");
+    ok("stamp follows publish", pubRR.ok === true && rev1.ok === true && rev1.rev === 1 && rev1.notes === 387, "the watch must see every publish move");
   } catch (e) {
     ok("publish-everywhere suite", false, String((e && e.message) || e).slice(0, 200));
   }
+  /* SS. LIVE waits for the stream, every fix arrives clean, no take-over,
+     close on any end (notes 385, 387): badges ask displayLive (stream or
+     switch, never the bare clock) while cadence still asks onAir; the override
+     stamp is 385 and clears the guest slot with the rest; untouched drafts and
+     restores follow; a guest ending into a live main shuts the screen; note
+     387 extends the shut to ANY end on the off reading (unknown never closes),
+     and only a new live edge re-arms so starts still play with sound. */
+  const storeSS = text["src/lib/store.ts"];
+  const liveSS = text["src/lib/livestatus.ts"];
+  const watchSS = text["src/pages/WatchLive.tsx"];
+  const cmsSS = text["src/lib/cms.ts"];
+  const srvSS = text["scripts/cms-server.js"];
+  const edSS = text["src/components/editor.tsx"];
+  const laySS = text["src/components/layout.tsx"];
+  const homeSS = text["src/pages/Home.tsx"];
+  const blocksSS = text["src/components/blocks.tsx"];
+  const appSS = text["src/App.tsx"];
+  const applySS = text["APPLY_UPDATE.txt"];
+  ok("display predicate exists", has(storeSS, "export function displayLive(info?: NextServiceInfo | null): boolean") && has(storeSS, "if (!LIVE.isLive) return false;"), "badges need the stream-or-switch answer");
+  ok("cadence still hears the clock", has(storeSS, "export function onAir(info?: NextServiceInfo | null): boolean") && has(appSS, "onAir(gathering)") && has(watchSS, "onAir(info) || info.msUntil"), "detection must stay armed around services");
+  ok("badges ask displayLive", has(laySS, "displayLive(info)") && has(homeSS, "displayLive(info)") && has(blocksSS, "displayLive(info)") && has(watchSS, "displayLive(info) && !shutNow"), "pill, hero, card and panel must all wait for the stream");
+  ok("bare clock lights nothing", !has(laySS, "const live = onAir(info);") && !has(homeSS, "{onAir(info) ? (") && !has(blocksSS, "const live = onAir(info);") && !has(watchSS, "const onAirNow = onAir(info);"), "no badge may read the clock answer");
+  ok("screen shuts after an end", has(watchSS, "nextScreenShut(shut, shutPrevRef.current, guestUrl, screenAir.state") && has(watchSS, "const streaming = screenAir.state === \"live\" && !shutNow;") && has(liveSS, "export function nextScreenShut(") && has(liveSS, "export type ScreenShut") && has(watchSS, "screenAir.state === \"off\""), "any end must close the screen, never hand another channel over");
+  ok("guest still clears", has(cmsSS, "healDraftGuest()") && has(cmsSS, "(draft as any).live = { ...dLive, externalYoutubeChannel: \"\" }") && has(cmsSS, "guestCleared: guestCleared || undefined") && has(edSS, "res.guestCleared"), "untouched drafts and restores must follow the clear");
+  ok("drawer promises the countdown", has(edSS, "the LIVE badge and the player wait for the stream itself") && !has(edSS, "the site is showing live by itself") && has(edSS, "stays on the countdown, and opens the service by itself"), "the console must not promise a live screen the site will not show");
+  ok("apply leads with the shut", has(applySS, "never plays another channel's livestream by itself"), "the office must meet the closed screen first");
+  try {
+    const ebSS = await import("https://esm.sh/esbuild-wasm@0.21.5?bundle");
+    try { await ebSS.default.initialize({ wasmURL: "https://esm.sh/esbuild-wasm@0.21.5/esbuild.wasm" }); } catch {}
+    const grabSS = (src, name) => {
+      const from = src.indexOf("export function " + name + "(");
+      const eol = src.indexOf("\n", from);
+      const body = src.lastIndexOf("{", eol);
+      let depth = 0, end = -1;
+      for (let i = body; i < src.length && end < 0; i++) {
+        const ch = src[i];
+        if (ch === "{") depth++;
+        else if (ch === "}") { depth--; if (depth === 0) end = i + 1; }
+      }
+      return src.slice(from, end).replace("export function", "function");
+    };
+    const tcShut = await ebSS.default.transform(grabSS(liveSS, "nextScreenShut") + "\nmodule.exports = nextScreenShut;", { loader: "ts", format: "cjs" });
+    const modShut = { exports: {} };
+    new Function("module", "exports", tcShut.code)(modShut, modShut.exports);
+    const shutFn = modShut.exports;
+    const MAIN_SS = "https://www.youtube.com/@twocorg/live";
+    const GUEST_SS = "https://www.youtube.com/@guestchan/live";
+    const OTHER_SS = "https://www.youtube.com/watch?v=AAAAAAAAAAA";
+    ok("take-over shuts", JSON.stringify(shutFn(null, GUEST_SS, GUEST_SS, true, MAIN_SS)) === JSON.stringify({ playing: MAIN_SS }));
+    ok("guest end shuts", JSON.stringify(shutFn(null, GUEST_SS, GUEST_SS, false, "", true)) === JSON.stringify({ playing: GUEST_SS }));
+    ok("main end shuts", JSON.stringify(shutFn(null, MAIN_SS, GUEST_SS, false, "", true)) === JSON.stringify({ playing: MAIN_SS }));
+    ok("unknown never shuts", shutFn(null, MAIN_SS, GUEST_SS, false, "") === null);
+    ok("main re-entry plays", shutFn(null, MAIN_SS, GUEST_SS, true, MAIN_SS) === null);
+    ok("guest start plays", shutFn(null, MAIN_SS, GUEST_SS, true, GUEST_SS) === null);
+    ok("no guest, no shut", shutFn(null, MAIN_SS, "", true, MAIN_SS) === null);
+    const heldSS = { playing: MAIN_SS };
+    ok("shut holds while it plays", shutFn(heldSS, MAIN_SS, GUEST_SS, true, MAIN_SS) === heldSS);
+    ok("quiet stays shut", shutFn(heldSS, MAIN_SS, GUEST_SS, false, "") === heldSS);
+    ok("shut survives quiet", shutFn(heldSS, "", GUEST_SS, false, "") === heldSS);
+    ok("same channel restart plays", shutFn(heldSS, "", GUEST_SS, true, MAIN_SS) === null);
+    ok("guest restart re-arms", shutFn(heldSS, MAIN_SS, GUEST_SS, true, GUEST_SS) === null);
+    ok("other new edge re-arms", shutFn(heldSS, MAIN_SS, GUEST_SS, true, OTHER_SS) === null);
+    const setupSS = "var LIVESS = { isLive: false, liveCut: 0, liveCommandAt: 0, liveSince: 0 };\nvar DETSS = { now: false, endedAt: 0 };\nfunction liveNow(){ return DETSS.now; }\nfunction liveEndedAt(){ return DETSS.endedAt; }\n";
+    const tcDisp = await ebSS.default.transform(setupSS + grabSS(storeSS, "streamCut").replace(/LIVE/g, "LIVESS") + "\n" + grabSS(storeSS, "displayLive").replace(/LIVE/g, "LIVESS") + "\nmodule.exports = { displayLive: displayLive, __set: function (l, d) { Object.assign(LIVESS, l); Object.assign(DETSS, d); } };", { loader: "ts", format: "cjs" });
+    const modDisp = { exports: {} };
+    new Function("module", "exports", tcDisp.code)(modDisp, modDisp.exports);
+    const dispFn = modDisp.exports.displayLive;
+    const setSS = modDisp.exports.__set;
+    const TSS = Date.now();
+    setSS({ isLive: false, liveCut: 0, liveCommandAt: 0, liveSince: 0 }, { now: true, endedAt: 0 });
+    ok("detected stream shows", dispFn({ isLive: false, at: new Date(TSS) }) === true);
+    setSS({ isLive: true }, { now: false });
+    ok("office switch shows", dispFn({ isLive: false, at: new Date(TSS) }) === true);
+    setSS({ isLive: false }, {});
+    ok("bare clock stays quiet", dispFn({ isLive: true, at: new Date(TSS) }) === false);
+    ok("quiet stays quiet", dispFn({ isLive: false, at: new Date(TSS) }) === false && dispFn(null) === false && dispFn(undefined) === false);
+    setSS({ isLive: true, liveCut: TSS, liveCommandAt: 0, liveSince: 0 }, { now: false, endedAt: TSS - 1000 });
+    ok("stop holds through the gathering", dispFn({ isLive: true, at: new Date(TSS - 5000) }) === false);
+    setSS({}, { now: true });
+    ok("detected stream beats a stop", dispFn({ isLive: true, at: new Date(TSS - 5000) }) === true);
+  } catch (e) {
+    ok("shut-and-display suite", false, String((e && e.message) || e).slice(0, 200));
+  }
+  /* TT. sound on, ended screen on the main thumbnail (note 387): no embed
+     address can carry silence, the player has no silent path, the Watch call
+     passes the off reading so any end closes at once, and the ended screen
+     stands on the main-owned still chain. */
+  const embTT = text["src/lib/embed.ts"];
+  const blocksTT = text["src/components/blocks.tsx"];
+  const watchTT = text["src/pages/WatchLive.tsx"];
+  const applyTT = text["APPLY_UPDATE.txt"];
+  ok("embeds never silence", embTT.indexOf("mute") === -1, "no live address may carry a mute");
+  ok("player drops the silent path", !has(blocksTT, "userOpened") && has(blocksTT, ": sourceKey;"), "every opening must play with its audio");
+  ok("watch passes the off reading", has(watchTT, "screenAir.state === \"off\""), "guest, main or office stop — any end must close");
+  ok("ended screen stands on the main still", has(watchTT, "airForTarget.endedAt && airForTarget.videoId ? youtubeThumb(airForTarget.videoId)") && has(watchTT, "designatedFallback().items[0]?.thumb"), "just-ended frame, else newest recent, else the last previous service");
+  ok("apply leads with sound and the close", has(applyTT, "EVER MUTED") && has(applyTT, "closes immediately"), "the office must meet the sound and the closed screen first");
+  /* UU. transport buttons by the channels, publish only sends a clicked
+     command (note 389): the stopped card is gone, play/pause/stop sit under
+     the channel fields, the guest helper is gone, and the on-air state
+     travels only on a clicked command. */
+  const edUU = text["src/components/editor.tsx"];
+  const adminUU = text["src/pages/Admin.tsx"];
+  const cmsUU = text["src/lib/cms.ts"];
+  const schemaUU = text["src/lib/cmsSchema.ts"];
+  const autoUU = text["src/lib/autostop.ts"];
+  const applyUU = text["APPLY_UPDATE.txt"];
+  ok("stopped card gone", !has(edUU, "LiveControlPanel") && !has(edUU, "Continue the livestream") && !has(edUU, "Start a new livestream") && !has(edUU, "The stream has been stopped"), "no stopped state may remain in the drawer");
+  ok("transport sits by the channels", has(adminUU, "<LiveTransportButtons />") && has(edUU, "export function LiveTransportButtons()") && adminUU.indexOf('"externalYoutubeChannel"') !== -1 && adminUU.indexOf('"externalYoutubeChannel"') < adminUU.indexOf("<LiveTransportButtons />"), "play, pause and stop belong beside the addresses they command");
+  ok("transport arms every click", has(edUU, "liveCommandAt: Date.now()") && has(edUU, "Pause the livestream") && has(edUU, "Play the livestream") && has(edUU, 'icon="stop"'), "play, pause and stop must all stamp the command");
+  ok("guest helper gone", !has(schemaUU, "Leave empty otherwise") && has(schemaUU, 'path: "externalYoutubeChannel"'), "the field stays, the helper goes");
+  ok("publish gates the command", has(cmsUU, "export function gateLiveCommand(") && has(cmsUU, "gateLiveSnapshot(fold.snapshot || applied)") && has(cmsUU, 'if (sectionId === "live") value = gateLiveCommand(value, publishedSection("live"))'), "full and per-section publishes must both hold unclicked state back");
+  ok("natural end needs no publish", has(autoUU, "no need to publish") && !has(autoUU, "liveCommandAt: Date.now()"), "a natural end must stamp nothing and ask for no publish");
+  ok("apply leads with the gate", has(applyUU, "PUBLISH ONLY SENDS A CLICKED COMMAND"), "the office must meet the click-to-send rule first");
+  try {
+    const ebUU = await import("https://esm.sh/esbuild-wasm@0.21.5?bundle");
+    try { await ebUU.default.initialize({ wasmURL: "https://esm.sh/esbuild-wasm@0.21.5/esbuild.wasm" }); } catch {}
+    const grabUU = (src, name) => {
+      const from = src.indexOf("export function " + name + "(");
+      const eol = src.indexOf("\n", from);
+      const body = src.lastIndexOf("{", eol);
+      let depth = 0, end = -1;
+      for (let i = body; i < src.length && end < 0; i++) {
+        const ch = src[i];
+        if (ch === "{") depth++;
+        else if (ch === "}") { depth--; if (depth === 0) end = i + 1; }
+      }
+      return src.slice(from, end).replace("export function", "function");
+    };
+    const tcGate = await ebUU.default.transform(grabUU(cmsUU, "gateLiveCommand") + "\nmodule.exports = gateLiveCommand;", { loader: "ts", format: "cjs" });
+    const modGate = { exports: {} };
+    new Function("module", "exports", tcGate.code)(modGate, modGate.exports);
+    const gate = modGate.exports;
+    const T1 = 1000, T2 = 2000;
+    ok("clicked command travels", gate({ isLive: true, liveSince: T2, liveCut: 0, liveCommandAt: T2, liveEndedBy: "office", youtubeChannel: "@twocorg" }, { isLive: false, liveCommandAt: T1 }).isLive === true, "a stamped click must send the on-air state");
+    ok("unclicked publish keeps published", gate({ isLive: true, liveSince: T2, liveCut: 0, liveCommandAt: T1, liveEndedBy: "office", youtubeChannel: "@twocorg" }, { isLive: false, liveSince: 0, liveCut: 0, liveCommandAt: T1, liveEndedBy: "" }).isLive === false, "no click, no send");
+    ok("natural end travels on no publish", gate({ isLive: false, liveCut: 1500, liveEndedBy: "channel", liveCommandAt: T1 }, { isLive: true, liveSince: 900, liveCut: 0, liveCommandAt: T1, liveEndedBy: "office" }).isLive === true, "an unstamped natural end stays out of every publish");
+    ok("unstamped write still held", gate({ isLive: false, liveCut: 1500, liveEndedBy: "channel", liveCommandAt: T1 }, { isLive: true, liveSince: 900, liveCut: 0, liveCommandAt: T1, liveEndedBy: "office" }).isLive === true, "without a stamp, the gate still holds the on-air state");
+    ok("other fields still travel", gate({ isLive: true, liveCommandAt: T1, youtubeChannel: "@twocorg" }, { isLive: false, liveCommandAt: T1 }).youtubeChannel === "@twocorg", "the gate holds only the on-air fields");
+    ok("non-object passes through", gate(null, {}) === null && gate("x", {}) === "x", "nothing to gate, nothing touched");
+  } catch (e) {
+    ok("transport-gate suite", false, String((e && e.message) || e).slice(0, 200));
+  }
+  /* VV. one play/pause button plus stop, the buttons never gate a live end,
+     the ended screen shows the main previous-service thumbnails (note 391):
+     pause holds (play resumes the same session), stop ends (next play starts
+     fresh), a natural end stamps its own command, and the ended screen carries
+     up to six main-owned previous-service cards at once. */
+  const edVV = text["src/components/editor.tsx"];
+  const autoVV = text["src/lib/autostop.ts"];
+  const watchVV = text["src/pages/WatchLive.tsx"];
+  const cssVV = text["src/styles/pages.css"];
+  const applyVV = text["APPLY_UPDATE.txt"];
+  ok("play and pause share one button", has(edVV, "{onNow ? (") && has(edVV, "Pause the livestream") && has(edVV, "Play the livestream") && has(edVV, 'icon="stop"'), "a single toggle plus the separate stop");
+  ok("pause holds, stop ends", has(edVV, "const heldSession = since > 0;") && has(edVV, "liveSince: 0, liveCut: Date.now()") && has(edVV, "Paused — play picks the same session back up."), "a hold resumes, an end starts fresh");
+  ok("natural end stamps nothing", has(autoVV, "no need to publish") && !has(autoVV, "liveCommandAt: Date.now()"), "the buttons never gate a live end");
+  ok("ended screen carries the thumbnails", has(watchVV, "const endedThumbs = (recentItems.length") && has(watchVV, "live-ended__thumbs") && has(watchVV, "<RecentServiceCard key={it.videoId} item={it} />") && has(cssVV, ".live-ended__thumbs"), "the main previous services show the moment a live ends");
+  ok("apply leads with the buttons and the end", has(applyVV, "THE BUTTONS NEVER GATE A LIVE END") && has(applyVV, "PLAY/PAUSE IS ONE"), "the office must meet the two buttons and the self-armed end first");
+  /* WW. the end needs no publish; play starts, pause holds, stop ends, each
+     with a publish (note 393): autostop stamps nothing and the drawer says
+     so, the gate holds every unstamped write out, and the checklist leads
+     with the rule. */
+  const edWW = text["src/components/editor.tsx"];
+  const cmsWW = text["src/lib/cms.ts"];
+  const applyWW = text["APPLY_UPDATE.txt"];
+  ok("drawer teaches the rule", has(edWW, "there is nothing to publish") && has(edWW, "pause holds the session and play picks it up again"), "play/pause/stop with publish, never a publish for an end");
+  ok("gate holds the unstamped end", has(cmsWW, "a natural end stamps nothing and needs no publish"), "the next publish must move only what the office changed");
+  ok("apply leads with the rule", has(applyWW, "A NATURAL END NEEDS NO PUBLISH") && has(applyWW, "pause to hold it, then publish") && has(applyWW, "stop to end one"), "the office must meet the rule first");
   const notes = Number((text["src/lib/hooks.ts"].match(/BUILD_NOTES = (\d+)/) || [])[1]) || 0;
   const apply = text["APPLY_UPDATE.txt"];
   ok("update number consistent", notes > 0 && has(apply, `APPLY THIS UPDATE (${notes})`), "hooks=" + notes);

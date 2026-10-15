@@ -431,9 +431,10 @@
   Adding an editable line is just `ct("page.key")` in the component — it turns up in the drawer's
   *Page text* group by itself; adding a section is one entry in `cmsSchema.ts` plus (if it belongs
   to a page) an id in `pageMap.ts`.
-- **Anything that shows "we are on air" must ask `onAir()`** (`src/lib/store.ts`: the office's
+- **Anything that shows "we are on air" must ask `displayLive()`** (`src/lib/store.ts`: the office's
   on-air state — written by the *Live stream* section's **Start** / **Continue** / **Stop**
-  buttons, `LIVE.isLive` — or the service clock). The switch used to be read in
+  buttons, `LIVE.isLive` — or the stream itself; never the bare service clock, SPEC note 385).
+  The short cadence still asks `onAir()` (which also hears the clock). The switch used to be read in
   `WatchLive.tsx` alone, so flipping it lit the panel and left the header pill, the home hero and the
   next-gathering card counting down to the next service — the office's own words for that were *"my
   change gives no effect"* (SPEC note 83). Only the clock can name the gathering or its end time, so

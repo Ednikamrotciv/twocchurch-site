@@ -4796,6 +4796,20 @@
   line-height: 1.65;
 }
 
+/* The previous-service thumbnails under the ended screen (note 391): the
+   main channel's last services, already on the screen the moment a live ends. */
+.live-ended__thumbs {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.8rem;
+  margin-top: 0.9rem;
+}
+@media (max-width: 720px) {
+  .live-ended__thumbs {
+    grid-template-columns: 1fr;
+  }
+}
+
 /* The outline button has to stay readable over whatever the still happens to
    be showing, so it carries its own dark scrim. */
 .live-ended .btn--ghost,

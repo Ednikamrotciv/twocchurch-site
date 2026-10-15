@@ -38,6 +38,10 @@ function stopForStream(live: any, air: LiveStatus): boolean {
     liveCut: endedAt,
     liveEndedBy: "channel",
   });
+  /* No stamp, by design (note 393): a natural end needs no publish — the
+     screen already fell back to the previous services by itself — so the
+     command stays unstamped and the next Publish leaves the on-air state
+     alone, whatever else it carries. */
   /* File the finished service into Recent services now — unless it was the
      temporary guest (note 379): a guest ending files nothing, and the screen
      is already back on the main channel. */
@@ -47,7 +51,7 @@ function stopForStream(live: any, air: LiveStatus): boolean {
 
   const where = air.platform === "facebook" ? "Facebook" : "YouTube";
   fireToast(
-    `The stream ended on ${where}, so the site went off air by itself. The finished service is in Recent services — publish to put it on the website.`,
+    `The stream ended on ${where} by itself — no need to publish, the screen is back on the previous services. The finished service is in Recent services.`,
     "info"
   );
   return true;
