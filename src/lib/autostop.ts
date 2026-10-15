@@ -17,11 +17,12 @@ function draftLive(): any {
 /** Empty a finished guest slot in the draft (note 401): unstamped, like any
     hand edit — the next Publish carries it, while the screen already follows
     the check back to the main channel whether published or not. Only ever
-    clears, never fills, and toasts only when something actually moved. */
+    clears, never fills, and toasts only when something actually moved. The
+    guest override switch goes with the slot (note 403). */
 function clearIdleGuest(): boolean {
   const latest = cms.getDraft().live || {};
-  if (!String((latest as any).externalYoutubeChannel || "").trim()) return false;
-  cms.setSectionValue("live", { ...latest, externalYoutubeChannel: "" });
+  if (!String((latest as any).externalYoutubeChannel || "").trim() && !(latest as any).guestIsLive) return false;
+  cms.setSectionValue("live", { ...latest, externalYoutubeChannel: "", guestIsLive: false });
   fireToast("The guest channel is empty again — Publish sends it.", "info");
   return true;
 }

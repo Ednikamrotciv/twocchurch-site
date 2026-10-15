@@ -478,6 +478,10 @@ export function onAir(info?: NextServiceInfo | null): boolean {
     the recents burst, autostop) stay on `onAir` above. */
 export function displayLive(info?: NextServiceInfo | null): boolean {
   if (liveNow()) return true;
+  /* A guest the office forced on (note 403): its own switch lights the
+     badges while the event runs — set only by the guest row's buttons,
+     cleared with the slot, never the bare clock. */
+  if ((LIVE as any).guestIsLive) return true;
   if (!LIVE.isLive) return false;
   const cut = streamCut();
   if (cut && cut >= (info?.isLive ? info.at.getTime() : 0)) return false;

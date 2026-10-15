@@ -107,6 +107,15 @@ export function WatchLive() {
      379) — everything else about it already says the guest address. */
   const playableId = detectedId && idVerdict !== false && (isDesignatedChannel(airForTarget.channelId, designatedId) || (guestLive && isGuestTargetUrl(screenAir.target, guestUrl))) ? detectedId : "";
   const watchable = !!playableId || !!detectedChannel || fbLive || (!hasChannel && !!parseYoutubeId(LIVE.youtubeId));
+  /* Play means play (note 403): the office pressed Play for a slot and
+     published it, yet the read cannot confirm a broadcast (bot wall) — so
+     the screen opens the commanded channel itself instead of sitting on the
+     waiting clock. Only while the read says unknown (a verified off stays on
+     the clock), only the commanded slot, only with a known channel id — and
+     a detected broadcast still wins first. */
+  const overrideMain = !!LIVE.isLive && hasChannel && !guestLive && screenAir.state !== "live" && airForTarget.state === "unknown" && !shutNow;
+  const overrideGuest = !!(LIVE as any).guestIsLive && !!guestUrl && !guestLive && screenAir.state !== "live" && guestAir.state === "unknown" && !shutNow;
+  const overrideId = overrideMain ? designatedChannelIdForTarget(targetUrl) : overrideGuest ? designatedChannelIdForTarget(guestUrl) : "";
   /* Anywhere for the check to look — channel, stream link or Facebook page. */
   const configured = !!liveTarget() || !!facebookTarget();
 
@@ -161,11 +170,11 @@ export function WatchLive() {
      gave us was the channel to watch) */
   const available = useMemo(() => {
     const list: VideoPlatform[] = [];
-    if (detectedId || detectedChannel || (!hasChannel && parseYoutubeId(LIVE.youtubeId))) list.push("youtube");
+    if (detectedId || detectedChannel || overrideId || (!hasChannel && parseYoutubeId(LIVE.youtubeId))) list.push("youtube");
     if (isFacebookVideoUrl(LIVE.facebookUrl)) list.push("facebook");
     return list;
   }, [detectedId, detectedChannel, hasChannel, LIVE.youtubeId, LIVE.facebookUrl, fbLive]);
-  const preferred: VideoPlatform = fbLive ? "facebook" : detectedId || detectedChannel ? "youtube" : LIVE.provider === "facebook" ? "facebook" : "youtube";
+  const preferred: VideoPlatform = fbLive ? "facebook" : detectedId || detectedChannel || overrideId ? "youtube" : LIVE.provider === "facebook" ? "facebook" : "youtube";
   const [chosen, setChosen] = useState<VideoPlatform>(preferred);
   /* The service notepad behind the *Service notes* arrow (note 223). */
   const [notesOpen, setNotesOpen] = useState(false);
@@ -175,7 +184,7 @@ export function WatchLive() {
       ? { platform: "facebook", facebookUrl: LIVE.facebookUrl }
       : platform === "facebook"
       ? { platform: "facebook", facebookUrl: LIVE.facebookUrl }
-      : { platform: "youtube", youtubeId: playableId || (!hasChannel ? LIVE.youtubeId : ""), youtubeChannelId: detectedChannel || undefined };
+      : { platform: "youtube", youtubeId: playableId || (!hasChannel ? LIVE.youtubeId : ""), youtubeChannelId: detectedChannel || (!streaming && overrideId) || undefined };
   const youtubeLink =
     watchUrl({ platform: "youtube", youtubeId: playableId }) ||
     (guestLive && guestUrl ? guestUrl : hasChannel ? targetUrl : watchUrl({ platform: "youtube", youtubeId: LIVE.youtubeId }) || targetUrl);
@@ -311,6 +320,19 @@ export function WatchLive() {
                      live from a channel is ever muted, and the audio opens by
                      itself the moment the broadcast starts. */
                   autoPlay={streaming && watchable}
+                />
+              ) : overrideId ? (
+                <VideoPlayer
+                  source={{ platform: "youtube", youtubeId: "", youtubeChannelId: overrideId }}
+                  title={liveName || ct("auto.live.bc108377bb47f9e6")}
+                  compact
+                  live
+                  /* The office commanded this slot (note 403): Play is
+                     published, the read is walled — so the commanded channel
+                     opens by itself instead of the waiting clock, WITH SOUND
+                     like every live. A verified off still waits; a detected
+                     broadcast still wins. */
+                  autoPlay
                 />
               ) : !onAirNow ? (
                 /* Nobody is broadcasting: the screen says so, and promises what

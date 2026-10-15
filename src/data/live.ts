@@ -85,6 +85,11 @@ export const LIVE = {
   liveEndedBy: "office" as "office" | "channel",
   /** Last button press at (ms); endings before it never override the office. */
   liveCommandAt: 0,
+  /** The guest slot's own on-air switch, set by the guest row's buttons only
+      — never by the main row (note 403). */
+  guestIsLive: false,
+  /** Last guest-row press at (ms); the guest state travels only on it. */
+  guestCommandAt: 0,
   /** Taken-off service ids; the channel keeps them, the site hides them. */
   hiddenReplays: [] as string[],
   /** The cards under "everywhere you already are". */

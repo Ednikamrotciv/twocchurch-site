@@ -13,6 +13,7 @@ import {
   Dashboard,
   FieldControl,
   LiveTransportButtons,
+  GuestTransportButtons,
   LiveEndingPanel,
   RecentServicesPanel,
   LoginGate,
@@ -1228,16 +1229,6 @@ function SectionBlock({
   /* Drawn at the section foot; Sermons-side, not stream-side (see LiveEndingPanel). */
   const pastField = def.id === "live" ? def.fields.find((f) => f.path === "pastLimit") : undefined;
   const formFields = pastField ? def.fields.filter((f) => f !== pastField) : def.fields;
-  /* The transport buttons sit right under the channel fields (note 389): the
-     guest field first, else the main channel field — so play, pause and stop
-     are worked beside the addresses they command. */
-  const liveSplitAt =
-    def.id === "live"
-      ? Math.max(
-          formFields.findIndex((f) => f.path === "externalYoutubeChannel"),
-          formFields.findIndex((f) => f.path === "youtubeChannel")
-        )
-      : -1;
 
   const field = (f: SectionDef["fields"][number], get: () => any, set: (v: any) => void) => (
     <FieldControl
@@ -1270,17 +1261,19 @@ function SectionBlock({
 
           {def.kind === "object" ? (
             <div className="admin__form">
-              {formFields.slice(0, liveSplitAt + 1).map((f) =>
-                field(f, () => getPath(value, f.path), (v) => {
-                  patch((next) => setPath(next, f.path, v));
-                })
-              )}
-              {def.id === "live" && <LiveTransportButtons />}
-              {formFields.slice(liveSplitAt + 1).map((f) =>
-                field(f, () => getPath(value, f.path), (v) => {
-                  patch((next) => setPath(next, f.path, v));
-                })
-              )}
+              {/* Each slot commands itself (note 403): the main row sits
+                  under the "youtubeChannel" field, the guest row under the
+                  "externalYoutubeChannel" field — so one row's buttons never
+                  work the other slot. */}
+              {formFields.map((f) => (
+                <React.Fragment key={f.path}>
+                  {field(f, () => getPath(value, f.path), (v) => {
+                    patch((next) => setPath(next, f.path, v));
+                  })}
+                  {def.id === "live" && f.path === "youtubeChannel" && <LiveTransportButtons />}
+                  {def.id === "live" && f.path === "externalYoutubeChannel" && <GuestTransportButtons />}
+                </React.Fragment>
+              ))}
             </div>
           ) : (
             <ListBlock def={def} list={Array.isArray(value) ? value : []} draft={draft} patch={patch} focusKey={focusEntry} />

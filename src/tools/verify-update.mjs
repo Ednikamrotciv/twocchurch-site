@@ -1149,8 +1149,8 @@ export async function runAll(fs) {
   const rsGG = text["src/lib/recentstreams.ts"];
   const lsGG = text["src/lib/livestatus.ts"];
   const applyGG = text["APPLY_UPDATE.txt"];
-  ok("override stamp per-update", has(srvGG, "var OVERRIDE_CLEAN = 0;") && has(srvGG, "overrideClean: OVERRIDE_CLEAN") && has(srvGG, "OVERRIDE_NO_401 = 401") && has(srvGG, "OVERRIDE_CLEAN !== OVERRIDE_NO_401"), "the clear must re-run on every new update, not once ever");
-  ok("override clears everything old", has(srvGG, "live401.youtubeChannel = \"@twocorg\"") && has(srvGG, "live401.youtubeId = \"\"") && has(srvGG, "live401.hiddenReplays = []") && has(srvGG, "live401.externalYoutubeChannel = \"\"") && has(srvGG, "WELCOME_SLIDE_359") && has(srvGG, "String(slides401[0].id || \"\") === \"welcome-home\""), "channel, stray link, guest, take-offs and slides must all go");
+  ok("override stamp per-update", has(srvGG, "var OVERRIDE_CLEAN = 0;") && has(srvGG, "overrideClean: OVERRIDE_CLEAN") && has(srvGG, "OVERRIDE_NO_403 = 403") && has(srvGG, "OVERRIDE_CLEAN !== OVERRIDE_NO_403"), "the clear must re-run on every new update, not once ever");
+  ok("override clears everything old", has(srvGG, "live403.youtubeChannel = \"@twocorg\"") && has(srvGG, "live403.youtubeId = \"\"") && has(srvGG, "live403.hiddenReplays = []") && has(srvGG, "live403.externalYoutubeChannel = \"\"") && has(srvGG, "live403.guestIsLive = false") && has(srvGG, "WELCOME_SLIDE_359") && has(srvGG, "String(slides403[0].id || \"\") === \"welcome-home\""), "channel, stray link, guest, guest switch, take-offs and slides must all go");
   ok("override never blesses", has(srvGG, "no rev bump") && has(srvGG, "later office work is never touched"), "the clear must not publish");
   ok("draft stray link heals", has(cmsGG, "healDraftStreamLink()") && has(cmsGG, "(draft as any).live = { ...dLive, youtubeId: \"\" }"), "an untouched draft must follow the words");
   ok("browser caches drop on new update", has(rsGG, "export function clearRecentCaches()") && has(cmsGG, "if (freshEyes) clearRecentCaches();"), "old cards must not ride into the new update");
@@ -1663,7 +1663,7 @@ export async function runAll(fs) {
   const seedXX = text["seed.json"];
   const edXX = text["src/components/editor.tsx"];
   const applyXX = text["APPLY_UPDATE.txt"];
-  ok("override is this update", has(srvXX, "OVERRIDE_NO_401 = 401") && has(srvXX, 'live401.externalYoutubeChannel = ""'), "first boot must re-run the clear, guest included");
+  ok("override is this update", has(srvXX, "OVERRIDE_NO_403 = 403") && has(srvXX, 'live403.externalYoutubeChannel = ""'), "first boot must re-run the clear, guest included");
   ok("guest ships empty", has(seedXX, '"externalYoutubeChannel":""'), "no copy may open with a guest set");
   ok("buttons still arm", has(edXX, "liveCommandAt: Date.now()") && has(edXX, "Pause the livestream") && has(edXX, "Play the livestream") && has(edXX, 'icon="stop"'), "removing the paragraph must not touch the transport");
   ok("promise text gone", !has(edXX, "Play and pause are one button") && !has(edXX, "there is nothing to publish"), "the drawer keeps only the unconfigured warning");
@@ -1693,21 +1693,68 @@ export async function runAll(fs) {
   ok("play is the manual override", has(edZZ, "Play is only the manual override") && has(edZZ, "liveCommandAt: Date.now()"), "the buttons keep working, the main needs no press");
   ok("apply leads with the self-start", has(applyZZ, "THE MAIN CHANNEL STARTS BY ITSELF"), "the office must meet the no-press rule first");
   /* AAA. each field has its buttons, the guest empties itself, Delete answers
-     first tap (note 401): the transport is two compact per-field rows, every
-     stop and every finished guest empties the guest slot, and the unsaved
-     list's Delete answers on the first tap where it cannot publish. */
+     first tap (note 401), labelless since note 403: the transport rows sit
+     under their fields with no who-labels and no Clear button, every stop
+     and every finished guest empties the guest slot, and the unsaved list's
+     Delete answers on the first tap where it cannot publish. */
   const edAAA = text["src/components/editor.tsx"];
   const autoAAA = text["src/lib/autostop.ts"];
   const cmsAAA = text["src/lib/cms.ts"];
   const adminAAA = text["src/pages/Admin.tsx"];
   const cssAAA = text["src/styles/admin.css"];
   const applyAAA = text["APPLY_UPDATE.txt"];
-  ok("each field has its row", has(edAAA, "transport-row") && has(edAAA, "Main channel") && has(edAAA, "Guest channel") && has(edAAA, 'size="sm"'), "small buttons must sit in each field area");
-  ok("guest row guards and clears", has(edAAA, "Type the guest channel first") && has(edAAA, "Clear the guest channel") && has(edAAA, 'externalYoutubeChannel: ""') && has(edAAA, "guestWasSet"), "an empty guest names its field, every stop empties the slot");
+  ok("each field has its row", has(edAAA, "transport-row") && has(edAAA, "export function GuestTransportButtons()") && has(adminAAA, 'f.path === "youtubeChannel" && <LiveTransportButtons />') && has(adminAAA, 'f.path === "externalYoutubeChannel" && <GuestTransportButtons />'), "small buttons must sit under each field");
+  ok("no labels, no clear button", !has(edAAA, "transport-row__who") && !has(edAAA, ">Main channel<") && !has(edAAA, ">Guest channel<") && !has(edAAA, "Clear the guest channel"), "the rows must not name themselves or carry a clear");
+  ok("guest row guards and clears", has(edAAA, "Type the guest channel first") && has(edAAA, 'externalYoutubeChannel: ""') && has(edAAA, "hadGuest"), "an empty guest names its field, every guest stop empties the slot");
   ok("finished guest self-clears", has(autoAAA, "clearIdleGuest") && has(autoAAA, "The guest channel is empty again") && has(autoAAA, "if (guestEnd) clearIdleGuest()") && has(autoAAA, "if (airedGuest) clearIdleGuest()"), "a guest ending empties its slot with no publish");
   ok("delete answers first tap", has(cmsAAA, "export function sectionHasPublishableRemovals(") && has(adminAAA, "sectionHasPublishableRemovals(edit.sectionId)") && has(adminAAA, "onClick={() => erase(edit)}"), "Delete must not look dead where it only drops the draft");
   ok("rows are styled compact", has(cssAAA, ".transport-row"), "the two rows must fit the field area");
   ok("apply leads with the rows", has(applyAAA, "EACH FIELD HAS ITS BUTTONS"), "the office must meet the per-field rows first");
+  /* BBB. each field commands its own slot, Play opens the channel (note
+     403): the main row never touches the guest slot and the guest row never
+     touches the main switch, the guest keys gate on their own stamp, the
+     badges hear the guest switch, and a published Play opens the commanded
+     channel itself while the read is walled. */
+  const edBBB = text["src/components/editor.tsx"];
+  const cmsBBB = text["src/lib/cms.ts"];
+  const storeBBB = text["src/lib/store.ts"];
+  const watchBBB = text["src/pages/WatchLive.tsx"];
+  const liveBBB = text["src/data/live.ts"];
+  const seedBBB = text["seed.json"];
+  const applyBBB = text["APPLY_UPDATE.txt"];
+  ok("slots never cross", has(edBBB, "export function GuestTransportButtons()") && has(edBBB, "guestCommandAt: Date.now()") && !has(edBBB, "guestWasSet") && has(edBBB, "Main only: the guest slot is never touched here"), "one row must not arm or clear the other");
+  ok("guest keys gated on their stamp", has(cmsBBB, "out.guestIsLive") && has(cmsBBB, "guestCommandAt"), "only a guest click may send the guest state");
+  ok("badges hear the guest switch", has(storeBBB, "(LIVE as any).guestIsLive"), "a forced guest must light LIVE too");
+  ok("play opens the commanded channel", has(watchBBB, "const overrideId = ") && has(watchBBB, "(!streaming && overrideId)") && has(watchBBB, ") : overrideId ? ("), "a published Play must open the channel, not the clock");
+  ok("follow is unknown-only", has(watchBBB, 'airForTarget.state === "unknown"') && has(watchBBB, 'guestAir.state === "unknown"'), "a verified off must stay on the clock");
+  ok("guest keys ship false", has(liveBBB, "guestIsLive: false") && has(seedBBB, '"guestIsLive":false'), "no copy may open with a guest forced");
+  ok("apply leads own-slot", has(applyBBB, "EACH FIELD COMMANDS ITS OWN SLOT"), "the office must meet the independent rows first");
+  try {
+    const ebBBB = await import("https://esm.sh/esbuild-wasm@0.21.5?bundle");
+    try { await ebBBB.default.initialize({ wasmURL: "https://esm.sh/esbuild-wasm@0.21.5/esbuild.wasm" }); } catch {}
+    const grabBBB = (src, name) => {
+      const from = src.indexOf("export function " + name + "(");
+      const eol = src.indexOf("\n", from);
+      const body = src.lastIndexOf("{", eol);
+      let depth = 0, end = -1;
+      for (let i = body; i < src.length && end < 0; i++) {
+        const ch = src[i];
+        if (ch === "{") depth++;
+        else if (ch === "}") { depth--; if (depth === 0) end = i + 1; }
+      }
+      return src.slice(from, end).replace("export function", "function");
+    };
+    const tcGateBBB = await ebBBB.default.transform(grabBBB(cmsBBB, "gateLiveCommand") + "\nmodule.exports = gateLiveCommand;", { loader: "ts", format: "cjs" });
+    const modGateBBB = { exports: {} };
+    new Function("module", "exports", tcGateBBB.code)(modGateBBB, modGateBBB.exports);
+    const gateBBB = modGateBBB.exports;
+    const G1 = 1000, G2 = 2000;
+    ok("guest click travels", gateBBB({ guestIsLive: true, guestCommandAt: G2 }, { guestIsLive: false, guestCommandAt: G1 }).guestIsLive === true, "a stamped guest click must send the guest state");
+    ok("unclicked guest stays held", gateBBB({ guestIsLive: true, guestCommandAt: G1 }, { guestIsLive: false, guestCommandAt: G1 }).guestIsLive === false, "no guest click, no send");
+    ok("main click arms main only", gateBBB({ isLive: true, liveCommandAt: G2, guestIsLive: true, guestCommandAt: G1 }, { isLive: false, liveCommandAt: G1, guestIsLive: false, guestCommandAt: G1 }).guestIsLive === false, "a main click must not arm the guest");
+  } catch (e) {
+    ok("guest-gate suite", false, String((e && e.message) || e).slice(0, 200));
+  }
   const notes = Number((text["src/lib/hooks.ts"].match(/BUILD_NOTES = (\d+)/) || [])[1]) || 0;
   const apply = text["APPLY_UPDATE.txt"];
   ok("update number consistent", notes > 0 && has(apply, `APPLY THIS UPDATE (${notes})`), "hooks=" + notes);

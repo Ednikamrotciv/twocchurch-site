@@ -998,19 +998,28 @@ export function dropAddedAndRevertedEdits(sectionId: string): {
 /** Publish sends the livestream's on-air state only when play, pause or stop
     stamped a newer command than what is published (notes 389, 391, 393) — pure
     for the verifier. Every transport click stamps `liveCommandAt` with the
-    click time; the stream's own ending and hand edits never stamp it
-    (note 393: a natural end needs no publish — the screen follows the check
-    back to the previous services by itself), so an unclicked Publish keeps
-    the published on-air state whatever the draft says, while every other
-    field of the section still travels. */
+    click time (the guest row stamps its own `guestCommandAt` instead, note
+    403 — one row never arms the other); the stream's own ending and hand
+    edits never stamp either one (note 393: a natural end needs no publish —
+    the screen follows the check back to the previous services by itself), so
+    an unclicked Publish keeps the published on-air state whatever the draft
+    says, while every other field of the section still travels. */
 export function gateLiveCommand(live: any, publishedLive: any): any {
   if (!live || typeof live !== "object") return live;
   const at = Number((live as any).liveCommandAt) || 0;
   const pub = Number((publishedLive as any)?.liveCommandAt) || 0;
-  if (at > pub) return live;
+  const gat = Number((live as any).guestCommandAt) || 0;
+  const gpub = Number((publishedLive as any)?.guestCommandAt) || 0;
+  if (at > pub && gat > gpub) return live;
   const out = { ...(live as any) };
   if (publishedLive && typeof publishedLive === "object") {
-    for (const k of ["isLive", "liveSince", "liveCut", "liveCommandAt", "liveEndedBy"]) out[k] = (publishedLive as any)[k];
+    if (!(at > pub)) {
+      for (const k of ["isLive", "liveSince", "liveCut", "liveCommandAt", "liveEndedBy"]) out[k] = (publishedLive as any)[k];
+    }
+    if (!(gat > gpub)) {
+      out.guestIsLive = (publishedLive as any).guestIsLive;
+      out.guestCommandAt = (publishedLive as any).guestCommandAt;
+    }
   }
   return out;
 }
@@ -2859,8 +2868,20 @@ function healDraftGuest() {
     if (pubGuest) return;
     const dLive = (draft as any).live;
     if (!dLive || typeof dLive !== "object" || Array.isArray(dLive)) return;
-    if (!String(dLive.externalYoutubeChannel || "")) return;
-    (draft as any).live = { ...dLive, externalYoutubeChannel: "" };
+    /* A draft guest with nowhere published follows the published words home
+       (cleared stays cleared); a leftover guest override with no guest
+       anywhere is off too (note 403). */
+    const dGuest = String(dLive.externalYoutubeChannel || "");
+    const dOn = !!(dLive as any).guestIsLive;
+    if (!dGuest && !dOn) return;
+    if (dGuest) {
+      (draft as any).live = { ...dLive, externalYoutubeChannel: "" };
+    }
+    /* A leftover guest override with no guest anywhere is off too (note 403). */
+    if (dOn) {
+      const cur = (draft as any).live;
+      if (!String((cur as any).externalYoutubeChannel || "")) (draft as any).live = { ...cur, guestIsLive: false };
+    }
     persistDraft();
   } catch {
     /* never break the drawer */
