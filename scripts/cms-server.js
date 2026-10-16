@@ -822,30 +822,30 @@ try {
    any slides but the lone welcome card replanted — and since note 385 the
    temporary guest channel too, so every fix arrives fresh, new and clean. No
    stamp, no rev bump, no publish — later office work is never touched. */
-var OVERRIDE_NO_421 = 421;
+var OVERRIDE_NO_423 = 423;
 try {
-  if (OVERRIDE_CLEAN !== OVERRIDE_NO_421) {
-    OVERRIDE_CLEAN = OVERRIDE_NO_421;
+  if (OVERRIDE_CLEAN !== OVERRIDE_NO_423) {
+    OVERRIDE_CLEAN = OVERRIDE_NO_423;
     try {
-      var live421 = JSON.parse(SECTIONS.live || "null");
-      if (live421 && typeof live421 === "object" && !Array.isArray(live421)) {
-        var ch421 = String(live421.youtubeChannel || "").trim().replace(/@@+/g, "@").replace(/\s+/g, "");
-        var touched421 = false;
-        if (ch421 && ch421.toLowerCase() !== "@twocorg") { live421.youtubeChannel = "@twocorg"; touched421 = true; }
-        if (typeof live421.youtubeId === "string" && live421.youtubeId) { live421.youtubeId = ""; touched421 = true; }
-        if (typeof live421.externalYoutubeChannel === "string" && live421.externalYoutubeChannel) { live421.externalYoutubeChannel = ""; touched421 = true; }
-        if (live421.guestIsLive) { live421.guestIsLive = false; touched421 = true; }
-        if (Array.isArray(live421.hiddenReplays) && live421.hiddenReplays.length) { live421.hiddenReplays = []; touched421 = true; }
-        if (touched421) setSection("live", JSON.stringify(live421));
+      var live423 = JSON.parse(SECTIONS.live || "null");
+      if (live423 && typeof live423 === "object" && !Array.isArray(live423)) {
+        var ch423 = String(live423.youtubeChannel || "").trim().replace(/@@+/g, "@").replace(/\s+/g, "");
+        var touched423 = false;
+        if (ch423 && ch423.toLowerCase() !== "@twocorg") { live423.youtubeChannel = "@twocorg"; touched423 = true; }
+        if (typeof live423.youtubeId === "string" && live423.youtubeId) { live423.youtubeId = ""; touched423 = true; }
+        if (typeof live423.externalYoutubeChannel === "string" && live423.externalYoutubeChannel) { live423.externalYoutubeChannel = ""; touched423 = true; }
+        if (live423.guestIsLive) { live423.guestIsLive = false; touched423 = true; }
+        if (Array.isArray(live423.hiddenReplays) && live423.hiddenReplays.length) { live423.hiddenReplays = []; touched423 = true; }
+        if (touched423) setSection("live", JSON.stringify(live423));
       }
     } catch (e) {
       /* a broken live section is the restore's work, not ours */
     }
     try {
       if (typeof SECTIONS.slides === "string") {
-        var slides421 = JSON.parse(SECTIONS.slides);
-        var onlyWelcome421 = Array.isArray(slides421) && slides421.length === 1 && slides421[0] && typeof slides421[0] === "object" && String(slides421[0].id || "") === "welcome-home";
-        if (!onlyWelcome421) setSection("slides", JSON.stringify(WELCOME_SLIDE_359));
+        var slides423 = JSON.parse(SECTIONS.slides);
+        var onlyWelcome423 = Array.isArray(slides423) && slides423.length === 1 && slides423[0] && typeof slides423[0] === "object" && String(slides423[0].id || "") === "welcome-home";
+        if (!onlyWelcome423) setSection("slides", JSON.stringify(WELCOME_SLIDE_359));
       }
     } catch (e) {
       try { setSection("slides", JSON.stringify(WELCOME_SLIDE_359)); } catch (e2) {}
@@ -854,13 +854,13 @@ try {
       /* Upload addresses ride relative (note 415): an absolute .../data/uploads/
          address names a host's disk and blanks on sleep — the relative form
          names the committed file on every host. No stamp, no rev bump. */
-      var names421 = Object.keys(SECTIONS || {});
-      for (var i421 = 0; i421 < names421.length; i421++) {
-        var key421 = names421[i421];
-        var val421 = SECTIONS[key421];
-        if (typeof val421 !== "string" || val421.indexOf("/data/uploads/") < 0) continue;
-        var fixed421 = val421.replace(/https?:\/\/[^\/'"\s]+\/data\/uploads\//g, "/data/uploads/");
-        if (fixed421 !== val421) setSection(key421, fixed421);
+      var names423 = Object.keys(SECTIONS || {});
+      for (var i423 = 0; i423 < names423.length; i423++) {
+        var key423 = names423[i423];
+        var val423 = SECTIONS[key423];
+        if (typeof val423 !== "string" || val423.indexOf("/data/uploads/") < 0) continue;
+        var fixed423 = val423.replace(/https?:\/\/[^\/'"\s]+\/data\/uploads\//g, "/data/uploads/");
+        if (fixed423 !== val423) setSection(key423, fixed423);
       }
     } catch (e) {
       /* a failed rewrite must never break boot */
