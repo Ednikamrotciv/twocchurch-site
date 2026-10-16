@@ -374,6 +374,9 @@ var REV = 0, AT = 0, BY = "";
 /* The code update the published content was last blessed from (note 249:
    visitors wait on maintenance until a publish from the newest code). */
 var NOTES = 0;
+/* Deploy lock (no numbers): opaque ID of the copy the last publish/bless came from. */
+var PUBLISH_DEPLOY = "";
+function validDeployId(v) { return typeof v === "string" && /^[A-Za-z0-9_-]{1,80}$/.test(v) ? v : ""; }
 var LOG = [];
 /* The office's latest on-air answer (note 318, memory-only): the deployed
    server cannot read YouTube itself (bot-walled datacenter IPs get a login
@@ -525,7 +528,7 @@ function undoLeftSec(now) {
 }
 
 function writeMeta() {
-  var meta = JSON.stringify({ by: BY, log: LOG, logGen: LOG_GEN, subs: SUBS, invites: INVITES, totp: TOTP, mainOff: MAIN_OFF, mainHash: MAIN_HASH, pwgen: PWGEN, notes: NOTES, prev: PREV, chReady: CH_READY, mediaClean: MEDIA_CLEAN, overrideClean: OVERRIDE_CLEAN });
+  var meta = JSON.stringify({ by: BY, log: LOG, logGen: LOG_GEN, subs: SUBS, invites: INVITES, totp: TOTP, mainOff: MAIN_OFF, mainHash: MAIN_HASH, pwgen: PWGEN, notes: NOTES, prev: PREV, chReady: CH_READY, mediaClean: MEDIA_CLEAN, overrideClean: OVERRIDE_CLEAN, publishDeploy: PUBLISH_DEPLOY });
   META_CHARS = meta.length;
   writeString(meta, BASE_CHARS + SECTION_CHARS);
   /* The header carries META_CHARS: without this, an admin-only change (an
@@ -656,7 +659,8 @@ function loadState() {
     if (parsed.logGen !== LOG_GEN) {
       LOG = [];
       BY = "";
-      NOTES = 0; // note 301: a new history generation is unreviewed — visitors wait until the office publishes
+            NOTES = 0; // note 301: a new history generation is unreviewed — visitors wait until the office publishes
+    PUBLISH_DEPLOY = "";
       REV = 0;
       AT = 0;
       FRESH_GEN = true;
@@ -676,6 +680,7 @@ function loadState() {
     CH_READY = parsed.chReady === true;
     MEDIA_CLEAN = parsed.mediaClean === true;
     OVERRIDE_CLEAN = typeof parsed.overrideClean === "number" && parsed.overrideClean > 0 ? Math.floor(parsed.overrideClean) : 0;
+    PUBLISH_DEPLOY = validDeployId(parsed.publishDeploy);
   } catch (e) {
     NOTES = 0;
     BY = "";
@@ -690,6 +695,7 @@ function loadState() {
     CH_READY = false;
     MEDIA_CLEAN = false;
     OVERRIDE_CLEAN = 0;
+    PUBLISH_DEPLOY = "";
   }
   SECTIONS = {};
   for (var i = 0; i < INDEX.length; i++) {
@@ -954,6 +960,7 @@ self.rpc = {
       at: AT,
       by: BY,
       notes: NOTES,
+      publishDeploy: PUBLISH_DEPLOY,
       sections: "{" + parts.join(",") + "}",
       log: LOG,
       admin: admins.has(info.conn.id),
@@ -967,7 +974,7 @@ self.rpc = {
      still lands within the half minute on every copy. Public read — it names
      no words, only whether the words moved. */
   contentRev: function (info) {
-    return ok({ rev: REV, notes: NOTES, at: AT });
+    return ok({ rev: REV, notes: NOTES, publishDeploy: PUBLISH_DEPLOY, at: AT });
   },
 
   /* Office-reported on-air answer (note 318): reads are public (visitors ask
@@ -1032,6 +1039,7 @@ self.rpc = {
     if (!ids.length) return fail("empty");
     if (ids.length > SLOTS) return fail("too-many");
     var notes = typeof payload.notes === "number" && payload.notes >= 0 && payload.notes <= 999999 ? Math.floor(payload.notes) : 0;
+    var deploy = validDeployId(payload.deploy);
     var i, value;
     for (i = 0; i < ids.length; i++) {
       id = ids[i];
@@ -1064,6 +1072,7 @@ self.rpc = {
     AT = Date.now();
     BY = typeof payload.by === "string" ? payload.by.slice(0, 60) : "";
     if (notes > NOTES) NOTES = notes;
+    if (typeof deploy === "string" && deploy && (ids.length || notes)) PUBLISH_DEPLOY = deploy;
     var changed = [];
     for (i = 0; i < ids.length && i < 24; i++) changed.push(ids[i]);
     var who = adminIds.get(info.conn.id);
@@ -1514,6 +1523,7 @@ self.rpc = {
       if (Object.prototype.hasOwnProperty.call(payload.sections, id)) ids.push(id);
     }
     var notes = typeof payload.notes === "number" && payload.notes >= 0 && payload.notes <= 999999 ? Math.floor(payload.notes) : 0;
+    var deploy = validDeployId(payload.deploy);
     if (!ids.length && !notes) return fail("empty");
     if (ids.length > SLOTS) return fail("too-many");
 
@@ -1559,6 +1569,7 @@ self.rpc = {
     AT = Date.now();
     BY = typeof payload.by === "string" ? payload.by.slice(0, 60) : "";
     if (notes > NOTES) NOTES = notes;
+    if (typeof deploy === "string" && deploy && (ids.length || notes)) PUBLISH_DEPLOY = deploy;
     var changed = [];
     if (payload.changed && payload.changed.length) {
       for (i = 0; i < payload.changed.length && i < 24; i++) {
@@ -1599,7 +1610,7 @@ self.rpc = {
     } catch (e) {
       /* a missed nudge is harmless: clients refresh on next load */
     }
-    return ok({ rev: REV, notes: NOTES });
+    return ok({ rev: REV, notes: NOTES, publishDeploy: PUBLISH_DEPLOY });
   },
   /* Put the previous publish back whole (note 291): one undo, inside about
      15 minutes of the publish it supersedes. It replaces the current publish
@@ -1639,10 +1650,12 @@ self.rpc = {
       if (err) return fail(err);
     }
     var by = BY;
+    var undoDeploy = "";
     if (typeof raw === "string" && raw) {
       try {
         var asked = JSON.parse(raw);
         if (asked && typeof asked.by === "string" && asked.by) by = asked.by.slice(0, 60);
+        if (asked && validDeployId(asked.deploy)) undoDeploy = validDeployId(asked.deploy);
       } catch (e) {
         /* the stored name stands */
       }
@@ -1651,6 +1664,7 @@ self.rpc = {
     REV += 1;
     AT = now;
     BY = by;
+    if (undoDeploy) PUBLISH_DEPLOY = undoDeploy;
     var who = adminIds.get(info.conn.id);
     LOG.unshift({
       rev: REV,
@@ -1668,7 +1682,7 @@ self.rpc = {
     } catch (e) {
       /* a missed nudge is harmless: clients refresh on next load */
     }
-    return ok({ rev: REV, notes: NOTES });
+    return ok({ rev: REV, notes: NOTES, publishDeploy: PUBLISH_DEPLOY });
   },
   /* Forget the publish history. Content is untouched — the next publish
      starts the record again from there. Main admin only. */

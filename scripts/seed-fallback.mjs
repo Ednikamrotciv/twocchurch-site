@@ -38,7 +38,8 @@ function usableSeed(obj) {
   if (!sections || typeof sections !== "object" || !Object.keys(sections).length) return null;
   const rev = typeof obj.rev === "number" ? obj.rev : 0;
   const notes = typeof obj.notes === "number" ? obj.notes : 0;
-  return { rev, notes, sections };
+  const publishedDeploy = typeof obj.publishedDeploy === "string" && /^[A-Za-z0-9_-]{1,80}$/.test(obj.publishedDeploy) ? obj.publishedDeploy : "";
+  return { rev, notes, sections, publishedDeploy };
 }
 
 /* Pure decision: a live getContent answer plus a baked seed in, the answer to
@@ -64,6 +65,7 @@ export function fallbackGetContent(bodyText, seed) {
        same-code restart keeps serving it while a new code release still
        waits for the office. See the header. */
     out.notes = good.notes;
+    out.publishDeploy = good.publishedDeploy;
     out.seeded = true;
     return JSON.stringify(out);
   } catch {

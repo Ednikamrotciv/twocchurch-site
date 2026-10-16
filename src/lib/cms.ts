@@ -44,12 +44,63 @@ try {
 } catch {
   /* storage may be blocked — startCms re-reads later */
 }
+/* Deploy lock (no numbers): every build stamps a fresh opaque deploy ID
+   (meta wom-deploy, version.json, seed.json) — new code or old, each deploy
+   looks new. Fresh visitors wait on the maintenance notice until a publish
+   from THAT deploy lands: an explicit office action on this copy, or a
+   witnessed publish carrying the same ID (server, feed, seed, cache). */
+const DEPLOY_KEY = "wom.cms.deployPublished";
+function readMetaDeployId(): string {
+  try {
+    if (typeof document === "undefined") return "";
+    const m = document.querySelector('meta[name="wom-deploy"]');
+    const c = m ? m.getAttribute("content") : "";
+    if (typeof c === "string" && /^[A-Za-z0-9_-]{1,80}$/.test(c)) return c;
+  } catch {}
+  return "";
+}
+let deployFromMeta = false;
+let currentDeployId = "";
+try {
+  currentDeployId = readMetaDeployId();
+  deployFromMeta = !!currentDeployId;
+} catch {
+  currentDeployId = "";
+  deployFromMeta = false;
+}
+let publishedDeployId = "";
+try {
+  const raw = localStorage.getItem(DEPLOY_KEY);
+  if (typeof raw === "string" && /^[A-Za-z0-9_-]{1,80}$/.test(raw)) publishedDeployId = raw;
+} catch {
+  publishedDeployId = "";
+}
+/** An explicit office publish on this copy releases this deploy at once. */
+function markDeployPublished(): boolean {
+  if (!currentDeployId || !deployFromMeta) return false;
+  if (publishedDeployId === currentDeployId) return false;
+  publishedDeployId = currentDeployId;
+  try {
+    localStorage.setItem(DEPLOY_KEY, currentDeployId);
+  } catch {}
+  return true;
+}
+/** A witnessed publish releases this deploy only when it names this deploy. */
+function noteDeployWitness(v: unknown): boolean {
+  try {
+    if (typeof v === "string" && v && currentDeployId && deployFromMeta && v === currentDeployId) return markDeployPublished();
+  } catch {}
+  return false;
+}
 
 /* Why the maintenance notice is or isn't showing (note 278): call from the
    console as window.__maintState() on the deployed copy. */
 if (typeof window !== "undefined") {
   (window as unknown as { __maintState?: () => object }).__maintState = () => ({
     publishedNotes,
+    deployId: currentDeployId,
+    publishedDeploy: publishedDeployId,
+    deployLocked: deployFromMeta,
     buildNotes: BUILD_NOTES,
     liveSiteNotes,
     liveSiteBase,
@@ -97,7 +148,7 @@ function storedCodegenProvesNewUpdate(): boolean {
     (note 300) — so a returning copy stays live on its last publish even
     before (or without) the first server answer. */
 function writeCache() {
-  writeJSON(CACHE_KEY, { rev, overrides, notes: publishedNotes });
+  writeJSON(CACHE_KEY, { rev, overrides, notes: publishedNotes, publishedDeploy: publishedDeployId });
 }
 /* The office's preview pass: ?preview=1 shows the new site before it is
    published, so an update is verifiable first (note 250). The grant is
@@ -113,7 +164,7 @@ function maintenancePreview(): boolean {
     if (q.get("preview") === "1") {
       try {
         sessionStorage.setItem(PREVIEW_KEY, "1");
-        sessionStorage.setItem(PREVIEW_NOTES_KEY, String(BUILD_NOTES));
+        sessionStorage.setItem(PREVIEW_NOTES_KEY, currentDeployId && deployFromMeta ? currentDeployId : "n" + BUILD_NOTES);
       } catch {}
       return true;
     }
@@ -122,8 +173,8 @@ function maintenancePreview(): boolean {
     try {
       const stamped = sessionStorage.getItem(PREVIEW_NOTES_KEY);
       if (stamped !== null) {
-        const forNotes = Number(stamped);
-        if (!Number.isFinite(forNotes) || Math.floor(forNotes) !== BUILD_NOTES) return false;
+        const want = currentDeployId && deployFromMeta ? currentDeployId : "n" + BUILD_NOTES;
+        if (stamped !== want) return false;
       }
     } catch {
       return false;
@@ -177,7 +228,14 @@ function serverInvolved(): boolean {
     wiped store, or a server reset to notes 0 — still unreviewed, still
     waits). Server-less copies never wait (no visitors). A publish lifts. */
 export function maintenanceShouldWait(): boolean {
-  /* Note 301: a corrupt stamp is unreviewed, never published — wait when server-backed. */
+  /* Deploy lock (no numbers): a built copy waits until a publish from its
+     own deploy lands. Server-less copies never wait (no visitors). */
+  if (deployFromMeta && currentDeployId) {
+    if (!serverInvolved()) return false;
+    return publishedDeployId !== currentDeployId;
+  }
+  /* No stamped deploy (local dev): the legacy number gate stands. Note 301:
+     a corrupt stamp is unreviewed, never published — wait when server-backed. */
   const held = typeof publishedNotes === "number" && Number.isFinite(publishedNotes) ? Math.floor(publishedNotes) : 0;
   if (held >= BUILD_NOTES) return false;
   if (!serverInvolved()) return false;
@@ -200,6 +258,15 @@ export function useMaintenance(): boolean {
      Server-less copies still never wait (note 250): with no backend there is
      no publish step to wait for — they just reload onto the new bundle. */
   if (staleNewerNotes > BUILD_NOTES && serverInvolved()) {
+    try {
+      if (maintenancePreview()) return false;
+    } catch {}
+    return true;
+  }
+  /* Deploy lock (no numbers — same rule as maintenanceShouldWait). */
+  if (deployFromMeta && currentDeployId) {
+    if (publishedDeployId === currentDeployId) return false;
+    if (!serverInvolved()) return false;
     try {
       if (maintenancePreview()) return false;
     } catch {}
@@ -282,7 +349,16 @@ export function checkStaleBuild(): Promise<void> {
       if (!res.ok) return;
       const data = await res.json().catch(() => null);
       const n = Number(data && (data as any).notes);
-      if (!Number.isFinite(n) || n <= BUILD_NOTES) {
+      const vDeploy = data && (data as any).deployId;
+      /* Deploy lock: a different stamped deploy is newer by definition — new
+         or old code always looks new, so this copy waits and reloads onto it. */
+      const deployIsNew =
+        typeof vDeploy === "string" &&
+        !!vDeploy &&
+        deployFromMeta &&
+        !!currentDeployId &&
+        vDeploy !== currentDeployId;
+      if (!deployIsNew && (!Number.isFinite(n) || n <= BUILD_NOTES)) {
         if (staleNewerNotes) {
           staleNewerNotes = 0;
           version += 1;
@@ -290,7 +366,7 @@ export function checkStaleBuild(): Promise<void> {
         }
         return;
       }
-      staleNewerNotes = Math.floor(n);
+      staleNewerNotes = deployIsNew ? BUILD_NOTES + 1 : Math.floor(n);
       /* Bump so the maintenance notice re-evaluates at once instead of
          sticking with first paint — the old bundle waits, it never plays live. */
       version += 1;
@@ -335,7 +411,7 @@ export function checkStaleBuild(): Promise<void> {
    the button carrying this says so before it arms. This is the explicit
    office delete (note 300) — the ONLY path that clears last-published. */
 export function resetLocalCopy(): void {
-  const keys = [CACHE_KEY, DRAFT_KEY, HISTORY_KEY, PENDING_KEY, NOTES_KEY, AFTER_SAVE_KEY];
+  const keys = [CACHE_KEY, DRAFT_KEY, HISTORY_KEY, PENDING_KEY, NOTES_KEY, AFTER_SAVE_KEY, DEPLOY_KEY];
   for (const k of keys) {
     try {
       localStorage.removeItem(k);
@@ -351,6 +427,7 @@ export function resetLocalCopy(): void {
     sessionStorage.removeItem(STALE_RELOAD_KEY);
   } catch {}
   publishedNotes = 0;
+  publishedDeployId = "";
   try {
     window.location.reload();
   } catch {}
@@ -1142,6 +1219,7 @@ export async function publishSection(sectionId: string, note: string): Promise<P
     setPublishedNotes(BUILD_NOTES);
     writeCache();
     pending = { ...(pending || {}), [sectionId]: value };
+    markDeployPublished();
     writeJSON(PENDING_KEY, pending);
     localOnly = true;
     delete dirty[sectionId];
@@ -1368,30 +1446,11 @@ async function applySeedOnce() {
         /* Note 301: immunity is the browser's own memory BEFORE the bake lands. */
         const seenBefore = readJSON<number>(NOTES_KEY, 0);
         if (typeof (seed as any).notes === "number") setPublishedNotes((seed as any).notes);
-        /* Maintenance hold (stamped by maintenance-hold.txt at build time): a
-           visitor with no recorded publish is held one update back, so the
-           notice shows until the office publishes — even when the baked stamp
-           is empty. Once the baked stamp itself is caught up (published from this update), fresh visitors are NOT re-held, so a rebuild after publishing releases everyone. A recorded publish is never re-held,
-           so publishing releases visitors with no rebuild; a newer stamp is
-           never lowered, so the older-copy path stays intact.
-           The hold is only manufactured when the running code is new (note
-           300): proven by an older stored codegen, or unprovable either way
-           (no record — a fresh browser meets every build as new). A browser
-           that already ran THIS build never gets a manufactured stamp — with
-           no new update its last-published stands until the server or the
-           feed says otherwise. */
-        if (seed.hold === true && publishedNotes < BUILD_NOTES) {
-          if (!(typeof seenBefore === "number" && seenBefore >= BUILD_NOTES)) {
-            let ranThisBuild = false;
-            try {
-              const cg = readJSON<number>(CODEGEN_KEY, 0);
-              ranThisBuild = typeof cg === "number" && Math.floor(cg) === BUILD_NOTES;
-            } catch {
-              ranThisBuild = false;
-            }
-            if (!ranThisBuild) setPublishedNotes(BUILD_NOTES - 1);
-          }
-        }
+        /* Deploy lock (stamped at build time, locked): the baked hold always
+           stands for a fresh deploy — old or new code looks new, so the notice
+           shows until the office publishes. A baked publish from THIS deploy
+           releases at once; anything else waits. No numbers. */
+        noteDeployWitness((seed as any).publishedDeploy);
         applyOverrides(seed.sections);
       }
     }
@@ -1423,6 +1482,7 @@ async function syncFromFeed() {
     if (!Object.keys(liveSections).length && Object.keys(overrides).length) return;
     rev = live.rev;
     if (typeof live.notes === "number") setPublishedNotes(live.notes);
+    noteDeployWitness((live as any).publishedDeploy);
     applyOverrides(liveSections);
     writeCache();
   } catch {
@@ -1934,6 +1994,7 @@ function startContentWatch() {
         const raw = await socket.rpc.contentRev("");
         const r = typeof raw === "string" ? JSON.parse(raw) : raw;
         if (r && r.ok && typeof r.rev === "number" && r.rev !== rev) await syncFromServer().catch(() => {});
+        else if (r && r.ok && deployFromMeta && currentDeployId && typeof r.publishDeploy === "string" && r.publishDeploy === currentDeployId && publishedDeployId !== currentDeployId) await syncFromServer().catch(() => {});
       } finally {
         contentWatchRunning = false;
       }
@@ -2044,6 +2105,7 @@ export async function startCms() {
      witness, so it stays live on that publish even before (or without) the
      first server answer. Older than the running code it still means wait. */
   if (cached && typeof cached.notes === "number") setPublishedNotes(cached.notes);
+  if (cached && typeof (cached as any).publishedDeploy === "string") noteDeployWitness((cached as any).publishedDeploy);
   try {
     if (readJSON<number>(CODEGEN_KEY, 0) !== BUILD_NOTES) writeJSON(CODEGEN_KEY, BUILD_NOTES);
   } catch {
@@ -2518,6 +2580,7 @@ async function syncFromServer() {
   const notesBefore = publishedNotes;
   if (typeof res.notes === "number") setPublishedNotes(res.notes);
   const notesLifted = publishedNotes > notesBefore;
+  const deployLifted = noteDeployWitness((res as any).publishDeploy);
   rev = serverRev;
   updatedAt = res.at || 0;
   updatedBy = res.by || "";
@@ -2551,7 +2614,7 @@ async function syncFromServer() {
     }
     applyOverrides(server);
     writeCache();
-  } else if (notesLifted) {
+  } else if (notesLifted || deployLifted) {
     /* Content identical but the publish stamp moved (note 278): bump so the
        maintenance notice re-evaluates instead of sticking with first paint. */
     version += 1;
@@ -3567,6 +3630,7 @@ async function sendPatch(
       by: editorName(),
       changed: ids,
       notes: bless ? BUILD_NOTES : 0,
+      deploy: bless ? currentDeployId || "" : "",
       /* Only the first batch snapshots the superseded publish for the
          server-side ~15-minute undo (note 291) — later batches must not
          re-snapshot mid-publish. */
@@ -3596,6 +3660,7 @@ async function sendPatch(
       else overrides[id] = JSON.parse(value);
     });
   }
+  if (bless) markDeployPublished();
   return { ok: true, rev: lastRev, sent };
 }
 
@@ -3667,6 +3732,7 @@ export async function publish(note: string, content?: Snapshot): Promise<Publish
     setPublishedNotes(BUILD_NOTES);
     writeCache();
     pending = clone(overrides);
+    markDeployPublished();
     writeJSON(PENDING_KEY, pending);
     localOnly = true;
     draft = null;
@@ -3881,7 +3947,7 @@ export async function undoLastPublish(): Promise<PublishResult> {
   /* Server window first: exact, any device, and it consumes the window. */
   if (socket && status === "online" && authed && undoCountdownSec() > 0) {
     try {
-      const res = JSON.parse(await socket.rpc.undoPublish(JSON.stringify({ by: editorName() })));
+      const res = JSON.parse(await socket.rpc.undoPublish(JSON.stringify({ by: editorName(), deploy: currentDeployId || "" })));
       /* A changed/retired password ends the session here too (note 297) —
          the held words stay; only an explicit office delete may clear
          last-published (note 300). */
@@ -3956,6 +4022,7 @@ export async function clearAllOverrides(): Promise<PublishResult> {
     applyOverrides({}, false);
     /* A local restore still moves the copy onto this update (note 250). */
     setPublishedNotes(BUILD_NOTES);
+    markDeployPublished();
     writeCache();
     localOnly = true;
     notify();

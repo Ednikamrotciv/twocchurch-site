@@ -33,47 +33,26 @@ try {
   console.warn("seed not re-baked:", err?.message || err);
 }
 
-/* Maintenance hold: when `maintenance-hold.txt` sits beside package.json,
-   stamp dist/seed.json with "hold": true, so fresh visitors wait on the
-   maintenance notice until the office publishes — even when no older publish
-   stamp exists to hold them (fresh or wiped backend). The file SHIPS with
-   the code (note 335 — it is NOT git-ignored), so hosts rebuilding from git
-   hold too: a git-ignored hold meant Render rebuilt clean and deployed
-   behaved like no update had landed. Publishing releases the hold (it only
-   gates while the published stamp trails the running update), so no file
-   delete is needed for release; deleting the file strips a previously
-   stamped hold on the next build. */
-let holdVisitors = false;
+/* Maintenance lock (no numbers — locked in code): EVERY build stamps a
+   fresh opaque deploy ID and holds fresh visitors on the maintenance notice
+   until the office publishes — whether the code is new or old, every deploy
+   looks new during deploy. version.json + seed.json + the entry page all
+   carry the same ID; the notice lifts only when a publish from that deploy
+   lands (office Publish on the deployed copy, or a witnessed publish carrying
+   the same ID). maintenance-hold.txt still ships as a marker (it is NOT git-ignored), but holding no longer depends on it — the lock cannot be
+   switched off by deleting a file.
+   maintenance hold on: fresh visitors wait until the office publishes (locked — every deploy holds). */
+const DEPLOY_ID =
+  "dpl-" + Date.now().toString(36) + "-" + Math.random().toString(36).slice(2, 8);
 try {
-  await stat(path.join(ROOT, "maintenance-hold.txt"));
-  holdVisitors = true;
-} catch {
-  /* no hold file — deploys open as before */
-}
-if (holdVisitors) {
-  try {
-    const seedPath = path.join(OUT, "seed.json");
-    const seed = JSON.parse(await readFile(seedPath, "utf8"));
-    if (seed && typeof seed === "object" && !seed.hold) {
-      await writeFile(seedPath, JSON.stringify({ ...seed, hold: true }));
-      console.log("maintenance hold on: fresh visitors wait until the office publishes (delete maintenance-hold.txt to stop holding)");
-    }
-  } catch (err) {
-    console.warn("maintenance hold skipped:", err?.message || err);
+  const seedPath = path.join(OUT, "seed.json");
+  const seed = JSON.parse(await readFile(seedPath, "utf8"));
+  if (seed && typeof seed === "object") {
+    await writeFile(seedPath, JSON.stringify({ ...seed, hold: true, deployId: DEPLOY_ID }));
+    console.log("maintenance hold on: fresh visitors wait until the office publishes (locked — every deploy holds)");
   }
-} else {
-  try {
-    const seedPath = path.join(OUT, "seed.json");
-    const seed = JSON.parse(await readFile(seedPath, "utf8"));
-    if (seed && typeof seed === "object" && seed.hold) {
-      const next = { ...seed };
-      delete next.hold;
-      await writeFile(seedPath, JSON.stringify(next));
-      console.log("maintenance hold off: deploys open straight away");
-    }
-  } catch {
-    /* no seed to clean */
-  }
+} catch (err) {
+  console.warn("maintenance hold skipped:", err?.message || err);
 }
 
 /* The live feed address: with a valid publish-feed.txt (a public source repo
@@ -136,6 +115,23 @@ try {
   console.warn("server.json skipped:", err?.message || err);
 }
 
+/* Deploy ID on the entry page (deploy lock): stamped synchronously so the
+   first paint knows its deploy without fetching. Route copies below are made
+   from this shell, so they inherit it. */
+try {
+  const shellPath = path.join(OUT, "index.html");
+  let shell = await readFile(shellPath, "utf8");
+  if (!shell.includes('name="wom-deploy"')) {
+    const tag = '<meta name="wom-deploy" content="' + DEPLOY_ID + '">';
+    if (shell.includes("</head>")) shell = shell.replace("</head>", "  " + tag + "\n</head>");
+    else shell = tag + "\n" + shell;
+    await writeFile(shellPath, shell);
+    console.log("deploy id stamped into dist/index.html: " + DEPLOY_ID);
+  }
+} catch (err) {
+  console.warn("deploy meta skipped:", err?.message || err);
+}
+
 /* String-URL files the app points at (photos are plain "src/assets/…" strings,
    never imports, so `vite build` skips them) plus the office's own uploads. */
 try {
@@ -186,7 +182,7 @@ try {
   const notes = Number((src.match(/BUILD_NOTES = (\d+)/) || [])[1]) || 0;
   const d = new Date();
   const p = (n) => String(n).padStart(2, "0");
-  await writeFile(path.join(OUT, "version.json"), JSON.stringify({ notes, built: `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}` }));
+  await writeFile(path.join(OUT, "version.json"), JSON.stringify({ notes, deployId: DEPLOY_ID, built: `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}` }));
   console.log(`build stamped: update ${notes}`);
 } catch (err) {
   console.warn("version.json skipped:", err?.message || err);

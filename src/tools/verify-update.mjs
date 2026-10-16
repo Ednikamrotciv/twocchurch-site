@@ -1778,7 +1778,9 @@ export async function runAll(fs) {
   ok("uploads cached", has(upGGG, "wom-uploads") && has(edGGG, "cacheUploadBlob(kept"), "every upload must stay in this browser");
   ok("uploads heal", has(cmsGGG, "healMissingUploads") && has(slidesGGG, "useCachedUploadUrl"), "sleep must restore and paint cached, blank-free");
   ok("override is 413", has(srvGGG, "OVERRIDE_NO_413 = 413"), "first boot must re-run the clear");
-  ok("maintenance hold ships", has(text["maintenance-hold.txt"], "hold") && has(text["scripts/build-static.mjs"], "maintenance hold on"), "fresh visitors wait until the office publishes");
+  ok("maintenance locked per deploy", has(text["scripts/build-static.mjs"], "const DEPLOY_ID =") && has(text["scripts/build-static.mjs"], "hold: true, deployId"), "every build must hold on a fresh deploy id");
+  ok("deploy id number-free", has(cmsGGG, "wom.cms.deployPublished") && has(cmsGGG, "wom-deploy") && has(srvGGG, "PUBLISH_DEPLOY"), "old or new code must look new without numbers");
+  ok("publish releases its deploy", has(cmsGGG, "deploy: bless ? currentDeployId") && has(srvGGG, "publishDeploy: PUBLISH_DEPLOY"), "a publish from the deploy must release it");
 const notes = Number((text["src/lib/hooks.ts"].match(/BUILD_NOTES = (\d+)/) || [])[1]) || 0;
   const apply = text["APPLY_UPDATE.txt"];
   ok("update number consistent", notes > 0 && has(apply, `APPLY THIS UPDATE (${notes})`), "hooks=" + notes);

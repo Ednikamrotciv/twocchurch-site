@@ -88,13 +88,14 @@ export function cmsBackend() {
              notes-less seed would read as "nothing ever published" and hold
              even a fully-published deploy on maintenance until the next bake. */
           let notes = typeof res.notes === "number" && res.notes > 0 ? Math.floor(res.notes) : 0;
+          let publishedDeploy = typeof res.publishDeploy === "string" && /^[A-Za-z0-9_-]{1,80}$/.test(res.publishDeploy) ? res.publishDeploy : "";
           if (!notes) {
             try {
               const prev = JSON.parse(await readFile(path.join(outDir, "seed.json"), "utf8"));
               if (typeof prev?.notes === "number" && prev.notes > 0) notes = Math.floor(prev.notes);
             } catch {}
           }
-          await writeFile(path.join(outDir, "seed.json"), JSON.stringify({ rev: typeof res.rev === "number" ? res.rev : 0, notes, sections }));
+          await writeFile(path.join(outDir, "seed.json"), JSON.stringify({ rev: typeof res.rev === "number" ? res.rev : 0, notes, sections, ...(publishedDeploy ? { publishedDeploy } : {}) }));
           console.log(`baked ${Object.keys(sections).length} published sections into seed.json`);
         }
       } catch (err) {

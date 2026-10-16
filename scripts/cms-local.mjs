@@ -343,7 +343,7 @@ function startLiveFollow({ rootDir, rpcCall, adoptToken }) {
       const res = await rpcCall(
         "adoptLive",
         "livefollow",
-        JSON.stringify({ token: adoptToken, sections: patch, notes: live.notes, by: typeof live.by === "string" ? live.by : "" })
+        JSON.stringify({ token: adoptToken, sections: patch, notes: live.notes, by: typeof live.by === "string" ? live.by : "", deploy: typeof live.publishDeploy === "string" ? live.publishDeploy : "" })
       );
       let out = null;
       try {

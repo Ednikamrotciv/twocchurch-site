@@ -1,6 +1,5 @@
-# Keep this file. While it sits beside package.json, every build stamps
-# dist/seed.json with "hold": true, so fresh visitors wait on the
-# maintenance notice until the office publishes from the new update —
-# even when the baked stamp is empty. Publishing from the update, then
-# rebuilding, releases everyone. Delete this file to stop holding
-# (the next build strips a previously stamped hold).
+# LOCKED deploy marker. Every build holds fresh visitors on the
+# maintenance notice until the office publishes — new code or old, each
+# deploy looks new (fresh opaque deploy ID, no numbers). Publishing from
+# the deployed copy releases it; no file delete is needed, and deleting
+# this file no longer switches the hold off (the lock is in the code).

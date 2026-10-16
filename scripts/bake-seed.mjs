@@ -55,17 +55,25 @@ export async function bakeSeed(rootDir, outPath) {
      that reports no notes (or nothing at all) keeps the previous file's
      stamp, so a deployed copy can still tell it is behind the new code. */
   let notes = typeof res.notes === "number" && res.notes > 0 ? Math.floor(res.notes) : 0;
+  /* Deploy lock: carry the publish deploy ID like the stamp above. */
+  let publishedDeploy = typeof res.publishDeploy === "string" && /^[A-Za-z0-9_-]{1,80}$/.test(res.publishDeploy) ? res.publishDeploy : "";
   if (!notes) {
     try {
       const prev = JSON.parse(await readFile(target, "utf8"));
       if (typeof prev?.notes === "number" && prev.notes > 0) notes = Math.floor(prev.notes);
     } catch { /* no previous stamp — ships 0, a first run never waits */ }
   }
+  if (!publishedDeploy) {
+    try {
+      const prev = JSON.parse(await readFile(target, "utf8"));
+      if (typeof prev?.publishedDeploy === "string" && /^[A-Za-z0-9_-]{1,80}$/.test(prev.publishedDeploy)) publishedDeploy = prev.publishedDeploy;
+    } catch {}
+  }
   /* The recents ride the same file (note 366): the backend knows no `recent`,
      so carry the newest list already on disk — the refresh below overwrites
      with fresher. Without this a re-bake silently drops the list. */
   const carried = pickRecent((await readJson(rootSeedPath))?.recent, (await readJson(target))?.recent);
-  await writeFile(target, JSON.stringify({ rev, notes, sections, ...(carried ? { recent: carried } : {}) }));
+  await writeFile(target, JSON.stringify({ rev, notes, sections, ...(carried ? { recent: carried } : {}), ...(publishedDeploy ? { publishedDeploy } : {}) }));
   console.log(`bake-seed: baked ${ids.length} sections into ${path.relative(rootDir, target)}`);
   /* The recent-services list ships in the same file, so every copy paints the
      same services as the preview (see bake-recent.mjs). Best effort — a missed
