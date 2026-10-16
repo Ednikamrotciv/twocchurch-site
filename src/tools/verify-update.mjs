@@ -1152,8 +1152,8 @@ export async function runAll(fs) {
   const rsGG = text["src/lib/recentstreams.ts"];
   const lsGG = text["src/lib/livestatus.ts"];
   const applyGG = text["APPLY_UPDATE.txt"];
-  ok("override stamp per-update", has(srvGG, "var OVERRIDE_CLEAN = 0;") && has(srvGG, "overrideClean: OVERRIDE_CLEAN") && has(srvGG, "OVERRIDE_NO_419 = 419") && has(srvGG, "OVERRIDE_CLEAN !== OVERRIDE_NO_419"), "the clear must re-run on every new update, not once ever");
-  ok("override clears everything old", has(srvGG, "live419.youtubeChannel = \"@twocorg\"") && has(srvGG, "live419.youtubeId = \"\"") && has(srvGG, "live419.hiddenReplays = []") && has(srvGG, "live419.externalYoutubeChannel = \"\"") && has(srvGG, "live419.guestIsLive = false") && has(srvGG, "WELCOME_SLIDE_359") && has(srvGG, "String(slides419[0].id || \"\") === \"welcome-home\""), "channel, stray link, guest, guest switch, take-offs and slides must all go");
+  ok("override stamp per-update", has(srvGG, "var OVERRIDE_CLEAN = 0;") && has(srvGG, "overrideClean: OVERRIDE_CLEAN") && has(srvGG, "OVERRIDE_NO_421 = 421") && has(srvGG, "OVERRIDE_CLEAN !== OVERRIDE_NO_421"), "the clear must re-run on every new update, not once ever");
+  ok("override clears everything old", has(srvGG, "live421.youtubeChannel = \"@twocorg\"") && has(srvGG, "live421.youtubeId = \"\"") && has(srvGG, "live421.hiddenReplays = []") && has(srvGG, "live421.externalYoutubeChannel = \"\"") && has(srvGG, "live421.guestIsLive = false") && has(srvGG, "WELCOME_SLIDE_359") && has(srvGG, "String(slides421[0].id || \"\") === \"welcome-home\""), "channel, stray link, guest, guest switch, take-offs and slides must all go");
   ok("override never blesses", has(srvGG, "no rev bump") && has(srvGG, "later office work is never touched"), "the clear must not publish");
   ok("draft stray link heals", has(cmsGG, "healDraftStreamLink()") && has(cmsGG, "(draft as any).live = { ...dLive, youtubeId: \"\" }"), "an untouched draft must follow the words");
   ok("browser caches drop on new update", has(rsGG, "export function clearRecentCaches()") && has(cmsGG, "if (freshEyes) clearRecentCaches();"), "old cards must not ride into the new update");
@@ -1671,7 +1671,7 @@ export async function runAll(fs) {
   const seedXX = text["seed.json"];
   const edXX = text["src/components/editor.tsx"];
   const applyXX = text["APPLY_UPDATE.txt"];
-  ok("override is this update", has(srvXX, "OVERRIDE_NO_419 = 419") && has(srvXX, 'live419.externalYoutubeChannel = ""'), "first boot must re-run the clear, guest included");
+  ok("override is this update", has(srvXX, "OVERRIDE_NO_421 = 421") && has(srvXX, 'live421.externalYoutubeChannel = ""'), "first boot must re-run the clear, guest included");
   ok("guest ships empty", has(seedXX, '"externalYoutubeChannel":""'), "no copy may open with a guest set");
   ok("buttons still arm", has(edXX, "liveCommandAt: Date.now()") && has(edXX, "Pause the livestream") && has(edXX, "Play the livestream") && has(edXX, 'icon="stop"'), "removing the paragraph must not touch the transport");
   ok("promise text gone", !has(edXX, "Play and pause are one button") && !has(edXX, "there is nothing to publish"), "the drawer keeps only the unconfigured warning");
@@ -1700,12 +1700,12 @@ export async function runAll(fs) {
   ok("guest ending still files nothing", has(autoZZ, "guestEnd") && has(autoZZ, "if (air.platform !== \"youtube\" || !air.videoId || guestEnd) return false"), "the guest must never seed the main list");
   ok("play is the manual override", has(edZZ, "Play is only the manual override") && has(edZZ, "liveCommandAt: Date.now()"), "the buttons keep working, the main needs no press");
   ok("apply leads with the self-start", has(applyZZ, "THE MAIN CHANNEL STARTS BY ITSELF"), "the office must meet the no-press rule first");
-  /* AAA. each field has its buttons, the guest empties itself, Delete empties
-     (notes 401/413/417, empties since note 419), labelless since note 403: the transport
+  /* AAA. each field has its buttons, the guest empties itself, Delete clears
+     and Put back keeps (note 413), labelless since note 403: the transport
      rows sit under their fields with no who-labels and no Clear button, every
      stop and every finished guest empties the guest slot, and the unsaved
-     list's Delete leaves the field empty on the first tap (Publish shows the
-     empty on the site) while Put back reverts and keeps it in its section. */
+     list's Delete clears the change entirely away from the admin on the first
+     tap while Put back keeps it in its section. */
   const edAAA = text["src/components/editor.tsx"];
   const autoAAA = text["src/lib/autostop.ts"];
   const cmsAAA = text["src/lib/cms.ts"];
@@ -1716,10 +1716,10 @@ export async function runAll(fs) {
   ok("no labels, no clear button", !has(edAAA, "transport-row__who") && !has(edAAA, ">Main channel<") && !has(edAAA, ">Guest channel<") && !has(edAAA, "Clear the guest channel"), "the rows must not name themselves or carry a clear");
   ok("guest row guards and clears", has(edAAA, "Type the guest channel first") && has(edAAA, 'externalYoutubeChannel: ""') && has(edAAA, "hadGuest"), "an empty guest names its field, every guest stop empties the slot");
   ok("finished guest self-clears", has(autoAAA, "clearIdleGuest") && has(autoAAA, "The guest channel is empty again") && has(autoAAA, "if (guestEnd) clearIdleGuest()") && has(autoAAA, "if (airedGuest) clearIdleGuest()"), "a guest ending empties its slot with no publish");
-  ok("delete leaves the field empty", has(adminAAA, "const erase = (edit: cms.PendingEdit) => {") && has(adminAAA, "cms.emptySectionToEmpty(edit.sectionId)") && has(adminAAA, "is empty now; Publish shows the empty on the site") && has(adminAAA, "onClick={() => erase(edit)}"), "Delete must empty the field on the first tap — Publish shows the empty");
-  ok("delete publishes nothing", !has(adminAAA, "dropAddedAndRevertedEdits(edit.sectionId)") && !has(adminAAA, "sectionHasPublishableRemovals(edit.sectionId)") && !has(adminAAA, "publishSection(edit.sectionId"), "Delete must never send to the site — Publish shows the empty");
+  ok("delete clears from the admin", has(adminAAA, "const erase = (edit: cms.PendingEdit) => {") && has(adminAAA, "cms.revertSection(edit.sectionId)") && has(adminAAA, "is cleared from the admin") && has(adminAAA, "onClick={() => erase(edit)}"), "Delete must drop the unsaved edit for good on the first tap");
+  ok("delete publishes nothing", !has(adminAAA, "dropAddedAndRevertedEdits(edit.sectionId)") && !has(adminAAA, "sectionHasPublishableRemovals(edit.sectionId)") && !has(adminAAA, "publishSection(edit.sectionId"), "Delete must never send to the site — a section edit plus Publish does that");
   ok("put back reverts and opens", has(adminAAA, "cms.revertSection(edit.sectionId)") && has(adminAAA, "now showing the live site's words") && has(adminAAA, "Put back into ${edit.label}") && has(adminAAA, "onOpen(edit.sectionId)"), "Put back must drop the change and open the section on the live words");
-  ok("foot teaches empty and revert-open", has(adminAAA, "leaves the field empty") && has(adminAAA, "Publish shows that empty on the site") && has(adminAAA, "keeps its section open"), "the list must say Delete empties for Publish and Put back reverts open");
+  ok("foot teaches clear and revert-open", has(adminAAA, "only clears the admin") && has(adminAAA, "keeps its section open"), "the list must say what Delete and Put back do");
   ok("rows are styled compact", has(cssAAA, ".transport-row"), "the two rows must fit the field area");
   ok("apply leads with the rows", has(applyAAA, "EACH FIELD HAS ITS BUTTONS"), "the office must meet the per-field rows first");
   /* BBB. each field commands its own slot, guest Play opens the channel
@@ -1782,7 +1782,7 @@ export async function runAll(fs) {
   ok("each row lights its own slot", has(edCCC, "const mainLive = ") && has(edCCC, "const guestLiveNow = ") && has(edCCC, "transport-row__live") && has(edCCC, "isStatusForTarget(airNow, mainUrl)") && has(edCCC, "isStatusForTarget(guestAirNow, guestUrlNow)"), "one row must never light for the other");
   ok("dots blink without extra polling", has(edCCC, "useLiveStream()") && has(edCCC, "live-dot"), "the rows subscribe to the shared check");
   ok("dots sit at the row end", has(cssCCC, ".transport-row__live"), "the light must fit the field area");
-  ok("override is this update", has(srvCCC, "OVERRIDE_NO_419 = 419"), "first boot must re-run the clear");
+  ok("override is this update", has(srvCCC, "OVERRIDE_NO_421 = 421"), "first boot must re-run the clear");
   ok("apply leads with naming and dots", has(applyCCC, "NEXT BROADCAST NAMES THE SCREEN") && has(applyCCC, "LIGHTS ITS OWN DOT"), "the office must meet the heading and the lights first");
   /* DDD. the main waits for the Play press, the guest arrives empty, the
      crash names itself (note 407): no bare main detection opens badges or
@@ -1804,7 +1804,7 @@ export async function runAll(fs) {
   ok("draft guest sweeps per update", has(cmsDDD, "function clearDraftGuestSlot()") && has(cmsDDD, "if (freshEyes) clearDraftGuestSlot();"), "no unsaved guest row rides in");
   ok("drawer follows the press rule", has(edDDD, "until Play is pressed and published") && has(edDDD, "The screen plays it once published."), "no copy may promise self-start");
   ok("crash names its page", has(boundDDD, "componentStack") && has(boundDDD, "Page: ${this.state.route}"), "the next screenshot must name the page");
-  ok("override is this update", has(srvDDD, "OVERRIDE_NO_419 = 419"), "first boot must re-run the clear");
+  ok("override is this update", has(srvDDD, "OVERRIDE_NO_421 = 421"), "first boot must re-run the clear");
   ok("apply leads with press and empty", has(applyDDD, "MAIN WAITS FOR THE PLAY PRESS") && has(applyDDD, "GUEST ARRIVES EMPTY"), "the office must meet the press rule first");
   /* EEE. autoplay only when the main is live (note 409): a pressed main with
      an unknown read waits on the clock — only the commanded guest slot opens
@@ -1815,7 +1815,7 @@ export async function runAll(fs) {
   ok("main press never autoplays walled", has(watchEEE, ") : overrideGuest && overrideId ? (") && !has(watchEEE, ") : overrideId ? (") && has(watchEEE, "const overrideMain = "), "a pressed main must wait for detection, not open the channel");
   ok("pressed-live main still plays", has(watchEEE, "(guestLive || fbLive || !!LIVE.isLive)") && has(watchEEE, "autoPlay={streaming && watchable}") && has(watchEEE, "const waitingForClick = !shutNow"), "press plus detection must still autoplay with sound");
   ok("guest press still opens walled", has(watchEEE, "const overrideGuest = ") && has(watchEEE, 'guestAir.state === "unknown"'), "a published guest Play must still open its channel");
-  ok("override is this update", has(srvEEE, "OVERRIDE_NO_419 = 419"), "first boot must re-run the clear");
+  ok("override is this update", has(srvEEE, "OVERRIDE_NO_421 = 421"), "first boot must re-run the clear");
   ok("apply leads with detection-gated autoplay", has(applyEEE, "AUTOPLAY ONLY WHEN THE MAIN IS LIVE"), "the office must meet the detection rule first");
   /* FFF. the Watch page loads (note 413): `liveSource` reads `streaming`, so
      the answer must be declared first — reading a later declaration threw on
@@ -1825,7 +1825,7 @@ export async function runAll(fs) {
   const applyFFF = text["APPLY_UPDATE.txt"];
   ok("streaming declared before liveSource", watchFFF.indexOf("const streaming = ") !== -1 && watchFFF.indexOf("const streaming = ") < watchFFF.indexOf("(!streaming && overrideId)"), "the initializer must never read across the dead zone");
   ok("rule expression unchanged", has(watchFFF, "(guestLive || fbLive || !!LIVE.isLive)") && has(watchFFF, "autoPlay={streaming && watchable}") && has(watchFFF, ") : overrideGuest && overrideId ? ("), "the reorder must move the rule, never rewrite it");
-  ok("override is this update", has(srvFFF, "OVERRIDE_NO_419 = 419"), "first boot must re-run the clear");
+  ok("override is this update", has(srvFFF, "OVERRIDE_NO_421 = 421"), "first boot must re-run the clear");
   ok("apply leads with the crash fix", has(applyFFF, "WATCH PAGE PLAYS AGAIN"), "the office must meet the fix first");
   /* GGG. sleep-proof uploads, order-proof compares, ends as facts, Delete
      clears / Put back keeps, one recents spot (note 413): key order never
@@ -1848,10 +1848,10 @@ export async function runAll(fs) {
   ok("end-facts wired", has(cmsGGG, "export function recordStreamEndFacts(") && has(cmsGGG, 'const FACTS_KEY = "wom.cms.endfacts"') && has(cmsGGG, "export async function flushStreamFacts(") && has(cmsGGG, "function withQueuedFacts(") && has(cmsGGG, "function noteFactsSent(") && has(cmsGGG, "export function keepNewerEndFacts(") && has(cmsGGG, "export function withKeptServerFacts(") && has(cmsGGG, "export function clearStaleQueuedFacts(") && has(cmsGGG, "export function relativizeUploadUrls("), "facts must queue, piggyback, flush and yield");
   ok("sends carry the facts", has(cmsGGG, "if (sectionId === \"live\") value = withQueuedFacts(value);") && has(cmsGGG, "flushStreamFacts().catch(() => {});") && has(cmsGGG, "const factsFlushed = await flushStreamFacts().catch(() => false);") && has(cmsGGG, 'JSON.stringify(withQueuedFacts(clone(mine)))'), "section sends, full publishes and reconnect flushes must all ride facts");
   ok("ends recorded, not edited", has(autoGGG, 'cms.recordStreamEndFacts({ isLive: false, liveCut: endedAt, liveEndedBy: "channel", liveEndedVideo: air.videoId })') && has(autoGGG, 'cms.recordStreamEndFacts({ isLive: false, liveCut: endedAt, liveEndedBy: "channel", liveEndedVideo: air.videoId || "" })') && has(autoGGG, 'cms.clearStaleQueuedFacts(String(air.videoId || ""))'), "both end-writes must be facts, live edges must clear stale queues");
-  ok("uploads ride relative", has(edGGG, "function isRemoteHosted(url: string): boolean") && has(edGGG, "That photo lives on the hosted copy only") && has(edGGG, "That photo is missing on the server") && has(cmsGGG, "value = relativizeUploadUrls(value);") && has(cmsGGG, "out[def.id] = relativizeUploadUrls(merged);") && has(srvGGG, "var names419 = Object.keys(SECTIONS || {});") && has(srvGGG, "if (fixed419 !== val419) setSection(key419, fixed419);"), "saves, loads and first boot must all name the file, never a disk");
+  ok("uploads ride relative", has(edGGG, "function isRemoteHosted(url: string): boolean") && has(edGGG, "That photo lives on the hosted copy only") && has(edGGG, "That photo is missing on the server") && has(cmsGGG, "value = relativizeUploadUrls(value);") && has(cmsGGG, "out[def.id] = relativizeUploadUrls(merged);") && has(srvGGG, "var names421 = Object.keys(SECTIONS || {});") && has(srvGGG, "if (fixed421 !== val421) setSection(key421, fixed421);"), "saves, loads and first boot must all name the file, never a disk");
   ok("end-fact key ships", has(liveGGG, 'liveEndedVideo: ""') && has(seedGGG, '"liveEndedVideo":""'), "no copy may open without the key");
   ok("one card per broadcast", has(recGGG, "export function dedupeRecents") && has(recGGG, "const items = dedupeRecents("), "a merged read must never paint a double");
-  ok("delete empties, put back reverts open", has(adminGGG, "is empty now; Publish shows the empty on the site") && has(adminGGG, "now showing the live site's words") && has(adminGGG, "leaves the field empty"), "Delete must empty for Publish and Put back must revert-open");
+  ok("delete clears, put back reverts open", has(adminGGG, "is cleared from the admin") && has(adminGGG, "now showing the live site's words") && has(adminGGG, "only clears the admin"), "the list must clear on Delete and revert-open on Put back");
   ok("apply leads with the four", has(applyGGG, "DELETE CLEARS IT FROM THE ADMIN") && has(applyGGG, "PUT BACK KEEPS IT IN THE ADMIN") && has(applyGGG, "ONE RECENTS SPOT") && has(applyGGG, "NOTHING GOES BLANK"), "the office must meet the new rules first");
   try {
     const ebGGG = await import("https://esm.sh/esbuild-wasm@0.21.5?bundle");
@@ -2012,54 +2012,28 @@ export async function runAll(fs) {
   } catch (e) {
     ok("five-fix suite", false, String((e && e.message) || e).slice(0, 200));
   }
-  /* JJJ. Delete leaves the field empty (note 419): every unsaved Delete
-     empties its change and stays dirty, so Publish shows the empty on the
-     site — all sections alike, livestream included. Added list entries drop,
-     changed fields empty, removed entries stay removed; an order-only move
-     reverts; the live slot stamps only where Publish needs the off. */
-  const cmsJJJ = text["src/lib/cms.ts"];
-  const adminJJJ = text["src/pages/Admin.tsx"];
-  const srvJJJ = text["scripts/cms-server.js"];
-  const applyJJJ = text["APPLY_UPDATE.txt"];
-  ok("empty helpers ship", has(cmsJJJ, "export function emptyScalarForType(type: string)") && has(cmsJJJ, "export function emptyEntryForDelete(") && has(cmsJJJ, "export function emptiedListForDelete(") && has(cmsJJJ, "export function emptiedObjectForDelete(") && has(cmsJJJ, "export function emptiedLiveForDelete(") && has(cmsJJJ, "export function emptySectionToEmpty("), "every section kind must empty through one path");
-  ok("scalars empty honestly", has(cmsJJJ, 'if (type === "boolean") return false;') && has(cmsJJJ, 'if (type === "number") return 0;') && has(cmsJJJ, 'if (type === "strings") return [];'), "booleans off, numbers zero, string-lists empty");
-  ok("lists drop added, empty changed", has(cmsJJJ, "if (!prev) { added += 1; continue; }") && has(cmsJJJ, 'out.push({ ...clone(item), value: "" });') && has(cmsJJJ, "new Set([key])") && has(cmsJJJ, "return clone(b);"), "added never-published drops, copy values blank, ids stay matched, order-only reverts");
-  ok("objects empty differing fields", has(cmsJJJ, "emptiedListForDelete({ fields: f.fields || [] }") && has(cmsJJJ, "setPath(out, path, emptyScalarForType(f.type))"), "nested lists empty in place, scalars blank");
-  ok("live empties and stamps to send the off", has(cmsJJJ, 'sectionById("live")') && has(cmsJJJ, "out.hiddenReplays = [];") && has(cmsJJJ, "out.isLive = false;") && has(cmsJJJ, "out.guestIsLive = false;") && has(cmsJJJ, "out.liveCommandAt = curAt > pubAt ? curAt : now;") && has(cmsJJJ, "out.guestCommandAt = curGat > pubGat ? curGat : now;"), "addresses empty, take-offs clear, switches off, stamps only to carry the off");
-  ok("unsaved Delete keeps it dirty", has(cmsJJJ, "gateLiveCommand(after, before), before") && has(cmsJJJ, "emptied = relativizeUploadUrls(emptied);") && has(cmsJJJ, "pushEditUndo(sectionId, clone(after));") && has(cmsJJJ, "dirty[sectionId] = true;") && has(cmsJJJ, "if (autoPreview) {"), "gated already-empty answers false, sends stay relative, undoable, previewed");
-  ok("admin Deletes to empty", has(adminJJJ, "cms.emptySectionToEmpty(edit.sectionId)") && has(adminJJJ, "is empty now; Publish shows the empty on the site") && has(adminJJJ, "is already empty; Publish shows the empty on the site") && has(adminJJJ, "leave this field empty (Publish shows the empty on the site)") && has(adminJJJ, "Delete to empty one field (Publish then shows the empty on the site)") && has(adminJJJ, "leaves the field empty") && has(adminJJJ, "Publish shows that empty on the site"), "one tap empties everywhere, copy teaches empty-then-Publish");
-  ok("put back still reverts open", has(adminJJJ, "cms.revertSection(edit.sectionId)") && has(adminJJJ, "now showing the live site's words") && has(adminJJJ, "keeps its section open"), "Put back still drops the edit onto the live words");
-  ok("override is this update", has(srvJJJ, "OVERRIDE_NO_419 = 419"), "first boot must re-run the clear");
-  ok("apply leads with the empty", has(applyJJJ, "DELETE LEAVES THE FIELD EMPTY") && has(applyJJJ, "Publish shows the empty on the site"), "the office must meet the new rule first");
-  try {
-    const ebJJJ = await import("https://esm.sh/esbuild-wasm@0.21.5?bundle");
-    try { await ebJJJ.default.initialize({ wasmURL: "https://esm.sh/esbuild-wasm@0.21.5/esbuild.wasm" }); } catch {}
-    const grabJJJ = (src, name) => {
-      const from = src.indexOf("export function " + name + "(");
-      const eol = src.indexOf("\n", from);
-      const body = src.lastIndexOf("{", eol);
-      let depth = 0, end = -1;
-      for (let i = body; i < src.length && end < 0; i++) {
-        const ch = src[i];
-        if (ch === "{") depth++;
-        else if (ch === "}") { depth--; if (depth === 0) end = i + 1; }
-      }
-      return src.slice(from, end).replace("export function", "function");
-    };
-    const runJJJ = async (code, name) => {
-      const tc = await ebJJJ.default.transform(code + "\nmodule.exports = " + name + ";", { loader: "ts", format: "cjs" });
-      const mod = { exports: {} };
-      new Function("module", "exports", tc.code)(mod, mod.exports);
-      return mod.exports;
-    };
-    const scalarJJJ = await runJJJ(grabJJJ(cmsJJJ, "emptyScalarForType"), "emptyScalarForType");
-    ok("empty booleans switch off", scalarJJJ("boolean") === false, "a toggled field empties to off");
-    ok("empty numbers go zero", scalarJJJ("number") === 0, "a figured field empties to zero");
-    ok("empty string-lists go empty", JSON.stringify(scalarJJJ("strings")) === "[]", "a listed field empties to no lines");
-    ok("empty text goes blank", scalarJJJ("text") === "" && scalarJJJ("textarea") === "" && scalarJJJ("select") === "" && scalarJJJ("image") === "" && scalarJJJ("video") === "", "a worded field empties to blank");
-  } catch (e) {
-    ok("empty-field suite", false, String((e && e.message) || e).slice(0, 200));
-  }
+  /* KKK. Delete reverts again, welcome first on every deploy (note 421):
+     the note-419 empty path is gone — Delete drops the draft edit with no
+     reopen, Put back reverts and keeps the section open; the retained bundle
+     stays whole (host-relative uploads, cheap health door, last-published
+     first paint, clean unsaved); every deploy paints the welcome default
+     slide until a recover (restore a backup, then Publish) lands the
+     office's words, then changes happen. */
+  const cmsKKK = text["src/lib/cms.ts"];
+  const adminKKK = text["src/pages/Admin.tsx"];
+  const srvKKK = text["scripts/cms-server.js"];
+  const seedKKK = text["seed.json"];
+  const applyKKK = text["APPLY_UPDATE.txt"];
+  ok("empty path is gone", !has(cmsKKK, "emptySectionToEmpty") && !has(cmsKKK, "emptiedLiveForDelete") && !has(cmsKKK, "emptyScalarForType") && !has(cmsKKK, "emptiedListForDelete"), "no Delete may empty a field — a section edit plus Publish takes things off");
+  ok("delete predicate reads revert", has(cmsKKK, "Whether Delete on the unsaved list can publish removals (note 401)"), "the revert-only rule must read in the code");
+  ok("admin deletes to clear", has(adminKKK, "cms.revertSection(edit.sectionId)") && has(adminKKK, "is cleared from the admin") && has(adminKKK, "Delete to clear one entirely away from the admin with no reopen"), "Delete must drop the edit with no reopen");
+  ok("put back reverts and opens", has(adminKKK, "now showing the live site's words") && has(adminKKK, "keeps its section open"), "Put back must stay on the live words");
+  ok("retained bundle stays", has(cmsKKK, "relativizeUploadUrls") && has(cmsKKK, "gateLiveCommand") && has(cmsKKK, "dropStaleDirtyFlags") && has(cmsKKK, "stableStringify"), "relative uploads, live gating, flag cleaning and order-proof compares must survive the revert");
+  ok("override is this update", has(srvKKK, "OVERRIDE_NO_421 = 421"), "first boot must re-run the clear");
+  ok("welcome replants on first boot", has(srvKKK, "WELCOME_SLIDE_359") && has(srvKKK, 'setSection("slides", JSON.stringify(WELCOME_SLIDE_359))'), "any slides but the lone welcome card go back to welcome");
+  ok("welcome ships and heals", has(seedKKK, '"welcome-home"') && has(cmsKKK, "healDraftSlides"), "the bake carries the default card and untouched drafts follow it");
+  ok("recover lands the words", has(cmsKKK, "export async function importBackup") && has(adminKKK, "Restore a backup"), "a restore plus Publish is how changes happen after the welcome");
+  ok("apply leads revert plus welcome", has(applyKKK, "DELETE REVERTS") && has(applyKKK, "WELCOME FIRST") && has(applyKKK, "until a recover"), "the office must meet the revert and the welcome first");
 const notes = Number((text["src/lib/hooks.ts"].match(/BUILD_NOTES = (\d+)/) || [])[1]) || 0;
   const apply = text["APPLY_UPDATE.txt"];
   ok("update number consistent", notes > 0 && has(apply, `APPLY THIS UPDATE (${notes})`), "hooks=" + notes);

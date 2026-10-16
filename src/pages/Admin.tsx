@@ -914,14 +914,13 @@ function UnsavedView({
     fireToast(`Put back into ${edit.label} — now showing the live site's words.`, "info");
   };
 
-  /* Delete leaves the field empty (note 419): the unsaved change is emptied —
-     every section alike, livestream included — so the row stays as "to empty"
-     until Publish shows that empty on the site. Put back (below) is the one
-     that drops the edit. */
+  /* Delete clears it entirely away from the admin (note 413): the unsaved
+     edit is dropped for good — every section alike, livestream included — so
+     the row is gone and nothing lingers behind it. What is already live stays
+     live; taking something off the site is a section edit plus Publish. */
   const erase = (edit: cms.PendingEdit) => {
-    const res = cms.emptySectionToEmpty(edit.sectionId);
-    if (res.ok) fireToast(`Deleted — ${edit.label} is empty now; Publish shows the empty on the site.`, "info");
-    else fireToast(`${edit.label} is already empty; Publish shows the empty on the site.`, "info");
+    const res = cms.revertSection(edit.sectionId);
+    if (res.ok) fireToast(`Deleted — ${edit.label} is cleared from the admin.`, "info");
   };
 
   return (
@@ -953,7 +952,7 @@ function UnsavedView({
               </b>
               <em>
                 Only you can see these so far. Open one to carry on with it, press Publish to put them all live,
-                Delete to empty one field (Publish then shows the empty on the site), or Put back to revert one to the live site's words and keep its section open.
+                Delete to clear one entirely away from the admin with no reopen, or Put back to revert one to the live site's words and keep its section open.
               </em>
             </div>
           </div>
@@ -980,15 +979,16 @@ function UnsavedView({
                   <Icon name="chevronRight" size={16} className="ejob__chev" />
                 </button>
                 <span className="unsaved__btns">
-                  {/* Delete leaves the field empty (note 419) — every section alike,
-                      livestream included — and Publish shows that empty on the
-                      site; Put back reverts it and keeps that section open on
-                      the live site's words, so both answer on the first tap. */}
+                  {/* Delete clears the edit entirely away from the admin
+                      (note 413) — every section alike, livestream included,
+                      with no reopen — and Put back reverts it and keeps that
+                      section open on the live site's words (note 417), so both
+                      answer on the first tap. */}
                   <button
                     type="button"
                     className="admin__danger-btn unsaved__delete"
                     onClick={() => erase(edit)}
-                    title={`Delete — leave this field empty (Publish shows the empty on the site)`}
+                    title={`Delete — clear this change entirely away from the admin`}
                   >
                     <Icon name="trash" size={14} />
                     <span className="admin__danger-btn-label" aria-live="polite">
@@ -1010,9 +1010,9 @@ function UnsavedView({
           </div>
 
           <p className="epanel__foot">
-            Nothing here is on the site until you press <b>Publish</b> — <b>Delete</b> leaves the field empty
-            and Publish shows that empty on the site. <b>Put back</b> reverts that one change to the live site's
-            words and keeps its section open.
+            Nothing here is on the site until you press <b>Publish</b> — and <b>Delete</b> only clears the admin,
+            never the site: to take something off the site, remove it in its section and press Publish. <b>Put
+            back</b> reverts that one change to the live site's words and keeps its section open.
           </p>
         </>
       )}
