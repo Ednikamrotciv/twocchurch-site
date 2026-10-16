@@ -8,6 +8,7 @@ import { motion } from "framer-motion";
 import { Link, isPathMode, refreshRoute } from "../lib/router";
 import { Icon } from "./ui";
 import { photoOr } from "../data/photos";
+import { useCachedUploadUrl } from "../lib/uploadCache";
 import { useCmsVersion } from "../lib/cms";
 import { ct } from "../data/copy";
 import { tx } from "../lib/i18n";
@@ -293,7 +294,7 @@ function useVideoFrame(url: string): { poster: string; framed: string } {
 
 /* --------------------------------------------------------------------- one slide */
 
-/** Which photo a slide paints (note 375), pure for the verifier: an empty or
+/** Which photo a slide paints (note 376), pure for the verifier: an empty or
     unloadable address falls back to the welcome photo — never a black face. */
 export function resolveSlidePhoto(named: string, welcome: string, dead: boolean): string {
   if (!named) return welcome;
@@ -301,7 +302,7 @@ export function resolveSlidePhoto(named: string, welcome: string, dead: boolean)
   return named;
 }
 
-/** True while a named photo address will never paint (note 375): probed once
+/** True while a named photo address will never paint (note 376): probed once
     with a decoding load. Films, data/blob addresses and empties are not photos
     and never count. The composer reads the same address through the browser
     cache, so the probe costs no second download. */
@@ -360,14 +361,19 @@ export function AnnouncementSlide({
   /** A film that ran to its end hands the rhythm on at once. */
   onVideoEnded?: () => void;
 }) {
-  /* A named photo can still paint nothing (note 375): a wiped office-server
+  /* A named photo can still paint nothing (note 376): a wiped office-server
      upload answers with the app's own fallback page (HTTP 200, text/html) —
      no error status, just an unloadable "picture". The frame below would cut
      darkness round it and the space would sit black, so a photo that fails to
      decode falls back to the welcome photo exactly like an empty one. */
   const named = photoOr(slide.image, "welcome");
   const welcome = photoOr("", "welcome");
-  const original = resolveSlidePhoto(named, welcome, useDeadPhoto(named));
+  const deadNamed = useDeadPhoto(named);
+  /* Sleep-free (note 413): while the server copy is wiped, paint the cached
+     upload from this browser instead of the welcome fallback — blank-free. */
+  const cachedNamed = useCachedUploadUrl(named);
+  const effectiveNamed = cachedNamed || named;
+  const original = resolveSlidePhoto(effectiveNamed, welcome, !cachedNamed && deadNamed);
   /* A film upload plays as it is — visitors work it with the player's own
      volume and time-range controls, flat face only (the 3D stage plays it
      silently while it turns, see slides3d). */

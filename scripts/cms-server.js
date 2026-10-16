@@ -382,7 +382,7 @@ var LOG = [];
    restart clears it and the office re-reports within a poll. */
 var LIVE_REPORT = null;
 var REPORT_RELAY_MS = 150_000;
-/* Server-side relay gate (note 367): the server is the one choke point every
+/* Server-side relay gate (note 368): the server is the one choke point every
    bundle version reads through, so it enforces what no old tab can be trusted
    with. A stored answer is relayed only while it is fresh on the SERVER clock
    (a closed tab's last word dies here for every version at once — old bundles
@@ -415,17 +415,17 @@ function gatedReport() {
    change was needed. */
 var PREV = null;
 var UNDO_MS = 15 * 60 * 1000;
-/* @twocorg arrives ready (note 351): stored words keep whatever channel the
+/* @twocorg arrives ready (note 352): stored words keep whatever channel the
    office last published — debugging handles included — across every update.
    The first boot of this update moves a non-@twocorg channel to @twocorg
    once (see below); the flag rides the meta blob so a later intentional edit
    is never touched — the field stays editable. */
 var CH_READY = false;
-/* Recents + slides arrive clean (note 359): take-offs from a debugging
+/* Recents + slides arrive clean (note 360): take-offs from a debugging
    channel and slide uploads from it are cleared once (see below); the flag
    rides the meta blob so later office work is never touched. */
 var MEDIA_CLEAN = false;
-/* This update overrides the last one (note 361): the stamp below carries the update
+/* This update overrides the last one (note 362): the stamp below carries the update
    number itself (see the boot block), so the whole clear re-runs once per update — one-shot
    ever-flags from older updates can never catch later drift. */
 var OVERRIDE_CLEAN = 0;
@@ -749,7 +749,7 @@ function setSection(id, value) {
 
 loadState();
 
-/* @twocorg arrives ready (note 351): a stored live section naming anything
+/* @twocorg arrives ready (note 352): a stored live section naming anything
    but the church's handle is moved to @twocorg once, on the first boot of
    this update, on every copy that runs it — no reset tap, no retype. Empty
    stays empty (fresh copies read the @twocorg code default), and the CH_READY
@@ -775,7 +775,7 @@ try {
   /* a failed move must never break boot — the reset button still stands */
 }
 
-/* Recents + slides arrive clean (note 359): the office asked for every
+/* Recents + slides arrive clean (note 360): the office asked for every
    take-off cleared and the slide uploads gone, with only the welcome card
    left like the older update. The first boot of this update clears stored
    take-offs (`live.hiddenReplays`) and plants the lone welcome card over any
@@ -783,27 +783,27 @@ try {
    runs it, no stamp, no rev bump, no publish. A later take-off or a new
    slide is never touched (MEDIA_CLEAN above); a store with no slides
    section keeps none (the fallback already shows the welcome card). */
-var WELCOME_SLIDE_359 = [{ id: "welcome-home", image: "https://user.uploads.dev/file/ec157920014fb49a718f07e297b665c4.jpg", headline: "Welcome home", line: "First Sunday or fiftieth — there is a seat here with your name on it.", cta: "Plan your visit", link: "/visit", design: "auto", active: true }];
+var WELCOME_SLIDE_360 = [{ id: "welcome-home", image: "https://user.uploads.dev/file/ec157920014fb49a718f07e297b665c4.jpg", headline: "Welcome home", line: "First Sunday or fiftieth — there is a seat here with your name on it.", cta: "Plan your visit", link: "/visit", design: "auto", active: true }];
 try {
   if (!MEDIA_CLEAN) {
     MEDIA_CLEAN = true;
     try {
-      var live359 = JSON.parse(SECTIONS.live || "null");
-      if (live359 && typeof live359 === "object" && !Array.isArray(live359) && Array.isArray(live359.hiddenReplays) && live359.hiddenReplays.length) {
-        live359.hiddenReplays = [];
-        setSection("live", JSON.stringify(live359));
+      var live360 = JSON.parse(SECTIONS.live || "null");
+      if (live360 && typeof live360 === "object" && !Array.isArray(live360) && Array.isArray(live360.hiddenReplays) && live360.hiddenReplays.length) {
+        live360.hiddenReplays = [];
+        setSection("live", JSON.stringify(live360));
       }
     } catch (e) {
       /* a broken live section is the restore's work, not ours */
     }
     try {
       if (typeof SECTIONS.slides === "string") {
-        var slides359 = JSON.parse(SECTIONS.slides);
-        var onlyWelcome = Array.isArray(slides359) && slides359.length === 1 && slides359[0] && typeof slides359[0] === "object" && String(slides359[0].id || "") === "welcome-home";
-        if (!onlyWelcome) setSection("slides", JSON.stringify(WELCOME_SLIDE_359));
+        var slides360 = JSON.parse(SECTIONS.slides);
+        var onlyWelcome = Array.isArray(slides360) && slides360.length === 1 && slides360[0] && typeof slides360[0] === "object" && String(slides360[0].id || "") === "welcome-home";
+        if (!onlyWelcome) setSection("slides", JSON.stringify(WELCOME_SLIDE_360));
       }
     } catch (e) {
-      try { setSection("slides", JSON.stringify(WELCOME_SLIDE_359)); } catch (e2) {}
+      try { setSection("slides", JSON.stringify(WELCOME_SLIDE_360)); } catch (e2) {}
     }
     writeMeta();
     writeHeader();
@@ -812,58 +812,43 @@ try {
   /* a failed clear must never break boot — the console still stands */
 }
 
-/* This update overrides the last one (notes 361, 385): one-shot flags from older
-   updates (351/352's channel move, 359's media clear) can never run again, so
+/* This update overrides the last one (notes 362, 386): one-shot flags from older
+   updates (351/352's channel move, 360's media clear) can never run again, so
    anything that drifted since — a restored debugging channel, a stray stream
    link, re-hidden take-offs, re-added slides — would ride along forever. The
    stamp carries the update number itself, so the first boot of THIS update (and
    every future one) re-runs the whole clear once, on every copy that runs it:
    stored channel back to @twocorg, stray youtubeId dropped, take-offs cleared,
-   any slides but the lone welcome card replanted — and since note 385 the
+   any slides but the lone welcome card replanted — and since note 386 the
    temporary guest channel too, so every fix arrives fresh, new and clean. No
    stamp, no rev bump, no publish — later office work is never touched. */
-var OVERRIDE_NO_423 = 423;
+var OVERRIDE_NO_413 = 413;
 try {
-  if (OVERRIDE_CLEAN !== OVERRIDE_NO_423) {
-    OVERRIDE_CLEAN = OVERRIDE_NO_423;
+  if (OVERRIDE_CLEAN !== OVERRIDE_NO_413) {
+    OVERRIDE_CLEAN = OVERRIDE_NO_413;
     try {
-      var live423 = JSON.parse(SECTIONS.live || "null");
-      if (live423 && typeof live423 === "object" && !Array.isArray(live423)) {
-        var ch423 = String(live423.youtubeChannel || "").trim().replace(/@@+/g, "@").replace(/\s+/g, "");
-        var touched423 = false;
-        if (ch423 && ch423.toLowerCase() !== "@twocorg") { live423.youtubeChannel = "@twocorg"; touched423 = true; }
-        if (typeof live423.youtubeId === "string" && live423.youtubeId) { live423.youtubeId = ""; touched423 = true; }
-        if (typeof live423.externalYoutubeChannel === "string" && live423.externalYoutubeChannel) { live423.externalYoutubeChannel = ""; touched423 = true; }
-        if (live423.guestIsLive) { live423.guestIsLive = false; touched423 = true; }
-        if (Array.isArray(live423.hiddenReplays) && live423.hiddenReplays.length) { live423.hiddenReplays = []; touched423 = true; }
-        if (touched423) setSection("live", JSON.stringify(live423));
+      var live413 = JSON.parse(SECTIONS.live || "null");
+      if (live413 && typeof live413 === "object" && !Array.isArray(live413)) {
+        var ch413 = String(live413.youtubeChannel || "").trim().replace(/@@+/g, "@").replace(/\s+/g, "");
+        var touched413 = false;
+        if (ch413 && ch413.toLowerCase() !== "@twocorg") { live413.youtubeChannel = "@twocorg"; touched413 = true; }
+        if (typeof live413.youtubeId === "string" && live413.youtubeId) { live413.youtubeId = ""; touched413 = true; }
+        if (typeof live413.externalYoutubeChannel === "string" && live413.externalYoutubeChannel) { live413.externalYoutubeChannel = ""; touched413 = true; }
+        if (live413.guestIsLive) { live413.guestIsLive = false; touched413 = true; }
+        if (Array.isArray(live413.hiddenReplays) && live413.hiddenReplays.length) { live413.hiddenReplays = []; touched413 = true; }
+        if (touched413) setSection("live", JSON.stringify(live413));
       }
     } catch (e) {
       /* a broken live section is the restore's work, not ours */
     }
     try {
       if (typeof SECTIONS.slides === "string") {
-        var slides423 = JSON.parse(SECTIONS.slides);
-        var onlyWelcome423 = Array.isArray(slides423) && slides423.length === 1 && slides423[0] && typeof slides423[0] === "object" && String(slides423[0].id || "") === "welcome-home";
-        if (!onlyWelcome423) setSection("slides", JSON.stringify(WELCOME_SLIDE_359));
+        var slides413 = JSON.parse(SECTIONS.slides);
+        var onlyWelcome413 = Array.isArray(slides413) && slides413.length === 1 && slides413[0] && typeof slides413[0] === "object" && String(slides413[0].id || "") === "welcome-home";
+        if (!onlyWelcome413) setSection("slides", JSON.stringify(WELCOME_SLIDE_360));
       }
     } catch (e) {
-      try { setSection("slides", JSON.stringify(WELCOME_SLIDE_359)); } catch (e2) {}
-    }
-    try {
-      /* Upload addresses ride relative (note 415): an absolute .../data/uploads/
-         address names a host's disk and blanks on sleep — the relative form
-         names the committed file on every host. No stamp, no rev bump. */
-      var names423 = Object.keys(SECTIONS || {});
-      for (var i423 = 0; i423 < names423.length; i423++) {
-        var key423 = names423[i423];
-        var val423 = SECTIONS[key423];
-        if (typeof val423 !== "string" || val423.indexOf("/data/uploads/") < 0) continue;
-        var fixed423 = val423.replace(/https?:\/\/[^\/'"\s]+\/data\/uploads\//g, "/data/uploads/");
-        if (fixed423 !== val423) setSection(key423, fixed423);
-      }
-    } catch (e) {
-      /* a failed rewrite must never break boot */
+      try { setSection("slides", JSON.stringify(WELCOME_SLIDE_360)); } catch (e2) {}
     }
     writeMeta();
     writeHeader();
@@ -977,7 +962,7 @@ self.rpc = {
     });
   },
 
-  /* Freshness stamp (note 383): the tiny rev/notes/at answer every connected
+  /* Freshness stamp (note 384): the tiny rev/notes/at answer every connected
      tab asks on the short cadence, so a publish whose socket shout was missed
      still lands within the half minute on every copy. Public read — it names
      no words, only whether the words moved. */
@@ -1007,7 +992,7 @@ self.rpc = {
     if (videoId && !/^[\w-]{11}$/.test(videoId)) return fail("bad-report");
     var channelId = String(rep.channelId || "");
     if (channelId && !/^UC[\w-]{20,24}$/.test(channelId)) return fail("bad-report");
-    /* The reporter's own update (note 332): readers only trust their own
+    /* The reporter's own update (note 333): readers only trust their own
        update's reports, so mixed-version office tabs cannot steer each other. */
     var notes = Math.floor(Number(rep.notes) || 0);
     if (!Number.isFinite(notes) || notes < 0) notes = 0;
@@ -1019,7 +1004,7 @@ self.rpc = {
     return ok({ stored: true });
   },
 
-  /* Live-follow adoption (note 343): the office backend's own minute loop
+  /* Live-follow adoption (note 344): the office backend's own minute loop
      writes the live site's newer words here with the per-boot token (see
      cms-local.mjs) — never the admin password, which the backend does not
      know. Same validation and the same write path as publish (space check,

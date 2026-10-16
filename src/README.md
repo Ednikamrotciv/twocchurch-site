@@ -121,7 +121,7 @@ livestream** (a stopped session back on air where it held, else a new session: `
 `liveSince` stamped), **Pause the livestream** (off air with the session kept, so play picks it back up),
 and **Stop** (`isLive` off, `liveCut` stamped, at which point the finished service files itself into
 *Recent services*). Every click stamps `liveCommandAt`, and Publish sends the on-air state ONLY when a
-click stamped a newer command than what is published (SPEC note 389) — an unclicked Publish leaves the
+click stamped a newer command than what is published (SPEC note 390) — an unclicked Publish leaves the
 site's on-air state alone. A stop during a scheduled
 gathering also silences that gathering for the rest of its hours (`LIVE.liveCut`; `nextService` steps
 over it), so the pages count down to the next gathering instead of printing `0h 0m` until the hours
@@ -161,7 +161,7 @@ come back. A failed check is *unknown*, never *not live*, so a flaky proxy can o
 old behaviour — the office's own on-air state (the *Live stream* section's **Start** / **Continue** /
 **Stop** buttons, which write `LIVE.isLive`) and, when there is nothing to check at all, the service
 clock. **The badges read `displayLive()` in `src/lib/store.ts`** (the office's
-switch or the stream itself — never the bare clock, SPEC note 385); the short
+switch or the stream itself — never the bare clock, SPEC note 386); the short
 cadence still asks `onAir()` (switch, clock, or the stream — SPEC note 133), so
 pressing **Start the livestream** puts the whole site on air — the header's service pill, the home
 hero and next-gathering card and the Watch live panel — rather than the panel alone; with no stream

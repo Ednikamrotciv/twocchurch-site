@@ -57,10 +57,10 @@ export const LIVE = {
   /** A YouTube video id, or any YouTube link — the id is pulled out of it. */
   youtubeId: "",
   /** The church's YouTube channel (handle, id or link); the office types it in the console (note 112).
-      Shipped as the church's own address (note 328) so every fresh copy, every fallback bake and every
+      Shipped as the church's own address (note 329) so every fresh copy, every fallback bake and every
       reader with no published words yet watches @twocorg — never nothing, never a debugging channel. */
   youtubeChannel: "@twocorg",
-  /** A temporary guest channel (note 379): a one-off livestream from another
+  /** A temporary guest channel (note 380): a one-off livestream from another
       address. Empty unless the office sets it. It plays while IT is live,
       never reaches Recent services, and the site returns to youtubeChannel
       by itself when it ends. */
@@ -83,13 +83,10 @@ export const LIVE = {
   liveCut: 0,
   /** Who ended it: the office, or the stream itself. */
   liveEndedBy: "office" as "office" | "channel",
-  /** The broadcast the last end-fact belongs to (note 413): a new video id
-      means a new broadcast, so stale end-facts never pin a fresh live down. */
-  liveEndedVideo: "",
   /** Last button press at (ms); endings before it never override the office. */
   liveCommandAt: 0,
   /** The guest slot's own on-air switch, set by the guest row's buttons only
-      — never by the main row (note 403). */
+      — never by the main row (note 404). */
   guestIsLive: false,
   /** Last guest-row press at (ms); the guest state travels only on it. */
   guestCommandAt: 0,

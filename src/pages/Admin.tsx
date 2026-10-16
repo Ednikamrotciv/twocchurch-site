@@ -173,6 +173,7 @@ export function Admin() {
   /* The update window: visitors wait until the office restores + publishes —
      the two doors back, as plain buttons with no banner behind them. */
   const waiting = cms.maintenanceShouldWait();
+  
 
   /* Auto-stop watcher lives here so it runs whatever drawer card is open (note 111). */
   useAutoStopLive(canEdit);
@@ -904,23 +905,50 @@ function UnsavedView({
 }) {
   const edits = useMemo(() => cms.pendingEdits(), [version, signature]);
 
-  /* Put back reverts it and keeps that section open (note 417): the change is
-     dropped for good and the section opens on the live site's words — the row
-     is gone with no reopen, the section stays open, nothing lingers behind
-     it. What is already live stays live. */
+  /* Delete takes it off the site for real; Put back only drops the unsaved edit. */
   const putBack = (edit: cms.PendingEdit) => {
-    cms.revertSection(edit.sectionId);
-    onOpen(edit.sectionId);
-    fireToast(`Put back into ${edit.label} — now showing the live site's words.`, "info");
+    const res = cms.revertSection(edit.sectionId);
+    if (res.ok) fireToast(`Put back — ${edit.label} is the way the live site has it.`, "info");
   };
 
-  /* Delete clears it entirely away from the admin (note 413): the unsaved
-     edit is dropped for good — every section alike, livestream included — so
-     the row is gone and nothing lingers behind it. What is already live stays
-     live; taking something off the site is a section edit plus Publish. */
-  const erase = (edit: cms.PendingEdit) => {
-    const res = cms.revertSection(edit.sectionId);
-    if (res.ok) fireToast(`Deleted — ${edit.label} is cleared from the admin.`, "info");
+  /* Delete removes it for real: additions that never went live are dropped,
+     edits go back, and whatever was taken off is published straight away, so
+     it leaves the live site at once instead of coming back. Note 413: Delete
+     must always clear the row — even a generic live-transport change — so a
+     second tap force-clears and the row never sticks. */
+  const erase = async (edit: cms.PendingEdit) => {
+    const surgery = cms.dropAddedAndRevertedEdits(edit.sectionId);
+    if (!surgery.ok) {
+      const res = (cms as any).forceClearSection ? (cms as any).forceClearSection(edit.sectionId) : cms.revertSection(edit.sectionId);
+      if (res && res.ok) fireToast(`Deleted — ${edit.label} is the way the live site has it.`, "info");
+      else {
+        const retry = cms.revertSection(edit.sectionId);
+        fireToast(
+          retry.ok ? `Deleted — ${edit.label} is the way the live site has it.` : `Deleted — ${edit.label} is already as the live site has it.`,
+          "info"
+        );
+      }
+      return;
+    }
+    if (!surgery.removed) {
+      cms.revertSection(edit.sectionId);
+      fireToast("Deleted — it never went live, so the site is exactly as it was.", "info");
+      return;
+    }
+    const pub = await cms.publishSection(edit.sectionId, `Deleted from ${edit.label}`);
+    if (pub.ok) {
+      fireToast(
+        pub.local
+          ? "Deleted on this device — it leaves the site everywhere once the connection returns."
+          : "Deleted — gone from the site everywhere.",
+        pub.local ? "info" : "success"
+      );
+    } else {
+      fireToast(
+        `Delete did not go through (${pub.error === "unauthorized" ? "sign in first" : pub.error}) — nothing left the site, and Undo takes back the cleanup.`,
+        "error"
+      );
+    }
   };
 
   return (
@@ -952,7 +980,7 @@ function UnsavedView({
               </b>
               <em>
                 Only you can see these so far. Open one to carry on with it, press Publish to put them all live,
-                Delete to clear one entirely away from the admin with no reopen, or Put back to revert one to the live site's words and keep its section open.
+                Delete to take one off the site now, or Put back to change your mind about it.
               </em>
             </div>
           </div>
@@ -979,27 +1007,35 @@ function UnsavedView({
                   <Icon name="chevronRight" size={16} className="ejob__chev" />
                 </button>
                 <span className="unsaved__btns">
-                  {/* Delete clears the edit entirely away from the admin
-                      (note 413) — every section alike, livestream included,
-                      with no reopen — and Put back reverts it and keeps that
-                      section open on the live site's words (note 417), so both
-                      answer on the first tap. */}
-                  <button
-                    type="button"
-                    className="admin__danger-btn unsaved__delete"
-                    onClick={() => erase(edit)}
-                    title={`Delete — clear this change entirely away from the admin`}
-                  >
-                    <Icon name="trash" size={14} />
-                    <span className="admin__danger-btn-label" aria-live="polite">
-                      <span className="is-shown">Delete</span>
-                    </span>
-                  </button>
+                  {/* Delete publishes just the removals where a section has
+                      any (note 140) — everywhere else it only ever drops the
+                      draft edit, so it answers on the first tap like Put back
+                      instead of looking dead (note 402). */}
+                  {cms.sectionHasPublishableRemovals(edit.sectionId) ? (
+                    <ConfirmIcon
+                      className="unsaved__delete"
+                      onConfirm={() => erase(edit)}
+                      title={`Delete from the live site now — what was taken off leaves everywhere at once, and it does not come back`}
+                      label="Delete"
+                    />
+                  ) : (
+                    <button
+                      type="button"
+                      className="admin__danger-btn unsaved__delete"
+                      onClick={() => erase(edit)}
+                      title={`Delete — drop this unsaved edit`}
+                    >
+                      <Icon name="trash" size={14} />
+                      <span className="admin__danger-btn-label" aria-live="polite">
+                        <span className="is-shown">Delete</span>
+                      </span>
+                    </button>
+                  )}
                   <button
                     type="button"
                     className="unsaved__revert"
                     onClick={() => putBack(edit)}
-                    title={`Put it back — ${edit.label} reverts to the live site's words and stays open`}
+                    title={`Put it back — ${edit.label} goes back the way the live site has it`}
                   >
                     <Icon name="undo" size={13} />
                     <span>Put back</span>
@@ -1010,9 +1046,9 @@ function UnsavedView({
           </div>
 
           <p className="epanel__foot">
-            Nothing here is on the site until you press <b>Publish</b> — and <b>Delete</b> only clears the admin,
-            never the site: to take something off the site, remove it in its section and press Publish. <b>Put
-            back</b> reverts that one change to the live site's words and keeps its section open.
+            Nothing here is on the site until you press <b>Publish</b> — except what <b>Delete</b> takes off,
+            which leaves the live site at once. <b>Put back</b> drops that one change and leaves everything
+            else exactly as it is.
           </p>
         </>
       )}
@@ -1235,7 +1271,7 @@ function SectionBlock({
 
           {def.kind === "object" ? (
             <div className="admin__form">
-              {/* Each slot commands itself (note 403): the main row sits
+              {/* Each slot commands itself (note 404): the main row sits
                   under the "youtubeChannel" field, the guest row under the
                   "externalYoutubeChannel" field — so one row's buttons never
                   work the other slot. */}

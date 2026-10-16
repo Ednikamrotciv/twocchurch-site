@@ -1,53 +1,49 @@
-APPLY THIS UPDATE (423) — DELETE REVERTS, WELCOME FIRST ON EVERY DEPLOY
-=====================================================================================================================================
-DELETE REVERTS + WELCOME FIRST (read off the code — no box access this round): this update lands the whole bundle on the 415 base — Delete in Unsaved drops the draft edit — every section alike, livestream included — so the row is gone with no reopen and nothing lingers behind it (clicking Delete deletes and clears it); taking something off the site is a section edit plus Publish; Put back reverts one to the live site's words and keeps its section open. Still true, one per line so nothing hides: no live is EVER MUTED. The screen closes immediately any live ends. It never plays another channel's livestream by itself. PLAY/PAUSE IS ONE BUTTON and STOP IS ANOTHER. THE BUTTONS NEVER GATE A LIVE END. PUBLISH ONLY SENDS A CLICKED COMMAND. A NATURAL END NEEDS NO PUBLISH: press Play to arm the main, then publish — the screen plays it once the channel is live; pause to hold it, then publish; stop to end one that has not ended by itself, then publish. FACEBOOK live still plays as FACEBOOK. Every fix still ARRIVES FRESH with the notice on until the office publishes. EACH FIELD COMMANDS ITS OWN SLOT. MAIN WAITS FOR THE PLAY PRESS. GUEST ARRIVES EMPTY. NEXT BROADCAST NAMES THE SCREEN. LIGHTS ITS OWN DOT. EACH FIELD HAS ITS BUTTONS. DELETE CLEARS IT FROM THE ADMIN. PUT BACK REVERTS IT AND KEEPS THAT SECTION OPEN. ONE RECENTS SPOT. NOTHING GOES BLANK. WATCH PAGE PLAYS AGAIN. AUTOPLAY ONLY WHEN THE MAIN IS LIVE. THE MAIN CHANNEL STARTS BY ITSELF. WELCOME FIRST ON EVERY DEPLOY: every deploy paints the welcome default slide until a recover (restore a backup, then Publish) lands the office's words, then changes happen. HOST-RELATIVE UPLOADS, the /__health door, the immutable year cache, the last-published first paint and the clean unsaved list all stay exactly as they were, and after Publish the admin shows "Everything is published". ORDER stays: apply 423 locally, publish ON 423, wait for the terminal's "auto-deploy: new words pushed", THEN commit+push the full step-0 set (src/, scripts/, index.html, seed.json, .gitignore WITH the dot spelled out, maintenance-hold.txt) and rebuild BOTH hosts; version.json must read 423 AND /seed.json must list sections on both; reload ALL admin tabs; keep the office server running.
-What changed (note 423): the 415 base gains the whole retained bundle in one jump — host-relative uploads with absolute rewrites on read, compare and publish (src/lib/cms.ts: relativizeUploadUrls, stableStringify order-proof compares), year-immutable upload serving with the bake fallback (scripts/serve.mjs, vite backend, build-static.mjs), the cheap /__health door (serve + vite backend) with the DEPLOY keep-awake ping, last-published first paint with never-clear guards and files-before-words sends, the clean unsaved list (gateLiveCommand compare, dropStaleDirtyFlags), Delete-clears with no reopen plus Put-back-reverts-open (revertSection in src/pages/Admin.tsx — clicking Delete deletes and clears it), and the welcome-first deploy (seed welcome-only, first-boot override replant, untouched-draft heal, restore-then-Publish recover); the override stamp is 423 so this update overrides everything before it. The pre-ship verifier carries the GG/XX/CCC/DDD/EEE/FFF/III checks plus AAA (clear) and GGG (clear) with the new section KKK, all expecting 423.
-APPLY THIS UPDATE (417) — HOST-RELATIVE UPLOADS, HEALTH DOOR, LAST-PUBLISHED FIRST, CLEAN UNSAVED, DELETE CLEARS
-=====================================================================================================================================
-HOST-RELATIVE UPLOADS + HEALTH DOOR + LAST-PUBLISHED FIRST + CLEAN UNSAVED + DELETE CLEARS (read off the code — no box access this round): photos/videos now store as host-relative /data/uploads/..., never the office box's own address, and old absolute addresses are rewritten to relative on read, compare and publish; uploads serve immutable for a year (public, max-age=31536000, immutable), still fall back to the deployed bake when the disk is wiped, and prime the browser cache (the vault keeps the bytes behind the words on every paint) — so sleep, offline and the offline→online return all paint whole; a new cheap /__health door plus the keep-awake recipe in DEPLOY.md: point a free 5-minute ping (e.g. UptimeRobot → https://your-site/__health) and the host never idles to sleep, and if it ever does sleep the wake still re-serves last-published whole; first paint stays cache → baked seed → server/feed, and a failed network never clears it, while coming online re-syncs and re-primes uploads automatically so visitors visit and see the last published and the files travel before the words on every send and coming back online activates the last published whole with its contents; the ghost "This part of the site: changed" on the Live stream is fixed — unstamped on-air state no longer counts as an unsaved change (the unsaved list compares what Publish would send) and old dirty flags are cleaned at boot — and after Publish the admin shows "Everything is published"; Delete clears the row away entirely with no reopen, and Put back reverts it and keeps that section open in the admin on the live site's words. Still true, one per line so nothing hides: no live is EVER MUTED. The screen closes immediately any live ends. It never plays another channel's livestream by itself. PLAY/PAUSE IS ONE BUTTON and STOP IS ANOTHER. THE BUTTONS NEVER GATE A LIVE END. PUBLISH ONLY SENDS A CLICKED COMMAND. A NATURAL END NEEDS NO PUBLISH: press Play to arm the main, then publish — the screen plays it once the channel is live; pause to hold it, then publish; stop to end one that has not ended by itself, then publish. FACEBOOK live still plays as FACEBOOK. Every fix still ARRIVES FRESH with the notice on until the office publishes. EACH FIELD COMMANDS ITS OWN SLOT. MAIN WAITS FOR THE PLAY PRESS. GUEST ARRIVES EMPTY. NEXT BROADCAST NAMES THE SCREEN. LIGHTS ITS OWN DOT. EACH FIELD HAS ITS BUTTONS. DELETE CLEARS IT FROM THE ADMIN. PUT BACK REVERTS IT AND KEEPS THAT SECTION OPEN. ONE RECENTS SPOT. NOTHING GOES BLANK. WATCH PAGE PLAYS AGAIN. AUTOPLAY ONLY WHEN THE MAIN IS LIVE. THE MAIN CHANNEL STARTS BY ITSELF. ORDER stays: apply 417 locally, publish ON 417, wait for the terminal's "auto-deploy: new words pushed", THEN commit+push the full step-0 set (src/, scripts/, index.html, seed.json, .gitignore WITH the dot spelled out, maintenance-hold.txt) and rebuild BOTH hosts; version.json must read 417 AND /seed.json must list sections on both; reload ALL admin tabs; keep the office server running.
-What changed (note 417):
-Host-relative uploads plus absolute rewrites (`src/lib/cms.ts`: `sameJSON` compares the relative file, `applyOverrides` rewrites on read, `buildPatch`/`publishSection`/`publish` send relative; `scripts/cms-server.js` first-boot sweep kept); year-immutable upload serving (`scripts/serve.mjs`: `public, max-age=31536000, immutable` with the ROOT-to-DIST bake fallback kept; `scripts/vite-cms-backend.mjs` same door; `scripts/build-static.mjs` `_headers` plus `dist/data/uploads/.htaccess`); the cheap `/__health` door (`scripts/serve.mjs` answers from memory, `scripts/vite-cms-backend.mjs` parity) and the keep-awake recipe (`DEPLOY.md`: free 5-minute UptimeRobot ping); last-published first paint locked (cache → baked seed → server/feed with the empty/seeded never-clear guards); the ghost unsaved fixed (`pendingSections`/`pendingEdits` compare the gated send, `dropStaleDirtyFlags()` cleans old flags at boot so the end-fact flush never sticks shut); Delete clears with no reopen while Put back reverts and keeps the section open on the live site's words (`src/pages/Admin.tsx`); the override stamp is renumbered to 417 so this update overrides the last one, so every old clears away. The pre-ship verifier renumbers the GG/XX/CCC/DDD/EEE/FFF/GGG stamp needles to 417, amends AAA (revert-and-open) and GGG (same), and its new section III locks the relative rewrites, the immutable serving, the health door, the first-paint order, the clean unsaved, the clear/revert-open and the lead.
-APPLY THIS UPDATE (415) — ENTIRELY SLEEP-FREE, NOTHING BLANKS AFTER SLEEP, DELETE CLEARS, PUT BACK KEEPS, ONE RECENTS SPOT
-=====================================================================================================================================
-ENTIRELY SLEEP-FREE + OFFLINE-WHOLE + ONLINE-WHOLE (read off the code — no box access this round): the uploads kept blanking after a sleep and while offline because the words survived but the bytes did not — a photo is a separate file, and a wiped disk or a dead connection failed its fetch on every page. Now the browser keeps the bytes it has already seen (the vault keeps the bytes behind the words in `src/lib/uploadVault.ts`: every paint precaches the snapshot's `/data/uploads/` files into Cache Storage, a failed upload image falls back to the vault and then the welcome photo instead of a blank frame, and coming back online re-joins at once and activates the last published whole with its contents — nothing missing, nothing blank), the files travel before the words on every send (`src/lib/cms.ts`: `pushUploadFilesToServer` moves the office disk's files to the joined server before `publish`, `publishSection`, `flushPending` and `healEmptyServer` send the words that name them, and the `online` + visible ticks re-join, flush and re-precache so visitors visit and see the last published), and a failed deploy push retries by itself (`scripts/auto-push.mjs`: `schedulePushRetry` re-pushes a few times instead of waiting for the next publish). The override stamp is renumbered to 415 (first boot re-runs the whole clear). Still true, one per line so nothing hides: no live is EVER MUTED. The screen closes immediately any live ends. It never plays another channel's livestream by itself. PLAY/PAUSE IS ONE BUTTON and STOP IS ANOTHER. THE BUTTONS NEVER GATE A LIVE END. PUBLISH ONLY SENDS A CLICKED COMMAND. A NATURAL END NEEDS NO PUBLISH: press Play to arm the main, then publish — the screen plays it once the channel is live; pause to hold it, then publish; stop to end one that has not ended by itself, then publish. FACEBOOK live still plays as FACEBOOK. Every fix still ARRIVES FRESH with the notice on until the office publishes. EACH FIELD COMMANDS ITS OWN SLOT. MAIN WAITS FOR THE PLAY PRESS. GUEST ARRIVES EMPTY. NEXT BROADCAST NAMES THE SCREEN. LIGHTS ITS OWN DOT. EACH FIELD HAS ITS BUTTONS. The unsaved list's DELETE CLEARS IT FROM THE ADMIN and PUT BACK KEEPS IT IN THE ADMIN. The ended stage owns no card grid — ONE RECENTS SPOT — and NOTHING GOES BLANK after sleep or offline. ORDER stays: apply 415 locally, publish ON 415, wait for the terminal's "auto-deploy: new words pushed", THEN commit+push the full step-0 set (src/, scripts/, index.html, seed.json, .gitignore WITH the dot spelled out, maintenance-hold.txt) and rebuild BOTH hosts; version.json must read 415 AND /seed.json must list sections on both; reload ALL admin tabs; keep the office server running.
-What changed (note 415):
-New `src/lib/uploadVault.ts` (vault `wom-uploads-v1`, `isUploadUrl`/`uploadNameOf`/`listUploadNames`, throttled `ensureVaultForSnapshot`, `vaultBlobUrl`, `installUploadFallback` with a capture-phase failed-image fallback to the vault then the welcome photo); `src/lib/cms.ts` calls the vault on every paint (`applyOverrides`), installs the fallback plus an `online` re-join (flush + re-precache) and a visible re-precache at boot, and pushes upload files before words (`pushUploadFilesToServer` ahead of `publish`/`publishSection`/`flushPending`/`healEmptyServer`); `scripts/auto-push.mjs` retries a failed push by itself (`PUSH_RETRY_MS`, `PUSH_RETRY_MAX`, `schedulePushRetry`); the override stamp is renumbered to 415. The pre-ship verifier renumbers the GG/XX/CCC/DDD/EEE/FFF/GGG stamp needles to 415 and its new section HHH locks the vault, the files-first sends, the online whole and the retry plus the lead.
-APPLY THIS UPDATE (413) — NOTHING BLANKS AFTER SLEEP, DELETE CLEARS, PUT BACK KEEPS, ONE RECENTS SPOT
-======================================================================================================================================
-SLEEP-PROOF + CLEAN UNSAVED + DELETE/PUT BACK + ONE RECENTS SPOT (read off the code — no box access this round): uploads ride relative everywhere from here — what the office saves (same-host addresses), what the office already saved (healed on load), and what the server already stores (first boot re-runs the sweep once) — so a Render sleep or rebuild can no longer blank a photo: NOTHING GOES BLANK and the last publish wakes whole. Key order no longer counts as a change anywhere (unsaved list, patch, fold, flush, server answers), so phantom rows and forever-publishes are gone, and the livestream's on-air state reads plainly in the unsaved list (Stream switch, Session start, Ended mark, Ended by, Play command). A stream's own ending is a fact, not an edit: it lands in the draft and the baseline together with no unsaved row and no publish needed, queues for the server without a bless, and rides the next deliberate send — while a newer office command, a newer broadcast, or a fresh live edge always wins over stale facts. The unsaved list's DELETE CLEARS IT FROM THE ADMIN (one tap, every section alike, livestream included — the row is gone and nothing lingers; what is already live stays live) and PUT BACK KEEPS IT IN THE ADMIN (opens the section with the change intact — nothing dropped, nothing live). The ended stage is a still with a way down and the previous services live in their own section below — ONE RECENTS SPOT, never a second copy of the card grid — and a doubled card dedupes to one. Still true, one per line so nothing hides: no live is EVER MUTED. The screen closes immediately any live ends. It never plays another channel's livestream by itself. PLAY/PAUSE IS ONE BUTTON and STOP IS ANOTHER. THE BUTTONS NEVER GATE A LIVE END. PUBLISH ONLY SENDS A CLICKED COMMAND. A NATURAL END NEEDS NO PUBLISH: press Play to arm the main, then publish — the screen plays it once the channel is live; pause to hold it, then publish; stop to end one that has not ended by itself, then publish. FACEBOOK live still plays as FACEBOOK. Every fix still ARRIVES FRESH with the notice on until the office publishes. EACH FIELD COMMANDS ITS OWN SLOT. MAIN WAITS FOR THE PLAY PRESS. GUEST ARRIVES EMPTY. NEXT BROADCAST NAMES THE SCREEN. LIGHTS ITS OWN DOT. EACH FIELD HAS ITS BUTTONS. ORDER stays: apply 413 locally, publish ON 413, wait for the terminal's "auto-deploy: new words pushed", THEN commit+push the full step-0 set (src/, scripts/, index.html, seed.json, .gitignore WITH the dot spelled out, maintenance-hold.txt) and rebuild BOTH hosts; version.json must read 413 AND /seed.json must list sections on both; reload ALL admin tabs; keep the office server running.
+APPLY THIS UPDATE (413) — UNSAVED DELETE CLEARS, ONE RECENT SERVICES, VERIFIED LIVESTREAM, SLEEP-FREE UPLOADS, HOLD ON
+==================================================================================================================
+FIXES (your screenshots + sleep report — no box access this round): (1) Unsaved Live stream Delete now always clears — stable compare (key order never fakes a change), live transport keys named (On-air switch/Session/Press/Take-offs instead of generic "changed"), revert force-clears phantom dirty, Delete force-clears with toast. (2) WatchLive shows Recent services ONCE — the ended-screen duplicate thumbs strip is deleted, only #recent-services remains. (3) Livestream never sits on black "unavailable" — ids play only once verified (unknown waits on LiveWaiting clock, dead falls back, channel follows stay one-tap). (4) Sleep-free uploads — every picture/video cached in this browser (IndexedDB+localStorage), wiped server files auto-restored on boot/online/visible/5min, slides + editor preview paint cached blank-free immediately on return or local. (5) Maintenance hold ACTIVE — maintenance-hold.txt ships, builds stamp hold, fresh visitors wait until the office publishes. Still true, one per line so nothing hides: no live is EVER MUTED. The screen closes immediately any live ends. It never plays another channel's livestream by itself. PLAY/PAUSE IS ONE BUTTON and STOP IS ANOTHER. THE BUTTONS NEVER GATE A LIVE END. PUBLISH ONLY SENDS A CLICKED COMMAND. A NATURAL END NEEDS NO PUBLISH: press Play to arm the main, then publish — the screen plays it once the channel is live and verified; pause to hold it, then publish; stop to end one that has not ended by itself, then publish. FACEBOOK live still plays as FACEBOOK. Every fix ARRIVES FRESH with the notice on until the office publishes. EACH FIELD COMMANDS ITS OWN SLOT. MAIN WAITS FOR THE PLAY PRESS. GUEST ARRIVES EMPTY. NEXT BROADCAST NAMES THE SCREEN. LIGHTS ITS OWN DOT. ORDER stays: BACK UP FIRST (step 1 — download content backup so uploads ride along), apply 413 locally, publish ON 413, wait for the terminal's "auto-deploy: new words pushed", THEN commit+push the full step-0 set (src/, scripts/, index.html, seed.json, .gitignore WITH the dot spelled out, maintenance-hold.txt) and rebuild BOTH hosts; version.json must read 413 AND /seed.json must list sections on both; reload ALL admin tabs; keep the office server running.
 What changed (note 413):
-Order-proof compares plus readable on-air lines (`src/lib/cms.ts`): new pure `stableStringify` (sorted keys; arrays keep order) behind every section-value compare — `pendingSections`, `changedSections`, `diffAgainstLive`, `resetSection`, `setSectionValue`, `buildPatch`, the fold loop, the flush consider, the server `differs` — and the livestream's transport keys name themselves in the unsaved list. Uploads ride relative (`src/components/editor.tsx`, `src/lib/cms.ts`, `scripts/cms-server.js`): same-host saves, first-keystroke saves, load-time healing, and a first-boot server sweep; a hosted-only photo warns in the drawer and a dead photo names itself. Stream ends are facts (`src/lib/cms.ts`, `src/lib/autostop.ts`, `src/data/live.ts`, `seed.json`): new `recordStreamEndFacts` (draft + baseline + cache + unblessed queue, no dirty flag), `withQueuedFacts` piggyback on every send path, `flushStreamFacts`, `noteFactsSent`, `clearStaleQueuedFacts` on live edges, `keepNewerEndFacts` guarding the fold and the server adopt, and the `liveEndedVideo` key shipped false/empty. Delete clears, Put back keeps (`src/pages/Admin.tsx`): both answer on the first tap, the foot teaches the rule. One recents spot (`src/pages/WatchLive.tsx`, `src/lib/recentstreams.ts`): the ended thumbs grid is gone (the section below owns the cards) and new pure `dedupeRecents` keeps one card per broadcast. The override stamp is renumbered to 413 (first boot re-runs the whole clear). The pre-ship verifier renumbers the GG/XX/CCC/DDD/EEE/FFF stamp needles, amends VV (thumbs gone) and AAA (clear/keep), and its new section GGG locks the order-proof compares, the end-facts, the clear/keep, the relative uploads, the dedupe and the lead.
-APPLY THIS UPDATE (411) — WATCH PAGE PLAYS AGAIN, NO CRASH, AUTOPLAY STILL NEEDS A LIVE MAIN
+- src/lib/cms.ts: stableStringify/sameJSON/pendingSections/changedSections, objectPending live-transport lines, revertSection phantom-dirty clear, new forceClearSection, healMissingUploads + schedule on boot/visible/online/5min, uploadCache import.
+- src/pages/Admin.tsx: erase() force-clears via forceClearSection with toast, never sticks.
+- src/pages/WatchLive.tsx: endedThumbs const + live-ended__thumbs JSX deleted (only #recent-services lists), playableId requires idVerdict===true, verifiedFallbackId + checkingLiveId/checkingFallbackId wait on LiveWaiting, liveSource uses verified ids only.
+- src/components/blocks.tsx: VideoPlayer autoplay verifies first (unverified waits, dead falls back, no black frame).
+- src/lib/uploadCache.ts (new): IndexedDB wom-uploads + localStorage, cacheUploadBlob/getCachedDataUrl/useCachedUploadUrl.
+- src/components/editor.tsx: PhotoUpload/VideoUpload/fitPasted cache bytes, image preview falls back to cached.
+- src/components/slides.tsx: AnnouncementSlide paints cached upload while server copy wiped.
+- scripts/cms-server.js: OVERRIDE_NO_413=413 re-runs clear once (channel/stray/guest/take-offs/slides).
+- src/lib/hooks.ts: BUILD_NOTES 413.
+- src/tools/verify-update.mjs: GGG locks 413 + ended-duplicate absence + hold ships.
+- maintenance-hold.txt SHIPS (do not delete) — builds stamp hold until Publish releases.
+APPLY THIS UPDATE (412) — WATCH PAGE PLAYS AGAIN, NO CRASH, AUTOPLAY STILL NEEDS A LIVE MAIN
 ==================================================================================================================
-CRASH FIX (your screenshot named it: `Cannot access 'streaming' before initialization`, page `/admin/watch-live`): the Watch screen built its player source before the on-air answer it reads existed, so every render of the Watch page — visitor and admin preview alike — died on load. Now the answer is declared first and the page loads: waiting clock, live player, ended screen and thumbnails all work again. Nothing else about the rules changed: AUTOPLAY ONLY WHEN THE MAIN IS LIVE (a pressed main with no detected broadcast waits on the clock; a pressed-live main plays by itself with sound; verified off waits), the guest still opens on detection while IT is live and a published guest Play still opens its walled channel. Still true, one per line so nothing hides: no live is EVER MUTED. The screen closes immediately any live ends. It never plays another channel's livestream by itself. PLAY/PAUSE IS ONE BUTTON and STOP IS ANOTHER. THE BUTTONS NEVER GATE A LIVE END. PUBLISH ONLY SENDS A CLICKED COMMAND. A NATURAL END NEEDS NO PUBLISH: press Play to arm the main, then publish — the screen plays it once the channel is live; pause to hold it, then publish; stop to end one that has not ended by itself, then publish. FACEBOOK live still plays as FACEBOOK. Every fix still ARRIVES FRESH with the notice on until the office publishes. EACH FIELD COMMANDS ITS OWN SLOT. MAIN WAITS FOR THE PLAY PRESS. GUEST ARRIVES EMPTY. NEXT BROADCAST NAMES THE SCREEN. LIGHTS ITS OWN DOT. EACH FIELD HAS ITS BUTTONS. ORDER stays: apply 411 locally, publish ON 411, wait for the terminal's "auto-deploy: new words pushed", THEN commit+push the full step-0 set (src/, scripts/, index.html, seed.json, .gitignore WITH the dot spelled out, maintenance-hold.txt) and rebuild BOTH hosts; version.json must read 411 AND /seed.json must list sections on both; reload ALL admin tabs; keep the office server running.
-What changed (note 411):
-One reorder in `src/pages/WatchLive.tsx`: `const streaming` (with its press-plus-detection rule) now sits beside `overrideId`, before the `liveSource` initializer that reads it — identical expression, identical behavior, no more dead zone. The override stamp is renumbered to 411 (first boot re-runs the whole clear). The pre-ship verifier renumbers the GG/XX/CCC/DDD/EEE stamp needles and its new section FFF locks the declaration order plus the lead.
-APPLY THIS UPDATE (409) — AUTOPLAY ONLY WHEN THE MAIN IS LIVE, GUEST PRESS STILL OPENS
+CRASH FIX (your screenshot named it: `Cannot access 'streaming' before initialization`, page `/admin/watch-live`): the Watch screen built its player source before the on-air answer it reads existed, so every render of the Watch page — visitor and admin preview alike — died on load. Now the answer is declared first and the page loads: waiting clock, live player, ended screen and thumbnails all work again. Nothing else about the rules changed: AUTOPLAY ONLY WHEN THE MAIN IS LIVE (a pressed main with no detected broadcast waits on the clock; a pressed-live main plays by itself with sound; verified off waits), the guest still opens on detection while IT is live and a published guest Play still opens its walled channel. Still true, one per line so nothing hides: no live is EVER MUTED. The screen closes immediately any live ends. It never plays another channel's livestream by itself. PLAY/PAUSE IS ONE BUTTON and STOP IS ANOTHER. THE BUTTONS NEVER GATE A LIVE END. PUBLISH ONLY SENDS A CLICKED COMMAND. A NATURAL END NEEDS NO PUBLISH: press Play to arm the main, then publish — the screen plays it once the channel is live; pause to hold it, then publish; stop to end one that has not ended by itself, then publish. FACEBOOK live still plays as FACEBOOK. Every fix still ARRIVES FRESH with the notice on until the office publishes. EACH FIELD COMMANDS ITS OWN SLOT. MAIN WAITS FOR THE PLAY PRESS. GUEST ARRIVES EMPTY. NEXT BROADCAST NAMES THE SCREEN. LIGHTS ITS OWN DOT. EACH FIELD HAS ITS BUTTONS. ORDER stays: apply 412 locally, publish ON 412, wait for the terminal's "auto-deploy: new words pushed", THEN commit+push the full step-0 set (src/, scripts/, index.html, seed.json, .gitignore WITH the dot spelled out, maintenance-hold.txt) and rebuild BOTH hosts; version.json must read 412 AND /seed.json must list sections on both; reload ALL admin tabs; keep the office server running.
+What changed (note 412):
+One reorder in `src/pages/WatchLive.tsx`: `const streaming` (with its press-plus-detection rule) now sits beside `overrideId`, before the `liveSource` initializer that reads it — identical expression, identical behavior, no more dead zone. The override stamp is renumbered to 412 (first boot re-runs the whole clear). The pre-ship verifier renumbers the DD/UU/ZZ/AAA/BBB stamp needles and its new section CCC locks the declaration order plus the lead.
+APPLY THIS UPDATE (410) — AUTOPLAY ONLY WHEN THE MAIN IS LIVE, GUEST PRESS STILL OPENS
 ==================================================================================================================
-MAIN PRESS WAITS FOR DETECTION (read off the code — no box access this round): a published main Play used to open the commanded channel itself while the read was walled — now a pressed main with no detected broadcast sits on the waiting clock (badges lit, no player) and autoplays only once the main livestream has started live on the channel; a pressed main with a detected broadcast still plays by itself with sound, a verified off still waits, and the guest still opens on detection while IT is live (a published guest Play still opens its walled channel). Still true, one per line so nothing hides: no live is EVER MUTED. The screen closes immediately any live ends. It never plays another channel's livestream by itself. PLAY/PAUSE IS ONE BUTTON and STOP IS ANOTHER. THE BUTTONS NEVER GATE A LIVE END. PUBLISH ONLY SENDS A CLICKED COMMAND. A NATURAL END NEEDS NO PUBLISH: press Play to arm the main, then publish — the screen plays it once the channel is live; pause to hold it, then publish; stop to end one that has not ended by itself, then publish. FACEBOOK live still plays as FACEBOOK. Every fix still ARRIVES FRESH with the notice on until the office publishes. EACH FIELD COMMANDS ITS OWN SLOT. MAIN WAITS FOR THE PLAY PRESS. GUEST ARRIVES EMPTY. NEXT BROADCAST NAMES THE SCREEN. LIGHTS ITS OWN DOT. EACH FIELD HAS ITS BUTTONS. ORDER stays: apply 409 locally, publish ON 409, wait for the terminal's "auto-deploy: new words pushed", THEN commit+push the full step-0 set (src/, scripts/, index.html, seed.json, .gitignore WITH the dot spelled out, maintenance-hold.txt) and rebuild BOTH hosts; version.json must read 409 AND /seed.json must list sections on both; reload ALL admin tabs; keep the office server running.
-What changed (note 409):
-Only the walled-play branch changes (`src/pages/WatchLive.tsx`): the override player now opens only for the commanded guest slot (`overrideGuest && overrideId`) — a pressed main with an unknown read falls through to the waiting clock instead of autoplaying the channel; `streaming`, `waitingForClick`, the shut latch, badges, transport, gate and guest/fresh/notice behavior are untouched. The override stamp is renumbered to 409 (first boot re-runs the whole clear). The pre-ship verifier amends BBB to the guest-only opening and its new section EEE locks the main-press wait, the guest opening and the lead. Note 403's main-opens-channel is superseded for the main slot.
-APPLY THIS UPDATE (407) — MAIN WAITS FOR THE PLAY PRESS, GUEST ARRIVES EMPTY, CRASH NAMES ITSELF
+MAIN PRESS WAITS FOR DETECTION (read off the code — no box access this round): a published main Play used to open the commanded channel itself while the read was walled — now a pressed main with no detected broadcast sits on the waiting clock (badges lit, no player) and autoplays only once the main livestream has started live on the channel; a pressed main with a detected broadcast still plays by itself with sound, a verified off still waits, and the guest still opens on detection while IT is live (a published guest Play still opens its walled channel). Still true, one per line so nothing hides: no live is EVER MUTED. The screen closes immediately any live ends. It never plays another channel's livestream by itself. PLAY/PAUSE IS ONE BUTTON and STOP IS ANOTHER. THE BUTTONS NEVER GATE A LIVE END. PUBLISH ONLY SENDS A CLICKED COMMAND. A NATURAL END NEEDS NO PUBLISH: press Play to arm the main, then publish — the screen plays it once the channel is live; pause to hold it, then publish; stop to end one that has not ended by itself, then publish. FACEBOOK live still plays as FACEBOOK. Every fix still ARRIVES FRESH with the notice on until the office publishes. EACH FIELD COMMANDS ITS OWN SLOT. MAIN WAITS FOR THE PLAY PRESS. GUEST ARRIVES EMPTY. NEXT BROADCAST NAMES THE SCREEN. LIGHTS ITS OWN DOT. EACH FIELD HAS ITS BUTTONS. ORDER stays: apply 410 locally, publish ON 410, wait for the terminal's "auto-deploy: new words pushed", THEN commit+push the full step-0 set (src/, scripts/, index.html, seed.json, .gitignore WITH the dot spelled out, maintenance-hold.txt) and rebuild BOTH hosts; version.json must read 410 AND /seed.json must list sections on both; reload ALL admin tabs; keep the office server running.
+What changed (note 410):
+Only the walled-play branch changes (`src/pages/WatchLive.tsx`): the override player now opens only for the commanded guest slot (`overrideGuest && overrideId`) — a pressed main with an unknown read falls through to the waiting clock instead of autoplaying the channel; `streaming`, `waitingForClick`, the shut latch, badges, transport, gate and guest/fresh/notice behavior are untouched. The override stamp is renumbered to 410 (first boot re-runs the whole clear). The pre-ship verifier amends YY to the guest-only opening and its new section BBB locks the main-press wait, the guest opening and the lead. Note 404's main-opens-channel is superseded for the main slot.
+APPLY THIS UPDATE (408) — MAIN WAITS FOR THE PLAY PRESS, GUEST ARRIVES EMPTY, CRASH NAMES ITSELF
 ==================================================================================================================
-CLICK TO PLAY + EMPTY GUEST + CRASH REPORT (read off the code and your screenshot — no box access this round): the main channel opened the screen by itself whenever YouTube was live — now it waits for your Play press (published): with no press behind it a live main sits on the waiting clock naming the gathering, never autoplaying, never lighting the badges; the guest still opens on detection while IT is live. The guest slot arrives empty everywhere on this update: stored words (first boot re-runs the clear), the draft (even a dirty one — carried-over guest words go once, every other edit untouched), restores and endings as before — so no unsaved guest row rides in and deployed publishes empty. And the crash screen in your screenshot (`Cannot access 'X' before initialization`) now prints the page that broke plus the full component stack in the console — if it ever returns, the screenshot names the page. Still true, one per line so nothing hides: no live is EVER MUTED. The screen closes immediately any live ends. It never plays another channel's livestream by itself. PLAY/PAUSE IS ONE BUTTON and STOP IS ANOTHER. THE BUTTONS NEVER GATE A LIVE END. PUBLISH ONLY SENDS A CLICKED COMMAND. A NATURAL END NEEDS NO PUBLISH: press Play to open the main, then publish; pause to hold it, then publish; stop to end one that has not ended by itself, then publish. FACEBOOK live still plays as FACEBOOK. Every fix still ARRIVES FRESH with the notice on until the office publishes. EACH FIELD COMMANDS ITS OWN SLOT. ORDER stays: apply 407 locally, publish ON 407, wait for the terminal's "auto-deploy: new words pushed", THEN commit+push the full step-0 set (src/, scripts/, index.html, seed.json, .gitignore WITH the dot spelled out, maintenance-hold.txt) and rebuild BOTH hosts; version.json must read 407 AND /seed.json must list sections on both; reload ALL admin tabs; keep the office server running.
-What changed (note 407):
-Three fixes. First, the main waits for the press (`src/lib/store.ts`, `src/lib/livestatus.ts`, `src/pages/WatchLive.tsx`): `displayLive()` no longer opens the badges on a bare main detection — only the office switch (published Play), the guest's own detection, or the guest switch light them; new pure `guestLiveNow()` names the guest answer. The Watch screen autoplays only a pressed main, a live guest, or a live Facebook — an unpressed live main waits on the ticking clock naming the gathering (new `waitingForClick`: never the ended screen while something IS live, never another slot; the shut latch still closes first). The drawer copy follows (Play toast, unconfigured warning, ended-branch comment). Second, the guest arrives empty (`scripts/cms-server.js`, `src/lib/cms.ts`): the override stamp is renumbered to 407 (first boot re-runs the whole clear), and a proven new update now sweeps the draft guest slot too — field plus both guest keys, dirty or not, other edits untouched — so the unsaved list opens empty. Third, the crash screen reports (`src/components/ErrorBoundary.tsx`): route plus component stack to the console, route printed under the message. The pre-ship verifier amends SS (click-gated badges/screen) and the BBB streaming needle, and its new section DDD locks the press rule, the empty arrival and the report. Note 399's self-start is superseded: nothing plays unpressed.
-APPLY THIS UPDATE (405) — NEXT BROADCAST NAMES THE SCREEN, EACH SLOT LIGHTS ITS OWN DOT
+CLICK TO PLAY + EMPTY GUEST + CRASH REPORT (read off the code and your screenshot — no box access this round): the main channel opened the screen by itself whenever YouTube was live — now it waits for your Play press (published): with no press behind it a live main sits on the waiting clock naming the gathering, never autoplaying, never lighting the badges; the guest still opens on detection while IT is live. The guest slot arrives empty everywhere on this update: stored words (first boot re-runs the clear), the draft (even a dirty one — carried-over guest words go once, every other edit untouched), restores and endings as before — so no unsaved guest row rides in and deployed publishes empty. And the crash screen in your screenshot (`Cannot access 'X' before initialization`) now prints the page that broke plus the full component stack in the console — if it ever returns, the screenshot names the page. Still true, one per line so nothing hides: no live is EVER MUTED. The screen closes immediately any live ends. It never plays another channel's livestream by itself. PLAY/PAUSE IS ONE BUTTON and STOP IS ANOTHER. THE BUTTONS NEVER GATE A LIVE END. PUBLISH ONLY SENDS A CLICKED COMMAND. A NATURAL END NEEDS NO PUBLISH: press Play to open the main, then publish; pause to hold it, then publish; stop to end one that has not ended by itself, then publish. FACEBOOK live still plays as FACEBOOK. Every fix still ARRIVES FRESH with the notice on until the office publishes. EACH FIELD COMMANDS ITS OWN SLOT. ORDER stays: apply 408 locally, publish ON 408, wait for the terminal's "auto-deploy: new words pushed", THEN commit+push the full step-0 set (src/, scripts/, index.html, seed.json, .gitignore WITH the dot spelled out, maintenance-hold.txt) and rebuild BOTH hosts; version.json must read 408 AND /seed.json must list sections on both; reload ALL admin tabs; keep the office server running.
+What changed (note 408):
+Three fixes. First, the main waits for the press (`src/lib/store.ts`, `src/lib/livestatus.ts`, `src/pages/WatchLive.tsx`): `displayLive()` no longer opens the badges on a bare main detection — only the office switch (published Play), the guest's own detection, or the guest switch light them; new pure `guestLiveNow()` names the guest answer. The Watch screen autoplays only a pressed main, a live guest, or a live Facebook — an unpressed live main waits on the ticking clock naming the gathering (new `waitingForClick`: never the ended screen while something IS live, never another slot; the shut latch still closes first). The drawer copy follows (Play toast, unconfigured warning, ended-branch comment). Second, the guest arrives empty (`scripts/cms-server.js`, `src/lib/cms.ts`): the override stamp is renumbered to 408 (first boot re-runs the whole clear), and a proven new update now sweeps the draft guest slot too — field plus both guest keys, dirty or not, other edits untouched — so the unsaved list opens empty. Third, the crash screen reports (`src/components/ErrorBoundary.tsx`): route plus component stack to the console, route printed under the message. The pre-ship verifier amends PP (click-gated badges/screen) and the YY streaming needle, and its new section ZZ locks the press rule, the empty arrival and the report. Note 400's self-start is superseded: nothing plays unpressed.
+APPLY THIS UPDATE (406) — NEXT BROADCAST NAMES THE SCREEN, EACH SLOT LIGHTS ITS OWN DOT
 ==================================================================================================================
-HEADING + DOTS (read off the code, no box access this round): pressing Play published the badges while the heading fell back to the standing "Sunday Celebration — live" even when the next broadcast is a different gathering — now the screen names the gathering the clock has on, or the NEXT one when nothing is on yet (a detected stream's own title still wins; a forced guest with no detected title keeps the office headline). And each channel field carries its own on-air light: the blinking red dot sits in the row under the YouTube channel field while the main slot is live, and in the row under the guest field while the guest slot is live (the check's answer or the office switch; the countdown alone never lights one). Still true, one per line so nothing hides: no live is EVER MUTED. The screen closes immediately any live ends. It never plays another channel's livestream by itself. PLAY/PAUSE IS ONE BUTTON and STOP IS ANOTHER. THE BUTTONS NEVER GATE A LIVE END. PUBLISH ONLY SENDS A CLICKED COMMAND. A NATURAL END NEEDS NO PUBLISH: the main starts by itself with no press (THE MAIN CHANNEL STARTS BY ITSELF); play to override, then publish; pause to hold it, then publish; stop to end one that has not ended by itself, then publish. FACEBOOK live still plays as FACEBOOK. Every fix still ARRIVES FRESH with the notice on until the office publishes. EACH FIELD COMMANDS ITS OWN SLOT. ORDER stays: apply 405 locally, publish ON 405, wait for the terminal's "auto-deploy: new words pushed", THEN commit+push the full step-0 set (src/, scripts/, index.html, seed.json, .gitignore WITH the dot spelled out, maintenance-hold.txt) and rebuild BOTH hosts; version.json must read 405 AND /seed.json must list sections on both; reload ALL admin tabs; keep the office server running.
-What changed (note 405):
-The heading fell back to the standing office headline (`src/pages/WatchLive.tsx`): with Play published and the read walled, `liveName` used the clock's gathering only while the clock itself said live, then printed `LIVE.liveTitle` — so a midweek press read "Sunday Celebration — live". Now it resolves the detected title, else the gathering the clock has on or the next one, else the headline — except a forced guest with no detected title, which keeps the headline since the schedule never names a guest event. Each transport row (`src/components/editor.tsx` + `src/styles/admin.css`) also carries its own on-air light: the main row subscribes to the shared check and lights the blinking red dot while the main address reads live (or the main switch is on); the guest row does the same for the typed guest field (or its own switch) — one row never lights for the other, and the countdown alone lights neither. The override stamp is renumbered to 405. The pre-ship verifier renumbers the GG/XX stamp needles and its new section CCC locks the naming and the dots.
-APPLY THIS UPDATE (403) — EACH FIELD COMMANDS ITS OWN SLOT, PLAY OPENS THE CHANNEL
+HEADING + DOTS (read off the code, no box access this round): pressing Play published the badges while the heading fell back to the standing "Sunday Celebration — live" even when the next broadcast is a different gathering — now the screen names the gathering the clock has on, or the NEXT one when nothing is on yet (a detected stream's own title still wins; a forced guest with no detected title keeps the office headline). And each channel field carries its own on-air light: the blinking red dot sits in the row under the YouTube channel field while the main slot is live, and in the row under the guest field while the guest slot is live (the check's answer or the office switch; the countdown alone never lights one). Still true, one per line so nothing hides: no live is EVER MUTED. The screen closes immediately any live ends. It never plays another channel's livestream by itself. PLAY/PAUSE IS ONE BUTTON and STOP IS ANOTHER. THE BUTTONS NEVER GATE A LIVE END. PUBLISH ONLY SENDS A CLICKED COMMAND. A NATURAL END NEEDS NO PUBLISH: the main starts by itself with no press (THE MAIN CHANNEL STARTS BY ITSELF); play to override, then publish; pause to hold it, then publish; stop to end one that has not ended by itself, then publish. FACEBOOK live still plays as FACEBOOK. Every fix still ARRIVES FRESH with the notice on until the office publishes. EACH FIELD COMMANDS ITS OWN SLOT. ORDER stays: apply 406 locally, publish ON 406, wait for the terminal's "auto-deploy: new words pushed", THEN commit+push the full step-0 set (src/, scripts/, index.html, seed.json, .gitignore WITH the dot spelled out, maintenance-hold.txt) and rebuild BOTH hosts; version.json must read 406 AND /seed.json must list sections on both; reload ALL admin tabs; keep the office server running.
+What changed (note 406):
+The heading fell back to the standing office headline (`src/pages/WatchLive.tsx`): with Play published and the read walled, `liveName` used the clock's gathering only while the clock itself said live, then printed `LIVE.liveTitle` — so a midweek press read "Sunday Celebration — live". Now it resolves the detected title, else the gathering the clock has on or the next one, else the headline — except a forced guest with no detected title, which keeps the headline since the schedule never names a guest event. Each transport row (`src/components/editor.tsx` + `src/styles/admin.css`) also carries its own on-air light: the main row subscribes to the shared check and lights the blinking red dot while the main address reads live (or the main switch is on); the guest row does the same for the typed guest field (or its own switch) — one row never lights for the other, and the countdown alone lights neither. The override stamp is renumbered to 406. The pre-ship verifier renumbers the DD/UU stamp needles and its new section ZZ locks the naming and the dots.
+APPLY THIS UPDATE (404) — EACH FIELD COMMANDS ITS OWN SLOT, PLAY OPENS THE CHANNEL
 ==================================================================================================================
-EACH FIELD COMMANDS ITS OWN SLOT (no box access this round — read off the code): the two rows shared one switch, so one row's buttons flipped the other. Now the main row under the main channel field commands only the main slot (the global on-air keys, exactly as before — the guest slot is never touched there), and the new guest row under the guest channel field commands only the guest slot (its own guestIsLive/guestCommandAt keys — the main switch is never touched there). The labels and the Clear button are gone; each row is small buttons under its own field. PLAY OPENS THE CHANNEL: Play+Publish used to light the badges while the screen sat on the waiting clock ("Sunday Celebration — live" with no video) whenever the read was walled — now a published Play opens the commanded channel itself while the read says unknown (a verified off stays on the clock; a detected broadcast always wins). The guest empties itself as before: every guest stop, every finished guest, every first boot. Delete answers first tap where it cannot publish. Still true, one per line so nothing hides: no live is EVER MUTED. The screen closes immediately any live ends. It never plays another channel's livestream by itself. PLAY/PAUSE IS ONE BUTTON and STOP IS ANOTHER. THE BUTTONS NEVER GATE A LIVE END. PUBLISH ONLY SENDS A CLICKED COMMAND. A NATURAL END NEEDS NO PUBLISH: the main starts by itself with no press (THE MAIN CHANNEL STARTS BY ITSELF); play to override, then publish; pause to hold it, then publish; stop to end one that has not ended by itself, then publish. FACEBOOK live still plays as FACEBOOK. Every fix still ARRIVES FRESH with the notice on until the office publishes. ORDER stays: apply 403 locally, publish ON 403, wait for the terminal's "auto-deploy: new words pushed", THEN commit+push the full step-0 set (src/, scripts/, index.html, seed.json, .gitignore WITH the dot spelled out, maintenance-hold.txt) and rebuild BOTH hosts; version.json must read 403 AND /seed.json must list sections on both; reload ALL admin tabs; keep the office server running.
-What changed (note 403):
-Two independent slot transports (`src/components/editor.tsx`, `src/pages/Admin.tsx`, `src/styles/admin.css`): the main row sits right under the main channel field and the guest row right under the guest channel field — no labels, no Clear button, small buttons in each field area. The guest row runs on new `guestIsLive`/`guestCommandAt` keys (`src/data/live.ts`, `seed.json` ship them false/0): its play needs a guest typed, its pause holds the override off, its stop ends the override AND empties the slot — the main switch is never touched. The gate (`src/lib/cms.ts`) holds guest keys on the guest stamp only; the badges (`src/lib/store.ts`) hear the guest switch too; autostop, draft heal and the override stamp clear switch with slot. A published Play opens the commanded channel itself (`src/pages/WatchLive.tsx`): while the read says unknown and the channel id is known, the screen autoplays that slot's channel instead of the waiting clock — verified off stays waiting, detected live still wins. The pre-ship verifier renumbers the GG stamp needle, amends AAA to the labelless rows, and its new section BBB locks the independence and the Play-opens-channel screen.
-APPLY THIS UPDATE (401) — EACH FIELD HAS ITS BUTTONS, THE GUEST EMPTIES ITSELF, DELETE ANSWERS FIRST TAP
+EACH FIELD COMMANDS ITS OWN SLOT (no box access this round — read off the code): the two rows shared one switch, so one row's buttons flipped the other. Now the main row under the main channel field commands only the main slot (the global on-air keys, exactly as before — the guest slot is never touched there), and the new guest row under the guest channel field commands only the guest slot (its own guestIsLive/guestCommandAt keys — the main switch is never touched there). The labels and the Clear button are gone; each row is small buttons under its own field. PLAY OPENS THE CHANNEL: Play+Publish used to light the badges while the screen sat on the waiting clock ("Sunday Celebration — live" with no video) whenever the read was walled — now a published Play opens the commanded channel itself while the read says unknown (a verified off stays on the clock; a detected broadcast always wins). The guest empties itself as before: every guest stop, every finished guest, every first boot. Delete answers first tap where it cannot publish. Still true, one per line so nothing hides: no live is EVER MUTED. The screen closes immediately any live ends. It never plays another channel's livestream by itself. PLAY/PAUSE IS ONE BUTTON and STOP IS ANOTHER. THE BUTTONS NEVER GATE A LIVE END. PUBLISH ONLY SENDS A CLICKED COMMAND. A NATURAL END NEEDS NO PUBLISH: the main starts by itself with no press (THE MAIN CHANNEL STARTS BY ITSELF); play to override, then publish; pause to hold it, then publish; stop to end one that has not ended by itself, then publish. FACEBOOK live still plays as FACEBOOK. Every fix still ARRIVES FRESH with the notice on until the office publishes. ORDER stays: apply 404 locally, publish ON 404, wait for the terminal's "auto-deploy: new words pushed", THEN commit+push the full step-0 set (src/, scripts/, index.html, seed.json, .gitignore WITH the dot spelled out, maintenance-hold.txt) and rebuild BOTH hosts; version.json must read 404 AND /seed.json must list sections on both; reload ALL admin tabs; keep the office server running.
+What changed (note 404):
+Two independent slot transports (`src/components/editor.tsx`, `src/pages/Admin.tsx`, `src/styles/admin.css`): the main row sits right under the main channel field and the guest row right under the guest channel field — no labels, no Clear button, small buttons in each field area. The guest row runs on new `guestIsLive`/`guestCommandAt` keys (`src/data/live.ts`, `seed.json` ship them false/0): its play needs a guest typed, its pause holds the override off, its stop ends the override AND empties the slot — the main switch is never touched. The gate (`src/lib/cms.ts`) holds guest keys on the guest stamp only; the badges (`src/lib/store.ts`) hear the guest switch too; autostop, draft heal and the override stamp clear switch with slot. A published Play opens the commanded channel itself (`src/pages/WatchLive.tsx`): while the read says unknown and the channel id is known, the screen autoplays that slot's channel instead of the waiting clock — verified off stays waiting, detected live still wins. The pre-ship verifier renumbers the DD stamp needle, amends XX to the labelless rows, and its new section YY locks the independence and the Play-opens-channel screen.
+APPLY THIS UPDATE (402) — EACH FIELD HAS ITS BUTTONS, THE GUEST EMPTIES ITSELF, DELETE ANSWERS FIRST TAP
 ================================================================================================================================
-EACH FIELD HAS ITS BUTTONS (no box access this round — read off the code): one big shared block sat between the channel fields driving one on-air state, so working the guest hit the main and back. The transport is now two compact rows in the field area — a Main channel row (play/pause toggle + stop) and a Guest channel row (play/pause toggle + stop + Clear) — small buttons that fit beside each address. The main row works exactly as before; the guest row's play needs a guest typed first, and every stop empties the guest slot with it. YOUR SCREENSHOT ROW ("Live stream / Guest channel: @lfcww → empty") is a hand-clear sitting in the draft: the live site still carries @lfcww while the draft cleared it — press Publish (bar below) and the empty goes live (the guest field is never gated); Put back and Delete only drop the draft edit, they never send anything. Delete now answers on the first tap everywhere it cannot publish (live included); where Delete takes entries off the site it still asks twice. The guest also empties itself from here on: a finished guest clears the draft slot on its own ending, and first boot re-runs the whole clear once. Still true, one per line so nothing hides: no live is EVER MUTED. The screen closes immediately any live ends. It never plays another channel's livestream by itself. PLAY/PAUSE IS ONE BUTTON and STOP IS ANOTHER. THE BUTTONS NEVER GATE A LIVE END. PUBLISH ONLY SENDS A CLICKED COMMAND. A NATURAL END NEEDS NO PUBLISH: the main starts by itself with no press (THE MAIN CHANNEL STARTS BY ITSELF); play to override, then publish; pause to hold it, then publish; stop to end one that has not ended by itself, then publish. FACEBOOK live still plays as FACEBOOK. Every fix still ARRIVES FRESH with the notice on until the office publishes. ORDER stays: apply 401 locally, publish ON 401, wait for the terminal's "auto-deploy: new words pushed", THEN commit+push the full step-0 set (src/, scripts/, index.html, seed.json, .gitignore WITH the dot spelled out, maintenance-hold.txt) and rebuild BOTH hosts; version.json must read 401 AND /seed.json must list sections on both; reload ALL admin tabs; keep the office server running.
-What changed (note 401):
-Two compact per-field rows replace the one big block (`src/components/editor.tsx` + `src/styles/admin.css`): the Main channel row (play/pause toggle + stop, exactly the old logic) and the Guest channel row (play/pause toggle + stop + Clear, small buttons fitting each field area). The guest row's play names the field when the slot is empty instead of touching the main channel; every stop empties the guest slot in the same stamped write, so the guest field is empty again after every stop. The guest slot also clears itself: autostop (`src/lib/autostop.ts`) empties the draft guest — unstamped, like any hand edit — when the ended broadcast WAS the guest (a main ending leaves a scheduled guest alone), and the override stamp is 401 so first boot re-runs the whole clear once on every copy. The unsaved list's Delete (`src/pages/Admin.tsx` + `src/lib/cms.ts`): new pure `sectionHasPublishableRemovals()` keeps the two-tap confirm only where Delete publishes removals, and Delete answers on the first tap everywhere else (live included — it only ever dropped the draft edit there). The pre-ship verifier renumbers the GG/XX stamp needles and its new section AAA locks the rows, the self-clearing guest and the first-tap Delete.
-APPLY THIS UPDATE (399) — THE MAIN CHANNEL STARTS BY ITSELF, ARRIVES FRESH WITH THE NOTICE ON, GUEST EMPTY
+EACH FIELD HAS ITS BUTTONS (no box access this round — read off the code): one big shared block sat between the channel fields driving one on-air state, so working the guest hit the main and back. The transport is now two compact rows in the field area — a Main channel row (play/pause toggle + stop) and a Guest channel row (play/pause toggle + stop + Clear) — small buttons that fit beside each address. The main row works exactly as before; the guest row's play needs a guest typed first, and every stop empties the guest slot with it. YOUR SCREENSHOT ROW ("Live stream / Guest channel: @lfcww → empty") is a hand-clear sitting in the draft: the live site still carries @lfcww while the draft cleared it — press Publish (bar below) and the empty goes live (the guest field is never gated); Put back and Delete only drop the draft edit, they never send anything. Delete now answers on the first tap everywhere it cannot publish (live included); where Delete takes entries off the site it still asks twice. The guest also empties itself from here on: a finished guest clears the draft slot on its own ending, and first boot re-runs the whole clear once. Still true, one per line so nothing hides: no live is EVER MUTED. The screen closes immediately any live ends. It never plays another channel's livestream by itself. PLAY/PAUSE IS ONE BUTTON and STOP IS ANOTHER. THE BUTTONS NEVER GATE A LIVE END. PUBLISH ONLY SENDS A CLICKED COMMAND. A NATURAL END NEEDS NO PUBLISH: the main starts by itself with no press (THE MAIN CHANNEL STARTS BY ITSELF); play to override, then publish; pause to hold it, then publish; stop to end one that has not ended by itself, then publish. FACEBOOK live still plays as FACEBOOK. Every fix still ARRIVES FRESH with the notice on until the office publishes. ORDER stays: apply 402 locally, publish ON 402, wait for the terminal's "auto-deploy: new words pushed", THEN commit+push the full step-0 set (src/, scripts/, index.html, seed.json, .gitignore WITH the dot spelled out, maintenance-hold.txt) and rebuild BOTH hosts; version.json must read 402 AND /seed.json must list sections on both; reload ALL admin tabs; keep the office server running.
+What changed (note 402):
+Two compact per-field rows replace the one big block (`src/components/editor.tsx` + `src/styles/admin.css`): the Main channel row (play/pause toggle + stop, exactly the old logic) and the Guest channel row (play/pause toggle + stop + Clear, small buttons fitting each field area). The guest row's play names the field when the slot is empty instead of touching the main channel; every stop empties the guest slot in the same stamped write, so the guest field is empty again after every stop. The guest slot also clears itself: autostop (`src/lib/autostop.ts`) empties the draft guest — unstamped, like any hand edit — when the ended broadcast WAS the guest (a main ending leaves a scheduled guest alone), and the override stamp is 402 so first boot re-runs the whole clear once on every copy. The unsaved list's Delete (`src/pages/Admin.tsx` + `src/lib/cms.ts`): new pure `sectionHasPublishableRemovals()` keeps the two-tap confirm only where Delete publishes removals, and Delete answers on the first tap everywhere else (live included — it only ever dropped the draft edit there). The pre-ship verifier renumbers the DD/UU stamp needles and its new section XX locks the rows, the self-clearing guest and the first-tap Delete.
+APPLY THIS UPDATE (400) — THE MAIN CHANNEL STARTS BY ITSELF, ARRIVES FRESH WITH THE NOTICE ON, GUEST EMPTY
 ==================================================================================================================================
 THE MAIN CHANNEL STARTS BY ITSELF (no box access this round — the cause needs
 no box): @twocorg is the main account, so it needs no Play press and no
@@ -59,13 +55,13 @@ still ends, each with its Publish. Every fix still ARRIVES FRESH — first boot
 re-runs the whole clear once on every copy (channel to @twocorg, stray link
 dropped, take-offs cleared, slides replanted, and any channel removed from the
 guest slot, which ships and stays empty), the maintenance notice is ACTIVE
-until the office publishes, and nothing plays live unasked. Still true, one per line so nothing hides: no live is EVER MUTED. The screen closes immediately any live ends. It never plays another channel's livestream by itself. PLAY/PAUSE IS ONE BUTTON and STOP IS ANOTHER. THE BUTTONS NEVER GATE A LIVE END. PUBLISH ONLY SENDS A CLICKED COMMAND. A NATURAL END NEEDS NO PUBLISH: the main starts by itself with no press; play to override, then publish; pause to hold it, then publish; stop to end one that has not ended by itself, then publish. ORDER stays: apply 399 locally, publish ON 399, wait for
+until the office publishes, and nothing plays live unasked. Still true, one per line so nothing hides: no live is EVER MUTED. The screen closes immediately any live ends. It never plays another channel's livestream by itself. PLAY/PAUSE IS ONE BUTTON and STOP IS ANOTHER. THE BUTTONS NEVER GATE A LIVE END. PUBLISH ONLY SENDS A CLICKED COMMAND. A NATURAL END NEEDS NO PUBLISH: the main starts by itself with no press; play to override, then publish; pause to hold it, then publish; stop to end one that has not ended by itself, then publish. ORDER stays: apply 400 locally, publish ON 400, wait for
 the terminal's "auto-deploy: new words pushed", THEN commit+push the full
 step-0 set (src/, scripts/, index.html, seed.json, .gitignore WITH the dot
 spelled out, maintenance-hold.txt) and rebuild BOTH hosts; version.json must
-read 399 AND /seed.json must list sections on both; reload ALL admin tabs;
+read 400 AND /seed.json must list sections on both; reload ALL admin tabs;
 keep the office server running.
-What changed (note 399):
+What changed (note 400):
 The drawer watched the office switch only (`src/lib/autostop.ts`): with the
 switch off and the clock outside service hours a main-channel ending filed
 nothing and the drawer idled on the slow cadence — so without a Play press the
@@ -75,16 +71,16 @@ is set, and a seen-live main-channel YouTube ending files itself into Recent
 services with no stamp and no publish (a guest ending still files nothing).
 The transport keeps every button (`src/components/editor.tsx`): Play is the
 manual override, pause holds, stop ends and files — each still sends on
-Publish. The override stamp is 399, so first boot re-runs the whole clear once
-on every copy. The pre-ship verifier renumbers the GG/XX stamp needles and
-its new section ZZ locks the self-starting main.
-What changed (note 397):
+Publish. The override stamp is 400, so first boot re-runs the whole clear once
+on every copy. The pre-ship verifier renumbers the DD/UU stamp needles and
+its new section WW locks the self-starting main.
+What changed (note 398):
 FACEBOOK live now plays as FACEBOOK. A Facebook broadcast's numeric video id
 no longer enters the YouTube path (it opened as a broken YouTube embed, or was
 killed by the dead-video net into a waiting clock while LIVE showed) — the
 screen prefers Facebook while IT is live and embeds it with sound, the ended
 still stays YouTube-owned, and the bake ships no stale cut (liveCut 0). The
-override stamp is 397, so first boot re-runs the whole clear once on every
+override stamp is 398, so first boot re-runs the whole clear once on every
 copy. Still true, one per line so nothing hides:
 no live is EVER MUTED.
 The screen closes immediately any live ends.
@@ -93,7 +89,7 @@ PLAY/PAUSE IS ONE BUTTON and STOP IS ANOTHER.
 THE BUTTONS NEVER GATE A LIVE END.
 PUBLISH ONLY SENDS A CLICKED COMMAND.
 A NATURAL END NEEDS NO PUBLISH: play to start, then publish; pause to hold it, then publish; stop to end one that has not ended by itself, then publish.
-What changed (note 395):
+What changed (note 396):
 
 - Arrives fresh, notice on, guest empty (`scripts/cms-server.js`, seed.json):
   the override stamp is 395, so first boot re-runs the whole clear once on
@@ -107,26 +103,9 @@ What changed (note 395):
   `src/pages/Admin.tsx`): the old-copy banner, the "Update N is live" banner,
   the waiting-number plumbing and the cross-tab shout are deleted. Tabs still
   poll the host every 30 seconds and reload onto newer code by themselves.
-- The pre-ship verifier amends sections SS, KK, GG and WW to the removals and
-  the new stamp, and its new section XX locks the arrival.
-What changed (note 393):
-The office corrects the rule (no box access this round — the cause needs no
-box): when a stream ends by itself there is nothing to publish — the screen is
-already back on the previous services. Publish pairs with the buttons only:
-PLAY/PAUSE IS ONE BUTTON, STOP IS ANOTHER — play to start the livestream, then
-publish; pause to hold it, then publish; stop to end one that has not ended by
-itself, then publish. THE BUTTONS NEVER GATE A LIVE END, and a natural end
-stamps nothing: autostop files the finished service and tells the drawer, and
-the next Publish leaves the on-air state alone. PUBLISH ONLY SENDS A CLICKED COMMAND still holds for every button press and hand edits. Still true: no live
-is EVER MUTED; the screen closes immediately any live ends onto the main
-thumbnail; it never plays another channel's livestream by itself. ORDER stays:
-apply 393 locally, publish ON 393, wait for the terminal's "auto-deploy: new
-words pushed", THEN commit+push the full step-0 set (src/, scripts/,
-index.html, seed.json, .gitignore WITH the dot spelled out,
-maintenance-hold.txt) and rebuild BOTH hosts; version.json must read 393 AND
-/seed.json must list sections on both; reload ALL admin tabs; keep the office
-server running.
-What changed (note 393):
+- The pre-ship verifier amends sections PP, HH, DD and SS to the removals and
+  the new stamp, and its new section UU locks the arrival.
+What changed (note 394):
 
 - A natural end needs no publish (`src/lib/autostop.ts`, `src/lib/cms.ts`,
   `src/components/editor.tsx`): autostop stamps nothing — it files the
@@ -137,36 +116,9 @@ What changed (note 393):
   then publish; pause to hold, then publish; stop to end one that has not
   ended by itself, then publish; when the stream ends by itself there is
   nothing to publish.
-- The pre-ship verifier amends sections UU and VV to the unstamped end and its
-  new section WW locks the rule.
-What changed (note 391):
-Three changes at the office's words (no box access this round — the cause
-needs no box). The office wants: play/pause as one button and stop as another
-button; the buttons must not affect live ends — when a live ends, it ends at
-once onto the main channel's previous-service thumbnails. (a) PLAY/PAUSE IS ONE
-BUTTON, STOP IS ANOTHER: the transport under the channel fields stays two
-buttons — one Play/Pause toggle and one Stop — but they finally do different
-things: pause HOLDS the session (the start is kept, so play picks the same
-session back up and nothing files itself), stop ENDS it (the start is cleared
-and the finished service files itself under Recent services, so the next play
-begins fresh). Still true from the last updates: no live is EVER MUTED; the
-screen closes immediately any live ends onto the main thumbnail; it never plays another channel's livestream by itself. (b) THE BUTTONS NEVER GATE A LIVE END: a natural ending
-now arms itself — autostop stamps the command like a Stop click — so the next
-Publish carries the ending with no Stop press needed (the drawer now says
-press Publish). PUBLISH ONLY SENDS A CLICKED COMMAND still holds for starts,
-pauses and hand edits: an unclicked Publish leaves the site's on-air state
-alone. (c) THE ENDED SCREEN SHOWS THE MAIN PREVIOUS-SERVICE THUMBNAILS: the
-moment a live ends, the Watch screen sits on the main channel's last ended
-thumbnail with up to six previous-service cards right under it (the live list,
-else the baked @twocorg list standing in; take-offs honoured; a guest ending
-files nothing and shows nothing of its own). ORDER
-stays: apply 391 locally, publish ON 391, wait for the terminal's
-"auto-deploy: new words pushed", THEN commit+push the full step-0 set (src/,
-scripts/, index.html, seed.json, .gitignore WITH the dot spelled out,
-maintenance-hold.txt) and rebuild BOTH hosts; version.json must read 391 AND
-/seed.json must list sections on both; reload ALL admin tabs; keep the office
-server running.
-What changed (note 391):
+- The pre-ship verifier amends sections RR and SS to the unstamped end and its
+  new section TT locks the rule.
+What changed (note 392):
 
 - One play/pause button plus stop (`src/components/editor.tsx`): the transport
   under the guest + main channel fields stays two buttons — one Play/Pause
@@ -184,34 +136,8 @@ What changed (note 391):
   previous-service cards sit right under the ended stage (the live list, else
   the baked @twocorg fallback; take-offs honoured), so the moment a live ends
   its thumbnails are already on the screen.
-- The pre-ship verifier amends section UU to the self-armed end and its new
-  section VV locks all of it.
-What changed (note 389):
-Three changes at the office's words (no box access this round — the cause
-needs no box). The office wants: the stopped card removed and replaced with
-play/pause and stop buttons near the guest + main channel area; Publish sends
-the livestream only when one of those buttons was clicked; and the guest helper
-text ("A one-off livestream from another channel … Leave empty otherwise.")
-removed. (a) TRANSPORT BUTTONS BY THE CHANNELS: the "The stream has been
-stopped" card with Continue / Start-new is gone — Play, Pause and Stop sit
-right under the channel fields. Play picks a held session back up, else starts
-fresh; pause holds without ending; stop ends and files the service. Still true
-from the last update: no live is EVER MUTED; the screen closes immediately any
-live ends onto the main thumbnail; it never plays another channel's livestream by itself. (b) PUBLISH
-ONLY SENDS A CLICKED COMMAND: every button click stamps the command, and the
-publish — full or per-section, online or offline — carries the on-air state
-only when a click stamped a newer command than what is published. Autostop and
-hand edits never stamp it, so if no button was clicked, Publish leaves the
-site's on-air state alone (every other field still travels). After a natural
-end: press Stop, then Publish. (c) GUEST HINT REMOVED: the helper under Guest
-channel is gone; label and placeholder stay. ORDER
-stays: apply 389 locally, publish ON 389, wait for the terminal's
-"auto-deploy: new words pushed", THEN commit+push the full step-0 set (src/,
-scripts/, index.html, seed.json, .gitignore WITH the dot spelled out,
-maintenance-hold.txt) and rebuild BOTH hosts; version.json must read 389 AND
-/seed.json must list sections on both; reload ALL admin tabs; keep the office
-server running.
-What changed (note 389):
+- The pre-ship verifier amends section UU to the self-armed end and its new section SS locks all of it.
+What changed (note 390):
 
 - Transport buttons by the channels (`src/components/editor.tsx`,
   `src/pages/Admin.tsx`): the stopped card is gone — no more "The stream has
@@ -229,8 +155,8 @@ What changed (note 389):
 - Guest hint removed (`src/lib/cmsSchema.ts`): the "A one-off livestream from
   another channel … Leave empty otherwise." helper is gone; the field keeps its
   "Guest channel" label and placeholder.
-- The pre-ship verifier's new section UU locks all of it.
-What changed (note 387):
+- The pre-ship verifier's new section RR locks all of it.
+What changed (note 388):
 
 - Sound on (`src/lib/embed.ts`, `src/components/blocks.tsx`): the `muted`
   path is gone — `youtubeEmbed` / `youtubeChannelEmbed` / `embedSrc` take no
@@ -245,8 +171,8 @@ What changed (note 387):
   previous service). Unknown never closes; another channel's livestream never
   plays by itself; only a new live edge re-arms, so starts still open with
   sound.
-- The pre-ship verifier reworks RR to the sound-on locks, extends SS to the
-  close-on-any-end suite, and its new section TT locks the ended screen.
+- The pre-ship verifier reworks OO to the sound-on locks, extends PP to the
+  close-on-any-end suite, and its new section QQ locks the ended screen.
 Three fixes. (1) Deployed desktop missed publishes: visitor tabs only
 learned of a publish through the socket shout, so a tab that missed it sat
 stale (desktops sit visible for hours and never refocus; mobiles healed
@@ -259,13 +185,14 @@ walled channel follow, or stream link — starting muted so browsers never
 block it (YouTube offers its own tap-to-unmute); a tap the visitor made
 still plays with sound. This is the pictured fix: no more poster with a
 play button while LIVE. (3) The drawer field is now "Guest channel"
-("Temporary" removed). ORDER stays: apply 383 locally, publish ON 383,
+("Temporary" removed). ORDER stays: apply 384 locally, publish ON 384,
 wait for the terminal's "auto-deploy: new words pushed", THEN commit+push
 the full step-0 set (src/, scripts/, index.html, seed.json, .gitignore
 WITH the dot spelled out, maintenance-hold.txt) and rebuild BOTH hosts;
-version.json must read 383 AND /seed.json must list sections on both;
-reload ALL admin tabs; keep the office server running.
-What changed (note 383):
+version.json must read 384 AND /seed.json must list sections on both;
+reload ALL admin tabs; keep the office server running. This line keeps
+its two-way sync and its dev doors untouched.
+What changed (note 384):
 
 - Publish lands everywhere (`scripts/cms-server.js`, `src/lib/cms.ts`):
   new public `contentRev` stamp (rev/notes/at, no words, no session) plus
@@ -278,15 +205,15 @@ What changed (note 383):
   play with sound; the Watch screen autoplays whenever the check says live.
 - Guest rename (`src/lib/cmsSchema.ts`): label "Guest channel".
 - The pre-ship verifier moves the autoplay gate marker and its new section
-  RR locks all of it.
-What changed (note 381):
+  OO locks all of it.
+What changed (note 382):
 
 - Quiet waiting page (`src/components/layout.tsx`): the numbers line and
   its comment are deleted; the `BUILD_NOTES` / `publishedNotesVersion`
   reads go with it. Nothing else on the page moves.
-- The pre-ship verifier retires the LL numbers assertion (it now locks the
-  absence) and its new section QQ locks the quiet page.
-What changed (note 379):
+- The pre-ship verifier retires the II numbers assertion (it now locks the
+  absence) and its new section NN locks the quiet page.
+What changed (note 380):=
 New: the Live stream drawer gains a "Temporary guest channel" field for a
 one-off livestream from another YouTube address. Paste the guest handle
 only when the event needs it; an empty guest changes nothing. While the
@@ -297,13 +224,14 @@ stream ends the screen is back on the main channel by itself, with the main
 ended screen, the last-@twocorg-service still, and the @twocorg recents
 exactly as before. The office report steers visitors to the guest while it
 is live and back afterwards; same-update trust and the server relay gate
-are unchanged. ORDER stays: apply 379 locally, publish ON 379, wait for
+are unchanged. ORDER stays: apply 380 locally, publish ON 380, wait for
 the terminal's "auto-deploy: new words pushed", THEN commit+push the full
 step-0 set (src/, scripts/, index.html, seed.json, .gitignore WITH the dot
 spelled out, maintenance-hold.txt) and rebuild BOTH hosts; version.json
-must read 379 AND /seed.json must list sections on both; reload ALL admin
-tabs; keep the office server running.
-What changed (note 379):
+must read 380 AND /seed.json must list sections on both; reload ALL admin
+tabs; keep the office server running. This line keeps its two-way sync and
+its dev doors untouched.
+What changed (note 380):
 
 - Temporary guest channel (`src/data/live.ts`, `src/lib/cmsSchema.ts`,
   `src/lib/livestatus.ts`, `src/pages/WatchLive.tsx`,
@@ -318,9 +246,9 @@ What changed (note 379):
   guest-stamped answers. No server change was needed (guest targets pass
   the existing youtube-URL validation; the per-update clear only touches
   the main channel fields, never the guest slot).
-- The pre-ship verifier's new section PP locks all of it (wiring markers +
+- The pre-ship verifier's new section MM locks all of it (wiring markers +
   live runs of the shipped guest target and stamp gate).
-What changed (note 377):
+What changed (note 378):
 
 - Builds always exit (`scripts/cms-local.mjs`): `createCmsHost` takes opts
   — only `follow: true` starts the minute live-follow loop (`npm start`,
@@ -331,9 +259,9 @@ What changed (note 377):
   Measured on the live box first: Render builds these same sources fine
   (RENDER=true skips the loop there) while the Vercel build never exits —
   the timer, not the bundle, is the difference.
-- The pre-ship verifier's new section OO locks all of it (servers opt in,
+- The pre-ship verifier's new section LL locks all of it (servers opt in,
   bakes stay loop-free).
-What changed (note 375):
+What changed (note 376):
 
 - Dead photos wear welcome (`src/components/slides.tsx`): new pure
   `resolveSlidePhoto` (empty or unloadable paints the welcome photo, a live
@@ -343,7 +271,7 @@ What changed (note 375):
   goes through it. The shipped seed stays welcome-only — no seed change —
   and the rebuild resets the host's memory to it, so the 5 dead slides die
   with the deploy.
-- The pre-ship verifier's new section NN locks all of it (wiring markers +
+- The pre-ship verifier's new section KK locks all of it (wiring markers +
   live runs of the shipped decision).
 
 - The boot banner diagnoses itself (`index.html`): resource errors carry
@@ -354,9 +282,9 @@ What changed (note 375):
   object). And a file that fails while the page is still empty triggers
   ONE plain reload per tab (session-guarded, never a loop), which heals a
   stale-cached page or a mid-deploy load with no office action.
-- The pre-ship verifier's new section MM locks all of it.
+- The pre-ship verifier's new section JJ locks all of it.
 
-What changed (note 371):
+What changed (note 372):
 
 - Notice names its numbers (`src/components/layout.tsx`): the waiting page
   prints the running update and the last witnessed publish, so "missing"
@@ -371,9 +299,9 @@ What changed (note 371):
   stands in @twocorg's last previous thumbnail by itself when the hook
   state is ever empty — the Oct 11 service image behind waiting/ended
   even before any read settles.
-- The pre-ship verifier's new section LL locks all of it.
+- The pre-ship verifier's new section II locks all of it.
 
-What changed (note 369):
+What changed (note 370):
 
 - Browsers always look new. Three gaps behind every "but my phone still
   shows the old one": (1) the 60-second poll is now 30 seconds; (2) tabs
@@ -388,13 +316,14 @@ What changed (note 369):
   where the auto-reload has stopped knocking). The retry cap, the
   maintenance-wait, and the no-store version check are unchanged — an old
   bundle still waits instead of playing, it just never waits long now.
-- The pre-ship verifier's new section KK locks all of it: the shout, the
+  This line keeps its two-way sync and its dev doors untouched.
+- The pre-ship verifier's new section HH locks all of it: the shout, the
   30-second poll, the admin banner, and the exposed waiting number.
 
-What changed (note 367):
+What changed (note 368):
 
 - FINAL solution to the stranger's video: the server now gates the relay.
-  Every bundle version — 341, 365, this one — reads the office report
+  Every bundle version — 341, 366, this one — reads the office report
   through the same server door, so the door enforces what no old tab can be
   trusted with: a stored answer is handed out only while it is fresh on the
   SERVER clock (150 seconds from the moment it arrived — a closed tab's last
@@ -402,24 +331,24 @@ What changed (note 367):
   code never checked), and only when its reporter runs the published update
   or newer (the server knows that number — it is the newest update any
   publish or adoption claimed — so a 341 tab's answers stop steering the
-  site the moment 367 is published, even while that tab sits open). A
+  site the moment 368 is published, even while that tab sits open). A
   gated-out answer is wiped from the store on read, not kept for later.
   Before the first publish any fresh answer still flows, so the office can
   prove a broadcast end to end on a new copy. Writes are unchanged
-  (signed-in office only, strict validation). Your own 367 office/live
+  (signed-in office only, strict validation). Your own 368 office/live
   reporter flows exactly as before — same target, same freshness — so a
   real @twocorg broadcast still shows in seconds.
-- What this means for you: after 367 is deployed AND published, no sequence
+- What this means for you: after 368 is deployed AND published, no sequence
   of old tabs can ever put a foreign video on the site again. The only
   thing an update can never do stays the same: close your own tabs and
   reload the playing one (a player that already started keeps playing until
   its tab goes — step 0 names the order: tabs, wait, fresh tab).
-- The pre-ship verifier's new section JJ locks all of it: the gate markers
+- The pre-ship verifier's new section GG locks all of it: the gate markers
   plus live runs of the shipped rule (fresh flows, 5-minute-old dies,
   pre-publish compat) and a live server round-trip (old-stamped report
-  blanked after a 367 publish, new-stamped report reads back whole).
+  blanked after a 368 publish, new-stamped report reads back whole).
 
-What changed (note 365):
+What changed (note 366):
 
 - The seed can never go missing again. Three locks: (1) the repo's own
   seed.json is now the bake's fallback — a build farm has no backend, so an
@@ -434,22 +363,23 @@ What changed (note 365):
   `!seed.json` negation beats any `*.json` rule), and step 0 lists the
   dotfile WITH its dot spelled out — hidden files are the ones manual
   copies skip.
-- The pre-ship verifier's new section II locks all of it, including live
+  This line keeps its two-way sync and its dev doors untouched.
+- The pre-ship verifier's new section FF locks all of it, including live
   runs of the pure guard (backend wins, target kept, repo shipped, empty
   refused, newest recents carried).
 
-What changed (note 363):
+What changed (note 364):
 
 - The box told the truth this time (measured, not guessed): it still runs
-  bundle 345 — 361 never deployed — with an empty bake, and it holds a
+  bundle 345 — 362 never deployed — with an empty bake, and it holds a
   LIVE report naming video zJvgsAhpNlo, re-reported seconds ago by an office
   tab on old code still open somewhere. That video is PROVEN foreign
   (YouTube's own directory names it "Smooth Jazz & Soul R&B 24/7" by "small
   village" — nothing to do with @twocorg), and your published words are
   innocent (channel @twocorg, stream off, no video id). Local was already
-  right: 361 ignores all of it. So step 0 is tabs first, code second —
+  right: 362 ignores all of it. So step 0 is tabs first, code second —
   CLOSE every live/admin/office tab on ALL devices (the reporter is open
-  RIGHT NOW), wait 3 minutes, THEN deploy: version.json must read 363.
+  RIGHT NOW), wait 3 minutes, THEN deploy: version.json must read 364.
   Then hard-reload every visitor tab (a cached 341 bundle plays the jazz and
   no code can stop it) and check the report is dead (step 0 names the
   one-call check).
@@ -464,16 +394,17 @@ What changed (note 363):
 - Deployed visitors also read through their own host now: the same-origin
   /__yt door answers on the deployed server too, so the channel read no
   longer depends on the dead public proxies. Local behavior is unchanged.
-- The pre-ship verifier's new section HH locks all of it, including live
+  This line keeps its two-way sync and its dev doors untouched.
+- The pre-ship verifier's new section EE locks all of it, including live
   runs of the shipped fallback (empty cache, foreign cache, no designation)
   and the same-origin door.
 
-What changed (note 361):
+What changed (note 362):
 
 - THIS update overrides the last one, so every old clears away. One-shot
-  flags from older updates (351's channel move, 359's media clear) can
+  flags from older updates (352's channel move, 360's media clear) can
   never run again — anything that drifted since rode along forever. The
-  first boot of 361 re-runs the whole clear once, on every copy that runs
+  first boot of 362 re-runs the whole clear once, on every copy that runs
   it: a stored debugging channel back to @twocorg, a stray stream link
   dropped, stored take-offs cleared, any slides but the lone welcome card
   replanted — no stamp, no publish by the update itself. The new stamp
@@ -485,15 +416,15 @@ What changed (note 361):
   meeting this proven-new update drops its old recents + channel caches
   once — the shipped @twocorg bake and the next read fill the card back
   in. Old office reports die by themselves: readers only trust same-update
-  reports, so every 359 answer goes silent the moment 361 lands. What no
+  reports, so every 360 answer goes silent the moment 362 lands. What no
   update can clear is unchanged: the old bundle (step 0: replace + push +
-  rebuild, version.json must read 361), the old published words (only your
+  rebuild, version.json must read 362), the old published words (only your
   Review and publish moves them), the old reporter (close EVERY tab, then
-  reload them all). The pre-ship verifier's new section GG locks all of
+  reload them all). The pre-ship verifier's new section DD locks all of
   it, including a live round-trip (drift cleared, stamps untouched, later
   edits survive reboot).
 
-What changed (note 359):
+What changed (note 360):
 
 - Recent services cleared, @twocorg's previous services in: the card used
   to merge every old cached video into each fresh read, so videos from a
@@ -503,10 +434,11 @@ What changed (note 359):
   first boot clears every stored take-off once (`live.hiddenReplays`), on
   every copy — a later take-off you make yourself is never touched. The
   office's sermon messages still dedupe the list (an uploaded message never
-  repeats as a raw stream), by design.
+  repeats as a raw stream), by design. This line keeps its two-way sync and
+  its dev doors untouched.
 - Slides cleared, only the welcome card: this update's first boot replants
   the lone "Welcome home" card over any stored slides that are not exactly
-  it — the 7 uploads go, the welcome card stays, just like the older
+  it — the uploads go, the welcome card stays, just like the older
   update — once, on every copy, with no publish by the update itself. A
   slide you add afterwards is never touched. BACK UP FIRST (step 1): the
   backup file embeds the uploads, so the old pictures stay in your backup
@@ -514,10 +446,10 @@ What changed (note 359):
 - An untouched draft follows along: a draft saved before the clear heals on
   read (take-offs cleared, slides set to the welcome card); your own edits
   always win. Then Review and publish moves every copy. The pre-ship
-  verifier's new section FF locks all of it, including a live server
+  verifier's new section CC locks all of it, including a live server
   round-trip (take-offs cleared, welcome replanted, later edits survive).
 
-What changed (note 357):
+What changed (note 358):
 
 - The livestream plays ONLY the designated channel, @twocorg: until the
   handle itself is verified live, the screen waits — no foreign video, no
@@ -536,10 +468,11 @@ What changed (note 357):
   (5) the screen (`src/pages/WatchLive.tsx`) and the channel tap
   (`src/components/blocks.tsx`) play only the designated channel, and the
   ended screen drops a kept video from another channel. Any other address
-  behaves exactly like before. The pre-ship verifier's new section EE locks
-  all of it, including live runs of the shipped pure rules.
+  behaves exactly like before. This line keeps its two-way sync and its dev
+  doors untouched. The pre-ship verifier's new section BB locks all of it,
+  including live runs of the shipped pure rules.
 
-What changed (note 355):
+What changed (note 356):
 
 - Your website, every fix kept: this zip starts from your attached file, so
   the site is the one you know — and it retains automatic Publish from
@@ -549,10 +482,11 @@ What changed (note 355):
   publish whole across wakes, cold-start line, keep-awake recipe,
   hold-until-publish), and self-proving photo/video backups with local dev
   doors so local restores never show blank — plus the ready channel at boot
-  and restore, and the @twocorg recents bake. The pre-ship verifier's new
-  section DD re-locks all four retained behaviors on this tree.
+  and restore, and the @twocorg recents bake. This line keeps its two-way
+  sync and its dev doors untouched. The pre-ship verifier's new section AA
+  re-locks all four retained behaviors on this tree.
 
-What changed (note 353):
+What changed (note 354):
 
 - Recent services ready on deploy: two holes behind the wrong list. First,
   the restore re-put the debugging channel — the boot move only runs on
@@ -569,7 +503,7 @@ What changed (note 353):
   refresh working, Recent services show the church's previous livestreams
   from the deploy. The field stays editable throughout — change it any time.
 
-What changed (note 351):
+What changed (note 352):
 
 - @twocorg arrives ready: stored words keep whatever channel was last
   published — debugging handles included — across every update, which is why
@@ -581,14 +515,14 @@ What changed (note 351):
   the move runs once and never touches a later edit. The console's "Reset to
   @twocorg" stays as the way back if it ever names anything but exactly
   `@twocorg` again. No stamp, no publish by the update itself: YOU still
-  publish to bless 351 and lift the notice, and that publish refreshes the
+  publish to bless 352 and lift the notice, and that publish refreshes the
   recents from @twocorg on the same cycle (the shipped bake already carries
   all 15 @twocorg services, newest SUNDAY SERVICE, 11TH OCT. 2026).
   @zoelifemultimedia and every other handle now live ONLY in old publishes,
   which this boot move clears — the reset button plus one publish remains the
   backstop for any later drift.
 
-What changed (note 349):
+What changed (note 350):
 
 - The livestream answers only for the handle: every on-air answer is now
   stamped with the address it was checked for, and the screen plays nothing
@@ -604,7 +538,7 @@ What changed (note 349):
   *Recent services* card says which channel its list follows, and while it
   names anything but exactly `@twocorg` it offers "Reset to @twocorg" — one
   tap sets the channel; Review and publish moves every copy. You should NOT
-  need it this time: the 351 boot move already puts @twocorg in place on
+  need it this time: the 352 boot move already puts @twocorg in place on
   every copy, and the shipped bake already carries all 15 @twocorg services
   (newest SUNDAY SERVICE, 11TH OCT. 2026 — the feed added nothing since,
   checked today). The old list clears out as @twocorg's previous livestreams
@@ -622,61 +556,65 @@ What changed (note 349):
   design: you published). So the check is a FRESH profile (incognito/private
   window, no preview flag) BEFORE you publish — every "no notice" report so
   far was a bypassed office tab, never a missing hold. Deploying THIS update
-  re-holds every fresh visitor until you publish 351 (the shipped hold + a
+  re-holds every fresh visitor until you publish 352 (the shipped hold + a
   notes-0 bake), then the publish lifts it everywhere at once. If you already
   published from any copy, the notice is correctly gone — do not expect it
   back.
-- The Tools Site-update card stays gone (removed in 343, locked ever since):
+- The Tools Site-update card stays gone (removed in 344, locked ever since):
   the update number lives in version.json + window.__womBuild, and the dev
   server's boot line no longer points at Tools either.
 - Recents follow the channel on the SAME publish: after every real publish
   the office server re-bakes the recent-services list from the newly
   published channel (about a minute later) and rides the same auto-deploy
   out — no more "within the hour". The bake never wipes on a failed read.
-- Backups still prove themselves (345): export embeds uploads the current
+- Backups still prove themselves (346): export embeds uploads the current
   draft points at too; restore reads each file back and only counts files
   the server actually serves; the backup button warns by name when uploads
-  are missing; restore accepts audio too. RULE that fixes most blank
-  restores: back up from the copy that HOLDS the files (if you uploaded on
-  live/admin, back up on live/admin), and publish before backing up.
+  are missing; restore accepts audio too; and on THIS line the dev backend
+  keeps its restore/delete/live-address doors, so a local restore holds its
+  photos and videos. RULE that fixes most blank restores: back up from the
+  copy that HOLDS the files (if you uploaded on live/admin, back up on
+  live/admin), and publish before backing up.
 - DEPLOY CHECK FIRST: confirm the Render build finished and version.json
-  reads 365 after this one. Until it does, NOTHING below can work live.
-- Unchanged and still locked: everything from 357 (designated-channel gate),
-  355 (rebuilt base, every fix retained), 353 (ready recents),
-  351 (ready channel at boot),
-  365 (seed never missing), 363 (last-service fallback), 361 (override: every old clears), 359 (clean recents + welcome slides), 349 (handle-only livestream), 347 (only-@twocorg shipping, visitor's notice check, card stays gone), 345 (one-tap reset,
-  publish-time recents, self-proving backups), 343 (live follow with no
-  setup, no Tools card, player escape + re-ask, cold-start line, keep-awake
-  recipe), 341 (live-bake watchdog, verified channel tap), 339 (mystery
-  bundle outnumbered, seed content check), 334 (git-shipped hold, step-0
-  file list), 332 (no dead frame, hold file), 330 (walled channel follow),
-  328 (@twocorg default), 324 (verified broadcast, no guessed videos), 322
-  (Live-tab follow + on-air chrome), 320 (doubled-"@" healing), 318
+  reads 366 after this one. Until it does, NOTHING below can work live.
+- Unchanged and still locked: everything from 358 (designated-channel gate),
+  356 (rebuilt base, every fix retained), 354 (ready recents),
+  352 (ready channel at boot),
+  366 (seed never missing), 364 (last-service fallback), 362 (override: every old clears), 360 (clean recents + welcome slides), 350 (handle-only livestream), 348 (only-@twocorg shipping, visitor's notice check, card stays gone), 346 (one-tap reset,
+  publish-time recents, self-proving backups, dev doors), 344 (live follow
+  with no setup, no Tools card, player escape + re-ask, cold-start line, keep-awake
+  recipe), 342 (live-bake watchdog, verified channel tap), 340 (mystery
+  bundle outnumbered — a 337 anywhere matches no shipped update — seed
+  content check), 335 (git-shipped hold, step-0 file list), 333 (two-way
+  sync port, no dead frame, hold file), 331 (walled channel follow), 329
+  (@twocorg default), 325 (verified broadcast, no guessed videos), 323
+  (Live-tab follow + on-air chrome), 321 (doubled-"@" healing), 319
   (office-reported on-air answer — a signed-in office tab with verified ids
-  is STILL the best reporter); sleep/wake re-serves the last publish whole;
-  every Publish still folds live's newer words in.
-- The pre-ship verifier's new section DD re-locks the four retained
+  is STILL the best reporter); with no new update the copy stays on the
+  last published; only an explicit office action lifts maintenance;
+  sleep/wake re-serves the last publish whole.
+- The pre-ship verifier's new section AA re-locks the four retained
   behaviors on this tree (auto publish on local, perfect livestream,
   sleep-free Render, blank-free local backups) — one FAIL blocks the ship.
-- The pre-ship verifier's new section EE locks the designated-channel gate
-  (357): @twocorg's baked id, the candidate provenance rule, the gated
+- The pre-ship verifier's new section BB locks the designated-channel gate
+  (358): @twocorg's baked id, the candidate provenance rule, the gated
   channel follow, videoless reports never opening the player, office
   reporting only verified ids, and the screen + tap playing only the
   designated channel.
-- The pre-ship verifier's new section FF locks the clean recents + slides
-  (359): foreign-channel caches dropped on read, stored take-offs cleared
+- The pre-ship verifier's new section CC locks the clean recents + slides
+  (360): foreign-channel caches dropped on read, stored take-offs cleared
   once, the lone welcome card replanted once, drafts healed, later edits
   never touched.
-- The pre-ship verifier's new section GG locks the override
-  (361): the per-update stamp, the full clear (channel, stray link,
+- The pre-ship verifier's new section DD locks the override
+  (362): the per-update stamp, the full clear (channel, stray link,
   take-offs, slides), the draft + browser follow, and the same-update
   silence — one FAIL blocks the ship.
-- The pre-ship verifier's new section HH locks the last-service fallback
-  (363): the 15 @twocorg services in code, the three empty-cache doors,
+- The pre-ship verifier's new section EE locks the last-service fallback
+  (364): the 15 @twocorg services in code, the three empty-cache doors,
   the same-origin read, and the proven-foreign jazz report named — one FAIL
   blocks the ship.
-- The pre-ship verifier's new section II locks the seed that cannot go missing
-  (365): the repo-seed fallback, the red build on an empty bake, the recents riding every
+- The pre-ship verifier's new section FF locks the seed that cannot go missing
+  (366): the repo-seed fallback, the red build on an empty bake, the recents riding every
   re-bake, and the force-tracked seed — one FAIL blocks the ship.
 
 0. CLOSE TABS, THEN DEPLOY (a poisoned report is live — tabs first, code second)
@@ -688,22 +626,21 @@ What changed (note 349):
     https://twocchurch-site.onrender.com/__cms/liveReport?conn=check — the answer must read
     no report, or a report older than 3 minutes, before you trust the Watch page. A fresh
     LIVE jazz report means a tab is still open somewhere: find it, close it, wait again.
-    Confirm
-   https://twocchurch-site.onrender.com/version.json shows {"notes":365}.
+    Confirm https://twocchurch-site.onrender.com/version.json shows {"notes":366}.
    A 345 there means the push never rebuilt; replace ALL the files again.
-   Then open https://twocchurch-site.onrender.com/seed.json: it must list
-   sections and recent items — `"sections":{}` means the repo's seed.json
-   was never replaced (an empty bake serves no words and no recents, only
-   the empty shell): copy seed.json from THIS zip into the Render folder,
-   commit, push, rebuild again. A 337 anywhere matches no shipped update —
-   a hand-edited or mixed folder also counts as not-deployed; replace ALL
-   the files again. Until both checks pass, NOTHING below can work on the
-   deployed site. The deployed site now waits on the maintenance notice until
-   you publish — verify like a visitor: a FRESH profile (incognito/private
-   window, no ?preview=1) on desktop + phone width, BEFORE you publish. Your
-   everyday browser may already carry a preview grant or a witnessed stamp
-   and open straight into the site — that is the office bypass, not a
-   missing notice.
+   A 337 there matches no shipped update — a hand-edited or mixed folder
+   also counts as not-deployed; replace ALL the files again. Then open
+   https://twocchurch-site.onrender.com/seed.json: it must list sections
+   and recent items — `"sections":{}` means the repo's seed.json was never
+   replaced (an empty bake serves no words and no recents, only the empty
+   shell): copy seed.json from THIS zip into the Render folder, commit,
+   push, rebuild again. Until both checks pass, NOTHING below can work on
+   the deployed site. The deployed site now waits on the maintenance notice
+   until you publish — verify like a visitor: a FRESH profile
+   (incognito/private window, no ?preview=1) on desktop + phone width,
+   BEFORE you publish. Your everyday browser may already carry a preview
+   grant or a witnessed stamp and open straight into the site — that is the
+   office bypass, not a missing notice.
 
 LOCAL (your computer)
 1. In the OLD folder: open #/admin → Tools → Back up now. NEW: the button
@@ -714,73 +651,72 @@ LOCAL (your computer)
    back up on live/admin) and publish before backing up.
 2. Extract THIS zip to a NEW folder (do not extract over the old one).
 3. In the new folder: npm install
-4. Use `npm run dev` for local work (http://localhost:5173/, admin: /admin).
-   Do NOT run `npm start` on the office machine: sharing ships ON in this
-   folder, and a local `npm start` would re-point cms-server.txt at this
-   machine's tunnel (the live site must keep pointing at Render).
-5. BEFORE restoring: the site must show the maintenance notice ("We'll be
-   right back", logo + message only) — this update holds until blessed.
-   A plain reload must show it; no hard refresh needed. If this browser
-   already published or previewed, use a fresh profile (incognito/private
-   window) — your own stamp or grant hides the notice from YOU while
-   visitors wait. The admin console
-   (/admin) must NOT show it — it boots straight into the console.
-6. Bring your words home: #/admin → Tools → Restore the backup file → review.
-   NEW: the restore result names files brought back AND files that failed —
-   every counted file was read back from the server, so counted means
-   visible. If files failed, re-upload them before publishing. The restore
-   also heals the channel: even an old backup's debugging handle lands as
-   @twocorg in the draft (the toast names the move). Then open the Live
-   stream console's *Recent services* card: the channel already reads
-   @twocorg — no reset tap. Only if it offers "Reset to @twocorg" anyway
-   (a draft saved mid-edit, or a later drift), tap it — then Review and
-   publish → Publish. Local lifts to 365 and the notice releases. Reload
-   desktop + phone width to verify (plain reloads): Watch shows the player
-   (or ended screen), Recent services shows @twocorg services, photos/videos
-   all visible.
+4. npm run dev → http://localhost:5173/  (admin: /admin)
+5. BEFORE restoring: the visitors' site must show the maintenance notice
+   ("We'll be right back", logo + message only, no links) — this update holds
+   until blessed. That check is the point. A plain reload must show it;
+   no hard refresh needed. If this browser already published or previewed,
+   use a fresh profile (incognito/private window) — your own stamp or grant
+   hides the notice from YOU while visitors wait. The admin console (/admin) must NOT show it —
+   it boots straight into the console.
+6. #/admin → Tools → Restore the backup file → review. NEW: the restore
+   result names files brought back AND files that failed — every counted
+   file was read back from the server, so counted means visible. If files
+   failed, re-upload them before publishing. Then open the Live stream
+   console's *Recent services* card: the channel already reads @twocorg
+   (this boot moved it, and the restore also heals the channel — the toast names the move). Only if it offers
+   "Reset to @twocorg" anyway, tap it — then Review and publish → Publish.
+   Local lifts to 366 and the notice releases. Reload desktop + phone width to verify (plain reloads):
+   Watch shows the player (or ended screen), Recent services shows @twocorg
+   services, photos/videos all visible.
 7. Live check (local): open /watch-live while the broadcast is running on
    the YouTube channel. The player must appear within seconds and the
-   ticking clock must vanish with it. Stop the stream and the page returns
-   to the countdown by itself.
+   ticking clock must vanish with it — NO retype needed (the doubled "@"
+   already published now resolves). Stop the stream and the page returns to
+   the countdown by itself.
 8. From here the sync is automatic both ways with NO setup: publish on LOCAL
    and the bake + push carry it to live in a few minutes (watch the terminal
    for "auto-deploy: new words pushed" and, when the channel moved,
    "recent services refreshed after publish"); publish on LIVE and the
    office backend adopts it by itself within about a minute ("live follow:
-   adopted N sections"). Offline clicks are safe: this copy stays on its
-   last published, and a sleep in between changes nothing.
+   adopted N sections") — and the deploy carries it back out on the next
+   cycle. Offline clicks are safe: this copy stays on its last published,
+   and a sleep in between changes nothing.
 9. Check: reload again with no new update — the site stays on the last
    published (no notice, published words intact). Console check:
-   window.__maintState() shows publishedNotes 365.
+   window.__maintState() shows publishedNotes 366.
 
 LIVE (Render: twocchurch-site.onrender.com)
-1. Step 0 first (deploy + version.json reads 365 + /seed.json lists sections
+1. Step 0 first (deploy + version.json reads 366 + /seed.json lists sections
    and recents). Then push the step-8 content commit if you have not already
-   (the bake must be from 363 or newer). Render rebuilds on the push by
-   itself. Then open the live /seed.json again: notes must read 365.
-2. The live site waits on the maintenance notice until the publish lands
-   through the bake — verify with a PLAIN reload on desktop + phone width,
-   uploads/photos/videos showing. The live admin console stays clear
-   throughout and keeps "Last published".
+   — Render rebuilds on the push by itself. Then open the live /seed.json
+   again: notes must read 366 — until it does, the deployed copy is still
+   the empty shell, no matter what the code version says.
+2. The live site now waits on the maintenance notice until blessed — verify
+   like a visitor: a FRESH profile (incognito/private window, no ?preview=1),
+   plain reload (Ctrl+Shift+R must NOT be needed). The live admin
+   console stays clear throughout.
 3. In live /admin, open the Live stream console's *Recent services* card: the
    channel already reads @twocorg (this boot moved it). Only if it offers
-   "Reset to @twocorg" anyway, tap it — then Review and publish →
-   Publish (typing alone is a draft). Publish to bless 365. Afterwards
-   confirm on the live site itself: version.json reads 365, /seed.json
-   carries 365 words with recent items, and Recent services shows @twocorg
-   services (the shipped bake shows them meanwhile; the publish refreshes
-   them from the channel within minutes).
+   "Reset to @twocorg" anyway, tap it — then open Review and publish →
+   Publish (typing alone is a draft — visitors never see it until published).
+   Publish to bless 366. Afterwards confirm on the live site itself:
+   version.json reads 366, /seed.json carries 366 words with recent items,
+   and Recent services shows @twocorg services (the shipped bake shows them
+   meanwhile; the publish refreshes them from the channel within minutes).
 4. Keep a signed-in office tab open (this admin console counts), then start
    the broadcast on the YouTube channel. Open the live /watch-live: the
    player must appear within seconds and the ticking clock must vanish with
    it. Stop the stream and the page returns to "Live has ended" by itself.
-5. Sleep test: restart the service in the Render dashboard (or wait for a
-   sleep). The site must stay live with "Last published" intact — no notice,
-   no re-publish. The host log shows a "cold start at …" line on every wake.
-   Optional but recommended on free Render: a free keep-awake ping
-   (e.g. UptimeRobot, every 5 minutes, to
+   Retype the channel (console → Publish) and the check follows the new
+   address at once.
+5. Plain-reload both modes. A later Render restart must NOT bring the notice
+   back and must NOT clear Last published — the host log shows a "cold start
+   at …" line on every wake. Optional but recommended on free Render: a free
+   keep-awake ping (e.g. UptimeRobot, every 5 minutes, to
    https://twocchurch-site.onrender.com/version.json) skips the 30–60s cold
-   boot. Sleep loses nothing either way.
+   boot after a sleep. Harmless either way now — sleep loses nothing — it
+   only makes first loads faster.
 
 If desktop ever looks live while mobile waits: desktop is in ?preview=1
 (gold Preview bar) — click Exit preview. Or clear that tab's preview flag.

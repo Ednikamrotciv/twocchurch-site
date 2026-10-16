@@ -107,22 +107,6 @@ A Render Web Service works as the always-on backend:
   ever deleted by hand.
 - Use the paid (non-sleeping) instance type, or the service sleeps and every
   copy works from its last baked words until it wakes.
-- Free tier sleeps — and that is fine now (notes 303–309): sleep wipes the live
-  store, but the wake re-serves the last publish whole (words, stamp AND
-  history) from the deploy's own bake, so visitors stay live and "Last
-  published" stays put with no office action. The one rule: publish LOCALLY
-  (the office computer has the disk, the git login and the auto-push), and let
-  the push + rebuild carry each publish to Render. A publish on live /admin
-  between deploys works but lives on the ephemeral disk only — the next sleep
-  lets it go, so always publish the same words locally afterwards. Keep-awake
-  recipe (note 417): point a free 5-minute ping at the cheap health door
-  (e.g. UptimeRobot → `https://xxx.onrender.com/__health`) and the host never
-  idles to sleep — the door answers from memory (`{"ok":true,"update":N,...}`),
-  costs nothing, and never touches content. If the host ever does sleep anyway,
-  the wake still re-serves the last publish whole (words, stamp AND history)
-  from the deploy's own bake, so visitors stay live and "Last published" stays
-  put with no office action. The old `version.json` ping works too, but
-  `/__health` is the cheaper door built for it.
 
 Then put the service's `https://xxx.onrender.com` URL alone in
 `cms-server.txt`, commit, push, and rebuild the static site once.

@@ -50,7 +50,7 @@ function ServicePill() {
   const info = nextService(SERVICES, now, churchTimezone());
   if (!info) return null;
   /* The office's *We are on air now* switch, or the stream itself (note
-     385) — never the bare service clock, which only counts down. */
+     386) — never the bare service clock, which only counts down. */
   const live = displayLive(info);
   return (
     <div className={"service-pill" + (live ? " service-pill--live" : "")}>

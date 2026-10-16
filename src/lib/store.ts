@@ -469,7 +469,7 @@ export function onAir(info?: NextServiceInfo | null): boolean {
   return true;
 }
 
-/** What the badges and the Watch screen SHOW (notes 385, 407): the office's
+/** What the badges and the Watch screen SHOW (notes 386, 408): the office's
     switch says so — the main channel never opens the site by itself any more,
     only a Play press (published) lights it. The temporary guest still opens on
     detection (typing the field is the office's intent for a one-off), and the
@@ -479,7 +479,7 @@ export function onAir(info?: NextServiceInfo | null): boolean {
     YouTube start in seconds and the admin dots still light. */
 export function displayLive(info?: NextServiceInfo | null): boolean {
   if (guestLiveNow()) return true;
-  /* A guest the office forced on (note 403): its own switch lights the
+  /* A guest the office forced on (note 404): its own switch lights the
      badges while the event runs — set only by the guest row's buttons,
      cleared with the slot, never the bare clock. */
   if ((LIVE as any).guestIsLive) return true;

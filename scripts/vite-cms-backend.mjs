@@ -23,7 +23,6 @@ export function cmsBackend() {
   const geoProxy = createGeoProxy();
   let cms = null;
   let siteVersion = "vite";
-  let devNotes = 0;
   let outDir = path.join(ROOT, "dist");
   return {
     name: "wom-cms-backend",
@@ -36,7 +35,6 @@ export function cmsBackend() {
         const src = await readFile(path.join(ROOT, "src", "lib", "hooks.ts"), "utf8");
         const n = Number((src.match(/BUILD_NOTES = (\d+)/) || [])[1]) || 0;
         if (n) console.log(`dev server: site update ${n} (version.json shows the same number)`);
-        devNotes = n;
       } catch {
         /* stamp unreadable — the page stamp still shows */
       }
@@ -45,7 +43,7 @@ export function cmsBackend() {
       } catch {
         /* same snapshot-and-recover as scripts/serve.mjs — never fatal */
       }
-      /* Follow live only while serving (note 377): this hook also runs for
+      /* Follow live only while serving (note 378): this hook also runs for
          `vite build`, where a minute loop would hold the build process open
          forever — exactly how the Vercel deploy got stuck. */
       cms = await createCmsHost(ROOT, config && config.command === "serve" ? { follow: true } : undefined);
@@ -90,21 +88,13 @@ export function cmsBackend() {
              notes-less seed would read as "nothing ever published" and hold
              even a fully-published deploy on maintenance until the next bake. */
           let notes = typeof res.notes === "number" && res.notes > 0 ? Math.floor(res.notes) : 0;
-          /* …and the publish history with it (note 303): without log/by/at a
-             host restart clears "Last published" in the admin console. */
-          let log = Array.isArray(res.log) ? res.log.slice(0, 20) : [];
-          let by = typeof res.by === "string" ? res.by.slice(0, 60) : "";
-          let at = typeof res.at === "number" ? res.at : 0;
-          if (!notes && !log.length && !by && !at) {
+          if (!notes) {
             try {
               const prev = JSON.parse(await readFile(path.join(outDir, "seed.json"), "utf8"));
               if (typeof prev?.notes === "number" && prev.notes > 0) notes = Math.floor(prev.notes);
-              if (Array.isArray(prev?.log)) log = prev.log.slice(0, 20);
-              if (typeof prev?.by === "string") by = prev.by.slice(0, 60);
-              if (typeof prev?.at === "number") at = prev.at;
             } catch {}
           }
-          await writeFile(path.join(outDir, "seed.json"), JSON.stringify({ rev: typeof res.rev === "number" ? res.rev : 0, notes, sections, log, by, at }));
+          await writeFile(path.join(outDir, "seed.json"), JSON.stringify({ rev: typeof res.rev === "number" ? res.rev : 0, notes, sections }));
           console.log(`baked ${Object.keys(sections).length} published sections into seed.json`);
         }
       } catch (err) {
@@ -150,8 +140,7 @@ export function cmsBackend() {
           }
 
           /* Uploads the office saved on their own disk (see /__upload below) —
-             plain files Vite would otherwise 404. Immutable for a year like
-             scripts/serve.mjs (note 417): the names are unique per upload. */
+             plain files Vite would otherwise 404. */
           if (pathname.startsWith("/data/uploads/") && req.method === "GET") {
             const file = path.normalize(path.join(ROOT, pathname.replace(/^\/+/, "")));
             if (!file.startsWith(ROOT)) {
@@ -165,7 +154,7 @@ export function cmsBackend() {
             res.writeHead(200, {
               "content-type": MIME[path.extname(file).toLowerCase()] || "application/octet-stream",
               "content-length": body.length,
-              "cache-control": "public, max-age=31536000, immutable",
+              "cache-control": "no-cache",
             });
             res.end(body);
             return;
@@ -212,7 +201,7 @@ export function cmsBackend() {
           const rpcMatch = pathname.match(/^\/__cms\/([A-Za-z0-9_]+)$/);
           if (rpcMatch && req.method === "POST") {
             const id = url.searchParams.get("conn") || "anon";
-            /* Live-follow adoption (note 343) opens to this machine only. */
+            /* Live-follow adoption (note 344) opens to this machine only. */
             if (rpcMatch[1] === "adoptLive" && !isLoopbackAddr(req.socket && req.socket.remoteAddress)) {
               res.writeHead(403, { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" });
               res.end(JSON.stringify({ ok: false, err: "denied" }));
@@ -287,13 +276,13 @@ export function cmsBackend() {
             return;
           }
 
-          /* Backup restore (note 307): same as scripts/serve.mjs — puts one
-             embedded upload back under its exact stored name, so a live
-             backup restored on local (`npm run dev`) brings its photos and
-             videos home instead of silently losing them. */
+          /* Backup restore (note 307; ported to this line in note 346 — dev
+             restores used to lose every upload, showing blank photos/videos):
+             same as scripts/serve.mjs — puts one embedded upload back under
+             its exact stored name. */
           if (pathname === "/__restore-file" && req.method === "POST") {
             const ctype = String(req.headers["content-type"] || "").split(";")[0].trim().toLowerCase();
-            /* Restored backups carry every upload kind the office uses (note 345). */
+            /* Restored backups carry every upload kind the office uses (note 346). */
             if (!ctype.startsWith("image/") && !ctype.startsWith("video/") && !ctype.startsWith("audio/")) {
               res.writeHead(400, { "cache-control": "no-store" });
               res.end("bad filetype");
@@ -339,7 +328,8 @@ export function cmsBackend() {
             return;
           }
 
-          /* Delete an upload for good (note 307): same as scripts/serve.mjs. */
+          /* Delete an upload for good (note 307; ported to this line in note
+             346): same as scripts/serve.mjs. */
           if (pathname === "/__delete-file" && req.method === "POST") {
             const asked = String(url.searchParams.get("name") || "");
             if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,99}$/.test(asked) || asked.includes("..")) {
@@ -365,21 +355,10 @@ export function cmsBackend() {
             return;
           }
 
-          /* Cheap keep-awake door, same as scripts/serve.mjs (note 417): a free
-             5-minute ping here keeps the host from idling to sleep. */
-          if (pathname === "/__health" && req.method === "GET") {
-            const body = JSON.stringify({ ok: true, update: devNotes || 0, time: new Date().toISOString() });
-            res.writeHead(200, {
-              "content-type": "application/json; charset=utf-8",
-              "content-length": Buffer.byteLength(body),
-              "cache-control": "no-store",
-            });
-            res.end(body);
-            return;
-          }
-
-          /* Live address for the two-way sync (note 308): office copies ask this
-             door where "live" is (the first origin in cms-server.txt). */
+          /* Live address for the two-way sync (note 308; ported to this line
+             in note 346 — without this door the live→local pull never
+             answered on dev): office copies ask this door where "live" is
+             (the first origin in cms-server.txt). */
           if (pathname === "/__live-url" && req.method === "GET") {
             let live = "";
             try {

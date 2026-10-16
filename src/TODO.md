@@ -433,7 +433,7 @@
   to a page) an id in `pageMap.ts`.
 - **Anything that shows "we are on air" must ask `displayLive()`** (`src/lib/store.ts`: the office's
   on-air state — written by the *Live stream* section's **Start** / **Continue** / **Stop**
-  buttons, `LIVE.isLive` — or the stream itself; never the bare service clock, SPEC note 385).
+  buttons, `LIVE.isLive` — or the stream itself; never the bare service clock, SPEC note 386).
   The short cadence still asks `onAir()` (which also hears the clock). The switch used to be read in
   `WatchLive.tsx` alone, so flipping it lit the panel and left the header pill, the home hero and the
   next-gathering card counting down to the next service — the office's own words for that were *"my

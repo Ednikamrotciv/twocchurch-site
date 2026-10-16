@@ -172,14 +172,14 @@ export async function createCmsHost(rootDir, opts) {
   const selfObj = {};
   const sandbox = { state, pubsub, self: selfObj, console };
   vm.createContext(sandbox);
-  /* Live-follow token (note 343): minted fresh on every boot, handed to the
+  /* Live-follow token (note 344): minted fresh on every boot, handed to the
      server code through `self` — only this process's own minute loop below
      ever learns it (see the adoptLive rpc in cms-server.js). */
   const adoptToken = "adopt-" + createHash("sha256").update(String(Date.now()) + ":" + String(Math.random()) + ":" + String(process.pid || 0)).digest("hex");
   vm.runInContext(scriptSrc + "\nself.__adoptToken = " + JSON.stringify(adoptToken) + ";", sandbox, { filename: "cms-server.js" });
   const rpc = selfObj.rpc || {};
   console.log(`cms backend: running the site's own server code (${Object.keys(rpc).length} rpc methods)`);
-  /* A publish tapped on live/admin reaches this copy by itself (note 343):
+  /* A publish tapped on live/admin reaches this copy by itself (note 344):
      about once a minute the loop reads the live site's published words and
      adopts them when strictly newer — with no browser tab open. The adopted
      save rides the normal auto-deploy out (bake, git push, redeploy), so a
@@ -188,7 +188,7 @@ export async function createCmsHost(rootDir, opts) {
      newer update, never from a fallback bake onto used words (see
      live-follow.mjs). A missed round is harmless: the next minute retries,
      and any signed-in office tab pulls the same way in between. */
-  /* The minute loop is a SERVING process's job (note 377): `npm start` and
+  /* The minute loop is a SERVING process's job (note 378): `npm start` and
      `npm run dev` opt in below. One-shot users of this host (bake-seed,
      bake-recent — and through them every static-host build) must never start
      it: its minute timer kept build processes alive forever, which is exactly
@@ -234,7 +234,7 @@ export async function createCmsHost(rootDir, opts) {
     }
     saveSoon();
     /* A publish moves the words — the recents follow the channel on the same
-       cycle (note 345): without this the new channel's services took up to
+       cycle (note 346): without this the new channel's services took up to
        the 20-minute loop plus a deploy to appear. Only real publishes
        (never reads) schedule it, debounced well past the auto-push delay so
        words and recents ride one commit. */
@@ -269,7 +269,7 @@ async function folderBuildNotes(rootDir) {
   }
 }
 
-/* The office backend's minute loop (note 343): read the live site's
+/* The office backend's minute loop (note 344): read the live site's
    published words, adopt them when strictly newer. All decisions in
    live-follow.mjs; this only moves bytes. Never throws out. */
 const FOLLOW_MS = 60 * 1000;
@@ -291,7 +291,7 @@ function startLiveFollow({ rootDir, rpcCall, adoptToken }) {
       try {
         fileText = await readFile(path.join(rootDir, "cms-server.txt"), "utf8");
       } catch {
-        /* no setup file — the default address answers (note 343) */
+        /* no setup file — the default address answers (note 344) */
       }
       const origin = pickLiveOrigin(fileText) || DEFAULT_LIVE_ORIGIN;
       const ctrl = typeof AbortController !== "undefined" ? new AbortController() : null;
@@ -362,7 +362,7 @@ function startLiveFollow({ rootDir, rpcCall, adoptToken }) {
   setInterval(() => round().catch(() => {}), FOLLOW_MS);
 }
 
-/* Recents follow the published channel on the same cycle (note 345): after
+/* Recents follow the published channel on the same cycle (note 346): after
    a real publish, re-bake the recent-services list from the newly published
    channel, debounced well past the auto-push delay so words and recents
    ride one commit out. Never on the live box (its own 20-minute loop owns

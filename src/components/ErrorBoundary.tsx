@@ -5,12 +5,12 @@ import { Btn, Icon, Section } from "./ui";
 export class ErrorBoundary extends React.Component<{ children: React.ReactNode }, { error: Error | null; route: string; stack: string }> {
   constructor(props: { children: React.ReactNode }) {
     super(props);
-    this.state = { error: null, route: "", stack: "" };
+    this.state = { error: null };
   }
   static getDerivedStateFromError(error: Error) {
     return { error };
   }
-  /* A crash report the office can actually use (note 407): the route that
+  /* A crash report the office can actually use (note 408): the route that
      broke plus the component stack go to the console whole, and the route
      prints on the screen — so the next screenshot names the page. */
   componentDidCatch(error: Error, info?: { componentStack?: string }) {

@@ -1,4 +1,4 @@
-/* Live-follow, shared decision + address helpers (note 343).
+/* Live-follow, shared decision + address helpers (note 344).
    A publish tapped on live/admin must reach the office copy by itself — even
    with no browser tab open. The office backend runs this loop (see
    createCmsHost in cms-local.mjs): about once a minute it reads the live

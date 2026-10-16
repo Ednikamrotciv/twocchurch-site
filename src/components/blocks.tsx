@@ -244,14 +244,18 @@ export function VideoPlayer({
   /** Start the player without a click — used when a live stream is detected. */
   autoPlay?: boolean;
 }) {
-  const [playing, setPlaying] = useState(!!autoPlay);
   const [failed, setFailed] = useState(false);
-  /* Dead-video net (note 332): a removed or private video must never sit on
+  /* Dead-video net (note 333, hardened note 413): a removed or private video must never sit on
      the black "unavailable" frame — the player says so and offers the
      platform link instead. Channel follows and files cannot be asked, so
-     only bare YouTube ids are verified. */
+     only bare YouTube ids are verified. Autoplay never opens an unverified id. */
   const ytId = source?.platform === "facebook" || source?.platform === "upload" ? "" : parseYoutubeId(source?.youtubeId || "");
-  /* A channel with no video id cannot be asked of oEmbed (note 341): tapping
+  const [playing, setPlaying] = useState(() => {
+    if (!autoPlay) return false;
+    if (ytId && peekVerified(ytId) !== true) return false;
+    return true;
+  });
+  /* A channel with no video id cannot be asked of oEmbed (note 342): tapping
      it used to open the channel embed blind — when no broadcast is live,
      YouTube answers "unavailable" inside the frame. The tap now asks the
      check first and plays the verified broadcast id instead. Only the live
@@ -261,7 +265,7 @@ export function VideoPlayer({
   const [checking, setChecking] = useState(false);
   const [notLive, setNotLive] = useState(false);
   const [liveVideoId, setLiveVideoId] = useState("");
-  /* Sound on (note 387): every opening plays with its audio — a tap, or a
+  /* Sound on (note 388): every opening plays with its audio — a tap, or a
      broadcast the site starts by itself the moment it goes live. Every live
      from a channel carries its sound. */
   const shown = tx(title);
@@ -282,7 +286,7 @@ export function VideoPlayer({
 
   /* A click never opens a known-dead video: unknown ids are asked first
      (a beat of "checking"), dead ones go straight to the fallback below. */
-  /* A channel tap asks first (note 341): a live broadcast plays by its own
+  /* A channel tap asks first (note 342): a live broadcast plays by its own
      verified id; silence shows the waiting poster, never YouTube's
      "unavailable". Anything unclear plays the channel as before. */
   const checkChannelThenPlay = () => {
@@ -290,20 +294,20 @@ export function VideoPlayer({
     setChecking(true);
     checkLiveStream()
       .then((st) => {
-        /* Only the handle's answer opens the player (note 349): a tap that
+        /* Only the handle's answer opens the player (note 350): a tap that
            lands after the office moved the channel waits instead of playing
            the old address's video. The temporary guest's own answer opens it
-           the same way while IT is live (note 379). */
+           the same way while IT is live (note 380). */
         const guestWatchUrl = guestTarget()?.url || "";
         if (!isStatusForTarget(st, liveTarget()?.url || "") && !(guestWatchUrl && isStatusForTarget(st, guestWatchUrl))) {
           setChecking(false);
           setNotLive(true);
           return;
         }
-        /* Only the designated channel opens the player (note 357): a live
+        /* Only the designated channel opens the player (note 358): a live
            answer from another channel — or an unverified channel follow
            with no video — waits instead of playing. The guest's own stamped
-           answer passes while IT is live (note 379). */
+           answer passes while IT is live (note 380). */
         const designatedId = designatedChannelIdForTarget(liveTarget()?.url || "");
         if (!isDesignatedChannel(st.channelId || "", designatedId) && !(guestWatchUrl && isGuestTargetUrl(st.target || "", guestWatchUrl))) {
           setChecking(false);
@@ -385,10 +389,42 @@ export function VideoPlayer({
   };
 
   /* The stream can start while the visitor is already sitting on the page, so
-     the player has to be able to open by itself after the first render. */
+     the player has to be able to open by itself after the first render.
+     Note 413: autoplay verifies first — an unverified id waits (poster +
+     "Checking…") and a dead id falls to the fallback instead of the black frame. */
   useEffect(() => {
-    if (autoPlay) setPlaying(true);
-  }, [autoPlay]);
+    if (!autoPlay || playing) return;
+    if (!ytId) {
+      setPlaying(true);
+      return;
+    }
+    const peek = peekVerified(ytId);
+    if (peek === true) {
+      setPlaying(true);
+      return;
+    }
+    if (peek === false) {
+      setDead(true);
+      return;
+    }
+    let alive = true;
+    setChecking(true);
+    verifyYoutubeId(ytId)
+      .then((v) => {
+        if (!alive) return;
+        setChecking(false);
+        if (v === false) setDead(true);
+        else setPlaying(true);
+      })
+      .catch(() => {
+        if (!alive) return;
+        setChecking(false);
+        setPlaying(true);
+      });
+    return () => {
+      alive = false;
+    };
+  }, [autoPlay, ytId, sourceKey]);
 
   /* Autoplay verifies behind the player: a dead id swaps to the fallback
      instead of sitting on the black frame (unknown plays as before). */
@@ -412,7 +448,7 @@ export function VideoPlayer({
   }, [playing, ytId, dead, src]);
 
   /* While a video plays, the verdict is re-asked every few minutes
-     (note 343): a broadcast taken down mid-play swaps to the fallback
+     (note 344): a broadcast taken down mid-play swaps to the fallback
      instead of sitting on the black frame. Cached verdicts make each
      re-ask free; hidden tabs skip it. */
   useEffect(() => {
@@ -457,7 +493,7 @@ export function VideoPlayer({
 
   if (!src) return <div className="player player--empty">{ct("site.videoEmpty")}</div>;
   /* A dead video never plays here: the poster stays, the visitor is told, and
-     the platform link below is the way out (note 332). */
+     the platform link below is the way out (note 333). */
   if (dead) {
     const openHref = watchUrl(source);
     return (
@@ -499,7 +535,7 @@ export function VideoPlayer({
             allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; fullscreen"
             allowFullScreen
           />
-          {/* The frame itself never reports a failure (note 343): a video
+          {/* The frame itself never reports a failure (note 344): a video
               YouTube refuses to embed, blocks in this country, or takes down
               mid-play would otherwise sit black with no way out. This link
               is the permanent way out — on YouTube itself it always plays
@@ -1360,7 +1396,7 @@ export function NextServiceCard() {
      city too — Lagos reads as London the moment the address moves. */
   const when = clockHere(info.slot.time, info.slot.day, zone);
   const city = visitorPlace() || HQ.city;
-  /* The office's switch or the stream itself — whichever says we are on air wins (note 385). */
+  /* The office's switch or the stream itself — whichever says we are on air wins (note 386). */
   const live = displayLive(info);
   return (
     <div className={"next-service" + (live ? " next-service--live" : "")}>

@@ -25,7 +25,7 @@ await mkdir(OUT, { recursive: true });
 try {
   await bakeSeed(ROOT, path.join(OUT, "seed.json"));
 } catch (err) {
-  /* An empty bake is a red build, never a silent shell (note 365). */
+  /* An empty bake is a red build, never a silent shell (note 366). */
   if (err && err.code === "EMPTY_BAKE") {
     console.error("BUILD FAILED: " + err.message);
     process.exit(1);
@@ -37,7 +37,7 @@ try {
    stamp dist/seed.json with "hold": true, so fresh visitors wait on the
    maintenance notice until the office publishes — even when no older publish
    stamp exists to hold them (fresh or wiped backend). The file SHIPS with
-   the code (note 334 — it is NOT git-ignored), so hosts rebuilding from git
+   the code (note 335 — it is NOT git-ignored), so hosts rebuilding from git
    hold too: a git-ignored hold meant Render rebuilt clean and deployed
    behaved like no update had landed. Publishing releases the hold (it only
    gates while the published stamp trails the running update), so no file
@@ -200,8 +200,6 @@ try {
 try {
   const headers =
 `# note 302 — entry files always fresh, hashed assets cacheable.
-# note 417 — uploads immutable for a year (unique timestamped names), so
-# sleep, offline and the offline→online return all paint whole.
 /index.html
   Cache-Control: no-store, must-revalidate
 /*/index.html
@@ -216,8 +214,6 @@ try {
   Cache-Control: no-store, must-revalidate
 /feed.json
   Cache-Control: no-store, must-revalidate
-/data/uploads/*
-  Cache-Control: public, max-age=31536000, immutable
 `;
   await writeFile(path.join(OUT, "_headers"), headers);
   const htaccess =
@@ -230,22 +226,6 @@ try {
 `;
   await writeFile(path.join(OUT, ".htaccess"), htaccess);
   console.log("cache headers written (_headers + .htaccess): entry files never cached");
-  /* Uploads immutable for a year on Apache/cPanel hosts too (note 417): a
-     .htaccess inside data/uploads/ scopes the rule to the uploads alone —
-     bundled photos keep their stable names across builds and must NOT be
-     immutable. */
-  try {
-    const st = await stat(path.join(OUT, "data", "uploads")).catch(() => null);
-    if (st && st.isDirectory()) {
-      await writeFile(
-        path.join(OUT, "data", "uploads", ".htaccess"),
-        `<IfModule mod_headers.c>\n  # note 417 — office uploads: unique names, immutable for a year\n  Header set Cache-Control "public, max-age=31536000, immutable"\n</IfModule>\n`
-      );
-      console.log("uploads cache headers written (dist/data/uploads/.htaccess): immutable for a year");
-    }
-  } catch (err) {
-    console.warn("uploads cache headers skipped:", err?.message || err);
-  }
 } catch (err) {
   console.warn("cache headers skipped:", err?.message || err);
 }

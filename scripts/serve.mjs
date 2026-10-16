@@ -181,24 +181,13 @@ const server = http.createServer(async (req, res) => {
       return;
     }
 
-    /* Cheap keep-awake door (note 417): point a free 5-minute ping here
-       (e.g. UptimeRobot → https://your-site/__health) and the host never idles
-       to sleep. Answered from memory — no disk, no backend, no publish stamp. */
-    if (pathname === "/__health" && req.method === "GET") {
-      const body = JSON.stringify({ ok: true, update: SRC_NOTES || DIST_NOTES || 0, time: new Date().toISOString() });
-      res.writeHead(200, {
-        "content-type": "application/json; charset=utf-8",
-        "content-length": Buffer.byteLength(body),
-        "cache-control": "no-store",
-      });
-      res.end(body);
-      return;
-    }
 
-    /* Live address for the two-way sync (note 308): office copies ask this
-       door where "live" is (the first origin in cms-server.txt). The live box
-       itself (RENDER=true) answers empty — it IS live, so its tabs never
-       pull. Absent file, or a blank one, and every copy stands alone. */
+    /* Live address for the two-way sync (note 308; ported to this line in
+       note 346 — without this door the live→local pull never answered here):
+       office copies ask this door where "live" is (the first origin in
+       cms-server.txt). The live box itself (RENDER=true) answers empty — it
+       IS live, so its tabs never pull. Absent file, or a blank one, the
+       default live address answers instead (note 344). */
     if (pathname === "/__live-url" && req.method === "GET") {
       let live = "";
       if (!process.env.RENDER) {
@@ -207,7 +196,7 @@ const server = http.createServer(async (req, res) => {
           const first = String(raw).split(/\r?\n/).map((l) => l.trim()).filter((l) => l && !l.startsWith("#"))[0] || "";
           const clean = first.replace(/\/+$/, "");
           if (/^https?:\/\/[^/\s]+$/i.test(clean)) live = clean;
-        } catch { /* standalone — no live address */ }
+        } catch { /* standalone — the default answers */ }
       }
       const body = JSON.stringify({ url: live });
       res.writeHead(200, {
@@ -361,7 +350,7 @@ const server = http.createServer(async (req, res) => {
        in data/uploads/ until the office removes them by hand. */
     if (pathname === "/__restore-file" && req.method === "POST") {
       const ctype = String(req.headers["content-type"] || "").split(";")[0].trim().toLowerCase();
-      /* Restored backups carry every upload kind the office uses (note 345):
+      /* Restored backups carry every upload kind the office uses (note 346):
          photos, videos and audio — a refused kind used to come back blank. */
       if (!ctype.startsWith("image/") && !ctype.startsWith("video/") && !ctype.startsWith("audio/")) {
         res.writeHead(400, { "cache-control": "no-store" });
@@ -437,7 +426,7 @@ const server = http.createServer(async (req, res) => {
 
     const rpcMatch = pathname.match(/^\/__cms\/([A-Za-z0-9_]+)$/);    if (rpcMatch && req.method === "POST") {
       const id = url.searchParams.get("conn") || "anon";
-      /* Live-follow adoption (note 343) opens to this machine only — the
+      /* Live-follow adoption (note 344) opens to this machine only — the
          per-boot token is the real lock; this is the second one. */
       if (rpcMatch[1] === "adoptLive" && !isLoopbackAddr(req.socket && req.socket.remoteAddress)) {
         res.writeHead(403, { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" });
@@ -505,27 +494,6 @@ const server = http.createServer(async (req, res) => {
       body = Buffer.from(withShim(body.toString("utf8")));
     }
     const mime = MIME[path.extname(file).toLowerCase()] || "application/octet-stream";
-    /* Office uploads carry unique timestamped names (note 417): immutable for
-       a year, so sleep, offline and the offline→online return all paint whole
-       from the browser cache. A wiped disk still falls back to the deployed
-       bake — the roots above try the live disk first, then dist/ (the build
-       copies data/uploads), and the vault holds seen bytes besides. */
-    if (rel.startsWith("data/uploads/")) {
-      const etag = '"' + st.size + "-" + Math.round(st.mtimeMs) + '"';
-      if (req.headers["if-none-match"] === etag) {
-        res.writeHead(304, { etag, "cache-control": "public, max-age=31536000, immutable" });
-        res.end();
-        return;
-      }
-      res.writeHead(200, {
-        "content-type": mime,
-        "content-length": body.length,
-        etag,
-        "cache-control": "public, max-age=31536000, immutable",
-      });
-      res.end(body);
-      return;
-    }
     if (path.basename(file) === "index.html") {
       /* Entry document: always fresh (a few KB — negligible). */
       res.writeHead(200, {
@@ -557,7 +525,7 @@ const server = http.createServer(async (req, res) => {
 });
 
 server.listen(PORT, () => {
-  /* Cold-start marker (note 343): on hosts that sleep (Render free), every
+  /* Cold-start marker (note 344): on hosts that sleep (Render free), every
      wake prints here with the time — the office can see in the host log when
      the box last slept, and the bake below keeps serving the last publish
      whole from the first second. */

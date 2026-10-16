@@ -46,7 +46,7 @@ export function parseYoutubeId(input: string): string {
 export function youtubeEmbed(id: string, autoplay = true): string {
   const video = parseYoutubeId(id);
   if (!video) return "";
-  /* Sound on (note 387): every live from a channel plays with its audio —
+  /* Sound on (note 388): every live from a channel plays with its audio —
      anything the site plays, tapped or self-started, carries its sound, and
      the stream's audio opens by itself the moment the broadcast starts. */
   return `https://www.youtube.com/embed/${video}?rel=0&modestbranding=1&playsinline=1${autoplay ? "&autoplay=1" : ""}`;
@@ -57,7 +57,7 @@ export function isYoutubeChannelId(input: unknown): boolean {
   return /^UC[\w-]{20,24}$/.test(String(input || "").trim());
 }
 
-/** A channel's running broadcast, played with no video id (note 330): the
+/** A channel's running broadcast, played with no video id (note 331): the
     deployed server cannot read watch pages (they answer 502 from its network
     while the channel page reads 200), so when the channel page is on air but
     names no verifiable video, the player follows the channel instead of
@@ -78,7 +78,7 @@ export function youtubeThumb(id: string): string {
   return video ? `https://i.ytimg.com/vi/${video}/hqdefault.jpg` : "";
 }
 
-/** Whatever the office pasted as the channel, cleaned (note 320): pasting the
+/** Whatever the office pasted as the channel, cleaned (note 321): pasting the
     "@" twice ("@@handle") or with stray spaces used to silently point the
     whole site at nothing — now it collapses to the intended address. */
 export function cleanChannelInput(input: unknown): string {
@@ -137,7 +137,7 @@ export function facebookEmbed(url: string, autoplay = true): string {
 export type VideoSource = {
   platform?: VideoPlatform;
   youtubeId?: string;
-  /** The channel to follow when no video id verified (note 330). */
+  /** The channel to follow when no video id verified (note 331). */
   youtubeChannelId?: string;
   facebookUrl?: string;
   /** A video file the office uploaded from their phone or computer. */
@@ -159,7 +159,7 @@ export function isFileVideo(source: VideoSource): boolean {
 }
 
 /** The <iframe> address — empty for an uploaded file (it plays in a <video>).
-    Sound on (note 387): no silent path remains — every address plays with
+    Sound on (note 388): no silent path remains — every address plays with
     its audio, tapped or self-started. */
 export function embedSrc(source: VideoSource, autoplay = true): string {
   if (!source) return "";

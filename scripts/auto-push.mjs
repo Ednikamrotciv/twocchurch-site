@@ -37,29 +37,6 @@ export function setHookSender(fn) {
 }
 
 const timers = new Map();
-/* Offline retries (note 415): a push that fails while the office is offline
-   used to wait for the NEXT publish — words and uploads sat undeployed
-   indefinitely. A failed push now retries by itself a few times, so coming
-   back online activates the last published whole with nothing missing. */
-const PUSH_RETRY_MS = 5 * 60 * 1000;
-const PUSH_RETRY_MAX = 3;
-const retryTimers = new Map();
-function schedulePushRetry(rootDir, attemptsLeft) {
-  if (attemptsLeft <= 0) return;
-  if (retryTimers.has(rootDir)) return;
-  retryTimers.set(
-    rootDir,
-    setTimeout(async () => {
-      retryTimers.delete(rootDir);
-      try {
-        const r = await pushOnce(rootDir);
-        if (r && r.skipped === "git push failed" && attemptsLeft - 1 > 0) schedulePushRetry(rootDir, attemptsLeft - 1);
-      } catch {
-        /* the next retry or the next publish carries it */
-      }
-    }, PUSH_RETRY_MS)
-  );
-}
 let repoState = null;
 
 async function repoReady(rootDir) {
@@ -104,18 +81,9 @@ async function pushOnce(rootDir) {
     const dirty = await run("git", ["status", "--porcelain", "--", "data", "seed.json"], rootDir);
     if (dirty.code !== 0) return { skipped: "git status failed" };
     if (!dirty.out.trim()) return { skipped: "nothing new to deploy" };
-    /* process.execPath (note 307): the exact node running this backend — a
-       bare "node" relies on PATH and can fail on machines where only npm's
-       node is present. */
-    const bake = await run(process.execPath || "node", ["scripts/bake-seed.mjs"], rootDir);
+    const bake = await run("node", ["scripts/bake-seed.mjs"], rootDir);
     if (bake.code !== 0) {
-      /* Say WHY (note 307): the old line hid the real error, so a broken
-         bake looked identical to "nothing happened" and the live bake went
-         stale — then every sleep brought maintenance back. The words are
-         still safe here; the next publish retries. To fix now, run
-         `npm run bake-seed` by hand and read its error. */
-      const why = String((bake.err || "") + "\n" + (bake.out || "")).trim().split("\n").slice(0, 3).join(" | ").slice(0, 300);
-      console.warn("auto-deploy: could not bake the new words — will retry after the next publish" + (why ? ` (bake said: ${why})` : " (run `npm run bake-seed` by hand to see the error)"));
+      console.warn("auto-deploy: could not bake the new words — will retry after the next publish");
       return { skipped: "bake failed" };
     }
     const add = await run("git", ["add", "-A", "--", "data", "seed.json"], rootDir);
@@ -127,14 +95,7 @@ async function pushOnce(rootDir) {
     if (commit.code !== 0) return { skipped: "git commit failed" };
     const push = await run("git", ["push", "--quiet"], rootDir);
     if (push.code !== 0) {
-      /* Name the usual suspects (note 307): huge uploads break the push while
-         looking like a login problem. GitHub refuses files over 100 MB — one
-         long video in data/uploads/ is enough. The words are safe here and
-         will go out after the next publish; shrink or remove the big file,
-         then publish again (or push by hand to see git's own error). */
-      const pushWhy = String((push.err || "") + "\n" + (push.out || "")).trim().split("\n").slice(0, 2).join(" | ").slice(0, 240);
-      console.warn("auto-deploy: push failed (offline, login expired, or a file over the host's size limit — check data/uploads/ for videos near/over 100 MB) — the words are safe here and will go out after the next publish" + (pushWhy ? ` (git said: ${pushWhy})` : ""));
-      schedulePushRetry(rootDir, PUSH_RETRY_MAX);
+      console.warn("auto-deploy: push failed (offline, or the login expired) — the words are safe here and will go out after the next publish");
       return { skipped: "git push failed" };
     }
     console.log("auto-deploy: new words pushed — the live site updates itself in a few minutes");

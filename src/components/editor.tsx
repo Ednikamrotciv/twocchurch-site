@@ -53,6 +53,7 @@ import {
   sectionIsHidden,
 } from "../lib/cmsSchema";
 import * as cms from "../lib/cms";
+import { cacheUploadBlob, uploadNameOf, useCachedUploadUrl } from "../lib/uploadCache";
 import { serverUrl } from "../lib/remoteserver";
 
 /* -------------------------------------------------------------- status pill */
@@ -739,10 +740,10 @@ export function LiveEndingPanel({ onOpen, children }: { onOpen: (id: string) => 
 
 /* ----------------------------------- the livestream transport: one play/pause button, one stop button */
 
-/** The main slot's own transport (notes 389, 391, 403): one Play/Pause toggle
+/** The main slot's own transport (notes 390, 392, 404): one Play/Pause toggle
     plus one Stop, sitting right under the main channel field — and commanding
     nothing but the main slot. Every click stamps `liveCommandAt`. The main
-    channel needs no click to start (note 399): @twocorg opens the screen by
+    channel needs no click to start (note 400): @twocorg opens the screen by
     itself the moment YouTube is live — Play is only the manual override (a
     walled read, or a badge the office wants forced): published, it opens the
     channel itself while the read cannot confirm a broadcast. Pause HOLDS the
@@ -755,7 +756,7 @@ export function LiveEndingPanel({ onOpen, children }: { onOpen: (id: string) => 
     leaves the site's on-air state alone, whatever the draft says. The buttons
     never gate a live end: when the broadcast ends the screen closes at once
     onto the main channel's previous-service thumbnails, published or not — a
-    natural end needs no publish (note 393). */
+    natural end needs no publish (note 394). */
 export function LiveTransportButtons() {
   useCmsTick();
   const now = useNow(20000);
@@ -768,13 +769,13 @@ export function LiveTransportButtons() {
      buttons are really about. */
   const info = nextService(SERVICES, now, churchTimezone());
   const clockLive = !!info?.isLive && !(cut >= info.at.getTime());
-  /* A paused session waits to be picked back up (note 391): pause keeps the
+  /* A paused session waits to be picked back up (note 392): pause keeps the
      session start, stop clears it — so play resumes a hold but begins fresh
      after an end. A site left on air from before this panel existed carries
      no stamp, so there is nothing held: play begins fresh. */
   const heldSession = since > 0;
   const onNow = isOn || clockLive;
-  /* The slot's own on-air light (note 405): the blinking red dot sits in
+  /* The slot's own on-air light (note 406): the blinking red dot sits in
      this row while the main channel is live — the check's answer for the
      main address, or the office's own switch — so the office sees at a
      glance which field is on air. The countdown alone never lights it. */
@@ -815,7 +816,7 @@ export function LiveTransportButtons() {
       "success"
     );
   };
-  /* Pause holds the broadcast without ending it (note 391): the session start
+  /* Pause holds the broadcast without ending it (note 392): the session start
      is kept — no `liveSince` key here — so play picks the same session back
      up, and the finished service is NOT filed. */
   const pause = () => {
@@ -823,7 +824,7 @@ export function LiveTransportButtons() {
     recheckLiveNow();
     fireToast("Paused — play picks the same session back up. Publish sends it.", "info");
   };
-  /* Stop ends the session (note 391): the start is cleared, so the next play
+  /* Stop ends the session (note 392): the start is cleared, so the next play
      begins fresh — and the finished service files itself under Recent
      services. Main only: the guest slot is never touched here. */
   const stop = () => {
@@ -879,21 +880,21 @@ export function LiveTransportButtons() {
   );
 }
 
-/** The guest slot's own transport (note 403): one Play/Pause toggle plus one
+/** The guest slot's own transport (note 404): one Play/Pause toggle plus one
     Stop, sitting right under the guest channel field — and commanding nothing
     but the guest slot, on its own `guestIsLive` / `guestCommandAt` keys, so
     one row's buttons never work the other. Play needs a guest typed first
     (an empty slot names its field instead of touching the main channel);
-    pause holds the guest override; stop ends it AND empties the slot, so the
-    guest field is empty again after every guest stop. A guest ending files
-    nothing, like every guest end. Every click stamps `guestCommandAt`, and
-    Publish sends the guest state ONLY on a newer guest click (see
+    pause holds the guest override off; stop ends it AND empties the slot, so
+    the guest field is empty again after every guest stop. A guest ending
+    files nothing, like every guest end. Every click stamps `guestCommandAt`,
+    and Publish sends the guest state ONLY on a newer guest click (see
     `gateLiveCommand` in src/lib/cms.ts). */
 export function GuestTransportButtons() {
   useCmsTick();
   const live = draftLive();
   const guestOn = !!(live as any).guestIsLive;
-  /* The guest slot's own on-air light (note 405): the blinking red dot sits
+  /* The guest slot's own on-air light (note 406): the blinking red dot sits
      in this row while the guest address is live — the check's answer for the
      typed guest field, or the guest row's own switch. */
   const guestAirNow = useLiveStream();
@@ -1001,7 +1002,7 @@ export function RecentServicesPanel() {
   const putBack = (id: string) => writeHidden(hiddenIds.filter((x) => x !== id));
 
   const channelSet = !!String(live.youtubeChannel || "").trim();
-  /* One tap back to the church's channel (note 345): restores carry
+  /* One tap back to the church's channel (note 346): restores carry
      debugging channels otherwise, and the recents follow the published
      channel — so the wrong list stays until a @twocorg publish moves it. */
   const cleanedChannel = String(live.youtubeChannel || "").trim().replace(/@@+/g, "@").replace(/\s+/g, "");
@@ -1252,16 +1253,7 @@ async function localHostFile(blob: Blob, filename: string): Promise<string> {
   const data = await res.json().catch(() => null);
   if (!data || typeof data.url !== "string" || !data.url)
     throw new Error("The file could not be saved. Try again, or paste a link instead.");
-  /* Same-host uploads ride relative (note 413): the address names the file,
-     never a host's disk, so sleep and rebuilds cannot blank it. A remote
-     office address keeps its absolute form — the file lives over there. */
-  if (!base) return data.url;
-  try {
-    if (new URL(base).origin === window.location.origin) return data.url;
-  } catch {
-    return data.url;
-  }
-  return base + data.url;
+  return base ? base + data.url : data.url;
 }
 
 /* The stored name inside an office-server address, or "" for anything else
@@ -1269,18 +1261,6 @@ async function localHostFile(blob: Blob, filename: string): Promise<string> {
 function hostedUploadName(url: string): string {
   const m = /\/data\/uploads\/([A-Za-z0-9][A-Za-z0-9._-]*)/.exec(String(url || ""));
   return m ? m[1] : "";
-}
-
-/* An office-server address naming another host's disk (note 413): it works
-   until that host sleeps, then blanks — the office copy's relative address
-   is the one that stays. */
-function isRemoteHosted(url: string): boolean {
-  if (!/\/data\/uploads\//.test(String(url || ""))) return false;
-  try {
-    return new URL(String(url)).origin !== window.location.origin;
-  } catch {
-    return false;
-  }
 }
 
 /* Delete an office-server upload for good — it leaves data/uploads/ and
@@ -1327,19 +1307,21 @@ export function PhotoUpload({ onDone, frame }: { onDone: (url: string) => void; 
   const inputRef = useRef<HTMLInputElement | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
-  const [remote, setRemote] = useState(false);
   const forSlide = frame === "slide";
 
   const upload = async (file: File) => {
     setError("");
-    setRemote(false);
     setBusy(true);
     try {
       /* Slides take pictures only: the re-cut sets the size, so the picture
          goes in at full size and comes out 1600×1200. */
       const blob = forSlide ? await frameImageBlob(file) : await compressImageBlob(file, 1600, 0.82);
       const url = await localHostFile(blob, file.name || "photo.jpg");
-      setRemote(isRemoteHosted(url));
+      /* Sleep-free (note 413): keep the bytes in this browser so a host sleep never blanks the slide. */
+      try {
+        const kept = uploadNameOf(url);
+        if (kept) cacheUploadBlob(kept, blob).catch(() => {});
+      } catch {}
       onDone(url);
       fireToast(
         forSlide ? "Picture fitted to the slide — publish to put it on the site." : "Photo ready — publish to put it on the site.",
@@ -1369,12 +1351,6 @@ export function PhotoUpload({ onDone, frame }: { onDone: (url: string) => void; 
       <Btn size="sm" icon="camera" disabled={busy} onClick={() => inputRef.current && inputRef.current.click()}>
         {busy ? "Uploading your photo…" : forSlide ? "Upload a picture" : "Upload a photo"}
       </Btn>
-      {remote && !busy && !error && (
-        <p className="field__hint">
-          That photo lives on the hosted copy only — it vanishes when that host sleeps. Upload it on the office
-          copy so it stays.
-        </p>
-      )}
       {error && <p className="admin__upload-error">{error}</p>}
     </div>
   );
@@ -1391,6 +1367,10 @@ export function VideoUpload({ onDone }: { onDone: (url: string) => void }) {
     setBusy(true);
     try {
       const url = await localHostFile(file, file.name || "video.mp4");
+      try {
+        const kept = uploadNameOf(url);
+        if (kept) cacheUploadBlob(kept, file).catch(() => {});
+      } catch {}
       onDone(url);
       fireToast("Video ready — publish to put it on the site.", "success");
     } catch (err) {
@@ -1482,7 +1462,11 @@ function ImageField({
   /* What the site shows when this field is empty: the slot's own photo, the
      bundled photo a record falls back to, or nothing at all. */
   const original = slot ? bundledPhoto(slot.key) : def.fallbackPhoto ? bundledPhoto(def.fallbackPhoto) : "";
-  const preview = resolvePhoto(text) || original;
+  const rawPreview = resolvePhoto(text) || original;
+  /* Sleep-free (note 413): a wiped server copy previews the cached upload
+     from this browser instead of the camera placeholder — blank-free. */
+  const cachedPreview = useCachedUploadUrl(rawPreview);
+  const preview = cachedPreview || rawPreview;
   const chosenLabel = key ? PHOTO_SLOTS.find((s) => s.key === key)?.label || key : "";
   const forSlide = def.frame === "slide";
   const [fitting, setFitting] = useState(false);
@@ -1524,7 +1508,12 @@ function ImageField({
     try {
       const framed = await framePastedSlide(text);
       if (!framed) throw new Error("That address could not be read as a picture. Check the link, or upload the picture instead.");
-      onChange(await localHostFile(framed, "slide.jpg"));
+      const fittedUrl = await localHostFile(framed, "slide.jpg");
+      try {
+        const kept = uploadNameOf(fittedUrl);
+        if (kept) cacheUploadBlob(kept, framed).catch(() => {});
+      } catch {}
+      onChange(fittedUrl);
       fireToast("Picture set into the slide — publish to put it on the site.", "success");
     } catch (err) {
       setFitError(err instanceof Error ? err.message : String(err));
@@ -1545,8 +1534,6 @@ function ImageField({
 
   const caption = slideVideoLink
     ? "That link looks like a video — slides take pictures only. Films already live keep playing until you replace them."
-    : custom && imgError
-    ? "That photo is missing on the server — upload it again on the office copy, or paste a new link."
     : custom
     ? "Your own photo is in use."
     : key
@@ -2150,7 +2137,7 @@ export function ToolsPage() {
         const files = parsed?.files;
         const nf = Array.isArray(files) ? files.length : 0;
         if (nf) extra = ` with ${nf} uploaded ${nf === 1 ? "file" : "files"}`;
-        /* Missing uploads must shout (note 345): a backup that skipped
+        /* Missing uploads must shout (note 346): a backup that skipped
            photos/videos used to look complete, and the restore then showed
            them blank on the new copy. */
         const missing = parsed?.missingFiles;

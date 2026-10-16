@@ -901,7 +901,7 @@
   color: var(--crimson-2);
 }
 
-/* The per-field livestream transport (note 401): two compact rows — one for
+/* The per-field livestream transport (note 402): two compact rows — one for
    the main channel, one for the guest — that sit in the field area instead
    of one big block between the fields. */
 .admin__transport {
@@ -919,7 +919,7 @@
 .transport-row__btns {
   margin: 0;
 }
-/* The slot's on-air light (note 405): the blinking red dot rides in the
+/* The slot's on-air light (note 406): the blinking red dot rides in the
    row itself, pushed to the row's end while its slot is live. */
 .transport-row__live {
   margin-left: auto;

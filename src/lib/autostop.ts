@@ -14,11 +14,11 @@ function draftLive(): any {
   return cms.getDraft().live || {};
 }
 
-/** Empty a finished guest slot in the draft (note 401): unstamped, like any
+/** Empty a finished guest slot in the draft (note 402): unstamped, like any
     hand edit — the next Publish carries it, while the screen already follows
     the check back to the main channel whether published or not. Only ever
     clears, never fills, and toasts only when something actually moved. The
-    guest override switch goes with the slot (note 403). */
+    guest override switch goes with the slot (note 404). */
 function clearIdleGuest(): boolean {
   const latest = cms.getDraft().live || {};
   if (!String((latest as any).externalYoutubeChannel || "").trim() && !(latest as any).guestIsLive) return false;
@@ -39,20 +39,26 @@ function stopForStream(live: any, air: LiveStatus): boolean {
   const info = nextService(SERVICES, now, churchTimezone());
   const clockLive = !!info?.isLive && !(cut >= info.at.getTime());
   /* Nothing was on air: nothing to end — unless the main channel self-started
-     (note 399): @twocorg needs no Play press and no Publish, so a seen-live
+     (note 400): @twocorg needs no Play press and no Publish, so a seen-live
      main-channel ending still files itself with no stamp and no
      need to publish. A guest ending still files nothing. */
   if (!live.isLive && !clockLive) {
     const guestEnd = isGuestTargetUrl(air.target || "", guestTarget()?.url || "");
-    /* A finished guest empties its own slot (note 401) — unstamped, so the
+    /* A finished guest empties its own slot (note 402) — unstamped, so the
        screen is already back on the main channel and the next Publish simply
        carries the empty slot. */
     if (guestEnd) clearIdleGuest();
     if (air.platform !== "youtube" || !air.videoId || guestEnd) return false;
-    /* A fact, not an edit (note 413): the ending lands in the draft and the
-       local baseline together — no unsaved row is born, no publish needed —
-       and queues for the server without a bless. */
-    cms.recordStreamEndFacts({ isLive: false, liveCut: endedAt, liveEndedBy: "channel", liveEndedVideo: air.videoId });
+    cms.setSectionValue("live", {
+      ...live,
+      isLive: false,
+      liveCut: endedAt,
+      liveEndedBy: "channel",
+    });
+    /* No stamp, by design (note 394): a natural end needs no publish — the
+       screen already fell back to the previous services by itself — so the
+       command stays unstamped and the next Publish leaves the on-air state
+       alone, whatever else it carries. */
     askForRecentServices({ videoId: air.videoId, title: air.title });
     fireToast(
       "The @twocorg stream ended by itself — no need to publish, the screen is back on the previous services. The finished service is in Recent services.",
@@ -65,16 +71,20 @@ function stopForStream(live: any, air: LiveStatus): boolean {
     Number(live.liveCommandAt) || Number(live.liveSince) || (info?.isLive ? info.at.getTime() : 0);
   if (started && endedAt < started) return false;
 
-  cms.recordStreamEndFacts({ isLive: false, liveCut: endedAt, liveEndedBy: "channel", liveEndedVideo: air.videoId || "" });
-  /* No stamp, by design (note 393): a natural end needs no publish — the
+  cms.setSectionValue("live", {
+    ...live,
+    isLive: false,
+    liveCut: endedAt,
+    liveEndedBy: "channel",
+  });
+  /* No stamp, by design (note 394): a natural end needs no publish — the
      screen already fell back to the previous services by itself — so the
      command stays unstamped and the next Publish leaves the on-air state
-     alone, whatever else it carries. Queued end-facts (note 413) still ride
-     the next deliberate send. */
+     alone, whatever else it carries. */
   /* File the finished service into Recent services now — unless it was the
-     temporary guest (note 379): a guest ending files nothing, and the screen
+     temporary guest (note 380): a guest ending files nothing, and the screen
      is already back on the main channel. A finished guest empties its own
-     slot too (note 401). */
+     slot too (note 402). */
   const airedGuest = isGuestTargetUrl(air.target || "", guestTarget()?.url || "");
   askForRecentServices(
     air.platform === "youtube" && air.videoId && !airedGuest ? { videoId: air.videoId, title: air.title } : undefined
@@ -94,7 +104,7 @@ export function useAutoStopLive(enabled = true) {
   /* The office's own Start/Stop re-render this. */
   cms.useCmsVersion();
   const live = draftLive();
-  /* The main channel is watched even with the switch off (note 399): @twocorg
+  /* The main channel is watched even with the switch off (note 400): @twocorg
      starts by itself with no Play press, so the drawer keeps the short
      cadence — and the office report fresh — whenever its address is set. */
   const air = useLiveStream(!!live.isLive || !!liveTarget(), true);
@@ -106,9 +116,6 @@ export function useAutoStopLive(enabled = true) {
     if (!enabled) return;
     if (air.state === "live") {
       offStreak.current = 0;
-      /* A live edge supersedes any queued end (note 413): the stream the
-         queued facts described is over — unless it is the same video back. */
-      cms.clearStaleQueuedFacts(String(air.videoId || ""));
       return;
     }
     if (air.state === "off") {

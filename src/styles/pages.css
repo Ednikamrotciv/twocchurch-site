@@ -1028,7 +1028,7 @@
   display: block;
 }
 
-/* The frame never reports a failure (note 343): this link sits over the
+/* The frame never reports a failure (note 344): this link sits over the
    corner while a video plays, so a refused/blocked/removed embed always
    has a way out that says why. */
 .player__escape {
@@ -4788,15 +4788,7 @@
   line-height: 1.2;
 }
 
-.live-ended__text,
-.live-wait__text {
-  margin: 0;
-  color: #c7c1b6;
-  font-size: 0.9rem;
-  line-height: 1.65;
-}
-
-/* The previous-service thumbnails under the ended screen (note 391): the
+/* The previous-service thumbnails under the ended screen (note 392): the
    main channel's last services, already on the screen the moment a live ends. */
 .live-ended__thumbs {
   display: grid;
@@ -4808,6 +4800,13 @@
   .live-ended__thumbs {
     grid-template-columns: 1fr;
   }
+}
+.live-ended__text,
+.live-wait__text {
+  margin: 0;
+  color: #c7c1b6;
+  font-size: 0.9rem;
+  line-height: 1.65;
 }
 
 /* The outline button has to stay readable over whatever the still happens to

@@ -48,7 +48,7 @@ const SOON_MS = 90_000;
 const BURST_MS = 6 * 60_000;
 /** How long a just-ended service waits for YouTube to publish it. */
 const SEED_MAX_MS = 12 * 60 * 60 * 1000;
-/** Give the proxy this long before calling a read a failure (note 371:
+/** Give the proxy this long before calling a read a failure (note 372:
     three doors at the old 20 seconds each held the deployed feed up to a
     minute past a dead proxy — eight is plenty for YouTube to answer). */
 const TIMEOUT_MS = 8_000;
@@ -71,12 +71,12 @@ function channelPageUrl(): string {
 
 /** The channel id behind the office's channel setting, resolving a handle once. */
 async function resolveChannelId(): Promise<string> {
-  /* Cleaned (note 320): a doubled "@" must resolve like the handle it is. */
+  /* Cleaned (note 321): a doubled "@" must resolve like the handle it is. */
   const pasted = cleanChannelInput(LIVE.youtubeChannel);
   if (!pasted) return "";
   const direct = channelIdIn(pasted);
   if (direct) return direct;
-  /* The designated handle answers from its baked id (note 371): @twocorg is
+  /* The designated handle answers from its baked id (note 372): @twocorg is
      known without any page read, so the first feed on a fresh browser skips
      the whole proxy cascade instead of waiting it out. */
   const designated = designatedChannelId(pasted);
@@ -142,7 +142,7 @@ async function fetchTextRemote(url: string): Promise<string | null> {
   }
 }
 
-/** Same-origin YouTube read (`scripts/serve.mjs` /__yt, note 363): the office
+/** Same-origin YouTube read (`scripts/serve.mjs` /__yt, note 364): the office
     server AND the deployed server both answer it, so local runs and deployed
     visitors read through their own host instead of the dead public proxies.
     Static hosts answer nothing here and fall through below. */
@@ -354,7 +354,7 @@ export async function fetchRecentServices(): Promise<RecentServices | null> {
   return { items: merged.slice(0, KEEP), at: now, channelId: channelId || "" };
 }
 
-/* The designated channel's previous services, baked into the code (note 363):
+/* The designated channel's previous services, baked into the code (note 364):
    every public proxy is down and the deployed bake is empty until seed.json is
    deployed — so a standalone visitor would see no recents and no still on the
    screen. With @twocorg published, this list stands in, newest first (read off
@@ -400,7 +400,7 @@ export function designatedFallback(): RecentServices {
 export function readRecentServices(): RecentServices {
   const cached = readStore<RecentServices | null>(RECENT_KEY, null);
   if (!cached || !Array.isArray(cached.items)) return designatedFallback();
-  /* Only the designated channel's list (note 359): a cache saved for another
+  /* Only the designated channel's list (note 360): a cache saved for another
      channel is cleared, never merged — old debugging videos must not ride a
      fresh read forever. Seeds and empty caches pass through; the next read
      (or the baked @twocorg list) fills the card back in. */
@@ -408,44 +408,29 @@ export function readRecentServices(): RecentServices {
   const designated = designatedChannelId();
   if (designated && cachedChannelId && cachedChannelId !== designated) return designatedFallback();
   const now = Date.now();
-  const items = dedupeRecents(
-    cached.items
-      .filter((it) => it && parseYoutubeId(String(it.videoId || "")))
-      .map((it) => ({
-        videoId: String(it.videoId),
-        title: String(it.title || ""),
-        at: Number(it.at) || 0,
-        ago: String(it.ago || ""),
-        thumb: String(it.thumb || `https://i.ytimg.com/vi/${it.videoId}/hqdefault.jpg`),
-        seeded: Number(it.seeded) || 0,
-      }))
-      /* A seeded card is a promise that YouTube will publish the service in a
-         moment; past a night it is no longer worth showing, and the read would
-         have had it by then if it was ever going to. */
-      .filter((it) => !it.seeded || now - it.seeded < SEED_MAX_MS)
-  );
+  const items = cached.items
+    .filter((it) => it && parseYoutubeId(String(it.videoId || "")))
+    .map((it) => ({
+      videoId: String(it.videoId),
+      title: String(it.title || ""),
+      at: Number(it.at) || 0,
+      ago: String(it.ago || ""),
+      thumb: String(it.thumb || `https://i.ytimg.com/vi/${it.videoId}/hqdefault.jpg`),
+      seeded: Number(it.seeded) || 0,
+    }))
+    /* A seeded card is a promise that YouTube will publish the service in a
+       moment; past a night it is no longer worth showing, and the read would
+       have had it by then if it was ever going to. */
+    .filter((it) => !it.seeded || now - it.seeded < SEED_MAX_MS);
   if (!items.length) return designatedFallback();
   return { items, at: Number(cached.at) || 0, channelId: String(cached.channelId || "") };
-}
-
-/* One card per broadcast (note 413): a merged read can carry the same video
-   twice — the grid keys on videoId, so a double would paint the same card
-   twice. Keeps the first, in order. Pure for the verifier. */
-export function dedupeRecents<T extends { videoId: string }>(items: T[]): T[] {
-  const seen = new Set<string>();
-  return (items || []).filter((it) => {
-    const id = String(it?.videoId || "");
-    if (!id || seen.has(id)) return false;
-    seen.add(id);
-    return true;
-  });
 }
 
 function saveRecentServices(next: RecentServices) {
   writeStore(RECENT_KEY, next);
 }
 
-/* A proven new update drops the old card once (note 361): the next read, or
+/* A proven new update drops the old card once (note 362): the next read, or
    the shipped bake, fills it back in. Seeds are never special-cased here — a
    just-ended service is on YouTube by the next read. */
 export function clearRecentCaches(): void {
@@ -548,7 +533,7 @@ export function useRecentServices({ soon = false, liveNow = false }: { soon?: bo
      YouTube can take a minute or two to publish the recording (see
      `askForRecentServices`). */
   const burstRef = useRef(0);
-  /* Cleaned (note 320): follows the same address the live check watches. */
+  /* Cleaned (note 321): follows the same address the live check watches. */
   const target = cleanChannelInput(LIVE.youtubeChannel);
 
   soonRef.current = soon;

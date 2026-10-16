@@ -56,7 +56,7 @@ export function App() {
   /* Whether the church is broadcasting, asked once for the whole site (note 133).
      The short cadence is only worth asking for while a broadcast is expected:
      a gathering is on the clock, or one starts within the next three quarters
-     of an hour — or the visitor sits on the Watch page itself (note 310),
+     of an hour — or the visitor sits on the Watch page itself (note 306),
      where a YouTube start must show in seconds on live and on local alike. */
   const minute = useNow(60_000);
   /* The office's Weekly services card, read on the church's own clock. */
@@ -74,6 +74,7 @@ export function App() {
        retried with a normal reload — never a hard refresh — and re-checked
        while the tab stays open, so an update that lands later still takes). */
     void checkStaleBuild().catch(() => {});
+    
     const onVis = () => {
       if (document.visibilityState === "visible") void checkStaleBuild().catch(() => {});
     };

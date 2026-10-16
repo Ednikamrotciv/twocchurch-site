@@ -27,9 +27,9 @@ export type LiveStatus = {
   /** The video id of the broadcast that is on air, when we know it. */
   videoId: string;
   /** The broadcast channel's own id, when the channel page is on air but no
-      video id could be verified (note 330): the player follows the channel. */
+      video id could be verified (note 331): the player follows the channel. */
   channelId: string;
-  /** The address this answer was checked for (note 349): the channel space
+  /** The address this answer was checked for (note 350): the channel space
       it belongs to. An answer stamped for another address never plays, never
       reports, and never seeds the ended screen — the livestream shows only
       the handle in the YouTube channel space. Caches from older updates
@@ -83,7 +83,7 @@ export function liveTarget(): { url: string; kind: "channel" | "video" } | null 
   return null;
 }
 
-/** Where to ask the temporary guest (note 379): a one-off livestream from
+/** Where to ask the temporary guest (note 380): a one-off livestream from
     another address. Same shapes as the main target above; null unless the
     office set the guest field. Takes an explicit input for the verifier so
     the shipped rule runs without the store. */
@@ -102,7 +102,7 @@ export function guestTarget(channelInput?: string): { url: string; kind: "channe
   return null;
 }
 
-/** True while an answer is stamped for the guest address (note 379), pure
+/** True while an answer is stamped for the guest address (note 380), pure
     for the verifier: only the guest's own answer may stand for the guest —
     anything else waits on the main channel. */
 export function isGuestTargetUrl(targetUrl: string, guestUrl: string): boolean {
@@ -213,7 +213,7 @@ export function channelCandidateIds(html: string, limit = 3): string[] {
   return ids;
 }
 
-/** The channel page's own id (note 330): the id the page names most — the
+/** The channel page's own id (note 331): the id the page names most — the
     owner dwarfs every guest — but only with a clear margin. A target that
     already carries the id wins without any counting; a contested or quiet
     page names nothing rather than risking the wrong channel's stream. */
@@ -232,7 +232,7 @@ export function extractChannelId(html: string, targetUrl = ""): string {
   return ranked[0][0];
 }
 
-/** The owner channel named by a watch page's own player model (note 349):
+/** The owner channel named by a watch page's own player model (note 350):
     every video belongs to exactly one channel, so a live candidate from
     another channel is an ad, an autoplay or a related upload — never the
     handle's broadcast. "" when the page names none (bot-walled reads). */
@@ -241,7 +241,7 @@ export function watchChannelId(watchHtml: string): string {
   return d?.[1] || "";
 }
 
-/** True while a candidate may stand for the handle's broadcast (note 349),
+/** True while a candidate may stand for the handle's broadcast (note 350),
     pure for the verifier: when the channel page's owner and the candidate's
     own page both name a channel and they differ, the candidate is somebody
     else's video and the asking moves on. Anything unprovable either way
@@ -251,7 +251,7 @@ export function ownerAllowsCandidate(ownerChannelId: string, candidateChannelId:
   return true;
 }
 
-/** The designated channel's own id, answered with no page read (note 357):
+/** The designated channel's own id, answered with no page read (note 358):
     @twocorg is UCQ0KIUXUV7gTZmDDlvd3ZcQ (SPEC note 112 — the same answer the
     bake uses), so the livestream gate knows whose video counts even through
     the wall. Any other address names nothing, and every gate below behaves
@@ -259,14 +259,14 @@ export function ownerAllowsCandidate(ownerChannelId: string, candidateChannelId:
 export const DESIGNATED_CHANNEL_IDS: Record<string, string> = {
   "@twocorg": "UCQ0KIUXUV7gTZmDDlvd3ZcQ",
 };
-/** The designated id for a channel input (note 357): cleaned first, so
+/** The designated id for a channel input (note 358): cleaned first, so
     "@TWOCORG" and "@@twocorg" answer like "@twocorg". */
 export function designatedChannelId(channelInput?: string): string {
   const cleaned = cleanChannelInput(channelInput === undefined ? LIVE.youtubeChannel : channelInput);
   if (!cleaned) return "";
   return DESIGNATED_CHANNEL_IDS[cleaned.toLowerCase()] || "";
 }
-/** The designated id for a checked target URL (note 357): a UC id in the
+/** The designated id for a checked target URL (note 358): a UC id in the
     address is the designation itself; an @handle answers from the baked map
     above; anything else names nothing. */
 export function designatedChannelIdForTarget(targetUrl: string): string {
@@ -277,7 +277,7 @@ export function designatedChannelIdForTarget(targetUrl: string): string {
   if (at) return DESIGNATED_CHANNEL_IDS[("@" + at[1]).toLowerCase()] || "";
   return "";
 }
-/** True while this channel may stand for the designated broadcast (note 357),
+/** True while this channel may stand for the designated broadcast (note 358),
     pure for the verifier: a named channel that is not the designated one is
     somebody else's video and never plays; an unnamed one passes through (the
     candidate and report gates below judge those — a thin read must still be
@@ -288,7 +288,7 @@ export function isDesignatedChannel(channelId: string, designatedId: string): bo
   if (!d || !c) return true;
   return c === d;
 }
-/** True while a suggestion may stand for the designated broadcast (note 357),
+/** True while a suggestion may stand for the designated broadcast (note 358),
     pure for the verifier: the page that names the suggestions is a grab-bag,
     so a suggestion from another channel is skipped like an off answer — and
     with the designation known, an ownerless grab-bag mention plays only when
@@ -306,7 +306,7 @@ export function candidateStandsForDesignated(
   return fromLiveTab === true;
 }
 
-/** True while this answer belongs to the address asked for (note 349), pure
+/** True while this answer belongs to the address asked for (note 350), pure
     for the verifier: an answer stamped for another address (the office moved
     the channel since the check) never plays and never reports. Caches from
     older updates carry no stamp and pass through like before. */
@@ -316,7 +316,7 @@ export function isStatusForTarget(status: { target?: unknown }, targetUrl: strin
   return stamped === String(targetUrl || "");
 }
 
-/** What an "off" answer keeps from the broadcast before it (note 349), pure
+/** What an "off" answer keeps from the broadcast before it (note 350), pure
     for the verifier: the ended screen keeps the video it was — but only when
     it was the SAME address. A moved channel drops the old video outright
     instead of seeding the new handle's ended screen, cover and recents with
@@ -328,7 +328,7 @@ export function inheritEnded(
   designatedId = ""
 ): { endedAt: number; videoId: string; title: string; channelId: string; platform: LivePlatform | "" } {
   if ((before.state === "live" || before.endedAt > 0) && isStatusForTarget(before, targetUrl)) {
-    /* A kept video from another channel is dropped too (note 357): the new
+    /* A kept video from another channel is dropped too (note 358): the new
        handle never inherits somebody else's service on its ended screen.
        Older callers pass nothing and behave exactly like before. */
     const d = String(designatedId || "");
@@ -345,7 +345,7 @@ export function inheritEnded(
   return { endedAt: 0, videoId: "", title: "", channelId: "", platform: "" };
 }
 
-/** The screen closes the moment a live ends (notes 385, 387), pure for the
+/** The screen closes the moment a live ends (notes 386, 388), pure for the
     verifier: the Watch screen shuts when its broadcast ends and never plays
     another channel's livestream by itself. `wasLiveTarget` is the screen's
     live address on the previous answer ("" when it was not playing),
@@ -361,7 +361,7 @@ export function nextScreenShut(prevShut: ScreenShut, wasLiveTarget: string, gues
   const was = String(wasLiveTarget || "");
   const guest = String(guestUrl || "");
   const now = String(nowLiveTarget || "");
-  /* A new live edge while the screen sits shut re-arms first (note 387): a
+  /* A new live edge while the screen sits shut re-arms first (note 388): a
      livestream that starts still opens by itself — the reading moved since the
      last answer, so this is a start, not the same broadcast continuing. */
   if (prevShut && isLive && now && now !== was) return null;
@@ -369,13 +369,13 @@ export function nextScreenShut(prevShut: ScreenShut, wasLiveTarget: string, gues
      a live main channel to the screen: shut instead — the screen closes and
      never plays another channel's livestream by itself. */
   if (was && guest && was === guest && isLive && now && now !== guest) return { playing: now };
-  /* Any end (note 387): the screen's broadcast reads off, so the screen
+  /* Any end (note 388): the screen's broadcast reads off, so the screen
      closes at once onto the main channel's last ended thumbnail. */
   if (was && isOff) return { playing: was };
   return prevShut;
 }
 
-/** The walled-but-on-air answer (note 330), pure for the verifier: a channel
+/** The walled-but-on-air answer (note 331), pure for the verifier: a channel
     page carrying on-air chrome that no suggestion confirmed plays the channel
     when the page names its owner clearly — otherwise it stays `unknown`, never
     `off`, and never a guessed video. */
@@ -385,7 +385,7 @@ export function unverifiedChannelAnswer(
   channelId: string,
   designatedId = ""
 ): { state: LiveState; videoId: string; title: string; channelId: string } {
-  /* Strict (note 357): a chrome-only page follows the channel only when the
+  /* Strict (note 358): a chrome-only page follows the channel only when the
      page names the designated owner — an unnamed or foreign owner stays
      unknown and the screen waits instead of playing a guess. Older callers
      pass nothing and behave exactly like before. */
@@ -418,11 +418,11 @@ async function resolveYoutube(
      settle — and a channel page that itself carries on-air chrome no candidate
      confirmed stays `unknown`, never `off`, rather than ending a service. */
   const cands = channelCandidateIds(html);
-  /* Only the handle's own videos (note 349): the page that names the
+  /* Only the handle's own videos (note 350): the page that names the
      suggestions is a grab-bag, so a live suggestion from another channel is
      skipped like an off answer — the asking moves on, never the player. */
   const owner = extractChannelId(html, target.url);
-  /* Only the designated channel's videos (note 357): with the designation
+  /* Only the designated channel's videos (note 358): with the designation
      known, an ownerless grab-bag mention plays only when the channel's own
      Live tab points at it — the Live tab vouches where a walled watch page
      cannot. */
@@ -439,7 +439,7 @@ async function resolveYoutube(
       return { state: "live" as const, videoId: watch.videoId || vid, title: watch.title, channelId: "" };
     }
   }
-  /* Walled but on air (note 330): the channel page carries the full on-air
+  /* Walled but on air (note 331): the channel page carries the full on-air
      chrome yet no suggestion verifies — measured on a real service, every
      watch page answers 502 through the deployed server while the channel page
      reads 200, and the public proxy is down too. Guessing a video would
@@ -542,7 +542,7 @@ async function fetchPageOffice(url: string): Promise<string | null> {
 
 /** The office's reported on-air answer (note 318): what the office copy saw,
     where it saw it, and when — trusted only while fresh and on this target.
-    `notes` is the reporter's own update (note 332): a mixed-version office tab
+    `notes` is the reporter's own update (note 333): a mixed-version office tab
     (an old bundle still open somewhere) must never steer this one, so a report
     from any other update is ignored and the scrape below runs instead. */
 export type LiveReport = { target: string; state: "live" | "off"; videoId: string; title: string; channelId: string; checkedAt: number; notes: number };
@@ -553,13 +553,13 @@ const REPORT_FRESH_MS = 150_000;
    never hold up the scrape behind it. */
 const REPORT_TIMEOUT_MS = 6_000;
 
-/** Same-update reporters only (note 332), pure for the verifier: an old bundle
+/** Same-update reporters only (note 333), pure for the verifier: an old bundle
     still open in some office tab reports the old code's answers (once a wrong
     video id mid-service) — those must never steer this update. */
 export function reportMatchesBuild(rep: { notes?: unknown }): boolean {
   return Number(rep?.notes) === BUILD_NOTES;
 }
-/** True while an office report names something the player may open (note 357),
+/** True while an office report names something the player may open (note 358),
     pure for the verifier: a "live" report with no video id is an unverified
     channel follow — it must never open the player by itself. Readers fall
     through to their own scrape (usually `unknown` → the waiting screen)
@@ -602,7 +602,7 @@ async function fetchLiveReport(): Promise<LiveReport | null> {
 /** Ask YouTube whether we are broadcasting, right now. */
 export async function checkLiveStream(opts: { facebook?: boolean } = {}): Promise<LiveStatus> {
   const target = liveTarget();
-  /* A temporary guest channel (note 379): a one-off livestream from another
+  /* A temporary guest channel (note 380): a one-off livestream from another
      address. It is asked first and wins while IT is live; its off/unknown
      answers change nothing and the main channel below decides — so the ended
      screen, the still and Recent services stay the main channel's own. */
@@ -616,10 +616,10 @@ export async function checkLiveStream(opts: { facebook?: boolean } = {}): Promis
      office is open and reporting, visitors take its answer. A stale report,
      or one for another address, changes nothing — the scrape below runs. */
   const officeRep = target || guest ? await fetchLiveReport() : null;
-  /* A videoless "live" report is an unverified follow (note 357): it never
+  /* A videoless "live" report is an unverified follow (note 358): it never
      opens the player — the scrape below runs and usually waits. */
   const officeHit = target && officeRep && officeRep.target === target.url && reportCarriesVideo(officeRep) ? officeRep : null;
-  /* The guest's own report, matched the same way (note 379): only an answer
+  /* The guest's own report, matched the same way (note 380): only an answer
      stamped for the guest address may stand for the guest. */
   const officeGuest = guest && officeRep && officeRep.target === guest.url && reportCarriesVideo(officeRep) ? officeRep : null;
   const guestHtml = guest && !officeGuest ? await fetchPage(guest.url) : null;
@@ -646,7 +646,7 @@ export async function checkLiveStream(opts: { facebook?: boolean } = {}): Promis
   /* Facebook is asked only when YouTube has not already answered "live" — it is
      the office's drawer that asks, and this is the one case it can add
      something: a service that is only on Facebook (SPEC note 111). A live
-     guest answers first too (note 379): Facebook never overrides it. */
+     guest answers first too (note 380): Facebook never overrides it. */
   let facebook: { state: LiveState; videoId: string; title: string; channelId: string } = { state: "unset", videoId: "", title: "", channelId: "" };
   if (fbUrl && youtube.state !== "live" && guestAns.state !== "live") {
     const fbHtml = await fetchPage(fbUrl);
@@ -656,7 +656,7 @@ export async function checkLiveStream(opts: { facebook?: boolean } = {}): Promis
     }
   }
 
-  /* The guest wins while IT is live (note 379): its verified broadcast plays
+  /* The guest wins while IT is live (note 380): its verified broadcast plays
      on the screen; everything else about the answer — the stamp below, the
      office report after it — says the guest address, so the main channel's
      ended screen never inherits the guest's video. */
@@ -685,7 +685,7 @@ export async function checkLiveStream(opts: { facebook?: boolean } = {}): Promis
   const next: LiveStatus = { state, platform: found?.platform || "", videoId: found?.videoId || "", title: found?.title || "", channelId: found?.channelId || "", target: targetUrl, checkedAt, endedAt: 0 };
 
   /* A watched broadcast's ending sticks until one comes back (autostop) — but
-     only for the address it was (note 349): a moved channel drops the old
+     only for the address it was (note 350): a moved channel drops the old
      video outright instead of seeding the new handle's ended screen. */
   const before = readLiveStatus();
   if (state === "off" && (before.state === "live" || before.endedAt > 0)) {
@@ -757,20 +757,20 @@ function maybeReport(status: LiveStatus) {
        finds must never overwrite the office's real answer on the server. */
     if (status.state !== "live" && status.state !== "off") return;
     if (status.state === "live" && status.platform !== "youtube") return;
-    /* Only a verified broadcast id is reported (note 357): an unverified
+    /* Only a verified broadcast id is reported (note 358): an unverified
        channel-live answer names no video, so reporting it would steer every
        visitor's player at a guess — it stays local, and the readers wait. */
     if (status.state === "live" && !status.videoId) return;
-    /* The winning address reports (note 379): a guest-live answer carries the
+    /* The winning address reports (note 380): a guest-live answer carries the
        guest stamp, so the office steers visitors to the guest broadcast —
        and back to the main channel with the next answer after it ends. */
     const url = String(status.target || "") || liveTarget()?.url || "";
     if (!url) return;
-    /* ...and only while that address is still watched (note 379): a retype
+    /* ...and only while that address is still watched (note 380): a retype
        since the check silences the old answer, guest or main alike. */
     if (url !== (liveTarget()?.url || "") && url !== (guestTarget()?.url || "")) return;
     /* An answer checked for another address (the channel moved since) never
-       reports (note 349): the office must not steer visitors to the old
+       reports (note 350): the office must not steer visitors to the old
        handle's video. */
     if (!isStatusForTarget(status, url)) return;
     reportSink({ target: url, state: status.state, videoId: status.videoId, title: status.title, channelId: status.channelId, checkedAt: status.checkedAt, notes: BUILD_NOTES });
@@ -816,7 +816,7 @@ export function liveNow(): boolean {
   return snapshot.status.state === "live";
 }
 
-/** Is the temporary guest address the one broadcasting right now (note 407)?
+/** Is the temporary guest address the one broadcasting right now (note 408)?
     Pure for the verifier: only the guest's own stamped answer counts. */
 export function guestLiveNow(): boolean {
   const g = guestTarget()?.url || "";
@@ -1026,7 +1026,7 @@ export function useLiveStream(soon = false, watchFacebook = false, urgent = fals
   return { ...status, checking } as LiveStatus & { checking: boolean };
 }
 
-/* ------------------------------- playable check (note 332): never embed a
+/* ------------------------------- playable check (note 333): never embed a
    dead video. A stale office report (or a removed upload) can name a video id
    that YouTube no longer plays — autoplaying it fills the screen with the
    black "unavailable" frame. So ids are asked of YouTube's oEmbed endpoint
