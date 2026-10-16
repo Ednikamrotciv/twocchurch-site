@@ -542,17 +542,19 @@ function mergeSection(id: string, base: any, value: any) {
 }
 
 function merge(over: Snapshot): Snapshot {
+  const norm = normalizeSnapshotUploads(over || {});
   const out: Snapshot = clone(defaults);
-  for (const id of Object.keys(over || {})) {
-    if (over[id] === null || over[id] === undefined) continue;
-    out[id] = mergeSection(id, defaults[id], over[id]);
+  for (const id of Object.keys(norm || {})) {
+    if ((norm as any)[id] === null || (norm as any)[id] === undefined) continue;
+    out[id] = mergeSection(id, defaults[id], (norm as any)[id]);
   }
   return out;
 }
 
 /** Fill every section of a snapshot in from the defaults where it is missing. */
 function normalizeDraft(snap: Snapshot): Snapshot {
-  const out: Snapshot = clone(snap || {});
+  const norm = normalizeSnapshotUploads(snap || {});
+  const out: Snapshot = clone(norm || {});
   for (const def of SECTION_DEFS) {
     out[def.id] = out[def.id] === undefined ? clone(defaults[def.id]) : mergeSection(def.id, defaults[def.id], out[def.id]);
   }
@@ -589,7 +591,7 @@ export function applySnapshot(snap: Snapshot) {
 function applyOverrides(over: Snapshot, keepDraft = true) {
   /* Whatever was waiting to be previewed describes the old content. */
   dropLivePreview();
-  overrides = clone(over || {});
+  overrides = clone(normalizeSnapshotUploads(over || {}));
   if (!keepDraft) draft = null;
   applySnapshot(merge(overrides));
   /* Live content can land under a draft; edited sections stay, the rest follow it. */
@@ -615,12 +617,79 @@ function publishedSection(id: string): any {
   return mergeSection(id, defaults[id], value);
 }
 
-/** The section ids the office has changed but not published yet. */
+/* Sleep/offline fix: office uploads always store host-relative ("/data/uploads/…").
+   An absolute office address (https://office…/data/uploads/…) blanks visitors and
+   the office preview whenever the office box sleeps or the network drops — the
+   file itself survives in dist/ + the browser cache, but the address points at a
+   sleeping box. These helpers rewrite old absolute addresses to relative on
+   read, compare and publish, so nothing ever goes blank again. */
+function normalizeUploadUrlValue(u: unknown): unknown {
+  if (typeof u !== "string") return u;
+  const m = /https?:\/\/[^/\s]+\/data\/uploads\/([A-Za-z0-9][A-Za-z0-9._-]*)/i.exec(u);
+  if (m) return "/data/uploads/" + m[1];
+  return u;
+}
+function normalizeSnapshotUploads(snap: Snapshot): Snapshot {
+  const walk = (v: any): any => {
+    if (typeof v === "string") return normalizeUploadUrlValue(v) as any;
+    if (Array.isArray(v)) {
+      let changed = false;
+      const out = v.map((x) => {
+        const n = walk(x);
+        if (n !== x) changed = true;
+        return n;
+      });
+      return changed ? out : v;
+    }
+    if (v && typeof v === "object") {
+      let changed = false;
+      const out: any = Array.isArray(v) ? [] : { ...v };
+      for (const k of Object.keys(v)) {
+        const n = walk((v as any)[k]);
+        if (n !== (v as any)[k]) {
+          changed = true;
+          out[k] = n;
+        }
+      }
+      return changed ? out : v;
+    }
+    return v;
+  };
+  let changed = false;
+  const out: Snapshot = { ...(snap || {}) };
+  for (const k of Object.keys(out)) {
+    const n = walk(out[k]);
+    if (n !== out[k]) {
+      changed = true;
+      out[k] = n;
+    }
+  }
+  return changed ? out : snap;
+}
+/* Deployed-is-clean fix: the livestream's on-air state travels ONLY on a newer
+   transport click (gateLiveCommand) — a natural end stamps nothing. Comparing
+   the raw draft would flag every autostop write as an unsaved change with the
+   generic "This part of the site: changed" line that never clears. All
+   unsaved/patch comparisons below use the gated draft for "live". */
+function comparableDraftSection(id: string, draftVal: any): any {
+  if (id !== "live") return draftVal;
+  try {
+    return (typeof gateLiveCommand === "function" ? gateLiveCommand(draftVal, publishedSection("live")) : draftVal);
+  } catch {
+    return draftVal;
+  }
+}
+
+/** The section ids the office has changed but not published yet. Clean after
+    deploy: unstamped on-air state (a natural end needs no publish) never counts,
+    and old absolute upload addresses compare as their relative form. */
 export function pendingSections(): string[] {
   if (!draft) return [];
   const out: string[] = [];
   for (const def of SECTION_DEFS) {
-    if (JSON.stringify(publishedSection(def.id)) !== JSON.stringify(draft[def.id])) out.push(def.id);
+    const pub = normalizeUploadUrlValue(JSON.stringify(publishedSection(def.id)));
+    const cmp = normalizeUploadUrlValue(JSON.stringify(comparableDraftSection(def.id, draft[def.id])));
+    if (pub !== cmp) out.push(def.id);
   }
   return out;
 }
@@ -840,7 +909,7 @@ export function pendingEdits(): PendingEdit[] {
     const def = sectionById(id);
     if (!def) continue;
     const before = publishedSection(id);
-    const after = draft[id];
+    const after = comparableDraftSection(id, draft[id]);
     const found =
       def.kind === "object"
         ? objectPending(def, before, after)
@@ -1596,6 +1665,56 @@ async function backfillUploadsFrom(fromBase: string, content: Snapshot = overrid
   return { restored, failed };
 }
 
+/* Offline-proof uploads: prime the browser + service caches for every
+   last-published upload, so visitors and the office preview keep showing photos
+   and videos with no network and right after a host sleep. Fire-and-forget,
+   throttled, never throws — a missed prime simply retries on the next online
+   event or boot. */
+let lastUploadPrimeAt = 0;
+let uploadPrimeRunning: Promise<void> | null = null;
+export function ensureUploadsCached(): Promise<void> {
+  if (uploadPrimeRunning) return uploadPrimeRunning;
+  uploadPrimeRunning = (async () => {
+    try {
+      const now = Date.now();
+      if (now - lastUploadPrimeAt < 60 * 1000) return;
+      lastUploadPrimeAt = now;
+      if (typeof navigator !== "undefined" && (navigator as any).onLine === false) return;
+      let names: string[] = [];
+      try {
+        names = localUploadNames(merge(overrides)).slice(0, 40);
+      } catch {
+        return;
+      }
+      if (!names.length) return;
+      await Promise.all(
+        names.map(async (name) => {
+          try {
+            await fetch("/data/uploads/" + name, { cache: "force-cache" } as RequestInit);
+          } catch { /* one missing file never blocks the rest */ }
+        })
+      );
+      try {
+        const cache = await (caches as any)?.open?.("wom-uploads-v1");
+        if (cache) {
+          await Promise.all(
+            names.map(async (name) => {
+              try {
+                const req = "/data/uploads/" + name;
+                const hit = await cache.match(req).catch(() => null);
+                if (!hit) await cache.add(req).catch(() => {});
+              } catch { /* keep going */ }
+            })
+          );
+        }
+      } catch { /* HTTP cache above already helps */ }
+    } finally {
+      uploadPrimeRunning = null;
+    }
+  })();
+  return uploadPrimeRunning;
+}
+
 /* Read live's publish without adopting anything: the shared front door for the
    automatic save and the publish-time fold. Null when there is nothing usable
    (no live address, live silent or empty) — never toasts, never throws. */
@@ -1926,6 +2045,32 @@ export async function startCms() {
      desktop, wiped store, slow server — back into update-mode with no new
      update, and persist it. The gate now decides from evidence alone. */
   pending = readJSON<Snapshot | null>(PENDING_KEY, null);
+  /* Deployed-is-clean + sleep/offline fix: normalize old absolute upload
+     addresses to relative and drop dirty flags whose gated comparison is clean
+     (unstamped on-air state, absolute-vs-relative same file). Without this a
+     deploy kept showing "This part of the site: changed" forever. */
+  try {
+    if (draft) {
+      const norm = normalizeSnapshotUploads(draft);
+      if (norm !== draft) draft = normalizeDraft(norm);
+      for (const id of Object.keys(dirty)) {
+        try {
+          const pub = JSON.stringify(publishedSection(id));
+          const cmp = JSON.stringify(comparableDraftSection(id, (draft as any)[id]));
+          if (pub === cmp) delete (dirty as any)[id];
+        } catch { /* keep the flag */ }
+      }
+      persistDraft();
+    }
+  } catch { /* boot continues with the stored draft as-is */ }
+  /* Visitors + office both keep last-published uploads usable offline: prime the
+     upload cache once the boot paint settles. */
+  try {
+    window.setTimeout(() => ensureUploadsCached().catch(() => {}), 4000);
+  } catch {}
+  try {
+    window.addEventListener("online", () => ensureUploadsCached().catch(() => {}));
+  } catch {}
   /* Boot numbers are final here (seed + stored stamp): bump once so the
      maintenance notice re-evaluates instead of sticking with first paint
      (note 278). One extra render, boot only. */
@@ -2997,9 +3142,17 @@ export function setSectionValue(sectionId: string, value: any) {
     if (cleanGuest !== value.externalYoutubeChannel) value = { ...value, externalYoutubeChannel: cleanGuest };
   }
   const prev = clone(d[sectionId]);
-  if (JSON.stringify(prev) === JSON.stringify(value)) return;
+  const normVal = (() => {
+    try {
+      const n = normalizeSnapshotUploads({ [sectionId]: value } as Snapshot) as any;
+      return n[sectionId];
+    } catch {
+      return value;
+    }
+  })();
+  if (JSON.stringify(prev) === JSON.stringify(normVal)) return;
   pushEditUndo(sectionId, prev);
-  d[sectionId] = value;
+  d[sectionId] = normVal;
   dirty[sectionId] = true;
   persistDraft();
   /* The drawer reads the draft, so its field updates on this notify; the page
@@ -3087,7 +3240,8 @@ export function hasChanges(): boolean {
 export function changedSections(a: Snapshot, b: Snapshot): string[] {
   const out: string[] = [];
   for (const def of SECTION_DEFS) {
-    if (JSON.stringify(a?.[def.id]) !== JSON.stringify(b?.[def.id])) out.push(def.id);
+    const av = def.id === "live" ? (() => { try { return gateLiveCommand(a?.[def.id], b?.[def.id]); } catch { return a?.[def.id]; } })() : a?.[def.id];
+    if (JSON.stringify(av) !== JSON.stringify(b?.[def.id])) out.push(def.id);
   }
   return out;
 }
@@ -3356,8 +3510,10 @@ export type PublishResult = { ok: boolean; error?: string; local?: boolean };
 function buildPatch(target: Snapshot): { sections: Record<string, string | null>; changed: string[] } {
   const sections: Record<string, string | null> = {};
   const changed: string[] = [];
+  const norm = normalizeSnapshotUploads(target);
   for (const def of SECTION_DEFS) {
-    const next = JSON.stringify(target[def.id]);
+    const val = def.id === "live" ? (() => { try { return gateLiveCommand((norm as any)[def.id], publishedSection(def.id)); } catch { return (norm as any)[def.id]; } })() : (norm as any)[def.id];
+    const next = JSON.stringify(val);
     if (next !== JSON.stringify(publishedSection(def.id))) {
       sections[def.id] = next;
       changed.push(def.id);

@@ -378,18 +378,23 @@ const DESIGNATED_FALLBACK_ITEMS: Array<{ videoId: string; title: string; at: num
   { videoId: "gVJP8wlL9dM", title: "It Will End in Praise - Evang Steve K Pelemo", at: 1788419927000 },
   { videoId: "suLunbMiN78", title: "SUNDAY SERVICE, AUG. 30TH. 2026", at: 1788127709000 },
 ];
-/** The fallback list — only for the designated channel, [] anywhere else. */
+/** The fallback list — only for the designated channel, [] anywhere else.
+    Same-message uploads collapse to one card (note 113): the baked channel read
+    holds near-duplicate uploads (TEENS WEEK twice, FAMILY ESSENTIALS twice) and
+    the card grid must show each service once — recent services already has its
+    own spot, so no duplicates ride along. */
 export function designatedFallback(): RecentServices {
   const designated = designatedChannelId();
   if (!designated) return { ...EMPTY };
+  const raw = DESIGNATED_FALLBACK_ITEMS.map((it) => ({
+    videoId: it.videoId,
+    title: it.title,
+    at: it.at,
+    ago: "",
+    thumb: `https://i.ytimg.com/vi/${it.videoId}/hqdefault.jpg`,
+  }));
   return {
-    items: DESIGNATED_FALLBACK_ITEMS.map((it) => ({
-      videoId: it.videoId,
-      title: it.title,
-      at: it.at,
-      ago: "",
-      thumb: `https://i.ytimg.com/vi/${it.videoId}/hqdefault.jpg`,
-    })),
+    items: collapseSameMessage(raw, DESIGNATED_FALLBACK_AT),
     at: DESIGNATED_FALLBACK_AT,
     channelId: designated,
   };
@@ -423,7 +428,9 @@ export function readRecentServices(): RecentServices {
        have had it by then if it was ever going to. */
     .filter((it) => !it.seeded || now - it.seeded < SEED_MAX_MS);
   if (!items.length) return designatedFallback();
-  return { items, at: Number(cached.at) || 0, channelId: String(cached.channelId || "") };
+  const seeds = items.filter((it) => it.seeded);
+  const rest = collapseSameMessage(items.filter((it) => !it.seeded), now);
+  return { items: [...seeds, ...rest].slice(0, KEEP), at: Number(cached.at) || 0, channelId: String(cached.channelId || "") };
 }
 
 function saveRecentServices(next: RecentServices) {
@@ -465,6 +472,10 @@ export function applyBakedRecent(seed: unknown) {
       });
       if (fresh.length >= KEEP) break;
     }
+    if (!fresh.length) return;
+    const collapsed = collapseSameMessage(fresh, at || Date.now());
+    fresh.length = 0;
+    for (const it of collapsed.slice(0, KEEP)) fresh.push(it);
     if (!fresh.length) return;
     const known = new Set(fresh.map((it) => it.videoId));
     const seeds = current.items.filter((it) => it.seeded && !known.has(it.videoId));

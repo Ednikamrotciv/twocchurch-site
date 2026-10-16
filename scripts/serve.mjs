@@ -181,6 +181,21 @@ const server = http.createServer(async (req, res) => {
       return;
     }
 
+    /* Sleep-free keep-awake door: point a free 5-minute ping here
+       (e.g. UptimeRobot → https://<your-site>/__health) and the free host never
+       idles into a sleep — visitors always meet last-published instantly, and
+       uploads never cold-boot to blank. Cheap HEAD/GET, no auth, no store. */
+    if ((pathname === "/__health" || pathname === "/__ping") && (req.method === "GET" || req.method === "HEAD")) {
+      const body = JSON.stringify({ ok: true, at: Date.now() });
+      res.writeHead(200, {
+        "content-type": "application/json; charset=utf-8",
+        "content-length": req.method === "HEAD" ? 0 : Buffer.byteLength(body),
+        "cache-control": "no-store",
+      });
+      res.end(req.method === "HEAD" ? "" : body);
+      return;
+    }
+
     /* Live address for the two-way sync (note 308): office copies ask this
        door where "live" is (the first origin in cms-server.txt). The live box
        itself (RENDER=true) answers empty — it IS live, so its tabs never
@@ -512,6 +527,27 @@ const server = http.createServer(async (req, res) => {
         "cache-control": "no-store",
       });
       res.end(body);
+      return;
+    }
+    /* Uploads are content-addressed by upload time (Date.now()-prefixed names that
+       never change under the same URL): cache them immutably for a year so they
+       survive host sleeps and offline revisits from the browser cache — with the
+       disk→dist fallback above, a sleeping box still serves last-published whole. */
+    if (rel.startsWith("data/uploads/")) {
+      const buf = Buffer.isBuffer(body) ? body : Buffer.from(body);
+      const tag = '"' + st.size + "-" + Math.round(st.mtimeMs) + '"';
+      if (req.headers["if-none-match"] === tag) {
+        res.writeHead(304, { etag: tag, "cache-control": "public, max-age=31536000, immutable" });
+        res.end();
+        return;
+      }
+      res.writeHead(200, {
+        "content-type": mime,
+        "content-length": buf.length,
+        etag: tag,
+        "cache-control": "public, max-age=31536000, immutable",
+      });
+      res.end(buf);
       return;
     }
     sendBody(req, res, body, mime, st.size + "-" + Math.round(st.mtimeMs));

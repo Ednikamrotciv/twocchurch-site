@@ -1252,7 +1252,14 @@ async function localHostFile(blob: Blob, filename: string): Promise<string> {
   const data = await res.json().catch(() => null);
   if (!data || typeof data.url !== "string" || !data.url)
     throw new Error("The file could not be saved. Try again, or paste a link instead.");
-  return base ? base + data.url : data.url;
+  /* Sleep/offline fix: ALWAYS store the host-relative address ("/data/uploads/…").
+     The absolute office address used to be stored (base + url), so every photo
+     and video pointed at the office box itself — whenever it slept or the
+     network dropped, visitors and the preview saw blank boxes. Relative
+     addresses resolve on whichever copy serves them (disk, else the deployed
+     bake, else the browser cache), so last-published uploads survive sleep and
+     offline whole. */
+  return String(data.url);
 }
 
 /* The stored name inside an office-server address, or "" for anything else

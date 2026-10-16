@@ -904,20 +904,31 @@ function UnsavedView({
 }) {
   const edits = useMemo(() => cms.pendingEdits(), [version, signature]);
 
-  /* Delete takes it off the site for real; Put back only drops the unsaved edit. */
+  /* Delete clears it entirely away; Put back retains it in the admin.
+     Delete takes it off the list for real and leaves the list behind it clean;
+     Put back drops the unsaved edit but keeps the section open in the admin on
+     the live site's words — same rule for every section including Live stream. */
   const putBack = (edit: cms.PendingEdit) => {
     const res = cms.revertSection(edit.sectionId);
-    if (res.ok) fireToast(`Put back — ${edit.label} is the way the live site has it.`, "info");
+    if (res.ok) {
+      fireToast(`Put back — ${edit.label} is the way the live site has it.`, "info");
+      try {
+        onOpen(edit.sectionId);
+      } catch { /* the list already updated; staying put is fine */ }
+    }
   };
 
   /* Delete removes it for real: additions that never went live are dropped,
      edits go back, and whatever was taken off is published straight away, so
      it leaves the live site at once instead of coming back. */
   const erase = async (edit: cms.PendingEdit) => {
+    /* Delete clears entirely away from the admin: no retain, no reopen — the
+       row leaves the unsaved list at once (livestream included: its unstamped
+       on-air state never counts, so the row stays gone). */
     const surgery = cms.dropAddedAndRevertedEdits(edit.sectionId);
     if (!surgery.ok) {
       const res = cms.revertSection(edit.sectionId);
-      if (res.ok) fireToast(`Deleted — ${edit.label} is the way the live site has it.`, "info");
+      if (res.ok) fireToast(`Deleted — ${edit.label} cleared away.`, "info");
       return;
     }
     if (!surgery.removed) {
@@ -969,8 +980,8 @@ function UnsavedView({
                 {edits.length} change{edits.length === 1 ? "" : "s"} not on the site yet
               </b>
               <em>
-                Only you can see these so far. Open one to carry on with it, press Publish to put them all live,
-                Delete to take one off the site now, or Put back to change your mind about it.
+                Only you can see these so far. Open one to carry on with it, press Publish to put them all live.
+                Delete clears one away entirely, or Put back keeps it here the way the live site has it.
               </em>
             </div>
           </div>
@@ -1036,9 +1047,9 @@ function UnsavedView({
           </div>
 
           <p className="epanel__foot">
-            Nothing here is on the site until you press <b>Publish</b> — except what <b>Delete</b> takes off,
-            which leaves the live site at once. <b>Put back</b> drops that one change and leaves everything
-            else exactly as it is.
+            Nothing here is on the site until you press <b>Publish</b> — except what <b>Delete</b> clears away,
+            which leaves the live site at once and the list behind it. <b>Put back</b> keeps that section here
+            the way the live site has it and leaves everything else exactly as it is.
           </p>
         </>
       )}

@@ -162,7 +162,7 @@ export function cmsBackend() {
             res.writeHead(200, {
               "content-type": MIME[path.extname(file).toLowerCase()] || "application/octet-stream",
               "content-length": body.length,
-              "cache-control": "no-cache",
+              "cache-control": "public, max-age=31536000, immutable",
             });
             res.end(body);
             return;
