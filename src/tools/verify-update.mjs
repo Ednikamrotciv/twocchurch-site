@@ -53,6 +53,7 @@ const FILES = [
   ["src/lib/store.ts", "ts"],
   ["src/pages/Home.tsx", "tsx"],
   ["src/components/slides.tsx", "tsx"],
+  ["src/lib/uploadCache.ts", "ts"],
   ["src/App.tsx", "tsx"],
   ["scripts/build-static.mjs", "js"],
   ["scripts/serve.mjs", "js"],
@@ -72,7 +73,7 @@ const FILES = [
 ];
 
 function has(src, needle) {
-  return src.indexOf(needle) !== -1;
+  return typeof src === "string" && src.indexOf(needle) !== -1;
 }
 
 function loadVm(code, state, pub) {
@@ -333,7 +334,7 @@ export async function runAll(fs) {
   ok("watch checks at once", has(live, "urgent") && has(watch, "useLiveStream(true, false, true)"), "the Watch page must not wait out the freshness window");
   ok("app hurries on watch", has(app, "onWatchPage") && has(app, "expecting || onWatchPage"), "the header must follow the stream on the Watch page");
   ok("moved channel jumps the queue", has(live, "wom:live-target") && has(live, "noteLiveTargetMayHaveChanged") && has(live, "export function recheckLiveNow()") && has(cms, 'window.dispatchEvent(new Event("wom:live-target"))'), "a retyped channel must be re-checked at once on live and local");
-  ok("office buttons re-ask", has(ed, "recheckLiveNow()") && has(ed, 'import { readLiveStatus, recheckLiveNow, guestTarget, isGuestTargetUrl, useLiveStream, liveTarget, isStatusForTarget } from "../lib/livestatus"'), "Start/Continue/Stop must ask the channel at once");
+  ok("office buttons re-ask", has(ed, "recheckLiveNow()") && has(ed, 'import { readLiveStatus, recheckLiveNow, guestTarget, isGuestTargetUrl, useLiveStream, liveTarget, isStatusForTarget, clearGuestOnStop } from "../lib/livestatus"'), "Start/Continue/Stop must ask the channel at once");
   ok("section publish stamps offline", has(cms, "An offline click still moves last-published on this copy"), "a per-section Publish while offline must move the stamp like the whole-site one");
   ok("bless caches offline", has(cms, "The stamp is cached with"), "a bless-only Publish while offline must cache the stamp with the words");
   /* K. office-reported on-air answer (note 319): the deployed server cannot
@@ -1090,7 +1091,7 @@ export async function runAll(fs) {
   const rsDD = text["src/lib/recentstreams.ts"];
   const lsDD = text["src/lib/livestatus.ts"];
   const applyDD = text["APPLY_UPDATE.txt"];
-  ok("override stamp per-update", has(srvDD, "var OVERRIDE_CLEAN = 0;") && has(srvDD, "overrideClean: OVERRIDE_CLEAN") && has(srvDD, "OVERRIDE_NO_413 = 413") && has(srvDD, "OVERRIDE_CLEAN !== OVERRIDE_NO_412"), "the clear must re-run on every new update, not once ever");
+  ok("override stamp per-update", has(srvDD, "var OVERRIDE_CLEAN = 0;") && has(srvDD, "overrideClean: OVERRIDE_CLEAN") && has(srvDD, "OVERRIDE_NO_413 = 413") && has(srvDD, "OVERRIDE_CLEAN !== OVERRIDE_NO_413"), "the clear must re-run on every new update, not once ever");
   ok("override clears everything old", has(srvDD, "live413.youtubeChannel = \"@twocorg\"") && has(srvDD, "live413.youtubeId = \"\"") && has(srvDD, "live413.hiddenReplays = []") && has(srvDD, "live413.externalYoutubeChannel = \"\"") && has(srvDD, "live413.guestIsLive = false") && has(srvDD, "WELCOME_SLIDE_360") && has(srvDD, "String(slides413[0].id || \"\") === \"welcome-home\""), "channel, stray link, guest, guest switch, take-offs and slides must all go");
   ok("override never blesses", has(srvDD, "no rev bump") && has(srvDD, "later office work is never touched"), "the clear must not publish");
   ok("draft stray link heals", has(cmsDD, "healDraftStreamLink()") && has(cmsDD, "(draft as any).live = { ...dLive, youtubeId: \"\" }"), "an untouched draft must follow the words");
@@ -1586,7 +1587,7 @@ export async function runAll(fs) {
   const cssSS = text["src/styles/pages.css"];
   const applySS2 = text["APPLY_UPDATE.txt"];
   ok("play and pause share one button", has(edSS2, "{onNow ? (") && has(edSS2, "Pause the livestream") && has(edSS2, "Play the livestream") && has(edSS2, 'icon="stop"'), "a single toggle plus the separate stop");
-  ok("pause holds, stop ends", has(edSS2, "const heldSession = since > 0;") && has(edSS2, "liveSince: 0, liveCut: Date.now()") && has(edSS2, "Paused — play picks the same session back up."), "a hold resumes, an end starts fresh");
+  ok("pause holds, stop ends", has(edSS2, "const heldSession = since > 0;") && has(edSS2, "liveSince: 0, liveCut: at") && has(edSS2, "Paused — play picks the same session back up."), "a hold resumes, an end starts fresh");
   ok("natural end stamps nothing", has(autoSS, "no need to publish") && !has(autoSS, "liveCommandAt: Date.now()"), "the buttons never gate a live end");
   ok("ended screen keeps no duplicate recents (note 413)", !has(watchSS2, "const endedThumbs") && !has(watchSS2, "live-ended__thumbs") && has(watchSS2, 'id="recent-services"'), "only #recent-services may list recents — the ended screen keeps its still and buttons");
   ok("apply leads with the buttons and the end", has(applySS2, "THE BUTTONS NEVER GATE A LIVE END") && has(applySS2, "PLAY/PAUSE IS ONE"), "the office must meet the two buttons and the self-armed end first");
@@ -1668,7 +1669,7 @@ export async function runAll(fs) {
   const liveYY = text["src/data/live.ts"];
   const seedYY = text["seed.json"];
   const applyYY = text["APPLY_UPDATE.txt"];
-  ok("slots never cross", has(edYY, "export function GuestTransportButtons()") && has(edYY, "guestCommandAt: Date.now()") && !has(edYY, "guestWasSet") && has(edYY, "Main only: the guest slot is never touched here"), "one row must not arm or clear the other");
+  ok("stop clears the guest, guest never touches main", has(edYY, "export function GuestTransportButtons()") && has(edYY, "write(clearGuestOnStop(") && has(edYY, "The stop also empties") && has(edYY, "write({ guestIsLive: true, guestCommandAt: Date.now() })"), "one Stop ends the live and empties the guest; the guest row still commands only its slot");
   ok("guest keys gated on their stamp", has(cmsYY, "out.guestIsLive") && has(cmsYY, "guestCommandAt"), "only a guest click may send the guest state");
   ok("badges hear the guest switch", has(storeYY, "(LIVE as any).guestIsLive"), "a forced guest must light LIVE too");
   ok("guest press opens its walled channel", has(watchYY, "const overrideId = ") && has(watchYY, "(!streaming && overrideId)") && has(watchYY, ") : overrideGuest && overrideId ? (") && !has(watchYY, ") : overrideId ? (") && has(watchYY, "(guestLive || fbLive || !!LIVE.isLive)"), "a published guest Play may open the channel, a pressed main waits for detection — and only a live slot plays by itself");
@@ -1781,6 +1782,22 @@ export async function runAll(fs) {
   ok("maintenance locked per deploy", has(text["scripts/build-static.mjs"], "const DEPLOY_ID =") && has(text["scripts/build-static.mjs"], "hold: true, deployId"), "every build must hold on a fresh deploy id");
   ok("deploy id number-free", has(cmsGGG, "wom.cms.deployPublished") && has(cmsGGG, "wom-deploy") && has(srvGGG, "PUBLISH_DEPLOY"), "old or new code must look new without numbers");
   ok("publish releases its deploy", has(cmsGGG, "deploy: bless ? currentDeployId") && has(srvGGG, "publishDeploy: PUBLISH_DEPLOY"), "a publish from the deploy must release it");
+  ok("fresh deploy resets slides", has(cmsGGG, "resetSlidesForNewDeploy") && has(adminGGG, "resetSlidesForNewDeploy()"), "every deploy must start the admin slides as welcome-only");
+  ok("no-change publish blesses deploy", has(cmsGGG, "a no-change Publish still blesses THIS deploy"), "publish with nothing changed must still lift the notice");
+  ok("live screen drops the escape link", has(watchGGG, "hideEscape") && has(blocksGGG, "!hideEscape"), "the live players must not print Can't see the video");
+  /* HHH. straight stop rule (note 414): Stop stops the live, Publish clears
+     the guest with it and the unsaved change too, and the stopped screen shows
+     the main previous thumbnail — never the ticking clock. */
+  const liveHHH = text["src/lib/livestatus.ts"];
+  const cmsHHH = text["src/lib/cms.ts"];
+  const edHHH = text["src/components/editor.tsx"];
+  const watchHHH = text["src/pages/WatchLive.tsx"];
+  ok("stop state is pure", has(liveHHH, "export function officeStopActive(live: any): boolean") && has(liveHHH, "export function clearGuestOnStop(live: any): any"), "Stop must read as stopped with no fetch");
+  ok("pause never reads as stopped", has(liveHHH, "Number((live as any).liveSince) !== 0"), "a held session must keep its clock");
+  ok("fresh copies never read as stopped", has(liveHHH, "liveCut: 0"), "the seed ships no cut");
+  ok("main stop clears the guest", has(liveHHH, 'externalYoutubeChannel: "", guestIsLive: false') && has(edHHH, "write(clearGuestOnStop({ ...cms.getDraft().live, isLive: false, liveSince: 0"), "one Stop must end the live and empty the guest slot stamped");
+  ok("section publish drops its unsaved row", has(cmsHHH, "(draft as any)[sectionId] = clone(publishedSection(sectionId))"), "publishing live must clear the unsaved change too");
+  ok("stopped screen skips the clock", has(watchHHH, "const officeStopped = officeStopActive(LIVE)") && has(watchHHH, "&& !shutNow && !officeStopped ? (") && has(watchHHH, "const waitingForClick = !shutNow && !officeStopped"), "a stopped live must show the previous thumbnail, never the ticking clock");
 const notes = Number((text["src/lib/hooks.ts"].match(/BUILD_NOTES = (\d+)/) || [])[1]) || 0;
   const apply = text["APPLY_UPDATE.txt"];
   ok("update number consistent", notes > 0 && has(apply, `APPLY THIS UPDATE (${notes})`), "hooks=" + notes);

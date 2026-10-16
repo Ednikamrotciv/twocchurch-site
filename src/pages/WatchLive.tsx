@@ -9,7 +9,7 @@ import { sermonsNewestFirst, sermonSource, sermonThumb } from "../data/sermons";
 import { useLocalState, useNow, fireToast } from "../lib/hooks";
 import { KEYS, nextService, onAir, displayLive, to12h, DAY_NAMES, countdownParts, addToCalendar, mailto, clockHere, tidyCount, churchTimezone, visitorPlace, fmtDate, downloadText, serviceNoteKey, type NextServiceInfo } from "../lib/store";
 import { isFacebookVideoUrl, parseYoutubeId, platformLabel, watchUrl, youtubeThumb, type VideoPlatform, type VideoSource } from "../lib/embed";
-import { useLiveStream, liveTarget, guestTarget, isGuestTargetUrl, facebookTarget, useYoutubeVerdict, isStatusForTarget, designatedChannelIdForTarget, isDesignatedChannel, nextScreenShut, type ScreenShut } from "../lib/livestatus";
+import { useLiveStream, liveTarget, guestTarget, isGuestTargetUrl, facebookTarget, useYoutubeVerdict, isStatusForTarget, designatedChannelIdForTarget, isDesignatedChannel, nextScreenShut, officeStopActive, type ScreenShut } from "../lib/livestatus";
 import { useLibrary } from "../lib/collections";
 import { useRecentServices, designatedFallback } from "../lib/recentstreams";
 import { Badge, Btn, Icon, IconBtn, Modal, Notice, Reveal, Rich, Section, SectionHeading, Textarea } from "../components/ui";
@@ -85,6 +85,12 @@ export function WatchLive() {
     if (shutNext !== shut) setShut(shutNext);
   });
   const shutNow = shutNext;
+  /* Straight stop rule (note 414): the office pressed Stop and published it —
+     the live is off, so the screen never sits on the ticking clock. It shows
+     the main channel's previous livestream thumbnail instead (the cover chain
+     below is main-owned as ever). A pause holds rather than ends, and a fresh
+     copy ships no cut, so neither ever lands here. */
+  const officeStopped = officeStopActive(LIVE);
   /* A Facebook live is not a YouTube id (note 398): its numeric video id must
      never enter the YouTube path — it would open as a broken YouTube embed
      instead of the Facebook broadcast. */
@@ -210,7 +216,7 @@ export function WatchLive() {
      behind it — the screen waits on the ticking clock (never the ended screen:
      something IS live), naming the gathering, until the office presses Play.
      The shut latch still closes first. */
-  const waitingForClick = !shutNow && !LIVE.isLive && !guestLive && !fbLive && airForTarget.state === "live";
+  const waitingForClick = !shutNow && !officeStopped && !LIVE.isLive && !guestLive && !fbLive && airForTarget.state === "live";
   /* What the badges show (note 386): the stream itself, or the office's
      switch — never the bare service clock — and never another channel's
      livestream while the screen sits shut after an end. */
@@ -333,10 +339,11 @@ export function WatchLive() {
                 </div>
               )}
 
-              {(checkingLiveId || checkingFallbackId) && !shutNow ? (
+              {(checkingLiveId || checkingFallbackId) && !shutNow && !officeStopped ? (
                 <LiveWaiting cover={cover} />
               ) : streaming && watchable ? (
                 <VideoPlayer
+                  hideEscape
                   source={liveSource}
                   title={liveName || ct("auto.live.bc108377bb47f9e6")}
                   compact
@@ -350,6 +357,7 @@ export function WatchLive() {
                 />
               ) : overrideGuest && overrideId ? (
                 <VideoPlayer
+                  hideEscape
                   source={{ platform: "youtube", youtubeId: "", youtubeChannelId: overrideId }}
                   title={liveName || ct("auto.live.bc108377bb47f9e6")}
                   compact
@@ -406,6 +414,7 @@ export function WatchLive() {
                 /* On air but pointed at nothing: play the most recent message. */
                 <>
                   <VideoPlayer
+                    hideEscape
                     source={sermonSource(latest)}
                     title={ct("auto.live.2af95d5fd1e87dae", { title: latest.title })}
                     poster={sermonThumb(latest)}

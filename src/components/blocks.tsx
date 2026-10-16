@@ -234,6 +234,7 @@ export function VideoPlayer({
   compact,
   live,
   autoPlay,
+  hideEscape,
 }: {
   source: VideoSource;
   title: string;
@@ -243,6 +244,8 @@ export function VideoPlayer({
   live?: boolean;
   /** Start the player without a click — used when a live stream is detected. */
   autoPlay?: boolean;
+  /** Hide the "Can't see the video?" escape link — the live screen drops it. */
+  hideEscape?: boolean;
 }) {
   const [failed, setFailed] = useState(false);
   /* Dead-video net (note 333, hardened note 413): a removed or private video must never sit on
@@ -540,7 +543,7 @@ export function VideoPlayer({
               mid-play would otherwise sit black with no way out. This link
               is the permanent way out — on YouTube itself it always plays
               or says why. */}
-          {platform === "youtube" && (liveVideoId || ytId) && (
+          {platform === "youtube" && (liveVideoId || ytId) && !hideEscape && (
             <a
               className="player__escape"
               href={watchUrl({ platform: "youtube", youtubeId: liveVideoId || ytId }) || ""}

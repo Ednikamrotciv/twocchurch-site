@@ -375,6 +375,34 @@ export function nextScreenShut(prevShut: ScreenShut, wasLiveTarget: string, gues
   return prevShut;
 }
 
+/** Straight stop rule (note 414), pure for the verifier: the office pressed
+    Stop and published it — the live is off, whatever YouTube still says. A
+    pause HOLDS (the session start is kept), so only an end counts: switch off,
+    start cleared, office end stamped. Fresh copies ship `liveCut: 0`, so the
+    rule never fires on arrival. */
+export function officeStopActive(live: any): boolean {
+  if (!live || typeof live !== "object") return false;
+  if (!!(live as any).isLive) return false;
+  if (String((live as any).liveEndedBy || "") !== "office") return false;
+  if (!(Number((live as any).liveCut) > 0)) return false;
+  if (Number((live as any).liveSince) !== 0) return false;
+  return true;
+}
+
+/** Publish clears the guest with the stop (note 414), pure for the
+    verifier: a stamped main stop empties the temporary slot in the same
+    stroke, so no guest address — and no guest unsaved row — rides to the site
+    on the Publish. The guest stamp rides the stop stamp, so the gate sends it.
+    Anything but a stop passes through untouched. */
+export function clearGuestOnStop(live: any): any {
+  if (!live || typeof live !== "object") return live;
+  if (!officeStopActive(live)) return live;
+  const g = live as any;
+  if (!String(g.externalYoutubeChannel || "").trim() && !g.guestIsLive) return live;
+  const stamp = Number(g.liveCommandAt) || 0;
+  return { ...g, externalYoutubeChannel: "", guestIsLive: false, guestCommandAt: Math.max(Number(g.guestCommandAt) || 0, stamp) };
+}
+
 /** The walled-but-on-air answer (note 331), pure for the verifier: a channel
     page carrying on-air chrome that no suggestion confirmed plays the channel
     when the page names its owner clearly — otherwise it stays `unknown`, never

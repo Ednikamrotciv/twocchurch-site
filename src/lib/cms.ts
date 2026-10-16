@@ -5,7 +5,7 @@ import { useSyncExternalStore } from "react";
 import { SECTION_DEFS, buildDefaults, clone, getPath, photoSectionId, refreshDerived, sectionById, setPath, type Field, type SectionDef } from "./cmsSchema";
 import { copyIsFixed, copySectionOf } from "../data/copy";
 import { TESTIMONY_CATEGORIES } from "../data/content";
-import { purgeExpiredSlides } from "../data/slides";
+import { SLIDES, purgeExpiredSlides } from "../data/slides";
 import { purgeExpiredAnnouncements } from "../data/announcements";
 import { fmtDate } from "./store";
 import { fireToast } from "./hooks";
@@ -1223,6 +1223,9 @@ export async function publishSection(sectionId: string, note: string): Promise<P
     writeJSON(PENDING_KEY, pending);
     localOnly = true;
     delete dirty[sectionId];
+    /* Publishing the live section clears its unsaved change too (note 414):
+       the draft follows what Publish just sent, so no live row lingers. */
+    if (sectionId === "live" && draft) (draft as any)[sectionId] = clone(publishedSection(sectionId));
     persistDraft();
     notify();
     return { ok: true, local: true };
@@ -1249,6 +1252,9 @@ export async function publishSection(sectionId: string, note: string): Promise<P
   overrides[sectionId] = JSON.parse(payload);
   log = [{ rev, at: updatedAt, by: editorName(), role: myRole === "sub" ? "sub" : "main", note: note.slice(0, 160), changed: [sectionId] }, ...log].slice(0, 30);
   delete dirty[sectionId];
+  /* Publishing the live section clears its unsaved change too (note 414):
+     the draft follows what Publish just sent, so no live row lingers. */
+  if (sectionId === "live" && draft) (draft as any)[sectionId] = clone(publishedSection(sectionId));
   persistDraft();
   applyOverrides(overrides);
   writeCache();
@@ -3160,6 +3166,50 @@ function healDraftSlides() {
     /* never break the drawer */
   }
 }
+/* Deploy lock, slides edition: every new deploy the announcement slides in
+   the admin start over as only the welcome card — old uploads never ride
+   into the new deploy's drawer. Once per deploy per browser, office only
+   (called from the admin console mount — visitors never run it). Unsaved
+   work, like any office edit: Publish carries it live and lifts maintenance;
+   the reset itself blesses nothing, so the notice stays until Publish. */
+const SLIDES_RESET_KEY = "wom.cms.slidesReset";
+export function resetSlidesForNewDeploy(): boolean {
+  try {
+    const token = deployFromMeta && currentDeployId ? currentDeployId : "n" + BUILD_NOTES;
+    let done = "";
+    try {
+      done = localStorage.getItem(SLIDES_RESET_KEY) || "";
+    } catch {}
+    if (done === token) return false;
+    const welcome = SLIDES.find((x) => x.id === "welcome-home") || SLIDES[0];
+    const mark = () => {
+      try {
+        localStorage.setItem(SLIDES_RESET_KEY, token);
+      } catch {}
+    };
+    if (!welcome) {
+      mark();
+      return false;
+    }
+    const only = [clone(welcome)];
+    const d = getDraft();
+    if (sameJSON((d as any).slides, only)) {
+      mark();
+      return false;
+    }
+    pushEditUndo("slides", clone((d as any).slides));
+    (d as any).slides = only;
+    dirty.slides = true;
+    persistDraft();
+    mark();
+    fireToast("New deploy — announcement slides start over with the welcome card only.", "info");
+    notify();
+    applyDraftLiveSoon();
+    return true;
+  } catch {
+    return false;
+  }
+}
 
 /** Lapsed slides and notices clear out of the draft (throttled; the site never shows them anyway). */
 let lastSlidePurge = 0;
@@ -3687,6 +3737,10 @@ export async function publish(note: string, content?: Snapshot): Promise<Publish
   if (!changed.length) {
     draft = null;
     if (publishedNotes >= BUILD_NOTES) {
+      /* Deploy lock: a no-change Publish still blesses THIS deploy — without
+         this the notice would stay after publishing on a fresh deploy. Local,
+         live/admin, everywhere: the click always counts. */
+      markDeployPublished();
       notify();
       return { ok: true };
     }

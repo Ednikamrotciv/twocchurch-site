@@ -178,7 +178,14 @@ export function Admin() {
   /* Auto-stop watcher lives here so it runs whatever drawer card is open (note 111). */
   useAutoStopLive(canEdit);
 
-  /* The pages show the draft while the office is here — that is the point. */
+  /* Every new deploy the announcement slides start over as only the welcome
+     card — old uploads never ride into the new deploy's drawer (visitors
+     never run this; the reset blesses nothing, Publish lifts the notice). */
+  useEffect(() => {
+    cms.resetSlidesForNewDeploy();
+  }, []);
+
+    /* The pages show the draft while the office is here — that is the point. */
   useLayoutEffect(() => {
     cms.setAutoPreview(true);
     document.documentElement.dataset.editing = "";

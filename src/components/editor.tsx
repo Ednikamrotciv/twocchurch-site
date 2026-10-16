@@ -21,7 +21,7 @@ import {
 import { PageHead } from "../components/layout";
 import { SearchBox, eventDate } from "../components/blocks";
 import { fireToast, useNow } from "../lib/hooks";
-import { readLiveStatus, recheckLiveNow, guestTarget, isGuestTargetUrl, useLiveStream, liveTarget, isStatusForTarget } from "../lib/livestatus";
+import { readLiveStatus, recheckLiveNow, guestTarget, isGuestTargetUrl, useLiveStream, liveTarget, isStatusForTarget, clearGuestOnStop } from "../lib/livestatus";
 import { SITE, SERVICES, img } from "../data/site";
 import { recentLimit } from "../data/live";
 import { ytWatch } from "../data/sermons";
@@ -749,8 +749,8 @@ export function LiveEndingPanel({ onOpen, children }: { onOpen: (id: string) => 
     channel itself while the read cannot confirm a broadcast. Pause HOLDS the
     session without ending it (the session start is kept, so play picks the
     same session back up); stop ENDS it (the start is cleared and the finished
-    service files itself, so the next play begins fresh). The guest slot is
-    never touched here — see `GuestTransportButtons` below. Publish sends the
+    service files itself, so the next play begins fresh). The stop also empties
+    the guest slot in the same stamped write — see `GuestTransportButtons` below. Publish sends the
     on-air state ONLY when a click stamped a newer command than what is
     published (see `gateLiveCommand` in src/lib/cms.ts) — an unclicked Publish
     leaves the site's on-air state alone, whatever the draft says. The buttons
@@ -824,11 +824,14 @@ export function LiveTransportButtons() {
     recheckLiveNow();
     fireToast("Paused — play picks the same session back up. Publish sends it.", "info");
   };
-  /* Stop ends the session (note 392): the start is cleared, so the next play
-     begins fresh — and the finished service files itself under Recent
-     services. Main only: the guest slot is never touched here. */
+  /* Stop ends the session straight (note 414): the live stops — the start is
+     cleared, so the next play begins fresh — and the finished service files
+     itself under Recent services. The temporary guest slot empties in the
+     same stamped write, so Publish clears everything about the guest channel
+     with the stop — and the unsaved change with it. */
   const stop = () => {
-    write({ isLive: false, liveSince: 0, liveCut: Date.now(), liveEndedBy: "office", liveCommandAt: Date.now() });
+    const at = Date.now();
+    write(clearGuestOnStop({ ...cms.getDraft().live, isLive: false, liveSince: 0, liveCut: at, liveEndedBy: "office", liveCommandAt: at }));
     recheckLiveNow();
     /* An ended service seeds Recent services now; every open page re-reads the channel.
        A temporary guest never seeds (note 379): its ending leaves the main
@@ -838,8 +841,8 @@ export function LiveTransportButtons() {
     askForRecentServices(!airedGuest && aired.videoId ? { videoId: aired.videoId, title: aired.title } : undefined);
     fireToast(
       airedGuest
-        ? "Stopped. The guest stream is off the site — Publish sends it."
-        : "Stopped. Publish sends it — the finished service files itself under Recent services.",
+        ? "Stopped. The live is off and the guest channel is empty — Publish sends it."
+        : "Stopped. The live is off — Publish sends it and clears the guest channel.",
       "info"
     );
   };
