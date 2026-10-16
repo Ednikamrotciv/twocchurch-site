@@ -904,52 +904,24 @@ function UnsavedView({
 }) {
   const edits = useMemo(() => cms.pendingEdits(), [version, signature]);
 
-  /* Delete clears it entirely away; Put back retains it in the admin.
-     Delete takes it off the list for real and leaves the list behind it clean;
-     Put back drops the unsaved edit but keeps the section open in the admin on
-     the live site's words — same rule for every section including Live stream. */
+  /* Put back reverts it and keeps that section open (note 417): the change is
+     dropped for good and the section opens on the live site's words — the row
+     is gone with no reopen, the section stays open, nothing lingers behind
+     it. What is already live stays live. */
   const putBack = (edit: cms.PendingEdit) => {
-    const res = cms.revertSection(edit.sectionId);
-    if (res.ok) {
-      fireToast(`Put back — ${edit.label} is the way the live site has it.`, "info");
-      try {
-        onOpen(edit.sectionId);
-      } catch { /* the list already updated; staying put is fine */ }
-    }
+    cms.revertSection(edit.sectionId);
+    onOpen(edit.sectionId);
+    fireToast(`Put back into ${edit.label} — now showing the live site's words.`, "info");
   };
 
-  /* Delete removes it for real: additions that never went live are dropped,
-     edits go back, and whatever was taken off is published straight away, so
-     it leaves the live site at once instead of coming back. */
-  const erase = async (edit: cms.PendingEdit) => {
-    /* Delete clears entirely away from the admin: no retain, no reopen — the
-       row leaves the unsaved list at once (livestream included: its unstamped
-       on-air state never counts, so the row stays gone). */
-    const surgery = cms.dropAddedAndRevertedEdits(edit.sectionId);
-    if (!surgery.ok) {
-      const res = cms.revertSection(edit.sectionId);
-      if (res.ok) fireToast(`Deleted — ${edit.label} cleared away.`, "info");
-      return;
-    }
-    if (!surgery.removed) {
-      cms.revertSection(edit.sectionId);
-      fireToast("Deleted — it never went live, so the site is exactly as it was.", "info");
-      return;
-    }
-    const pub = await cms.publishSection(edit.sectionId, `Deleted from ${edit.label}`);
-    if (pub.ok) {
-      fireToast(
-        pub.local
-          ? "Deleted on this device — it leaves the site everywhere once the connection returns."
-          : "Deleted — gone from the site everywhere.",
-        pub.local ? "info" : "success"
-      );
-    } else {
-      fireToast(
-        `Delete did not go through (${pub.error === "unauthorized" ? "sign in first" : pub.error}) — nothing left the site, and Undo takes back the cleanup.`,
-        "error"
-      );
-    }
+  /* Delete leaves the field empty (note 419): the unsaved change is emptied —
+     every section alike, livestream included — so the row stays as "to empty"
+     until Publish shows that empty on the site. Put back (below) is the one
+     that drops the edit. */
+  const erase = (edit: cms.PendingEdit) => {
+    const res = cms.emptySectionToEmpty(edit.sectionId);
+    if (res.ok) fireToast(`Deleted — ${edit.label} is empty now; Publish shows the empty on the site.`, "info");
+    else fireToast(`${edit.label} is already empty; Publish shows the empty on the site.`, "info");
   };
 
   return (
@@ -980,8 +952,8 @@ function UnsavedView({
                 {edits.length} change{edits.length === 1 ? "" : "s"} not on the site yet
               </b>
               <em>
-                Only you can see these so far. Open one to carry on with it, press Publish to put them all live.
-                Delete clears one away entirely, or Put back keeps it here the way the live site has it.
+                Only you can see these so far. Open one to carry on with it, press Publish to put them all live,
+                Delete to empty one field (Publish then shows the empty on the site), or Put back to revert one to the live site's words and keep its section open.
               </em>
             </div>
           </div>
@@ -1008,35 +980,26 @@ function UnsavedView({
                   <Icon name="chevronRight" size={16} className="ejob__chev" />
                 </button>
                 <span className="unsaved__btns">
-                  {/* Delete publishes just the removals where a section has
-                      any (note 140) — everywhere else it only ever drops the
-                      draft edit, so it answers on the first tap like Put back
-                      instead of looking dead (note 401). */}
-                  {cms.sectionHasPublishableRemovals(edit.sectionId) ? (
-                    <ConfirmIcon
-                      className="unsaved__delete"
-                      onConfirm={() => erase(edit)}
-                      title={`Delete from the live site now — what was taken off leaves everywhere at once, and it does not come back`}
-                      label="Delete"
-                    />
-                  ) : (
-                    <button
-                      type="button"
-                      className="admin__danger-btn unsaved__delete"
-                      onClick={() => erase(edit)}
-                      title={`Delete — drop this unsaved edit`}
-                    >
-                      <Icon name="trash" size={14} />
-                      <span className="admin__danger-btn-label" aria-live="polite">
-                        <span className="is-shown">Delete</span>
-                      </span>
-                    </button>
-                  )}
+                  {/* Delete leaves the field empty (note 419) — every section alike,
+                      livestream included — and Publish shows that empty on the
+                      site; Put back reverts it and keeps that section open on
+                      the live site's words, so both answer on the first tap. */}
+                  <button
+                    type="button"
+                    className="admin__danger-btn unsaved__delete"
+                    onClick={() => erase(edit)}
+                    title={`Delete — leave this field empty (Publish shows the empty on the site)`}
+                  >
+                    <Icon name="trash" size={14} />
+                    <span className="admin__danger-btn-label" aria-live="polite">
+                      <span className="is-shown">Delete</span>
+                    </span>
+                  </button>
                   <button
                     type="button"
                     className="unsaved__revert"
                     onClick={() => putBack(edit)}
-                    title={`Put it back — ${edit.label} goes back the way the live site has it`}
+                    title={`Put it back — ${edit.label} reverts to the live site's words and stays open`}
                   >
                     <Icon name="undo" size={13} />
                     <span>Put back</span>
@@ -1047,9 +1010,9 @@ function UnsavedView({
           </div>
 
           <p className="epanel__foot">
-            Nothing here is on the site until you press <b>Publish</b> — except what <b>Delete</b> clears away,
-            which leaves the live site at once and the list behind it. <b>Put back</b> keeps that section here
-            the way the live site has it and leaves everything else exactly as it is.
+            Nothing here is on the site until you press <b>Publish</b> — <b>Delete</b> leaves the field empty
+            and Publish shows that empty on the site. <b>Put back</b> reverts that one change to the live site's
+            words and keeps its section open.
           </p>
         </>
       )}

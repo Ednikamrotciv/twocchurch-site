@@ -125,26 +125,7 @@ export async function bakeRecent(rootDir) {
   if (!channelId) return { skipped: "channel would not resolve", count: prevItems.length };
   const xml = await fetchText(`https://www.youtube.com/feeds/videos.xml?channel_id=${channelId}`).catch(() => "");
   if (!xml) return { skipped: "feed unreachable", count: prevItems.length };
-  const SAME_MESSAGE_MS = 20 * 60 * 60 * 1000;
-  const titleKey = (s) => String(s || "").toLowerCase().replace(/\s+/g, " ").replace(/[.!?]+$/, "").trim();
-  const collapsedFeed = (() => {
-    const fed = parseFeed(xml).slice(0, KEEP);
-    const byAge = [...fed].sort((a, b) => (Number(a.at) || 0) - (Number(b.at) || 0));
-    const kept = [];
-    const lastAt = new Map();
-    for (const it of byAge) {
-      const key = titleKey(it.title);
-      const at = Number(it.at) || 0;
-      if (key && at > 0) {
-        const seen = lastAt.get(key) || 0;
-        if (seen > 0 && Math.abs(at - seen) <= SAME_MESSAGE_MS) continue;
-        lastAt.set(key, at);
-      }
-      kept.push(it);
-    }
-    return kept.sort((a, b) => (Number(b.at) || 0) - (Number(a.at) || 0));
-  })();
-  const items = collapsedFeed.slice(0, KEEP);
+  const items = parseFeed(xml).slice(0, KEEP);
   if (!items.length) return { skipped: "feed empty", count: prevItems.length };
 
   const before = prevItems.map((it) => it && it.videoId).join(",");

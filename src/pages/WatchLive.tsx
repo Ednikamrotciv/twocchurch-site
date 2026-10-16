@@ -147,14 +147,6 @@ export function WatchLive() {
   const recentItems = recentStreams.items
     .filter((it) => it.videoId !== onScreenId && !curatedIds.has(it.videoId) && !takenOff.has(it.videoId))
     .slice(0, limit);
-  /* The thumbnails the ended screen shows at once (note 391): the main
-     channel's previous services — the live list, else the baked @twocorg
-     list standing in by itself — newest first, take-offs honoured. A guest
-     ending never lands here: `recentItems` is main-owned by construction. */
-  const endedThumbs = (recentItems.length
-    ? recentItems
-    : designatedFallback().items.filter((it) => !takenOff.has(it.videoId))
-  ).slice(0, 6);
   /* Nothing to read (no channel set yet, or the read failed): keep the section
      useful with the newest messages the site already holds. */
   const recentFallback = recentItems.length
@@ -363,10 +355,9 @@ export function WatchLive() {
               ) : !onAirNow && !waitingForClick ? (
                 /* Nobody is broadcasting: the screen says so, and promises what
                    happens next — over the last stream's own still, dimmed. The
-                   player opens the service by itself once Play is published for the stream
-                   starts (src/lib/livestatus.ts). The main channel's previous
-                   services sit right under it (note 391), so the moment a live
-                   ends its thumbnails are already on the screen. */
+                   previous services live in their own section below (note 413),
+                   so the ended stage stays a still with a way down, never a
+                   second copy of the card grid. */
                 <>
                 <div className="live-ended">
                   {cover && <img className="live-ended__bg" src={cover} alt="" loading="lazy" />}
@@ -392,13 +383,6 @@ export function WatchLive() {
                     </div>
                   </div>
                 </div>
-                {endedThumbs.length > 0 && (
-                  <div className="live-ended__thumbs">
-                    {endedThumbs.map((it) => (
-                      <RecentServiceCard key={it.videoId} item={it} />
-                    ))}
-                  </div>
-                )}
                 </>
               ) : configured ? (
                 /* Service on, stream not open yet: last still under the ticking clock (note 133). */

@@ -15,6 +15,7 @@ import { bakedFeedSpec, feedIsNewer, peekSeed, siteFile, type FeedSeed, type Fee
 import { BUILD_NOTES } from "./hooks";
 import { setLiveReportSink } from "./livestatus";
 import { cleanChannelInput } from "./embed";
+import { ensureVaultForSnapshot, installUploadFallback } from "./uploadVault";
 export type Snapshot = Record<string, any>;
 export type CmsStatus = "connecting" | "online" | "offline" | "local";
 export type LogEntry = { rev: number; at: number; by: string; role?: string; note: string; changed: string[] };
@@ -542,21 +543,22 @@ function mergeSection(id: string, base: any, value: any) {
 }
 
 function merge(over: Snapshot): Snapshot {
-  const norm = normalizeSnapshotUploads(over || {});
   const out: Snapshot = clone(defaults);
-  for (const id of Object.keys(norm || {})) {
-    if ((norm as any)[id] === null || (norm as any)[id] === undefined) continue;
-    out[id] = mergeSection(id, defaults[id], (norm as any)[id]);
+  for (const id of Object.keys(over || {})) {
+    if (over[id] === null || over[id] === undefined) continue;
+    out[id] = mergeSection(id, defaults[id], over[id]);
   }
   return out;
 }
 
-/** Fill every section of a snapshot in from the defaults where it is missing. */
+/** Fill every section of a snapshot in from the defaults where it is missing.
+    Office-server upload addresses ride relative from here (note 413), so an
+    old absolute address heals on load instead of blanking after a sleep. */
 function normalizeDraft(snap: Snapshot): Snapshot {
-  const norm = normalizeSnapshotUploads(snap || {});
-  const out: Snapshot = clone(norm || {});
+  const out: Snapshot = clone(snap || {});
   for (const def of SECTION_DEFS) {
-    out[def.id] = out[def.id] === undefined ? clone(defaults[def.id]) : mergeSection(def.id, defaults[def.id], out[def.id]);
+    const merged = out[def.id] === undefined ? clone(defaults[def.id]) : mergeSection(def.id, defaults[def.id], out[def.id]);
+    out[def.id] = relativizeUploadUrls(merged);
   }
   return out;
 }
@@ -591,13 +593,23 @@ export function applySnapshot(snap: Snapshot) {
 function applyOverrides(over: Snapshot, keepDraft = true) {
   /* Whatever was waiting to be previewed describes the old content. */
   dropLivePreview();
-  overrides = clone(normalizeSnapshotUploads(over || {}));
+  /* Incoming words ride relative from here (note 417): an old absolute upload
+     address is rewritten on read, so visitors never paint a host's disk. */
+  overrides = clone(relativizeUploadUrls(over || {}));
   if (!keepDraft) draft = null;
   applySnapshot(merge(overrides));
   /* Live content can land under a draft; edited sections stay, the rest follow it. */
   if (keepDraft) rebaseDraft();
   /* On #/admin the pages show the draft, re-applied whenever live content lands (note 83). */
   if (keepDraft) showDraftIfEditing();
+  /* The vault keeps the bytes behind the words (note 415): every paint queues
+     the snapshot's uploads, so the last published stays whole offline and
+     across a sleep. */
+  try {
+    ensureVaultForSnapshot(merge(overrides));
+  } catch {
+    /* the words already painted */
+  }
 }
 
 export function getApplied(): Snapshot {
@@ -617,79 +629,22 @@ function publishedSection(id: string): any {
   return mergeSection(id, defaults[id], value);
 }
 
-/* Sleep/offline fix: office uploads always store host-relative ("/data/uploads/…").
-   An absolute office address (https://office…/data/uploads/…) blanks visitors and
-   the office preview whenever the office box sleeps or the network drops — the
-   file itself survives in dist/ + the browser cache, but the address points at a
-   sleeping box. These helpers rewrite old absolute addresses to relative on
-   read, compare and publish, so nothing ever goes blank again. */
-function normalizeUploadUrlValue(u: unknown): unknown {
-  if (typeof u !== "string") return u;
-  const m = /https?:\/\/[^/\s]+\/data\/uploads\/([A-Za-z0-9][A-Za-z0-9._-]*)/i.exec(u);
-  if (m) return "/data/uploads/" + m[1];
-  return u;
-}
-function normalizeSnapshotUploads(snap: Snapshot): Snapshot {
-  const walk = (v: any): any => {
-    if (typeof v === "string") return normalizeUploadUrlValue(v) as any;
-    if (Array.isArray(v)) {
-      let changed = false;
-      const out = v.map((x) => {
-        const n = walk(x);
-        if (n !== x) changed = true;
-        return n;
-      });
-      return changed ? out : v;
-    }
-    if (v && typeof v === "object") {
-      let changed = false;
-      const out: any = Array.isArray(v) ? [] : { ...v };
-      for (const k of Object.keys(v)) {
-        const n = walk((v as any)[k]);
-        if (n !== (v as any)[k]) {
-          changed = true;
-          out[k] = n;
-        }
-      }
-      return changed ? out : v;
-    }
-    return v;
-  };
-  let changed = false;
-  const out: Snapshot = { ...(snap || {}) };
-  for (const k of Object.keys(out)) {
-    const n = walk(out[k]);
-    if (n !== out[k]) {
-      changed = true;
-      out[k] = n;
-    }
-  }
-  return changed ? out : snap;
-}
-/* Deployed-is-clean fix: the livestream's on-air state travels ONLY on a newer
-   transport click (gateLiveCommand) — a natural end stamps nothing. Comparing
-   the raw draft would flag every autostop write as an unsaved change with the
-   generic "This part of the site: changed" line that never clears. All
-   unsaved/patch comparisons below use the gated draft for "live". */
-function comparableDraftSection(id: string, draftVal: any): any {
-  if (id !== "live") return draftVal;
-  try {
-    return (typeof gateLiveCommand === "function" ? gateLiveCommand(draftVal, publishedSection("live")) : draftVal);
-  } catch {
-    return draftVal;
-  }
-}
-
-/** The section ids the office has changed but not published yet. Clean after
-    deploy: unstamped on-air state (a natural end needs no publish) never counts,
-    and old absolute upload addresses compare as their relative form. */
+/** The section ids the office has changed but not published yet. Order-proof
+    (note 413): a save that only reordered keys is not a change. Unstamped
+    on-air state is not an office edit either (note 417): Publish would hold
+    it back, so the unsaved count compares what Publish would send — otherwise
+    the Live stream row haunts the list with "changed" and no publish clears
+    it. */
 export function pendingSections(): string[] {
   if (!draft) return [];
   const out: string[] = [];
   for (const def of SECTION_DEFS) {
-    const pub = normalizeUploadUrlValue(JSON.stringify(publishedSection(def.id)));
-    const cmp = normalizeUploadUrlValue(JSON.stringify(comparableDraftSection(def.id, draft[def.id])));
-    if (pub !== cmp) out.push(def.id);
+    if (def.id === "live") {
+      const pub = publishedSection("live");
+      if (!sameJSON(gateLiveCommand(draft.live, pub), pub)) out.push(def.id);
+      continue;
+    }
+    if (!sameJSON(publishedSection(def.id), draft[def.id])) out.push(def.id);
   }
   return out;
 }
@@ -714,8 +669,32 @@ export type PendingEdit = {
 /** How many lines a section lists before it says “and N more”. */
 export const PENDING_LINES_MAX = 6;
 
+/** Order-proof JSON: object keys sort, so two saves with the same values in a
+    different key order compare equal (note 413). Arrays keep their order — a
+    reorder is still a real change. Pure for the verifier. */
+export function stableStringify(value: any): string {
+  if (value === undefined || typeof value === "function" || typeof value === "symbol") return "";
+  if (value === null) return "null";
+  if (typeof value !== "object") {
+    const s = JSON.stringify(value);
+    return typeof s === "string" ? s : "null";
+  }
+  if (Array.isArray(value)) {
+    return "[" + value.map((v) => stableStringify(v) === "" ? "null" : stableStringify(v)).join(",") + "]";
+  }
+  const keys = Object.keys(value).filter((k) => {
+    const v = (value as any)[k];
+    return v !== undefined && typeof v !== "function" && typeof v !== "symbol";
+  }).sort();
+  return "{" + keys.map((k) => JSON.stringify(k) + ":" + stableStringify((value as any)[k])).join(",") + "}";
+}
+
 function sameJSON(a: any, b: any): boolean {
-  return JSON.stringify(a) === JSON.stringify(b);
+  /* An old absolute upload address names the same committed file as its
+     relative form (note 417) — compare the file, never the host's disk, so a
+     stranded absolute is neither an unsaved change nor a publish by itself
+     (the sends below still write the relative form). */
+  return stableStringify(relativizeUploadUrls(a)) === stableStringify(relativizeUploadUrls(b));
 }
 
 /** A value flattened small enough for the drawer's narrow column. */
@@ -820,6 +799,25 @@ function objectPending(def: SectionDef, before: any, after: any): PendingLine[] 
     const detail = fieldDetail(f, getPath(before, f.path), getPath(after, f.path));
     if (detail) out.push({ what: f.label, detail });
   }
+  /* The transport's on-air keys are no schema fields (note 389) — without
+     names of their own they surfaced as "This part of the site: changed".
+     Name them plainly (note 413), so an armed switch reads as what it is. */
+  if (def.id === "live") {
+    const pairs: Array<[string, string]> = [
+      ["isLive", "Stream switch"],
+      ["liveSince", "Session start"],
+      ["liveCut", "Ended mark"],
+      ["liveEndedBy", "Ended by"],
+      ["liveCommandAt", "Play command"],
+      ["guestIsLive", "Guest switch"],
+      ["guestCommandAt", "Guest command"],
+    ];
+    for (const [path, label] of pairs) {
+      const b = before && typeof before === "object" ? (before as any)[path] : undefined;
+      const a = after && typeof after === "object" ? (after as any)[path] : undefined;
+      if (!sameJSON(b, a)) out.push({ what: label, detail: `${snip(b)} → ${snip(a)}` });
+    }
+  }
   return out;
 }
 
@@ -909,7 +907,9 @@ export function pendingEdits(): PendingEdit[] {
     const def = sectionById(id);
     if (!def) continue;
     const before = publishedSection(id);
-    const after = comparableDraftSection(id, draft[id]);
+    /* The unsaved list shows what Publish would send (note 417): unstamped
+       on-air state rides held-back, so it never births a ghost row here. */
+    const after = id === "live" ? gateLiveCommand(draft[id], before) : draft[id];
     const found =
       def.kind === "object"
         ? objectPending(def, before, after)
@@ -953,7 +953,219 @@ export function revertSection(sectionId: string): { ok: boolean; label?: string 
   return { ok: true, label: def.label };
 }
 
-/** Whether Delete on the unsaved list can publish removals (note 401), pure
+/** Delete leaves the field empty (note 419): the pure empty values behind
+    every unsaved Delete, so Publish carries the empty to the site. Text-like
+    fields empty to "", numbers to 0 (readers fall back to shipped defaults),
+    booleans to false, string-lists to []. Live transport switches are not
+    schema fields — they empty to off/0/"" in emptiedLiveForDelete below,
+    with the click stamp only where Publish needs it to send the off. */
+export function emptyScalarForType(type: string): any {
+  if (type === "boolean") return false;
+  if (type === "number") return 0;
+  if (type === "strings") return [];
+  return "";
+}
+
+/** One list entry with every differing editable field emptied (note 419).
+    The id key is preserved so the emptied card stays matched by id;
+    static/readonly fields are never touched. */
+export function emptyEntryForDelete(fields: any[], draftItem: any, pubItem: any, preserveKeys?: Set<string>): any {
+  const out = clone(draftItem ?? {});
+  const keep = preserveKeys || new Set<string>();
+  for (const f of fields || []) {
+    if (!f || f.type === "static" || f.readonly) continue;
+    const path = String(f.path || "");
+    if (!path || keep.has(path)) continue;
+    const b = getPath(pubItem, path);
+    const a = getPath(draftItem, path);
+    if (sameJSON(b, a)) continue;
+    if (f.type === "list") {
+      const bArr = Array.isArray(b) ? b : [];
+      const aArr = Array.isArray(a) ? a : [];
+      setPath(out, path, emptiedListForDelete({ fields: f.fields || [] } as any, bArr, aArr));
+    } else {
+      setPath(out, path, emptyScalarForType(f.type));
+    }
+  }
+  return out;
+}
+
+/** A list section emptied for Delete (note 419): added entries drop (they
+    were never published, so empty is absent), changed entries empty their
+    fields (the card stays, the field goes empty), removed entries stay
+    removed, order is kept — except an order-only move, which reverts to the
+    published order so the row clears (order has no empty). Fixed copy lists
+    keep id/label and empty only the value. */
+export function emptiedListForDelete(defLike: any, before: any, after: any): any[] {
+  const b: any[] = Array.isArray(before) ? before : [];
+  const a: any[] = Array.isArray(after) ? after : [];
+  const fields: any[] = (defLike && defLike.fields) || [];
+  if (defLike && defLike.fixed) {
+    const was = new Map<string, any>(b.map((e: any) => [String(e?.id ?? ""), e]));
+    const out: any[] = [];
+    let added = 0, changed = 0;
+    for (const item of a) {
+      const id = String(item?.id ?? "");
+      const prev = was.get(id);
+      if (!prev) { added += 1; continue; }
+      if (sameJSON(prev, item)) out.push(clone(item));
+      else { changed += 1; out.push({ ...clone(item), value: "" }); }
+    }
+    if (!added && !changed) {
+      const nowIds = new Set(a.map((e: any) => String(e?.id ?? "")));
+      let removed = 0;
+      for (const e of b) if (!nowIds.has(String(e?.id ?? ""))) removed += 1;
+      if (!removed) {
+        const bo = b.map((e: any) => String(e?.id ?? ""));
+        const ao = a.map((e: any) => String(e?.id ?? ""));
+        if (bo.some((id: string, i: number) => id !== ao[i])) return clone(b);
+      }
+    }
+    return out;
+  }
+  const key = String((defLike && defLike.idKey) || "");
+  const idOf = (item: any) => (key && item && String(item[key] ?? "").trim() ? String(item[key]) : "");
+  const byId = !!key && b.concat(a).every((item: any) => !!idOf(item));
+  if (byId) {
+    const was = new Map<string, any>(b.map((e: any) => [idOf(e), e]));
+    const now = new Map<string, any>(a.map((e: any) => [idOf(e), e]));
+    const out: any[] = [];
+    let added = 0, changed = 0;
+    for (const item of a) {
+      const id = idOf(item);
+      const prev = was.get(id);
+      if (!prev) { added += 1; continue; }
+      if (sameJSON(prev, item)) out.push(clone(item));
+      else { changed += 1; out.push(emptyEntryForDelete(fields, item, prev, new Set([key]))); }
+    }
+    let removed = 0;
+    for (const e of b) if (!now.has(idOf(e))) removed += 1;
+    if (!added && !changed && !removed) {
+      const bo = b.map(idOf);
+      const ao = a.map(idOf);
+      if (bo.some((id: string, i: number) => id !== ao[i])) return clone(b);
+    }
+    return out;
+  }
+  const n = Math.max(b.length, a.length);
+  const out: any[] = [];
+  for (let i = 0; i < n; i++) {
+    if (i >= a.length) continue;
+    if (i >= b.length) continue;
+    if (sameJSON(b[i], a[i])) out.push(clone(a[i]));
+    else out.push(emptyEntryForDelete(fields, a[i], b[i], new Set()));
+  }
+  return out;
+}
+
+/** An object section with every differing editable field emptied (note 419):
+    text-like to "", numbers to 0, booleans to false, string-lists to [],
+    nested lists via emptiedListForDelete. Untouched fields stay exactly as
+    the office left them. */
+export function emptiedObjectForDelete(def: any, before: any, after: any): any {
+  const out = clone(after ?? {});
+  for (const f of (def && def.fields) || []) {
+    if (!f || f.type === "static" || f.readonly) continue;
+    const path = String(f.path || "");
+    if (!path) continue;
+    const b = getPath(before, path);
+    const a = getPath(after, path);
+    if (sameJSON(b, a)) continue;
+    if (f.type === "list") {
+      const bArr = Array.isArray(b) ? b : [];
+      const aArr = Array.isArray(a) ? a : [];
+      setPath(out, path, emptiedListForDelete({ fields: f.fields || [] } as any, bArr, aArr));
+    } else {
+      setPath(out, path, emptyScalarForType(f.type));
+    }
+  }
+  return out;
+}
+
+/** The live section emptied for Delete (note 419): address fields empty via
+    the schema, take-offs clear to [], switches go off/0/"", and the click
+    stamps move only where Publish needs them to send the off — a published
+    off stays unstamped (no ghost row), a published on stamps so Publish
+    carries the off to the site. */
+export function emptiedLiveForDelete(before: any, after: any, now: number): any {
+  const def = sectionById("live");
+  const out = def ? emptiedObjectForDelete(def, before, after) : clone(after ?? {});
+  const bh = Array.isArray(before?.hiddenReplays) ? before.hiddenReplays : [];
+  const ah = Array.isArray(after?.hiddenReplays) ? after.hiddenReplays : [];
+  if (!sameJSON(bh, ah)) out.hiddenReplays = [];
+  const OFF_MAIN = { isLive: false, liveSince: 0, liveCut: 0, liveEndedBy: "", liveEndedVideo: "" };
+  const pubMain = { isLive: !!before?.isLive, liveSince: Number(before?.liveSince) || 0, liveCut: Number(before?.liveCut) || 0, liveEndedBy: String(before?.liveEndedBy || ""), liveEndedVideo: String(before?.liveEndedVideo || "") };
+  out.isLive = false;
+  out.liveSince = 0;
+  out.liveCut = 0;
+  out.liveEndedBy = "";
+  out.liveEndedVideo = "";
+  out.guestIsLive = false;
+  const pubAt = Number(before?.liveCommandAt) || 0;
+  const curAt = Number(after?.liveCommandAt) || 0;
+  if (!sameJSON(OFF_MAIN, pubMain)) {
+    out.liveCommandAt = curAt > pubAt ? curAt : now;
+  } else {
+    out.liveCommandAt = pubAt;
+  }
+  const pubG = !!before?.guestIsLive;
+  const pubGat = Number(before?.guestCommandAt) || 0;
+  const curGat = Number(after?.guestCommandAt) || 0;
+  if (pubG) {
+    out.guestCommandAt = curGat > pubGat ? curGat : now;
+  } else {
+    out.guestCommandAt = pubGat;
+  }
+  return out;
+}
+
+/** Delete on the unsaved list (note 419): empty the section's unsaved change
+    and keep it dirty, so Publish shows the empty on the site — every section
+    alike, livestream included. Added list entries drop, changed fields empty,
+    removed entries stay removed; an order-only move reverts so the row
+    clears. Returns ok:false when the section already matches what Publish
+    would send (already empty — Publish alone carries it). Undoable. */
+export function emptySectionToEmpty(sectionId: string): { ok: boolean; label?: string } {
+  const def = sectionById(sectionId);
+  if (!def || !draft) return { ok: false };
+  const before = publishedSection(sectionId);
+  const d = getDraft();
+  const after = d[sectionId];
+  if (def.id === "live") {
+    if (sameJSON(gateLiveCommand(after, before), before)) return { ok: false, label: def.label };
+  } else {
+    if (sameJSON(before, after)) return { ok: false, label: def.label };
+  }
+  const now = Date.now();
+  let emptied: any;
+  if (def.id === "live") emptied = emptiedLiveForDelete(before, after, now);
+  else if (def.kind === "object") emptied = emptiedObjectForDelete(def, before, after);
+  else emptied = emptiedListForDelete({ fields: def.fields, idKey: def.idKey, fixed: !!def.fixed } as any, before, after);
+  emptied = relativizeUploadUrls(emptied);
+  const changedVsDraft = !sameJSON(emptied, after);
+  let changedVsSend = true;
+  if (def.id === "live") changedVsSend = !sameJSON(gateLiveCommand(emptied, before), gateLiveCommand(after, before));
+  if (!changedVsDraft && !changedVsSend) return { ok: false, label: def.label };
+  pushEditUndo(sectionId, clone(after));
+  d[sectionId] = emptied;
+  let clean = false;
+  if (def.id === "live") clean = sameJSON(gateLiveCommand(emptied, before), before);
+  else clean = sameJSON(emptied, before);
+  if (clean) delete dirty[sectionId];
+  else dirty[sectionId] = true;
+  persistDraft();
+  if (autoPreview) {
+    dropLivePreview();
+    applyDraftLive();
+  }
+  notify();
+  return { ok: true, label: def.label };
+}
+
+/** Kept for history (note 401; superseded by note 419): Delete no longer
+    reverts — it empties via `emptySectionToEmpty` above, so Publish carries
+    the empty to the site. This predicate only names where a two-tap confirm
+    once lived. Pure
     for the verifier: list sections — and object sections carrying a deletable
     list — keep the two-tap confirm that publishes just what was taken off.
     Every other section's Delete only ever drops the draft edit (see
@@ -1103,6 +1315,208 @@ function gateLiveSnapshot(snap: Snapshot): Snapshot {
   return { ...(snap as any), live: gated };
 }
 
+/** Office-server upload addresses ride relative (note 413): an absolute
+    .../data/uploads/<file> names the same file on every host once committed,
+    while an absolute host address dies with that host's disk (sleep wipes
+    it and the photo goes blank). Bundled, pasted and CDN addresses pass
+    through untouched. Pure for the verifier. */
+export function relativizeUploadUrls(value: any): any {
+  if (typeof value === "string") {
+    const m = /^https?:\/\/[^/]+\/data\/uploads\/([A-Za-z0-9][A-Za-z0-9._-]*)/.exec(value.trim());
+    return m ? "/data/uploads/" + m[1] : value;
+  }
+  if (Array.isArray(value)) {
+    let touched = false;
+    const out = value.map((v) => {
+      const n = relativizeUploadUrls(v);
+      if (n !== v) touched = true;
+      return n;
+    });
+    return touched ? out : value;
+  }
+  if (value && typeof value === "object") {
+    let touched = false;
+    const out: any = { ...(value as any) };
+    for (const k of Object.keys(out)) {
+      const n = relativizeUploadUrls(out[k]);
+      if (n !== out[k]) {
+        out[k] = n;
+        touched = true;
+      }
+    }
+    return touched ? out : value;
+  }
+  return value;
+}
+
+/** A locally seen stream end survives an older incoming answer (note 413): a
+    newer office command wins whole; otherwise a newer local end-fact stands,
+    so a natural end is never un-ended by stale words. A live incoming video
+    the facts never saw is a NEW broadcast and wins. Pure for the verifier. */
+export function keepNewerEndFacts(localLive: any, incomingLive: any): any {
+  if (!incomingLive || typeof incomingLive !== "object" || Array.isArray(incomingLive)) return incomingLive;
+  if (!localLive || typeof localLive !== "object" || Array.isArray(localLive)) return incomingLive;
+  const iCmd = Number((incomingLive as any).liveCommandAt) || 0;
+  const lCmd = Number((localLive as any).liveCommandAt) || 0;
+  if (iCmd > lCmd) return incomingLive;
+  const endedVideo = String((localLive as any).liveEndedVideo || "");
+  const inVid = String((incomingLive as any).videoId || "");
+  if (endedVideo && inVid && inVid !== endedVideo) return incomingLive;
+  const lCut = Number((localLive as any).liveCut) || 0;
+  const iCut = Number((incomingLive as any).liveCut) || 0;
+  if (lCut > iCut) {
+    return {
+      ...(incomingLive as any),
+      isLive: false,
+      liveCut: lCut,
+      liveEndedBy: String((localLive as any).liveEndedBy || (incomingLive as any).liveEndedBy || "channel"),
+      liveEndedVideo: endedVideo || String((incomingLive as any).liveEndedVideo || ""),
+    };
+  }
+  return incomingLive;
+}
+
+/** Incoming server words with locally seen end-facts kept where they are
+    newer (note 413). Pure for the verifier. */
+export function withKeptServerFacts(server: Snapshot): Snapshot {
+  const incoming = (server as any)?.live;
+  if (!incoming || typeof incoming !== "object" || Array.isArray(incoming)) return server;
+  const kept = keepNewerEndFacts((overrides as any)?.live, incoming);
+  if (kept === incoming) return server;
+  return { ...(server as any), live: kept };
+}
+
+/** A stream's own ending is a fact about the world, not an office edit (note
+    413): it lands in the draft AND the local published baseline together —
+    no dirty flag, so no unsaved row is ever born for it and no publish is
+    needed — rides the cache through sleep, and queues for the server without
+    a bless so every copy's badges follow at the next send. Returns true when
+    something actually moved. */
+const FACTS_KEY = "wom.cms.endfacts";
+export function recordStreamEndFacts(facts: { isLive: false; liveCut: number; liveEndedBy: string; liveEndedVideo?: string }): boolean {
+  const d = getDraft();
+  const cur = (d as any)?.live;
+  if (!cur || typeof cur !== "object" || Array.isArray(cur)) return false;
+  const cut = Number(facts.liveCut) || 0;
+  if (!cut) return false;
+  if ((Number((cur as any).liveCut) || 0) >= cut && (cur as any).isLive === false) return false;
+  const video = String(facts.liveEndedVideo || (cur as any).liveEndedVideo || "");
+  (d as any).live = {
+    ...(cur as any),
+    isLive: false,
+    liveCut: cut,
+    liveEndedBy: String(facts.liveEndedBy || "channel"),
+    liveEndedVideo: video,
+  };
+  const base = publishedSection("live") || {};
+  overrides.live = mergeSection("live", defaults.live, {
+    ...(base as any),
+    isLive: false,
+    liveCut: cut,
+    liveEndedBy: String(facts.liveEndedBy || "channel"),
+    liveEndedVideo: video,
+  });
+  applyOverrides(overrides);
+  writeCache();
+  writeJSON(FACTS_KEY, { liveCut: cut, liveEndedBy: String(facts.liveEndedBy || "channel"), liveEndedVideo: video, at: Date.now() });
+  flushStreamFacts().catch(() => {});
+  return true;
+}
+
+/** A live edge supersedes any queued end (note 413): the stream the facts
+    described is over — a different video, or any live answer at all when the
+    facts named no video. Same-video live keeps the queue (a resume, not a
+    new broadcast). */
+export function clearStaleQueuedFacts(liveVideoId: string): void {
+  let queued: any = null;
+  try {
+    queued = readJSON<any>(FACTS_KEY, null);
+  } catch {
+    queued = null;
+  }
+  if (!queued || typeof queued !== "object") return;
+  const endedVideo = String(queued.liveEndedVideo || "");
+  const vid = String(liveVideoId || "");
+  if (endedVideo && vid && vid === endedVideo) return;
+  try {
+    localStorage.removeItem(FACTS_KEY);
+  } catch {}
+}
+
+/** Fold queued end-facts into an outgoing live value before it is sent (note
+    413): a fact newer than the value's own cut — and newer than any office
+    command in it — rides along, so the server learns natural ends on the next
+    deliberate send. Never mutates. */
+function withQueuedFacts(outgoing: any): any {
+  if (!outgoing || typeof outgoing !== "object" || Array.isArray(outgoing)) return outgoing;
+  let queued: any = null;
+  try {
+    queued = readJSON<any>(FACTS_KEY, null);
+  } catch {
+    queued = null;
+  }
+  if (!queued || typeof queued !== "object") return outgoing;
+  const qCut = Number(queued.liveCut) || 0;
+  if (!(qCut > (Number((outgoing as any).liveCut) || 0))) return outgoing;
+  if ((Number((outgoing as any).liveCommandAt) || 0) > (Number(queued.at) || 0)) return outgoing;
+  return {
+    ...(outgoing as any),
+    isLive: false,
+    liveCut: qCut,
+    liveEndedBy: String(queued.liveEndedBy || (outgoing as any).liveEndedBy || "channel"),
+    liveEndedVideo: String(queued.liveEndedVideo || (outgoing as any).liveEndedVideo || ""),
+  };
+}
+
+/** Forget queued end-facts once a send carried a cut at least as new (note 413). */
+function noteFactsSent(sentLiveCut: number): void {
+  let queued: any = null;
+  try {
+    queued = readJSON<any>(FACTS_KEY, null);
+  } catch {
+    queued = null;
+  }
+  if (!queued || typeof queued !== "object") return;
+  if ((Number(queued.liveCut) || 0) <= (Number(sentLiveCut) || 0)) {
+    try {
+      localStorage.removeItem(FACTS_KEY);
+    } catch {}
+  }
+}
+
+/** Send queued end-facts to the server with no bless (note 413): the words
+    travel, the notice stays until a real publish. Skipped while the live
+    section holds office edits — those ride the office's own publish instead. */
+let flushingFacts = false;
+export async function flushStreamFacts(): Promise<boolean> {
+  let queued: any = null;
+  try {
+    queued = readJSON<any>(FACTS_KEY, null);
+  } catch {
+    queued = null;
+  }
+  if (!queued) return false;
+  if (!socket || status !== "online" || !authed) return false;
+  if (flushingFacts) return false;
+  if (dirty.live) return false;
+  flushingFacts = true;
+  try {
+    const live = withQueuedFacts(clone(publishedSection("live")));
+    const sections = { live: JSON.stringify(live) };
+    const res = await sendPatch(sections, ["live"], "Stream ended by itself — on-air facts", false);
+    if (!res.ok) return false;
+    rev = res.rev ?? rev;
+    overrides.live = JSON.parse(sections.live);
+    applyOverrides(overrides);
+    writeCache();
+    noteFactsSent(Number((live as any).liveCut) || 0);
+    notify();
+    return true;
+  } finally {
+    flushingFacts = false;
+  }
+}
+
 export async function publishSection(sectionId: string, note: string): Promise<PublishResult> {
   const def = sectionById(sectionId);
   if (!def || !draft) return { ok: false, error: "nothing-to-do" };
@@ -1120,6 +1534,11 @@ export async function publishSection(sectionId: string, note: string): Promise<P
      pause or stop newer than what is published, the on-air state stays out of
      the patch — a natural end stamps nothing and needs no publish. */
   if (sectionId === "live") value = gateLiveCommand(value, publishedSection("live"));
+  /* Queued end-facts (note 413) still ride a deliberate section send. */
+  if (sectionId === "live") value = withQueuedFacts(value);
+  /* Old absolute upload addresses go relative on publish (note 417): the send
+     names the committed file, never the office box's address. */
+  value = relativizeUploadUrls(value);
   if (sameJSON(value, publishedSection(sectionId))) {
     delete dirty[sectionId];
     persistDraft();
@@ -1157,6 +1576,10 @@ export async function publishSection(sectionId: string, note: string): Promise<P
   }
   rememberHistory();
   const payload = JSON.stringify(value);
+  /* The files travel before the words (note 415). */
+  try {
+    await pushUploadFilesToServer({ [sectionId]: value } as Snapshot);
+  } catch {}
   const result = await sendPatch({ [sectionId]: payload }, [sectionId], note.slice(0, 160));
   if (!result.ok) return { ok: false, error: result.error };
   rev = result.rev ?? rev + 1;
@@ -1164,12 +1587,15 @@ export async function publishSection(sectionId: string, note: string): Promise<P
   updatedBy = editorName();
   setPublishedNotes(BUILD_NOTES);
   overrides[sectionId] = JSON.parse(payload);
+  if (sectionId === "live") noteFactsSent(Number((overrides[sectionId] as any)?.liveCut) || 0);
   log = [{ rev, at: updatedAt, by: editorName(), role: myRole === "sub" ? "sub" : "main", note: note.slice(0, 160), changed: [sectionId] }, ...log].slice(0, 30);
   delete dirty[sectionId];
   persistDraft();
   applyOverrides(overrides);
   writeCache();
   notify();
+  /* Queued end-facts the section send did not carry flush on their own (note 413). */
+  flushStreamFacts().catch(() => {});
   return { ok: true };
 }
 
@@ -1622,7 +2048,7 @@ function diffAgainstLive(liveSections: Snapshot): { ids: string[]; patch: Record
   for (const def of SECTION_DEFS) {
     const theirs = liveSections[def.id];
     if (theirs === undefined || theirs === null) continue;
-    if (JSON.stringify(overrides[def.id]) !== JSON.stringify(theirs)) {
+    if (!sameJSON(overrides[def.id], theirs)) {
       ids.push(def.id);
       patch[def.id] = JSON.stringify(clone(theirs));
     }
@@ -1665,54 +2091,49 @@ async function backfillUploadsFrom(fromBase: string, content: Snapshot = overrid
   return { restored, failed };
 }
 
-/* Offline-proof uploads: prime the browser + service caches for every
-   last-published upload, so visitors and the office preview keep showing photos
-   and videos with no network and right after a host sleep. Fire-and-forget,
-   throttled, never throws — a missed prime simply retries on the next online
-   event or boot. */
-let lastUploadPrimeAt = 0;
-let uploadPrimeRunning: Promise<void> | null = null;
-export function ensureUploadsCached(): Promise<void> {
-  if (uploadPrimeRunning) return uploadPrimeRunning;
-  uploadPrimeRunning = (async () => {
-    try {
-      const now = Date.now();
-      if (now - lastUploadPrimeAt < 60 * 1000) return;
-      lastUploadPrimeAt = now;
-      if (typeof navigator !== "undefined" && (navigator as any).onLine === false) return;
-      let names: string[] = [];
+/* Upload files this disk holds but the joined server lacks, pushed there
+   before the words that name them (note 415): an offline publish queues
+   words whose files sit only on the office disk, and a reconnect that sends
+   the words without the files paints blank photos on every visitor. The
+   server answers the same restore door as a backup, so restored words point
+   at working photos from the first send. Best effort — the words always send
+   even when a file cannot travel. */
+async function pushUploadFilesToServer(content: Snapshot = overrides): Promise<{ restored: number; failed: string[] }> {
+  let restored = 0;
+  const failed: string[] = [];
+  try {
+    if (!socket || status !== "online") return { restored, failed };
+    const base = serverUrl();
+    if (!base) return { restored, failed };
+    for (const name of localUploadNames(content)) {
+      let there = false;
       try {
-        names = localUploadNames(merge(overrides)).slice(0, 40);
+        const res = await fetch(base + "/data/uploads/" + name, { cache: "no-store" });
+        there = res.ok;
       } catch {
-        return;
+        there = false;
       }
-      if (!names.length) return;
-      await Promise.all(
-        names.map(async (name) => {
-          try {
-            await fetch("/data/uploads/" + name, { cache: "force-cache" } as RequestInit);
-          } catch { /* one missing file never blocks the rest */ }
-        })
-      );
+      if (there) continue;
       try {
-        const cache = await (caches as any)?.open?.("wom-uploads-v1");
-        if (cache) {
-          await Promise.all(
-            names.map(async (name) => {
-              try {
-                const req = "/data/uploads/" + name;
-                const hit = await cache.match(req).catch(() => null);
-                if (!hit) await cache.add(req).catch(() => {});
-              } catch { /* keep going */ }
-            })
-          );
-        }
-      } catch { /* HTTP cache above already helps */ }
-    } finally {
-      uploadPrimeRunning = null;
+        const res = await fetch("/data/uploads/" + name, { cache: "no-store" });
+        if (!res.ok) throw 0;
+        const blob = await res.blob();
+        if (!blob.size || blob.size > BACKUP_FILE_MAX_BYTES) throw 0;
+        const put = await fetch(base + "/__restore-file?name=" + encodeURIComponent(name), {
+          method: "POST",
+          headers: { "content-type": blob.type || guessUploadType(name) },
+          body: blob,
+        });
+        if (!put.ok) throw 0;
+        restored++;
+      } catch {
+        failed.push(name);
+      }
     }
-  })();
-  return uploadPrimeRunning;
+  } catch {
+    /* the words below still send */
+  }
+  return { restored, failed };
 }
 
 /* Read live's publish without adopting anything: the shared front door for the
@@ -1858,9 +2279,12 @@ async function foldLiveInto(target: Snapshot | null, onlyId?: string): Promise<{
     if (onlyId && def.id !== onlyId) continue;
     const theirs = read.sections[def.id];
     if (theirs === undefined || theirs === null) continue;
+    /* A locally seen stream end (note 413) is newer than live's stale words:
+       never fold the old on-air state back over the facts. */
+    if (def.id === "live" && keepNewerEndFacts(publishedSection("live"), theirs) !== theirs) continue;
     /* The office's own edits always win — only untouched sections follow live. */
-    if (JSON.stringify(snap[def.id]) !== JSON.stringify(publishedSection(def.id))) continue;
-    if (JSON.stringify(publishedSection(def.id)) === JSON.stringify(theirs)) continue;
+    if (!sameJSON(snap[def.id], publishedSection(def.id))) continue;
+    if (sameJSON(publishedSection(def.id), theirs)) continue;
     snap[def.id] = mergeSection(def.id, defaults[def.id], clone(theirs));
     folded.push(def.id);
   }
@@ -1964,6 +2388,28 @@ function startLivePull() {
   window.addEventListener("online", () => tick());
 }
 
+/** Old dirty flags are cleaned at boot (note 417): a flag for a section the
+    site no longer offers, or whose draft already matches what Publish would
+    send — unstamped on-air state included — is dropped, so the Live stream row
+    can never haunt the unsaved list across a restart and a stuck flag can
+    never hold the end-fact flush shut. Returns true when anything moved. */
+function dropStaleDirtyFlags(): boolean {
+  let cleaned = false;
+  for (const id of Object.keys(dirty)) {
+    if (!sectionById(id)) {
+      delete dirty[id];
+      cleaned = true;
+      continue;
+    }
+    if (!pendingSections().includes(id)) {
+      delete dirty[id];
+      cleaned = true;
+    }
+  }
+  if (cleaned) persistDraft();
+  return cleaned;
+}
+
 export async function startCms() {
   if (starting) return;
   starting = true;
@@ -2028,6 +2474,13 @@ export async function startCms() {
   } catch {
     /* the codegen stamp is best-effort; the paint above already decided */
   }
+  /* Old dirty flags never ride into the boot (note 417): a stale live flag is
+     exactly how the ghost "This part of the site: changed" survived restarts. */
+  try {
+    dropStaleDirtyFlags();
+  } catch {
+    /* the draft stands */
+  }
   history = readJSON<any[]>(HISTORY_KEY, []) || [];
   try {
     const nn = readJSON<number>(NOTES_KEY, 0);
@@ -2045,32 +2498,6 @@ export async function startCms() {
      desktop, wiped store, slow server — back into update-mode with no new
      update, and persist it. The gate now decides from evidence alone. */
   pending = readJSON<Snapshot | null>(PENDING_KEY, null);
-  /* Deployed-is-clean + sleep/offline fix: normalize old absolute upload
-     addresses to relative and drop dirty flags whose gated comparison is clean
-     (unstamped on-air state, absolute-vs-relative same file). Without this a
-     deploy kept showing "This part of the site: changed" forever. */
-  try {
-    if (draft) {
-      const norm = normalizeSnapshotUploads(draft);
-      if (norm !== draft) draft = normalizeDraft(norm);
-      for (const id of Object.keys(dirty)) {
-        try {
-          const pub = JSON.stringify(publishedSection(id));
-          const cmp = JSON.stringify(comparableDraftSection(id, (draft as any)[id]));
-          if (pub === cmp) delete (dirty as any)[id];
-        } catch { /* keep the flag */ }
-      }
-      persistDraft();
-    }
-  } catch { /* boot continues with the stored draft as-is */ }
-  /* Visitors + office both keep last-published uploads usable offline: prime the
-     upload cache once the boot paint settles. */
-  try {
-    window.setTimeout(() => ensureUploadsCached().catch(() => {}), 4000);
-  } catch {}
-  try {
-    window.addEventListener("online", () => ensureUploadsCached().catch(() => {}));
-  } catch {}
   /* Boot numbers are final here (seed + stored stamp): bump once so the
      maintenance notice re-evaluates instead of sticking with first paint
      (note 278). One extra render, boot only. */
@@ -2078,6 +2505,27 @@ export async function startCms() {
   /* The drawer mounts first, so the stored draft arriving late is put on the page (note 83). */
   showDraftIfEditing();
   notify();
+  /* Entirely sleep-free (note 415): the vault holds the bytes behind the
+     words, a failed image falls back to the vault then the welcome photo,
+     and coming back online re-joins at once and activates the last published
+     whole — nothing missing, nothing blank. */
+  try {
+    installUploadFallback();
+  } catch {
+    /* the words already painted */
+  }
+  try {
+    ensureVaultForSnapshot(merge(overrides));
+  } catch {
+    /* the paint stands without the bytes */
+  }
+  window.addEventListener("online", () => {
+    try {
+      ensureVaultForSnapshot(merge(overrides));
+    } catch {}
+    retryNow().catch(() => {});
+    flushPending().catch(() => {});
+  });
 
   if (!socketFactory()) {
     status = "local";
@@ -2112,7 +2560,12 @@ export async function startCms() {
   };
   window.addEventListener("focus", refocus);
   document.addEventListener("visibilitychange", () => {
-    if (document.visibilityState === "visible") refocus();
+    if (document.visibilityState === "visible") {
+      refocus();
+      try {
+        ensureVaultForSnapshot(merge(overrides));
+      } catch {}
+    }
   });
   /* Hold the first paint until the first sync attempt settles: after a publish
      the numbers already say live, so no maintenance flash; in the update window
@@ -2468,7 +2921,10 @@ async function syncFromServer() {
   /* The server's ~15-minute undo window rides every content answer (note 291). */
   const undoLeft = typeof res.undoLeft === "number" ? Math.max(0, Math.floor(res.undoLeft)) : 0;
   undoUntilAt = undoLeft > 0 ? Date.now() + undoLeft * 1000 : 0;
-  const differs = serverRev !== rev || JSON.stringify(server) !== JSON.stringify(overrides);
+  /* A locally seen stream end (note 413) is newer than the server's stale
+     words: adopt everything except the older on-air state, which stays ended. */
+  const keptServer = withKeptServerFacts(server);
+  const differs = serverRev !== rev || !sameJSON(keptServer, overrides);
   /* Seeded fallback, older than what this tab holds (note 290): the server
      restarted without a disk and came back on its last deployed bake, while
      this tab still carries words published on live AFTER that deploy. Painting
@@ -2542,7 +2998,7 @@ async function syncFromServer() {
       pending = clone(overrides);
       writeJSON(PENDING_KEY, pending);
     }
-    applyOverrides(server);
+    applyOverrides(keptServer);
     writeCache();
   } else if (notesLifted) {
     /* Content identical but the publish stamp moved (note 278): bump so the
@@ -2562,6 +3018,11 @@ async function healEmptyServer(why = "Office words put back after the server cam
   if (!ids.length) return false;
   const sections: Record<string, string> = {};
   for (const id of ids) sections[id] = JSON.stringify((pending as Snapshot)[id]);
+  /* The files travel before the words (note 415): healed words must never
+     point at photos the server does not hold yet. */
+  try {
+    await pushUploadFilesToServer(pending);
+  } catch {}
   /* Heal, never bless (note 293): the words come back, but waiting visitors
      stay waiting until the office publishes for real. */
   const res = await sendPatch(sections, ids, why, false);
@@ -3141,18 +3602,13 @@ export function setSectionValue(sectionId: string, value: any) {
     const cleanGuest = cleanChannelInput(value.externalYoutubeChannel);
     if (cleanGuest !== value.externalYoutubeChannel) value = { ...value, externalYoutubeChannel: cleanGuest };
   }
+  /* Office-server upload addresses ride relative from the first keystroke
+     (note 413): what the office saves names the file, never a host's disk. */
+  value = relativizeUploadUrls(value);
   const prev = clone(d[sectionId]);
-  const normVal = (() => {
-    try {
-      const n = normalizeSnapshotUploads({ [sectionId]: value } as Snapshot) as any;
-      return n[sectionId];
-    } catch {
-      return value;
-    }
-  })();
-  if (JSON.stringify(prev) === JSON.stringify(normVal)) return;
+  if (sameJSON(prev, value)) return;
   pushEditUndo(sectionId, prev);
-  d[sectionId] = normVal;
+  d[sectionId] = value;
   dirty[sectionId] = true;
   persistDraft();
   /* The drawer reads the draft, so its field updates on this notify; the page
@@ -3164,7 +3620,7 @@ export function setSectionValue(sectionId: string, value: any) {
 export function resetSection(sectionId: string) {
   const d = getDraft();
   const prev = clone(d[sectionId]);
-  if (JSON.stringify(prev) === JSON.stringify(defaults[sectionId])) return;
+  if (sameJSON(prev, defaults[sectionId])) return;
   pushEditUndo(sectionId, prev);
   d[sectionId] = clone(defaults[sectionId]);
   dirty[sectionId] = true;
@@ -3240,8 +3696,7 @@ export function hasChanges(): boolean {
 export function changedSections(a: Snapshot, b: Snapshot): string[] {
   const out: string[] = [];
   for (const def of SECTION_DEFS) {
-    const av = def.id === "live" ? (() => { try { return gateLiveCommand(a?.[def.id], b?.[def.id]); } catch { return a?.[def.id]; } })() : a?.[def.id];
-    if (JSON.stringify(av) !== JSON.stringify(b?.[def.id])) out.push(def.id);
+    if (!sameJSON(a?.[def.id], b?.[def.id])) out.push(def.id);
   }
   return out;
 }
@@ -3510,12 +3965,13 @@ export type PublishResult = { ok: boolean; error?: string; local?: boolean };
 function buildPatch(target: Snapshot): { sections: Record<string, string | null>; changed: string[] } {
   const sections: Record<string, string | null> = {};
   const changed: string[] = [];
-  const norm = normalizeSnapshotUploads(target);
   for (const def of SECTION_DEFS) {
-    const val = def.id === "live" ? (() => { try { return gateLiveCommand((norm as any)[def.id], publishedSection(def.id)); } catch { return (norm as any)[def.id]; } })() : (norm as any)[def.id];
-    const next = JSON.stringify(val);
-    if (next !== JSON.stringify(publishedSection(def.id))) {
-      sections[def.id] = next;
+    /* A save that only reordered keys is not a change (note 413) — compare by
+       value, not by string, or the section would publish forever. Old absolute
+       upload addresses compare as their relative file (note 417) and the send
+       writes the relative form. */
+    if (!sameJSON(target[def.id], publishedSection(def.id))) {
+      sections[def.id] = JSON.stringify(relativizeUploadUrls(target[def.id]));
       changed.push(def.id);
     }
   }
@@ -3620,8 +4076,17 @@ export async function publish(note: string, content?: Snapshot): Promise<Publish
   const fold = await foldLiveInto(content || draft);
   /* The transport arms the send (notes 389, 391, 393): without a clicked play,
      pause or stop newer than what is published, the on-air state stays out of
-     the patch — a natural end stamps nothing and needs no publish. */
-  const snapshot = gateLiveSnapshot(fold.snapshot || applied);
+     the patch — a natural end stamps nothing and needs no publish. Queued
+     end-facts (note 413) still ride: they are terminal state, not a command. */
+  const snapshot0 = gateLiveSnapshot(fold.snapshot || applied);
+  let snapshot = snapshot0;
+  if ((snapshot as any)?.live && typeof (snapshot as any).live === "object") {
+    const withFacts = withQueuedFacts((snapshot as any).live);
+    if (withFacts !== (snapshot as any).live) snapshot = { ...(snapshot as any), live: withFacts };
+  }
+  /* Old absolute upload addresses go relative on publish (note 417): the send
+     names the committed file, never the office box's address. */
+  snapshot = relativizeUploadUrls(snapshot);
   const { sections, changed } = buildPatch(snapshot);
 
   if (!changed.length) {
@@ -3703,6 +4168,11 @@ export async function publish(note: string, content?: Snapshot): Promise<Publish
   }
 
   rememberHistory();
+  /* The files travel before the words (note 415): published words must never
+     name photos the server does not hold yet. */
+  try {
+    await pushUploadFilesToServer(snapshot);
+  } catch {}
   const result = await sendPatch(sections, changed, payloadNote);
   if (!result.ok) {
     if (result.sent.length) {
@@ -3721,6 +4191,7 @@ export async function publish(note: string, content?: Snapshot): Promise<Publish
   setPublishedNotes(BUILD_NOTES);
   applyOverrides(overrides, false);
   writeCache();
+  noteFactsSent(Number((overrides as any)?.live?.liveCut) || 0);
   log = [{ rev, at: updatedAt, by: editorName(), role: myRole === "sub" ? "sub" : "main", note: payloadNote, changed }, ...log].slice(0, 20);
   draft = null;
   dirty = {};
@@ -3731,6 +4202,8 @@ export async function publish(note: string, content?: Snapshot): Promise<Publish
     localStorage.removeItem(DRAFT_KEY);
   } catch {}
   notify();
+  /* Queued end-facts the patch did not carry flush on their own (note 413). */
+  flushStreamFacts().catch(() => {});
   return { ok: true };
 }
 
@@ -3831,7 +4304,9 @@ async function resumePlannedPublish() {
 
 /** Send overrides that were published while the server was unreachable. */
 export async function flushPending(): Promise<boolean> {
-  if (!pending) return false;
+  /* Queued end-facts (note 413) flush on their own — no bless, no publish. */
+  const factsFlushed = await flushStreamFacts().catch(() => false);
+  if (!pending) return factsFlushed;
   if (!socket || status !== "online" || !authed) return false;
 
   const ids: string[] = [];
@@ -3841,9 +4316,14 @@ export async function flushPending(): Promise<boolean> {
     if (seen[id]) return;
     seen[id] = true;
     const mine = pending ? pending[id] : undefined;
-    if (JSON.stringify(mine) === JSON.stringify(overrides[id])) return;
+    if (sameJSON(mine, overrides[id])) return;
     ids.push(id);
-    sections[id] = mine === undefined ? null : JSON.stringify(mine);
+    if (mine === undefined) {
+      sections[id] = null;
+      return;
+    }
+    /* Queued end-facts (note 413) ride a reconnecting flush too. */
+    sections[id] = id === "live" ? JSON.stringify(withQueuedFacts(clone(mine))) : JSON.stringify(mine);
   };
   Object.keys(pending).forEach(consider);
   Object.keys(overrides).forEach(consider);
@@ -3858,12 +4338,18 @@ export async function flushPending(): Promise<boolean> {
 
   const snapshot = pending;
   applyOverrides(snapshot);
+  /* The files travel before the words (note 415): a reconnect that sends
+     queued words without their photos paints every visitor blank. */
+  try {
+    await pushUploadFilesToServer(snapshot);
+  } catch {}
   const res = await sendPatch(sections, ids, `Offline changes published (${ids.length} section${ids.length === 1 ? "" : "s"})`);
   if (!res.ok) return false;
   rev = res.rev ?? rev;
   /* An offline flush is a deliberate office publish (note 293): it blesses
      the running update like any other publish (note 300). */
   setPublishedNotes(BUILD_NOTES);
+  noteFactsSent(Number((overrides as any)?.live?.liveCut) || 0);
   pending = null;
   try {
     localStorage.removeItem(PENDING_KEY);

@@ -49,16 +49,10 @@ function stopForStream(live: any, air: LiveStatus): boolean {
        carries the empty slot. */
     if (guestEnd) clearIdleGuest();
     if (air.platform !== "youtube" || !air.videoId || guestEnd) return false;
-    cms.setSectionValue("live", {
-      ...live,
-      isLive: false,
-      liveCut: endedAt,
-      liveEndedBy: "channel",
-    });
-    /* No stamp, by design (note 393): a natural end needs no publish — the
-       screen already fell back to the previous services by itself — so the
-       command stays unstamped and the next Publish leaves the on-air state
-       alone, whatever else it carries. */
+    /* A fact, not an edit (note 413): the ending lands in the draft and the
+       local baseline together — no unsaved row is born, no publish needed —
+       and queues for the server without a bless. */
+    cms.recordStreamEndFacts({ isLive: false, liveCut: endedAt, liveEndedBy: "channel", liveEndedVideo: air.videoId });
     askForRecentServices({ videoId: air.videoId, title: air.title });
     fireToast(
       "The @twocorg stream ended by itself — no need to publish, the screen is back on the previous services. The finished service is in Recent services.",
@@ -71,16 +65,12 @@ function stopForStream(live: any, air: LiveStatus): boolean {
     Number(live.liveCommandAt) || Number(live.liveSince) || (info?.isLive ? info.at.getTime() : 0);
   if (started && endedAt < started) return false;
 
-  cms.setSectionValue("live", {
-    ...live,
-    isLive: false,
-    liveCut: endedAt,
-    liveEndedBy: "channel",
-  });
+  cms.recordStreamEndFacts({ isLive: false, liveCut: endedAt, liveEndedBy: "channel", liveEndedVideo: air.videoId || "" });
   /* No stamp, by design (note 393): a natural end needs no publish — the
      screen already fell back to the previous services by itself — so the
      command stays unstamped and the next Publish leaves the on-air state
-     alone, whatever else it carries. */
+     alone, whatever else it carries. Queued end-facts (note 413) still ride
+     the next deliberate send. */
   /* File the finished service into Recent services now — unless it was the
      temporary guest (note 379): a guest ending files nothing, and the screen
      is already back on the main channel. A finished guest empties its own
@@ -116,6 +106,9 @@ export function useAutoStopLive(enabled = true) {
     if (!enabled) return;
     if (air.state === "live") {
       offStreak.current = 0;
+      /* A live edge supersedes any queued end (note 413): the stream the
+         queued facts described is over — unless it is the same video back. */
+      cms.clearStaleQueuedFacts(String(air.videoId || ""));
       return;
     }
     if (air.state === "off") {

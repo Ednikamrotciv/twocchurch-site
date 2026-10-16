@@ -1252,14 +1252,16 @@ async function localHostFile(blob: Blob, filename: string): Promise<string> {
   const data = await res.json().catch(() => null);
   if (!data || typeof data.url !== "string" || !data.url)
     throw new Error("The file could not be saved. Try again, or paste a link instead.");
-  /* Sleep/offline fix: ALWAYS store the host-relative address ("/data/uploads/…").
-     The absolute office address used to be stored (base + url), so every photo
-     and video pointed at the office box itself — whenever it slept or the
-     network dropped, visitors and the preview saw blank boxes. Relative
-     addresses resolve on whichever copy serves them (disk, else the deployed
-     bake, else the browser cache), so last-published uploads survive sleep and
-     offline whole. */
-  return String(data.url);
+  /* Same-host uploads ride relative (note 413): the address names the file,
+     never a host's disk, so sleep and rebuilds cannot blank it. A remote
+     office address keeps its absolute form — the file lives over there. */
+  if (!base) return data.url;
+  try {
+    if (new URL(base).origin === window.location.origin) return data.url;
+  } catch {
+    return data.url;
+  }
+  return base + data.url;
 }
 
 /* The stored name inside an office-server address, or "" for anything else
@@ -1267,6 +1269,18 @@ async function localHostFile(blob: Blob, filename: string): Promise<string> {
 function hostedUploadName(url: string): string {
   const m = /\/data\/uploads\/([A-Za-z0-9][A-Za-z0-9._-]*)/.exec(String(url || ""));
   return m ? m[1] : "";
+}
+
+/* An office-server address naming another host's disk (note 413): it works
+   until that host sleeps, then blanks — the office copy's relative address
+   is the one that stays. */
+function isRemoteHosted(url: string): boolean {
+  if (!/\/data\/uploads\//.test(String(url || ""))) return false;
+  try {
+    return new URL(String(url)).origin !== window.location.origin;
+  } catch {
+    return false;
+  }
 }
 
 /* Delete an office-server upload for good — it leaves data/uploads/ and
@@ -1313,16 +1327,19 @@ export function PhotoUpload({ onDone, frame }: { onDone: (url: string) => void; 
   const inputRef = useRef<HTMLInputElement | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [remote, setRemote] = useState(false);
   const forSlide = frame === "slide";
 
   const upload = async (file: File) => {
     setError("");
+    setRemote(false);
     setBusy(true);
     try {
       /* Slides take pictures only: the re-cut sets the size, so the picture
          goes in at full size and comes out 1600×1200. */
       const blob = forSlide ? await frameImageBlob(file) : await compressImageBlob(file, 1600, 0.82);
       const url = await localHostFile(blob, file.name || "photo.jpg");
+      setRemote(isRemoteHosted(url));
       onDone(url);
       fireToast(
         forSlide ? "Picture fitted to the slide — publish to put it on the site." : "Photo ready — publish to put it on the site.",
@@ -1352,6 +1369,12 @@ export function PhotoUpload({ onDone, frame }: { onDone: (url: string) => void; 
       <Btn size="sm" icon="camera" disabled={busy} onClick={() => inputRef.current && inputRef.current.click()}>
         {busy ? "Uploading your photo…" : forSlide ? "Upload a picture" : "Upload a photo"}
       </Btn>
+      {remote && !busy && !error && (
+        <p className="field__hint">
+          That photo lives on the hosted copy only — it vanishes when that host sleeps. Upload it on the office
+          copy so it stays.
+        </p>
+      )}
       {error && <p className="admin__upload-error">{error}</p>}
     </div>
   );
@@ -1522,6 +1545,8 @@ function ImageField({
 
   const caption = slideVideoLink
     ? "That link looks like a video — slides take pictures only. Films already live keep playing until you replace them."
+    : custom && imgError
+    ? "That photo is missing on the server — upload it again on the office copy, or paste a new link."
     : custom
     ? "Your own photo is in use."
     : key

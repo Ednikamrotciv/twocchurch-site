@@ -83,6 +83,9 @@ export const LIVE = {
   liveCut: 0,
   /** Who ended it: the office, or the stream itself. */
   liveEndedBy: "office" as "office" | "channel",
+  /** The broadcast the last end-fact belongs to (note 413): a new video id
+      means a new broadcast, so stale end-facts never pin a fresh live down. */
+  liveEndedVideo: "",
   /** Last button press at (ms); endings before it never override the office. */
   liveCommandAt: 0,
   /** The guest slot's own on-air switch, set by the guest row's buttons only

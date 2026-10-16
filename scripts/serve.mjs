@@ -181,18 +181,17 @@ const server = http.createServer(async (req, res) => {
       return;
     }
 
-    /* Sleep-free keep-awake door: point a free 5-minute ping here
-       (e.g. UptimeRobot → https://<your-site>/__health) and the free host never
-       idles into a sleep — visitors always meet last-published instantly, and
-       uploads never cold-boot to blank. Cheap HEAD/GET, no auth, no store. */
-    if ((pathname === "/__health" || pathname === "/__ping") && (req.method === "GET" || req.method === "HEAD")) {
-      const body = JSON.stringify({ ok: true, at: Date.now() });
+    /* Cheap keep-awake door (note 417): point a free 5-minute ping here
+       (e.g. UptimeRobot → https://your-site/__health) and the host never idles
+       to sleep. Answered from memory — no disk, no backend, no publish stamp. */
+    if (pathname === "/__health" && req.method === "GET") {
+      const body = JSON.stringify({ ok: true, update: SRC_NOTES || DIST_NOTES || 0, time: new Date().toISOString() });
       res.writeHead(200, {
         "content-type": "application/json; charset=utf-8",
-        "content-length": req.method === "HEAD" ? 0 : Buffer.byteLength(body),
+        "content-length": Buffer.byteLength(body),
         "cache-control": "no-store",
       });
-      res.end(req.method === "HEAD" ? "" : body);
+      res.end(body);
       return;
     }
 
@@ -506,6 +505,27 @@ const server = http.createServer(async (req, res) => {
       body = Buffer.from(withShim(body.toString("utf8")));
     }
     const mime = MIME[path.extname(file).toLowerCase()] || "application/octet-stream";
+    /* Office uploads carry unique timestamped names (note 417): immutable for
+       a year, so sleep, offline and the offline→online return all paint whole
+       from the browser cache. A wiped disk still falls back to the deployed
+       bake — the roots above try the live disk first, then dist/ (the build
+       copies data/uploads), and the vault holds seen bytes besides. */
+    if (rel.startsWith("data/uploads/")) {
+      const etag = '"' + st.size + "-" + Math.round(st.mtimeMs) + '"';
+      if (req.headers["if-none-match"] === etag) {
+        res.writeHead(304, { etag, "cache-control": "public, max-age=31536000, immutable" });
+        res.end();
+        return;
+      }
+      res.writeHead(200, {
+        "content-type": mime,
+        "content-length": body.length,
+        etag,
+        "cache-control": "public, max-age=31536000, immutable",
+      });
+      res.end(body);
+      return;
+    }
     if (path.basename(file) === "index.html") {
       /* Entry document: always fresh (a few KB — negligible). */
       res.writeHead(200, {
@@ -527,27 +547,6 @@ const server = http.createServer(async (req, res) => {
         "cache-control": "no-store",
       });
       res.end(body);
-      return;
-    }
-    /* Uploads are content-addressed by upload time (Date.now()-prefixed names that
-       never change under the same URL): cache them immutably for a year so they
-       survive host sleeps and offline revisits from the browser cache — with the
-       disk→dist fallback above, a sleeping box still serves last-published whole. */
-    if (rel.startsWith("data/uploads/")) {
-      const buf = Buffer.isBuffer(body) ? body : Buffer.from(body);
-      const tag = '"' + st.size + "-" + Math.round(st.mtimeMs) + '"';
-      if (req.headers["if-none-match"] === tag) {
-        res.writeHead(304, { etag: tag, "cache-control": "public, max-age=31536000, immutable" });
-        res.end();
-        return;
-      }
-      res.writeHead(200, {
-        "content-type": mime,
-        "content-length": buf.length,
-        etag: tag,
-        "cache-control": "public, max-age=31536000, immutable",
-      });
-      res.end(buf);
       return;
     }
     sendBody(req, res, body, mime, st.size + "-" + Math.round(st.mtimeMs));

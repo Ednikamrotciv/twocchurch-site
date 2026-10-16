@@ -822,33 +822,48 @@ try {
    any slides but the lone welcome card replanted — and since note 385 the
    temporary guest channel too, so every fix arrives fresh, new and clean. No
    stamp, no rev bump, no publish — later office work is never touched. */
-var OVERRIDE_NO_411 = 411;
+var OVERRIDE_NO_419 = 419;
 try {
-  if (OVERRIDE_CLEAN !== OVERRIDE_NO_411) {
-    OVERRIDE_CLEAN = OVERRIDE_NO_411;
+  if (OVERRIDE_CLEAN !== OVERRIDE_NO_419) {
+    OVERRIDE_CLEAN = OVERRIDE_NO_419;
     try {
-      var live411 = JSON.parse(SECTIONS.live || "null");
-      if (live411 && typeof live411 === "object" && !Array.isArray(live411)) {
-        var ch411 = String(live411.youtubeChannel || "").trim().replace(/@@+/g, "@").replace(/\s+/g, "");
-        var touched411 = false;
-        if (ch411 && ch411.toLowerCase() !== "@twocorg") { live411.youtubeChannel = "@twocorg"; touched411 = true; }
-        if (typeof live411.youtubeId === "string" && live411.youtubeId) { live411.youtubeId = ""; touched411 = true; }
-        if (typeof live411.externalYoutubeChannel === "string" && live411.externalYoutubeChannel) { live411.externalYoutubeChannel = ""; touched411 = true; }
-        if (live411.guestIsLive) { live411.guestIsLive = false; touched411 = true; }
-        if (Array.isArray(live411.hiddenReplays) && live411.hiddenReplays.length) { live411.hiddenReplays = []; touched411 = true; }
-        if (touched411) setSection("live", JSON.stringify(live411));
+      var live419 = JSON.parse(SECTIONS.live || "null");
+      if (live419 && typeof live419 === "object" && !Array.isArray(live419)) {
+        var ch419 = String(live419.youtubeChannel || "").trim().replace(/@@+/g, "@").replace(/\s+/g, "");
+        var touched419 = false;
+        if (ch419 && ch419.toLowerCase() !== "@twocorg") { live419.youtubeChannel = "@twocorg"; touched419 = true; }
+        if (typeof live419.youtubeId === "string" && live419.youtubeId) { live419.youtubeId = ""; touched419 = true; }
+        if (typeof live419.externalYoutubeChannel === "string" && live419.externalYoutubeChannel) { live419.externalYoutubeChannel = ""; touched419 = true; }
+        if (live419.guestIsLive) { live419.guestIsLive = false; touched419 = true; }
+        if (Array.isArray(live419.hiddenReplays) && live419.hiddenReplays.length) { live419.hiddenReplays = []; touched419 = true; }
+        if (touched419) setSection("live", JSON.stringify(live419));
       }
     } catch (e) {
       /* a broken live section is the restore's work, not ours */
     }
     try {
       if (typeof SECTIONS.slides === "string") {
-        var slides411 = JSON.parse(SECTIONS.slides);
-        var onlyWelcome411 = Array.isArray(slides411) && slides411.length === 1 && slides411[0] && typeof slides411[0] === "object" && String(slides411[0].id || "") === "welcome-home";
-        if (!onlyWelcome411) setSection("slides", JSON.stringify(WELCOME_SLIDE_359));
+        var slides419 = JSON.parse(SECTIONS.slides);
+        var onlyWelcome419 = Array.isArray(slides419) && slides419.length === 1 && slides419[0] && typeof slides419[0] === "object" && String(slides419[0].id || "") === "welcome-home";
+        if (!onlyWelcome419) setSection("slides", JSON.stringify(WELCOME_SLIDE_359));
       }
     } catch (e) {
       try { setSection("slides", JSON.stringify(WELCOME_SLIDE_359)); } catch (e2) {}
+    }
+    try {
+      /* Upload addresses ride relative (note 415): an absolute .../data/uploads/
+         address names a host's disk and blanks on sleep — the relative form
+         names the committed file on every host. No stamp, no rev bump. */
+      var names419 = Object.keys(SECTIONS || {});
+      for (var i419 = 0; i419 < names419.length; i419++) {
+        var key419 = names419[i419];
+        var val419 = SECTIONS[key419];
+        if (typeof val419 !== "string" || val419.indexOf("/data/uploads/") < 0) continue;
+        var fixed419 = val419.replace(/https?:\/\/[^\/'"\s]+\/data\/uploads\//g, "/data/uploads/");
+        if (fixed419 !== val419) setSection(key419, fixed419);
+      }
+    } catch (e) {
+      /* a failed rewrite must never break boot */
     }
     writeMeta();
     writeHeader();

@@ -378,23 +378,18 @@ const DESIGNATED_FALLBACK_ITEMS: Array<{ videoId: string; title: string; at: num
   { videoId: "gVJP8wlL9dM", title: "It Will End in Praise - Evang Steve K Pelemo", at: 1788419927000 },
   { videoId: "suLunbMiN78", title: "SUNDAY SERVICE, AUG. 30TH. 2026", at: 1788127709000 },
 ];
-/** The fallback list — only for the designated channel, [] anywhere else.
-    Same-message uploads collapse to one card (note 113): the baked channel read
-    holds near-duplicate uploads (TEENS WEEK twice, FAMILY ESSENTIALS twice) and
-    the card grid must show each service once — recent services already has its
-    own spot, so no duplicates ride along. */
+/** The fallback list — only for the designated channel, [] anywhere else. */
 export function designatedFallback(): RecentServices {
   const designated = designatedChannelId();
   if (!designated) return { ...EMPTY };
-  const raw = DESIGNATED_FALLBACK_ITEMS.map((it) => ({
-    videoId: it.videoId,
-    title: it.title,
-    at: it.at,
-    ago: "",
-    thumb: `https://i.ytimg.com/vi/${it.videoId}/hqdefault.jpg`,
-  }));
   return {
-    items: collapseSameMessage(raw, DESIGNATED_FALLBACK_AT),
+    items: DESIGNATED_FALLBACK_ITEMS.map((it) => ({
+      videoId: it.videoId,
+      title: it.title,
+      at: it.at,
+      ago: "",
+      thumb: `https://i.ytimg.com/vi/${it.videoId}/hqdefault.jpg`,
+    })),
     at: DESIGNATED_FALLBACK_AT,
     channelId: designated,
   };
@@ -413,24 +408,37 @@ export function readRecentServices(): RecentServices {
   const designated = designatedChannelId();
   if (designated && cachedChannelId && cachedChannelId !== designated) return designatedFallback();
   const now = Date.now();
-  const items = cached.items
-    .filter((it) => it && parseYoutubeId(String(it.videoId || "")))
-    .map((it) => ({
-      videoId: String(it.videoId),
-      title: String(it.title || ""),
-      at: Number(it.at) || 0,
-      ago: String(it.ago || ""),
-      thumb: String(it.thumb || `https://i.ytimg.com/vi/${it.videoId}/hqdefault.jpg`),
-      seeded: Number(it.seeded) || 0,
-    }))
-    /* A seeded card is a promise that YouTube will publish the service in a
-       moment; past a night it is no longer worth showing, and the read would
-       have had it by then if it was ever going to. */
-    .filter((it) => !it.seeded || now - it.seeded < SEED_MAX_MS);
+  const items = dedupeRecents(
+    cached.items
+      .filter((it) => it && parseYoutubeId(String(it.videoId || "")))
+      .map((it) => ({
+        videoId: String(it.videoId),
+        title: String(it.title || ""),
+        at: Number(it.at) || 0,
+        ago: String(it.ago || ""),
+        thumb: String(it.thumb || `https://i.ytimg.com/vi/${it.videoId}/hqdefault.jpg`),
+        seeded: Number(it.seeded) || 0,
+      }))
+      /* A seeded card is a promise that YouTube will publish the service in a
+         moment; past a night it is no longer worth showing, and the read would
+         have had it by then if it was ever going to. */
+      .filter((it) => !it.seeded || now - it.seeded < SEED_MAX_MS)
+  );
   if (!items.length) return designatedFallback();
-  const seeds = items.filter((it) => it.seeded);
-  const rest = collapseSameMessage(items.filter((it) => !it.seeded), now);
-  return { items: [...seeds, ...rest].slice(0, KEEP), at: Number(cached.at) || 0, channelId: String(cached.channelId || "") };
+  return { items, at: Number(cached.at) || 0, channelId: String(cached.channelId || "") };
+}
+
+/* One card per broadcast (note 413): a merged read can carry the same video
+   twice — the grid keys on videoId, so a double would paint the same card
+   twice. Keeps the first, in order. Pure for the verifier. */
+export function dedupeRecents<T extends { videoId: string }>(items: T[]): T[] {
+  const seen = new Set<string>();
+  return (items || []).filter((it) => {
+    const id = String(it?.videoId || "");
+    if (!id || seen.has(id)) return false;
+    seen.add(id);
+    return true;
+  });
 }
 
 function saveRecentServices(next: RecentServices) {
@@ -472,10 +480,6 @@ export function applyBakedRecent(seed: unknown) {
       });
       if (fresh.length >= KEEP) break;
     }
-    if (!fresh.length) return;
-    const collapsed = collapseSameMessage(fresh, at || Date.now());
-    fresh.length = 0;
-    for (const it of collapsed.slice(0, KEEP)) fresh.push(it);
     if (!fresh.length) return;
     const known = new Set(fresh.map((it) => it.videoId));
     const seeds = current.items.filter((it) => it.seeded && !known.has(it.videoId));

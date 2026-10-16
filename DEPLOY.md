@@ -114,10 +114,15 @@ A Render Web Service works as the always-on backend:
   (the office computer has the disk, the git login and the auto-push), and let
   the push + rebuild carry each publish to Render. A publish on live /admin
   between deploys works but lives on the ephemeral disk only — the next sleep
-  lets it go, so always publish the same words locally afterwards. Optional:
-  a free keep-awake ping (e.g. UptimeRobot every 5 minutes to
-  `https://xxx.onrender.com/version.json`) skips the 30–60s cold boot after a
-  sleep; it only makes first loads faster, nothing depends on it.
+  lets it go, so always publish the same words locally afterwards. Keep-awake
+  recipe (note 417): point a free 5-minute ping at the cheap health door
+  (e.g. UptimeRobot → `https://xxx.onrender.com/__health`) and the host never
+  idles to sleep — the door answers from memory (`{"ok":true,"update":N,...}`),
+  costs nothing, and never touches content. If the host ever does sleep anyway,
+  the wake still re-serves the last publish whole (words, stamp AND history)
+  from the deploy's own bake, so visitors stay live and "Last published" stays
+  put with no office action. The old `version.json` ping works too, but
+  `/__health` is the cheaper door built for it.
 
 Then put the service's `https://xxx.onrender.com` URL alone in
 `cms-server.txt`, commit, push, and rebuild the static site once.
@@ -150,28 +155,3 @@ git add .gitignore
 git commit -m "remove committed dependencies"
 git push
 ```
-
-## Sleep-free + offline-proof (uploads never go blank)
-
-- Entirely sleep-free on free Render: this server answers a cheap keep-awake
-  door at `/__health`. Point a free 5-minute ping at it (e.g. UptimeRobot →
-  `https://xxx.onrender.com/__health`) and the box never idles into a sleep,
-  so visitors always meet last-published instantly with every photo and video.
-  Sleep still loses nothing either way — words, stamp, history AND uploads
-  re-serve whole from the deploy's own bake — the ping only skips the 30–60s
-  cold boot.
-- Uploads never go blank: office photos/videos store as host-relative
-  `/data/uploads/…` addresses (never the office box's own address), ship
-  inside the deploy (`dist/data/uploads`), serve immutable for a year, and
-  prime the browser cache — so sleep, offline, and the offline→online return
-  all paint last-published whole, nothing missing, nothing blank.
-- Visitors always see last-published: the first paint comes from the browser's
-  own last-published cache, then the baked seed, then the server/feed — a
-  failed network never clears it. Coming back online re-syncs and re-primes
-  the uploads automatically.
-- Deployed is clean: unstamped livestream on-air state never counts as an
-  unsaved change, so after Publish the admin shows "Everything is published".
-  In the unsaved list, Delete clears a row away entirely while Put back keeps
-  that section open in the admin on the live site's words (livestream included).
-- Recent services keeps its single spot (Watch → Recent services + the admin
-  panel): same-message near-date uploads fold to one card, so no duplicates.

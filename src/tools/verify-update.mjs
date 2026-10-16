@@ -48,6 +48,7 @@ const FILES = [
   ["src/lib/hooks.ts", "ts"],
   ["src/data/photos.ts", "ts"],
   ["src/lib/cmsSchema.ts", "ts"],
+  ["src/lib/uploadVault.ts", "ts"],
   ["src/lib/autostop.ts", "ts"],
   ["src/data/live.ts", "ts"],
   ["seed.json", null],
@@ -75,6 +76,7 @@ const FILES = [
   ["APPLY_UPDATE.txt", null],
   ["maintenance-hold.txt", null],
   [".gitignore", null],
+  ["DEPLOY.md", null],
 ];
 
 function has(src, needle) {
@@ -1150,8 +1152,8 @@ export async function runAll(fs) {
   const rsGG = text["src/lib/recentstreams.ts"];
   const lsGG = text["src/lib/livestatus.ts"];
   const applyGG = text["APPLY_UPDATE.txt"];
-  ok("override stamp per-update", has(srvGG, "var OVERRIDE_CLEAN = 0;") && has(srvGG, "overrideClean: OVERRIDE_CLEAN") && has(srvGG, "OVERRIDE_NO_411 = 411") && has(srvGG, "OVERRIDE_CLEAN !== OVERRIDE_NO_411"), "the clear must re-run on every new update, not once ever");
-  ok("override clears everything old", has(srvGG, "live411.youtubeChannel = \"@twocorg\"") && has(srvGG, "live411.youtubeId = \"\"") && has(srvGG, "live411.hiddenReplays = []") && has(srvGG, "live411.externalYoutubeChannel = \"\"") && has(srvGG, "live411.guestIsLive = false") && has(srvGG, "WELCOME_SLIDE_359") && has(srvGG, "String(slides411[0].id || \"\") === \"welcome-home\""), "channel, stray link, guest, guest switch, take-offs and slides must all go");
+  ok("override stamp per-update", has(srvGG, "var OVERRIDE_CLEAN = 0;") && has(srvGG, "overrideClean: OVERRIDE_CLEAN") && has(srvGG, "OVERRIDE_NO_419 = 419") && has(srvGG, "OVERRIDE_CLEAN !== OVERRIDE_NO_419"), "the clear must re-run on every new update, not once ever");
+  ok("override clears everything old", has(srvGG, "live419.youtubeChannel = \"@twocorg\"") && has(srvGG, "live419.youtubeId = \"\"") && has(srvGG, "live419.hiddenReplays = []") && has(srvGG, "live419.externalYoutubeChannel = \"\"") && has(srvGG, "live419.guestIsLive = false") && has(srvGG, "WELCOME_SLIDE_359") && has(srvGG, "String(slides419[0].id || \"\") === \"welcome-home\""), "channel, stray link, guest, guest switch, take-offs and slides must all go");
   ok("override never blesses", has(srvGG, "no rev bump") && has(srvGG, "later office work is never touched"), "the clear must not publish");
   ok("draft stray link heals", has(cmsGG, "healDraftStreamLink()") && has(cmsGG, "(draft as any).live = { ...dLive, youtubeId: \"\" }"), "an untouched draft must follow the words");
   ok("browser caches drop on new update", has(rsGG, "export function clearRecentCaches()") && has(cmsGG, "if (freshEyes) clearRecentCaches();"), "old cards must not ride into the new update");
@@ -1635,10 +1637,10 @@ export async function runAll(fs) {
     ok("transport-gate suite", false, String((e && e.message) || e).slice(0, 200));
   }
   /* VV. one play/pause button plus stop, the buttons never gate a live end,
-     the ended screen shows the main previous-service thumbnails (note 391):
-     pause holds (play resumes the same session), stop ends (next play starts
-     fresh), a natural end stamps its own command, and the ended screen carries
-     up to six main-owned previous-service cards at once. */
+     one recents spot (note 413): pause holds (play resumes the same session),
+     stop ends (next play starts fresh), a natural end stamps nothing, and the
+     ended stage is a still with a way down — the previous services live in
+     their own section below, never a second copy of the card grid. */
   const edVV = text["src/components/editor.tsx"];
   const autoVV = text["src/lib/autostop.ts"];
   const watchVV = text["src/pages/WatchLive.tsx"];
@@ -1647,7 +1649,9 @@ export async function runAll(fs) {
   ok("play and pause share one button", has(edVV, "{onNow ? (") && has(edVV, "Pause the livestream") && has(edVV, "Play the livestream") && has(edVV, 'icon="stop"'), "a single toggle plus the separate stop");
   ok("pause holds, stop ends", has(edVV, "const heldSession = since > 0;") && has(edVV, "liveSince: 0, liveCut: Date.now()") && has(edVV, "Paused — play picks the same session back up."), "a hold resumes, an end starts fresh");
   ok("natural end stamps nothing", has(autoVV, "no need to publish") && !has(autoVV, "liveCommandAt: Date.now()"), "the buttons never gate a live end");
-  ok("ended screen carries the thumbnails", has(watchVV, "const endedThumbs = (recentItems.length") && has(watchVV, "live-ended__thumbs") && has(watchVV, "<RecentServiceCard key={it.videoId} item={it} />") && has(cssVV, ".live-ended__thumbs"), "the main previous services show the moment a live ends");
+  ok("ended thumbs computation gone", !has(watchVV, "endedThumbs"), "no second copy of the card grid may be computed");
+  ok("no thumbs grid on the ended stage", !has(watchVV, "live-ended__thumbs") && has(watchVV, "previous services live in their own section below (note 413)"), "the grid must not render under the ended still");
+  ok("ended stage keeps its body", has(watchVV, "live-ended__body") && has(watchVV, 'document.getElementById("recent-services")'), "a still with a way down to the section");
   ok("apply leads with the buttons and the end", has(applyVV, "THE BUTTONS NEVER GATE A LIVE END") && has(applyVV, "PLAY/PAUSE IS ONE"), "the office must meet the two buttons and the self-armed end first");
   /* WW. the end needs no publish; play starts, pause holds, stop ends, each
      with a publish (note 393): autostop stamps nothing and the drawer says
@@ -1667,7 +1671,7 @@ export async function runAll(fs) {
   const seedXX = text["seed.json"];
   const edXX = text["src/components/editor.tsx"];
   const applyXX = text["APPLY_UPDATE.txt"];
-  ok("override is this update", has(srvXX, "OVERRIDE_NO_411 = 411") && has(srvXX, 'live411.externalYoutubeChannel = ""'), "first boot must re-run the clear, guest included");
+  ok("override is this update", has(srvXX, "OVERRIDE_NO_419 = 419") && has(srvXX, 'live419.externalYoutubeChannel = ""'), "first boot must re-run the clear, guest included");
   ok("guest ships empty", has(seedXX, '"externalYoutubeChannel":""'), "no copy may open with a guest set");
   ok("buttons still arm", has(edXX, "liveCommandAt: Date.now()") && has(edXX, "Pause the livestream") && has(edXX, "Play the livestream") && has(edXX, 'icon="stop"'), "removing the paragraph must not touch the transport");
   ok("promise text gone", !has(edXX, "Play and pause are one button") && !has(edXX, "there is nothing to publish"), "the drawer keeps only the unconfigured warning");
@@ -1696,11 +1700,12 @@ export async function runAll(fs) {
   ok("guest ending still files nothing", has(autoZZ, "guestEnd") && has(autoZZ, "if (air.platform !== \"youtube\" || !air.videoId || guestEnd) return false"), "the guest must never seed the main list");
   ok("play is the manual override", has(edZZ, "Play is only the manual override") && has(edZZ, "liveCommandAt: Date.now()"), "the buttons keep working, the main needs no press");
   ok("apply leads with the self-start", has(applyZZ, "THE MAIN CHANNEL STARTS BY ITSELF"), "the office must meet the no-press rule first");
-  /* AAA. each field has its buttons, the guest empties itself, Delete answers
-     first tap (note 401), labelless since note 403: the transport rows sit
-     under their fields with no who-labels and no Clear button, every stop
-     and every finished guest empties the guest slot, and the unsaved list's
-     Delete answers on the first tap where it cannot publish. */
+  /* AAA. each field has its buttons, the guest empties itself, Delete empties
+     (notes 401/413/417, empties since note 419), labelless since note 403: the transport
+     rows sit under their fields with no who-labels and no Clear button, every
+     stop and every finished guest empties the guest slot, and the unsaved
+     list's Delete leaves the field empty on the first tap (Publish shows the
+     empty on the site) while Put back reverts and keeps it in its section. */
   const edAAA = text["src/components/editor.tsx"];
   const autoAAA = text["src/lib/autostop.ts"];
   const cmsAAA = text["src/lib/cms.ts"];
@@ -1711,7 +1716,10 @@ export async function runAll(fs) {
   ok("no labels, no clear button", !has(edAAA, "transport-row__who") && !has(edAAA, ">Main channel<") && !has(edAAA, ">Guest channel<") && !has(edAAA, "Clear the guest channel"), "the rows must not name themselves or carry a clear");
   ok("guest row guards and clears", has(edAAA, "Type the guest channel first") && has(edAAA, 'externalYoutubeChannel: ""') && has(edAAA, "hadGuest"), "an empty guest names its field, every guest stop empties the slot");
   ok("finished guest self-clears", has(autoAAA, "clearIdleGuest") && has(autoAAA, "The guest channel is empty again") && has(autoAAA, "if (guestEnd) clearIdleGuest()") && has(autoAAA, "if (airedGuest) clearIdleGuest()"), "a guest ending empties its slot with no publish");
-  ok("delete answers first tap", has(cmsAAA, "export function sectionHasPublishableRemovals(") && has(adminAAA, "sectionHasPublishableRemovals(edit.sectionId)") && has(adminAAA, "onClick={() => erase(edit)}"), "Delete must not look dead where it only drops the draft");
+  ok("delete leaves the field empty", has(adminAAA, "const erase = (edit: cms.PendingEdit) => {") && has(adminAAA, "cms.emptySectionToEmpty(edit.sectionId)") && has(adminAAA, "is empty now; Publish shows the empty on the site") && has(adminAAA, "onClick={() => erase(edit)}"), "Delete must empty the field on the first tap — Publish shows the empty");
+  ok("delete publishes nothing", !has(adminAAA, "dropAddedAndRevertedEdits(edit.sectionId)") && !has(adminAAA, "sectionHasPublishableRemovals(edit.sectionId)") && !has(adminAAA, "publishSection(edit.sectionId"), "Delete must never send to the site — Publish shows the empty");
+  ok("put back reverts and opens", has(adminAAA, "cms.revertSection(edit.sectionId)") && has(adminAAA, "now showing the live site's words") && has(adminAAA, "Put back into ${edit.label}") && has(adminAAA, "onOpen(edit.sectionId)"), "Put back must drop the change and open the section on the live words");
+  ok("foot teaches empty and revert-open", has(adminAAA, "leaves the field empty") && has(adminAAA, "Publish shows that empty on the site") && has(adminAAA, "keeps its section open"), "the list must say Delete empties for Publish and Put back reverts open");
   ok("rows are styled compact", has(cssAAA, ".transport-row"), "the two rows must fit the field area");
   ok("apply leads with the rows", has(applyAAA, "EACH FIELD HAS ITS BUTTONS"), "the office must meet the per-field rows first");
   /* BBB. each field commands its own slot, guest Play opens the channel
@@ -1774,7 +1782,7 @@ export async function runAll(fs) {
   ok("each row lights its own slot", has(edCCC, "const mainLive = ") && has(edCCC, "const guestLiveNow = ") && has(edCCC, "transport-row__live") && has(edCCC, "isStatusForTarget(airNow, mainUrl)") && has(edCCC, "isStatusForTarget(guestAirNow, guestUrlNow)"), "one row must never light for the other");
   ok("dots blink without extra polling", has(edCCC, "useLiveStream()") && has(edCCC, "live-dot"), "the rows subscribe to the shared check");
   ok("dots sit at the row end", has(cssCCC, ".transport-row__live"), "the light must fit the field area");
-  ok("override is this update", has(srvCCC, "OVERRIDE_NO_411 = 411"), "first boot must re-run the clear");
+  ok("override is this update", has(srvCCC, "OVERRIDE_NO_419 = 419"), "first boot must re-run the clear");
   ok("apply leads with naming and dots", has(applyCCC, "NEXT BROADCAST NAMES THE SCREEN") && has(applyCCC, "LIGHTS ITS OWN DOT"), "the office must meet the heading and the lights first");
   /* DDD. the main waits for the Play press, the guest arrives empty, the
      crash names itself (note 407): no bare main detection opens badges or
@@ -1796,7 +1804,7 @@ export async function runAll(fs) {
   ok("draft guest sweeps per update", has(cmsDDD, "function clearDraftGuestSlot()") && has(cmsDDD, "if (freshEyes) clearDraftGuestSlot();"), "no unsaved guest row rides in");
   ok("drawer follows the press rule", has(edDDD, "until Play is pressed and published") && has(edDDD, "The screen plays it once published."), "no copy may promise self-start");
   ok("crash names its page", has(boundDDD, "componentStack") && has(boundDDD, "Page: ${this.state.route}"), "the next screenshot must name the page");
-  ok("override is this update", has(srvDDD, "OVERRIDE_NO_411 = 411"), "first boot must re-run the clear");
+  ok("override is this update", has(srvDDD, "OVERRIDE_NO_419 = 419"), "first boot must re-run the clear");
   ok("apply leads with press and empty", has(applyDDD, "MAIN WAITS FOR THE PLAY PRESS") && has(applyDDD, "GUEST ARRIVES EMPTY"), "the office must meet the press rule first");
   /* EEE. autoplay only when the main is live (note 409): a pressed main with
      an unknown read waits on the clock — only the commanded guest slot opens
@@ -1807,9 +1815,9 @@ export async function runAll(fs) {
   ok("main press never autoplays walled", has(watchEEE, ") : overrideGuest && overrideId ? (") && !has(watchEEE, ") : overrideId ? (") && has(watchEEE, "const overrideMain = "), "a pressed main must wait for detection, not open the channel");
   ok("pressed-live main still plays", has(watchEEE, "(guestLive || fbLive || !!LIVE.isLive)") && has(watchEEE, "autoPlay={streaming && watchable}") && has(watchEEE, "const waitingForClick = !shutNow"), "press plus detection must still autoplay with sound");
   ok("guest press still opens walled", has(watchEEE, "const overrideGuest = ") && has(watchEEE, 'guestAir.state === "unknown"'), "a published guest Play must still open its channel");
-  ok("override is this update", has(srvEEE, "OVERRIDE_NO_411 = 411"), "first boot must re-run the clear");
+  ok("override is this update", has(srvEEE, "OVERRIDE_NO_419 = 419"), "first boot must re-run the clear");
   ok("apply leads with detection-gated autoplay", has(applyEEE, "AUTOPLAY ONLY WHEN THE MAIN IS LIVE"), "the office must meet the detection rule first");
-  /* FFF. the Watch page loads (note 411): `liveSource` reads `streaming`, so
+  /* FFF. the Watch page loads (note 413): `liveSource` reads `streaming`, so
      the answer must be declared first — reading a later declaration threw on
      every render (`Cannot access 'streaming' before initialization`). */
   const watchFFF = text["src/pages/WatchLive.tsx"];
@@ -1817,8 +1825,241 @@ export async function runAll(fs) {
   const applyFFF = text["APPLY_UPDATE.txt"];
   ok("streaming declared before liveSource", watchFFF.indexOf("const streaming = ") !== -1 && watchFFF.indexOf("const streaming = ") < watchFFF.indexOf("(!streaming && overrideId)"), "the initializer must never read across the dead zone");
   ok("rule expression unchanged", has(watchFFF, "(guestLive || fbLive || !!LIVE.isLive)") && has(watchFFF, "autoPlay={streaming && watchable}") && has(watchFFF, ") : overrideGuest && overrideId ? ("), "the reorder must move the rule, never rewrite it");
-  ok("override is this update", has(srvFFF, "OVERRIDE_NO_411 = 411"), "first boot must re-run the clear");
+  ok("override is this update", has(srvFFF, "OVERRIDE_NO_419 = 419"), "first boot must re-run the clear");
   ok("apply leads with the crash fix", has(applyFFF, "WATCH PAGE PLAYS AGAIN"), "the office must meet the fix first");
+  /* GGG. sleep-proof uploads, order-proof compares, ends as facts, Delete
+     clears / Put back keeps, one recents spot (note 413): key order never
+     counts as a change, uploads ride relative, a stream's own ending is a
+     fact with no unsaved row and no publish, Delete clears the admin while
+     Put back keeps the change, and doubled cards dedupe to one. */
+  const cmsGGG = text["src/lib/cms.ts"];
+  const autoGGG = text["src/lib/autostop.ts"];
+  const adminGGG = text["src/pages/Admin.tsx"];
+  const edGGG = text["src/components/editor.tsx"];
+  const watchGGG = text["src/pages/WatchLive.tsx"];
+  const recGGG = text["src/lib/recentstreams.ts"];
+  const liveGGG = text["src/data/live.ts"];
+  const seedGGG = text["seed.json"];
+  const srvGGG = text["scripts/cms-server.js"];
+  const applyGGG = text["APPLY_UPDATE.txt"];
+  ok("order-proof compare exists", has(cmsGGG, "export function stableStringify(value: any): string") && has(cmsGGG, "stableStringify(relativizeUploadUrls(a)) === stableStringify(relativizeUploadUrls(b))"), "key order must never count as a change, and a stranded absolute must equal its file");
+  ok("compares all read by value", has(cmsGGG, "if (!sameJSON(publishedSection(def.id), draft[def.id]))") && has(cmsGGG, "if (!sameJSON(a?.[def.id], b?.[def.id]))") && has(cmsGGG, "if (!sameJSON(target[def.id], publishedSection(def.id)))") && has(cmsGGG, "if (sameJSON(prev, value)) return") && has(cmsGGG, "if (sameJSON(prev, defaults[sectionId])) return") && has(cmsGGG, "if (!sameJSON(overrides[def.id], theirs))") && has(cmsGGG, "if (!sameJSON(snap[def.id], publishedSection(def.id)))") && has(cmsGGG, "if (sameJSON(mine, overrides[id])) return") && has(cmsGGG, "!sameJSON(keptServer, overrides)"), "unsaved, patch, fold, flush and server answers must all compare by value");
+  ok("on-air lines named", has(cmsGGG, '["isLive", "Stream switch"]') && has(cmsGGG, '["liveCut", "Ended mark"]') && has(cmsGGG, '["liveEndedBy", "Ended by"]') && has(cmsGGG, '["guestCommandAt", "Guest command"]'), "an armed switch must read as what it is");
+  ok("end-facts wired", has(cmsGGG, "export function recordStreamEndFacts(") && has(cmsGGG, 'const FACTS_KEY = "wom.cms.endfacts"') && has(cmsGGG, "export async function flushStreamFacts(") && has(cmsGGG, "function withQueuedFacts(") && has(cmsGGG, "function noteFactsSent(") && has(cmsGGG, "export function keepNewerEndFacts(") && has(cmsGGG, "export function withKeptServerFacts(") && has(cmsGGG, "export function clearStaleQueuedFacts(") && has(cmsGGG, "export function relativizeUploadUrls("), "facts must queue, piggyback, flush and yield");
+  ok("sends carry the facts", has(cmsGGG, "if (sectionId === \"live\") value = withQueuedFacts(value);") && has(cmsGGG, "flushStreamFacts().catch(() => {});") && has(cmsGGG, "const factsFlushed = await flushStreamFacts().catch(() => false);") && has(cmsGGG, 'JSON.stringify(withQueuedFacts(clone(mine)))'), "section sends, full publishes and reconnect flushes must all ride facts");
+  ok("ends recorded, not edited", has(autoGGG, 'cms.recordStreamEndFacts({ isLive: false, liveCut: endedAt, liveEndedBy: "channel", liveEndedVideo: air.videoId })') && has(autoGGG, 'cms.recordStreamEndFacts({ isLive: false, liveCut: endedAt, liveEndedBy: "channel", liveEndedVideo: air.videoId || "" })') && has(autoGGG, 'cms.clearStaleQueuedFacts(String(air.videoId || ""))'), "both end-writes must be facts, live edges must clear stale queues");
+  ok("uploads ride relative", has(edGGG, "function isRemoteHosted(url: string): boolean") && has(edGGG, "That photo lives on the hosted copy only") && has(edGGG, "That photo is missing on the server") && has(cmsGGG, "value = relativizeUploadUrls(value);") && has(cmsGGG, "out[def.id] = relativizeUploadUrls(merged);") && has(srvGGG, "var names419 = Object.keys(SECTIONS || {});") && has(srvGGG, "if (fixed419 !== val419) setSection(key419, fixed419);"), "saves, loads and first boot must all name the file, never a disk");
+  ok("end-fact key ships", has(liveGGG, 'liveEndedVideo: ""') && has(seedGGG, '"liveEndedVideo":""'), "no copy may open without the key");
+  ok("one card per broadcast", has(recGGG, "export function dedupeRecents") && has(recGGG, "const items = dedupeRecents("), "a merged read must never paint a double");
+  ok("delete empties, put back reverts open", has(adminGGG, "is empty now; Publish shows the empty on the site") && has(adminGGG, "now showing the live site's words") && has(adminGGG, "leaves the field empty"), "Delete must empty for Publish and Put back must revert-open");
+  ok("apply leads with the four", has(applyGGG, "DELETE CLEARS IT FROM THE ADMIN") && has(applyGGG, "PUT BACK KEEPS IT IN THE ADMIN") && has(applyGGG, "ONE RECENTS SPOT") && has(applyGGG, "NOTHING GOES BLANK"), "the office must meet the new rules first");
+  try {
+    const ebGGG = await import("https://esm.sh/esbuild-wasm@0.21.5?bundle");
+    try { await ebGGG.default.initialize({ wasmURL: "https://esm.sh/esbuild-wasm@0.21.5/esbuild.wasm" }); } catch {}
+    const grabGGG = (src, name) => {
+      const from = src.indexOf("export function " + name + "(");
+      const eol = src.indexOf("\n", from);
+      const body = src.lastIndexOf("{", eol);
+      let depth = 0, end = -1;
+      for (let i = body; i < src.length && end < 0; i++) {
+        const ch = src[i];
+        if (ch === "{") depth++;
+        else if (ch === "}") { depth--; if (depth === 0) end = i + 1; }
+      }
+      return src.slice(from, end).replace("export function", "function");
+    };
+    const runGGG = async (code, name) => {
+      const tc = await ebGGG.default.transform(code + "\nmodule.exports = " + name + ";", { loader: "ts", format: "cjs" });
+      const mod = { exports: {} };
+      new Function("module", "exports", tc.code)(mod, mod.exports);
+      return mod.exports;
+    };
+    const ssGGG = await runGGG(grabGGG(cmsGGG, "stableStringify"), "stableStringify");
+    ok("key order compares equal", ssGGG({ b: 1, a: 2 }) === ssGGG({ a: 2, b: 1 }) && ssGGG({ a: { d: 4, c: 3 }, b: 1 }) === ssGGG({ b: 1, a: { c: 3, d: 4 } }), "a save that only reordered keys is not a change");
+    ok("array order still counts", ssGGG([1, 2]) !== ssGGG([2, 1]), "a reorder is still a real change");
+    ok("scalars stay honest", ssGGG(undefined) === "" && ssGGG(null) === "null" && ssGGG("x") === '"x"' && ssGGG(7) === "7", "nothing may stringify into a lie");
+    const keepGGG = await runGGG(grabGGG(cmsGGG, "keepNewerEndFacts"), "keepNewerEndFacts");
+    const localGGG = { isLive: false, liveCut: 200, liveEndedBy: "channel", liveEndedVideo: "VID1", liveCommandAt: 100 };
+    const staleGGG = { isLive: true, liveSince: 50, liveCut: 100, liveCommandAt: 100, youtubeChannel: "@twocorg" };
+    const keptGGG = keepGGG(localGGG, staleGGG);
+    ok("newer local end stands", keptGGG.isLive === false && keptGGG.liveCut === 200 && keptGGG.liveEndedVideo === "VID1", "stale words must never un-end a stream");
+    ok("newer office command wins", keepGGG(localGGG, { ...staleGGG, liveCommandAt: 300 }) === staleGGG || keepGGG(localGGG, { ...staleGGG, liveCommandAt: 300 }).liveCommandAt === 300, "the office always beats the facts");
+    ok("new broadcast wins", keepGGG(localGGG, { ...staleGGG, videoId: "VID2" }).isLive === true, "a video the facts never saw is new");
+    ok("newer incoming cut wins", keepGGG({ ...localGGG, liveCut: 50 }, staleGGG).liveCut === 100, "an older fact yields to newer words");
+    const relGGG = await runGGG(grabGGG(cmsGGG, "relativizeUploadUrls"), "relativizeUploadUrls");
+    ok("absolute uploads go relative", relGGG("https://x.onrender.com/data/uploads/a.jpg") === "/data/uploads/a.jpg" && relGGG("http://localhost:3000/data/uploads/a-b_1.png") === "/data/uploads/a-b_1.png", "the address must name the file");
+    ok("other addresses pass through", relGGG("/data/uploads/a.jpg") === "/data/uploads/a.jpg" && relGGG("https://cdn.example/x.jpg") === "https://cdn.example/x.jpg" && relGGG("") === "" && relGGG(null) === null, "bundled, pasted and CDN addresses stay");
+    ok("nested values heal", JSON.stringify(relGGG({ a: ["https://h/data/uploads/b.jpg", 7], c: { d: "https://h/data/uploads/e.jpg" } })) === JSON.stringify({ a: ["/data/uploads/b.jpg", 7], c: { d: "/data/uploads/e.jpg" } }), "sections heal whole");
+    const ddFromGGG = recGGG.indexOf("export function dedupeRecents");
+    const ddBodyGGG = recGGG.indexOf("{", recGGG.indexOf("): T[]", ddFromGGG));
+    let ddDepthGGG = 0, ddEndGGG = -1;
+    for (let i = ddBodyGGG; i < recGGG.length && ddEndGGG < 0; i++) {
+      const ch = recGGG[i];
+      if (ch === "{") ddDepthGGG++;
+      else if (ch === "}") { ddDepthGGG--; if (ddDepthGGG === 0) ddEndGGG = i + 1; }
+    }
+    const ddGGG = await runGGG(recGGG.slice(ddFromGGG, ddEndGGG).replace("export function", "function"), "dedupeRecents");
+    ok("doubles collapse in order", JSON.stringify(ddGGG([{ videoId: "a" }, { videoId: "a" }, { videoId: "b" }]).map((x) => x.videoId)) === JSON.stringify(["a", "b"]), "one card per broadcast, first kept");
+    ok("empties drop", ddGGG([{ videoId: "" }, { videoId: "a" }]).length === 1, "nameless cards never paint");
+  } catch (e) {
+    ok("sleep-proof suite", false, String((e && e.message) || e).slice(0, 200));
+  }
+  /* HHH. entirely sleep-free (note 415): the vault keeps the bytes behind
+     the words, files travel before words on every send, coming back online
+     re-joins and activates the last published whole, and a failed push
+     retries by itself — visitors visit and see the last published, nothing
+     missing, nothing blank. */
+  const vaultHHH = text["src/lib/uploadVault.ts"];
+  const cmsHHH = text["src/lib/cms.ts"];
+  const pushHHH = text["scripts/auto-push.mjs"];
+  const applyHHH = text["APPLY_UPDATE.txt"];
+  ok("vault file ships", typeof vaultHHH === "string" && has(vaultHHH, "export const UPLOAD_VAULT") && has(vaultHHH, "export function listUploadNames") && has(vaultHHH, "export function ensureVaultForSnapshot") && has(vaultHHH, "export async function vaultBlobUrl") && has(vaultHHH, "export function installUploadFallback"), "bytes must survive sleep and offline");
+  ok("paints feed the vault", has(cmsHHH, 'from "./uploadVault"') && has(cmsHHH, "ensureVaultForSnapshot(merge(overrides))"), "every paint must queue the snapshot's uploads");
+  ok("fallback installed at boot", has(cmsHHH, "installUploadFallback()"), "a failed upload image must fall back, never blank");
+  ok("files travel before words", has(cmsHHH, "async function pushUploadFilesToServer") && has(cmsHHH, "await pushUploadFilesToServer(snapshot);") && has(cmsHHH, "await pushUploadFilesToServer(pending);") && has(cmsHHH, "await pushUploadFilesToServer({ [sectionId]: value } as Snapshot);"), "publish, section, flush and heal must all move files first");
+  ok("online activates whole", has(cmsHHH, 'window.addEventListener("online"'), "coming back online must re-join, flush and re-precache");
+  ok("push retries itself", has(pushHHH, "schedulePushRetry") && has(pushHHH, "PUSH_RETRY_MS") && has(pushHHH, "PUSH_RETRY_MAX"), "an offline push must retry instead of waiting for the next publish");
+  ok("apply leads sleep-free", has(applyHHH, "ENTIRELY SLEEP-FREE") && has(applyHHH, "the vault keeps the bytes") && has(applyHHH, "files travel before the words") && has(applyHHH, "activates the last published whole"), "the office must meet the new rule first");
+  try {
+    const ebHHH = await import("https://esm.sh/esbuild-wasm@0.21.5?bundle");
+    try { await ebHHH.default.initialize({ wasmURL: "https://esm.sh/esbuild-wasm@0.21.5/esbuild.wasm" }); } catch {}
+    const grabHHH = (src, name) => {
+      const from = src.indexOf("export function " + name + "(");
+      const eol = src.indexOf("\n", from);
+      const body = src.lastIndexOf("{", eol);
+      let depth = 0, end = -1;
+      for (let i = body; i < src.length && end < 0; i++) {
+        const ch = src[i];
+        if (ch === "{") depth++;
+        else if (ch === "}") { depth--; if (depth === 0) end = i + 1; }
+      }
+      return src.slice(from, end).replace("export function", "function");
+    };
+    const runHHH = async (code, name) => {
+      const tc = await ebHHH.default.transform(code + "\nmodule.exports = " + name + ";", { loader: "ts", format: "cjs" });
+      const mod = { exports: {} };
+      new Function("module", "exports", tc.code)(mod, mod.exports);
+      return mod.exports;
+    };
+    const listHHH = await runHHH(grabHHH(vaultHHH, "listUploadNames"), "listUploadNames");
+    ok("vault lists upload files", JSON.stringify(listHHH({ a: "/data/uploads/x.jpg", b: ["https://h/data/uploads/y.png", 7] }).sort()) === JSON.stringify(["x.jpg", "y.png"]), "the snapshot's files must all queue");
+    ok("vault names nothing else", listHHH({ a: "https://cdn.example/x.jpg", b: "" }).length === 0, "bundled and pasted addresses stay out");
+    ok("vault upload check", (await runHHH(grabHHH(vaultHHH, "isUploadUrl"), "isUploadUrl"))("/data/uploads/x.jpg") === true, "relative uploads count");
+    ok("vault name parse", (await runHHH(grabHHH(vaultHHH, "uploadNameOf"), "uploadNameOf"))("https://h/data/uploads/a-b_1.png") === "a-b_1.png", "the file must parse out");
+  } catch (e) {
+    ok("sleep-free suite", false, String((e && e.message) || e).slice(0, 200));
+  }
+  /* III. host-relative uploads, health door, last-published first, clean
+     unsaved, Delete clears / Put back reverts open (note 417): old absolute
+     upload addresses rewrite to relative on read, compare and publish;
+     uploads serve immutable for a year with the bake fallback; the cheap
+     /__health door plus the DEPLOY keep-awake recipe; first paint stays cache
+     → baked seed → server/feed with never-clear guards; unstamped on-air
+     state never counts as unsaved and old dirty flags clean at boot; Delete
+     clears with no reopen while Put back reverts and keeps the section open
+     on the live words. */
+  const cmsIII = text["src/lib/cms.ts"];
+  const adminIII = text["src/pages/Admin.tsx"];
+  const serveIII = text["scripts/serve.mjs"];
+  const viteIII = text["scripts/vite-cms-backend.mjs"];
+  const bsIII = text["scripts/build-static.mjs"];
+  const deployIII = text["DEPLOY.md"];
+  const applyIII = text["APPLY_UPDATE.txt"];
+  ok("compare reads the file, not the disk", has(cmsIII, "stableStringify(relativizeUploadUrls(a)) === stableStringify(relativizeUploadUrls(b))"), "a stranded absolute must equal its relative file");
+  ok("reads rewrite absolute", has(cmsIII, "overrides = clone(relativizeUploadUrls(over || {}));"), "visitors must never paint a host's disk");
+  ok("sends write relative", has(cmsIII, "sections[def.id] = JSON.stringify(relativizeUploadUrls(target[def.id]));") && has(cmsIII, "snapshot = relativizeUploadUrls(snapshot);") && has(cmsIII, "value = relativizeUploadUrls(value);"), "patch, publish and section sends must name the committed file");
+  ok("unsaved compares the send", has(cmsIII, "gateLiveCommand(draft.live, pub)") && has(cmsIII, 'id === "live" ? gateLiveCommand(draft[id], before) : draft[id]'), "unstamped on-air state must never birth a ghost row");
+  ok("old flags clean at boot", has(cmsIII, "function dropStaleDirtyFlags()") && has(cmsIII, "dropStaleDirtyFlags();"), "a stale live flag must never survive a restart");
+  ok("health door is cheap", has(serveIII, 'pathname === "/__health"') && has(serveIII, "update: SRC_NOTES || DIST_NOTES || 0") && has(viteIII, 'pathname === "/__health"') && has(viteIII, "update: devNotes || 0"), "the ping must answer from memory on both backends");
+  ok("keep-awake recipe in deploy", has(deployIII, "/__health") && has(deployIII, "UptimeRobot"), "the office must meet the 5-minute ping first");
+  ok("uploads immutable for a year", has(serveIII, "max-age=31536000, immutable") && has(viteIII, "max-age=31536000, immutable") && has(bsIII, "/data/uploads/*") && has(bsIII, "max-age=31536000, immutable") && has(bsIII, '"uploads", ".htaccess"'), "sleep, offline and the return must all paint from cache");
+  ok("bake fallback kept", has(serveIII, "[ROOT, DIST]") && has(bsIII, "uploads copied to dist/data/uploads"), "a wiped disk must still serve the deployed bake");
+  ok("first paint is cache first", has(cmsIII, "if (cached?.overrides && !freshEyes)"), "the cache must win over the bake on boot");
+  ok("failed network never clears", has(cmsIII, "if (!Object.keys(server).length && Object.keys(overrides).length)") && has(cmsIII, "seeded === true && Object.keys(overrides).length && serverRev < rev") && has(cmsIII, "if (!Object.keys(liveSections).length && Object.keys(overrides).length) return;"), "empty, seeded and feed answers must never wipe held words");
+  ok("revert-open in the admin", has(adminIII, "now showing the live site's words") && has(adminIII, "keeps its section open") && has(adminIII, "Everything is published"), "Put back must revert and stay open; Publish must empty the list");
+  ok("apply leads the five", has(applyIII, "HOST-RELATIVE UPLOADS") && has(applyIII, "__health") && has(applyIII, "immutable") && has(applyIII, "Everything is published") && has(applyIII, "keeps that section open"), "the office must meet the new rules first");
+  try {
+    const ebIII = await import("https://esm.sh/esbuild-wasm@0.21.5?bundle");
+    try { await ebIII.default.initialize({ wasmURL: "https://esm.sh/esbuild-wasm@0.21.5/esbuild.wasm" }); } catch {}
+    const grabIII = (src, name) => {
+      const from = src.indexOf("export function " + name + "(");
+      const eol = src.indexOf("\n", from);
+      const body = src.lastIndexOf("{", eol);
+      let depth = 0, end = -1;
+      for (let i = body; i < src.length && end < 0; i++) {
+        const ch = src[i];
+        if (ch === "{") depth++;
+        else if (ch === "}") { depth--; if (depth === 0) end = i + 1; }
+      }
+      return src.slice(from, end).replace("export function", "function");
+    };
+    const runIII = async (code, name) => {
+      const tc = await ebIII.default.transform(code + "\nmodule.exports = " + name + ";", { loader: "ts", format: "cjs" });
+      const mod = { exports: {} };
+      new Function("module", "exports", tc.code)(mod, mod.exports);
+      return mod.exports;
+    };
+    const relIII = await runIII(grabIII(cmsIII, "relativizeUploadUrls"), "relativizeUploadUrls");
+    ok("absolute rewrites to relative", relIII("https://office.example.com/data/uploads/abc-123.jpg") === "/data/uploads/abc-123.jpg", "the office box's address must become the file");
+    ok("relative passes through", relIII("/data/uploads/abc-123.jpg") === "/data/uploads/abc-123.jpg", "the committed form must stand");
+    ok("other addresses pass through", relIII("https://cdn.example/x.jpg") === "https://cdn.example/x.jpg" && relIII("") === "" && relIII(7) === 7, "bundled, pasted and CDN addresses stay out");
+    ok("nested uploads rewrite", JSON.stringify(relIII({ a: "https://h/data/uploads/x.png", b: ["https://h/data/uploads/y.png", 1] })) === JSON.stringify({ a: "/data/uploads/x.png", b: ["/data/uploads/y.png", 1] }), "sections nest their photos");
+    const gateIII = await runIII(grabIII(cmsIII, "gateLiveCommand"), "gateLiveCommand");
+    const pubIII = { isLive: false, liveSince: 0, liveCut: 0, liveCommandAt: 5, liveEndedBy: "", guestIsLive: false, guestCommandAt: 3 };
+    const ghostIII = { ...pubIII, isLive: true, liveSince: 100 };
+    ok("unstamped on-air never counts", JSON.stringify(gateIII(ghostIII, pubIII)) === JSON.stringify(pubIII), "the ghost diff must gate to exactly published");
+    ok("stamped command still travels", gateIII({ ...pubIII, isLive: true, liveCommandAt: 9 }, pubIII).isLive === true, "a clicked Play must still send");
+  } catch (e) {
+    ok("five-fix suite", false, String((e && e.message) || e).slice(0, 200));
+  }
+  /* JJJ. Delete leaves the field empty (note 419): every unsaved Delete
+     empties its change and stays dirty, so Publish shows the empty on the
+     site — all sections alike, livestream included. Added list entries drop,
+     changed fields empty, removed entries stay removed; an order-only move
+     reverts; the live slot stamps only where Publish needs the off. */
+  const cmsJJJ = text["src/lib/cms.ts"];
+  const adminJJJ = text["src/pages/Admin.tsx"];
+  const srvJJJ = text["scripts/cms-server.js"];
+  const applyJJJ = text["APPLY_UPDATE.txt"];
+  ok("empty helpers ship", has(cmsJJJ, "export function emptyScalarForType(type: string)") && has(cmsJJJ, "export function emptyEntryForDelete(") && has(cmsJJJ, "export function emptiedListForDelete(") && has(cmsJJJ, "export function emptiedObjectForDelete(") && has(cmsJJJ, "export function emptiedLiveForDelete(") && has(cmsJJJ, "export function emptySectionToEmpty("), "every section kind must empty through one path");
+  ok("scalars empty honestly", has(cmsJJJ, 'if (type === "boolean") return false;') && has(cmsJJJ, 'if (type === "number") return 0;') && has(cmsJJJ, 'if (type === "strings") return [];'), "booleans off, numbers zero, string-lists empty");
+  ok("lists drop added, empty changed", has(cmsJJJ, "if (!prev) { added += 1; continue; }") && has(cmsJJJ, 'out.push({ ...clone(item), value: "" });') && has(cmsJJJ, "new Set([key])") && has(cmsJJJ, "return clone(b);"), "added never-published drops, copy values blank, ids stay matched, order-only reverts");
+  ok("objects empty differing fields", has(cmsJJJ, "emptiedListForDelete({ fields: f.fields || [] }") && has(cmsJJJ, "setPath(out, path, emptyScalarForType(f.type))"), "nested lists empty in place, scalars blank");
+  ok("live empties and stamps to send the off", has(cmsJJJ, 'sectionById("live")') && has(cmsJJJ, "out.hiddenReplays = [];") && has(cmsJJJ, "out.isLive = false;") && has(cmsJJJ, "out.guestIsLive = false;") && has(cmsJJJ, "out.liveCommandAt = curAt > pubAt ? curAt : now;") && has(cmsJJJ, "out.guestCommandAt = curGat > pubGat ? curGat : now;"), "addresses empty, take-offs clear, switches off, stamps only to carry the off");
+  ok("unsaved Delete keeps it dirty", has(cmsJJJ, "gateLiveCommand(after, before), before") && has(cmsJJJ, "emptied = relativizeUploadUrls(emptied);") && has(cmsJJJ, "pushEditUndo(sectionId, clone(after));") && has(cmsJJJ, "dirty[sectionId] = true;") && has(cmsJJJ, "if (autoPreview) {"), "gated already-empty answers false, sends stay relative, undoable, previewed");
+  ok("admin Deletes to empty", has(adminJJJ, "cms.emptySectionToEmpty(edit.sectionId)") && has(adminJJJ, "is empty now; Publish shows the empty on the site") && has(adminJJJ, "is already empty; Publish shows the empty on the site") && has(adminJJJ, "leave this field empty (Publish shows the empty on the site)") && has(adminJJJ, "Delete to empty one field (Publish then shows the empty on the site)") && has(adminJJJ, "leaves the field empty") && has(adminJJJ, "Publish shows that empty on the site"), "one tap empties everywhere, copy teaches empty-then-Publish");
+  ok("put back still reverts open", has(adminJJJ, "cms.revertSection(edit.sectionId)") && has(adminJJJ, "now showing the live site's words") && has(adminJJJ, "keeps its section open"), "Put back still drops the edit onto the live words");
+  ok("override is this update", has(srvJJJ, "OVERRIDE_NO_419 = 419"), "first boot must re-run the clear");
+  ok("apply leads with the empty", has(applyJJJ, "DELETE LEAVES THE FIELD EMPTY") && has(applyJJJ, "Publish shows the empty on the site"), "the office must meet the new rule first");
+  try {
+    const ebJJJ = await import("https://esm.sh/esbuild-wasm@0.21.5?bundle");
+    try { await ebJJJ.default.initialize({ wasmURL: "https://esm.sh/esbuild-wasm@0.21.5/esbuild.wasm" }); } catch {}
+    const grabJJJ = (src, name) => {
+      const from = src.indexOf("export function " + name + "(");
+      const eol = src.indexOf("\n", from);
+      const body = src.lastIndexOf("{", eol);
+      let depth = 0, end = -1;
+      for (let i = body; i < src.length && end < 0; i++) {
+        const ch = src[i];
+        if (ch === "{") depth++;
+        else if (ch === "}") { depth--; if (depth === 0) end = i + 1; }
+      }
+      return src.slice(from, end).replace("export function", "function");
+    };
+    const runJJJ = async (code, name) => {
+      const tc = await ebJJJ.default.transform(code + "\nmodule.exports = " + name + ";", { loader: "ts", format: "cjs" });
+      const mod = { exports: {} };
+      new Function("module", "exports", tc.code)(mod, mod.exports);
+      return mod.exports;
+    };
+    const scalarJJJ = await runJJJ(grabJJJ(cmsJJJ, "emptyScalarForType"), "emptyScalarForType");
+    ok("empty booleans switch off", scalarJJJ("boolean") === false, "a toggled field empties to off");
+    ok("empty numbers go zero", scalarJJJ("number") === 0, "a figured field empties to zero");
+    ok("empty string-lists go empty", JSON.stringify(scalarJJJ("strings")) === "[]", "a listed field empties to no lines");
+    ok("empty text goes blank", scalarJJJ("text") === "" && scalarJJJ("textarea") === "" && scalarJJJ("select") === "" && scalarJJJ("image") === "" && scalarJJJ("video") === "", "a worded field empties to blank");
+  } catch (e) {
+    ok("empty-field suite", false, String((e && e.message) || e).slice(0, 200));
+  }
 const notes = Number((text["src/lib/hooks.ts"].match(/BUILD_NOTES = (\d+)/) || [])[1]) || 0;
   const apply = text["APPLY_UPDATE.txt"];
   ok("update number consistent", notes > 0 && has(apply, `APPLY THIS UPDATE (${notes})`), "hooks=" + notes);

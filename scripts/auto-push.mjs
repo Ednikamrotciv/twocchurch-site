@@ -37,6 +37,29 @@ export function setHookSender(fn) {
 }
 
 const timers = new Map();
+/* Offline retries (note 415): a push that fails while the office is offline
+   used to wait for the NEXT publish — words and uploads sat undeployed
+   indefinitely. A failed push now retries by itself a few times, so coming
+   back online activates the last published whole with nothing missing. */
+const PUSH_RETRY_MS = 5 * 60 * 1000;
+const PUSH_RETRY_MAX = 3;
+const retryTimers = new Map();
+function schedulePushRetry(rootDir, attemptsLeft) {
+  if (attemptsLeft <= 0) return;
+  if (retryTimers.has(rootDir)) return;
+  retryTimers.set(
+    rootDir,
+    setTimeout(async () => {
+      retryTimers.delete(rootDir);
+      try {
+        const r = await pushOnce(rootDir);
+        if (r && r.skipped === "git push failed" && attemptsLeft - 1 > 0) schedulePushRetry(rootDir, attemptsLeft - 1);
+      } catch {
+        /* the next retry or the next publish carries it */
+      }
+    }, PUSH_RETRY_MS)
+  );
+}
 let repoState = null;
 
 async function repoReady(rootDir) {
@@ -111,6 +134,7 @@ async function pushOnce(rootDir) {
          then publish again (or push by hand to see git's own error). */
       const pushWhy = String((push.err || "") + "\n" + (push.out || "")).trim().split("\n").slice(0, 2).join(" | ").slice(0, 240);
       console.warn("auto-deploy: push failed (offline, login expired, or a file over the host's size limit — check data/uploads/ for videos near/over 100 MB) — the words are safe here and will go out after the next publish" + (pushWhy ? ` (git said: ${pushWhy})` : ""));
+      schedulePushRetry(rootDir, PUSH_RETRY_MAX);
       return { skipped: "git push failed" };
     }
     console.log("auto-deploy: new words pushed — the live site updates itself in a few minutes");

@@ -23,6 +23,7 @@ export function cmsBackend() {
   const geoProxy = createGeoProxy();
   let cms = null;
   let siteVersion = "vite";
+  let devNotes = 0;
   let outDir = path.join(ROOT, "dist");
   return {
     name: "wom-cms-backend",
@@ -35,6 +36,7 @@ export function cmsBackend() {
         const src = await readFile(path.join(ROOT, "src", "lib", "hooks.ts"), "utf8");
         const n = Number((src.match(/BUILD_NOTES = (\d+)/) || [])[1]) || 0;
         if (n) console.log(`dev server: site update ${n} (version.json shows the same number)`);
+        devNotes = n;
       } catch {
         /* stamp unreadable — the page stamp still shows */
       }
@@ -148,7 +150,8 @@ export function cmsBackend() {
           }
 
           /* Uploads the office saved on their own disk (see /__upload below) —
-             plain files Vite would otherwise 404. */
+             plain files Vite would otherwise 404. Immutable for a year like
+             scripts/serve.mjs (note 417): the names are unique per upload. */
           if (pathname.startsWith("/data/uploads/") && req.method === "GET") {
             const file = path.normalize(path.join(ROOT, pathname.replace(/^\/+/, "")));
             if (!file.startsWith(ROOT)) {
@@ -359,6 +362,19 @@ export function cmsBackend() {
               res.writeHead(500, { "cache-control": "no-store" });
               res.end("delete failed");
             }
+            return;
+          }
+
+          /* Cheap keep-awake door, same as scripts/serve.mjs (note 417): a free
+             5-minute ping here keeps the host from idling to sleep. */
+          if (pathname === "/__health" && req.method === "GET") {
+            const body = JSON.stringify({ ok: true, update: devNotes || 0, time: new Date().toISOString() });
+            res.writeHead(200, {
+              "content-type": "application/json; charset=utf-8",
+              "content-length": Buffer.byteLength(body),
+              "cache-control": "no-store",
+            });
+            res.end(body);
             return;
           }
 

@@ -107,7 +107,7 @@ export function useLocalState<T>(key: string, initial: T) {
 /* Which shipped code is running here — the office can read it in
    version.json, and in the browser console as window.__womBuild. Bump NOTES with
    every SPEC note so a stale deploy is spotted, not guessed (note 244). */
-export const BUILD_NOTES = 411;
+export const BUILD_NOTES = 419;
 export const BUILD_DATE = "2026-10-12";
 export function buildStamp() {
   return { notes: BUILD_NOTES, built: BUILD_DATE };
