@@ -41,6 +41,7 @@ const FILES = [
   ["src/components/editor.tsx", "tsx"],
   ["src/lib/hooks.ts", "ts"],
   ["src/data/photos.ts", "ts"],
+  ["src/data/slides.ts", "ts"],
   ["src/lib/cmsSchema.ts", "ts"],
   ["src/lib/autostop.ts", "ts"],
   ["src/data/live.ts", "ts"],
@@ -544,6 +545,23 @@ export async function runAll(fs) {
   ok("relay carries the photos", has(cms, "/__restore-file?name=") && has(cms, "localUploadNames(sections)"), "relayed words must point at working photos at once, not after the mirror");
   ok("relay never breaks publish", has(cms, "never awaits, never throws") && has(cms, "relayPublishToOtherSide(sections, changed, note).catch"), "a relay that cannot land must leave the loops to carry the publish");
   ok("loops skip identical words", has(text["scripts/cms-local.mjs"], "nothing to write") && has(text["scripts/cms-local.mjs"], "JSON.stringify(localSections[id]) !== patch[id]"), "the relay lands the same words both stores hold — adopting them again would bump and log for nothing");
+  /* J11. one click publishes to visitors + welcome-home on every new deploy
+     (office request: no publishing "in everything" — one Publish click sends
+     every changed section to the visitors website, from mobile or desktop;
+     and every new deploy opens on the welcome-home slide): the offline
+     publish waits a few seconds for the join on all three publish paths
+     before settling for device-only; a queued device-only publish announces
+     itself when it finally lands; the modal says so while offline; and the
+     shipped drawer default is the lone welcome-home card (empty boxes heal
+     to it, never blank). */
+  const slidesData = text["src/data/slides.ts"];
+  const joins = cms.split("await joinBeforePublish()").length - 1;
+  ok("publish waits for the join", has(cms, "JOIN_BEFORE_PUBLISH_MS = 8000") && joins >= 3, "all three offline publish paths must try the join first, not strand as device-only");
+  ok("queued publish lands loudly", has(cms, "queued changes are now live for every visitor"), "the office must hear when device-only words finally reach visitors");
+  ok("modal names the queue", has(ed, "queued on this device and published by itself"), "the click-time notice must say what happens while offline");
+  ok("shipped default is welcome-home", has(slidesData, 'id: "welcome-home"') && has(slidesData, 'headline: "Welcome home"'), "the drawer default must be the lone welcome card");
+  ok("drawer restarts at welcome", has(cms, 'SLIDES.find((x) => x.id === "welcome-home")'), "a new deploy starts the drawer over at the welcome card only");
+  ok("empty box heals to welcome", has(cms, "blank-black bug"), "an empty slides list is the bug — it heals to welcome, never blank");
   /* J. live shows at once, clock vanishes with it (note 306): the Watch page
      checks immediately on open and stays on the short cadence even with no
      gathering on the clock; the fast cadence itself is shorter; a retyped

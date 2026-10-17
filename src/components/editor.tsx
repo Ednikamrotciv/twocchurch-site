@@ -2080,6 +2080,13 @@ export function PublishModal({ open, onClose, state }: { open: boolean; onClose:
 
           {saveNotice}
 
+          {state.authed && state.status !== "online" && (
+            <Notice tone="sky">
+              Not connected to the shared server right now — Publish tries to connect first, and anything it cannot
+              send is queued on this device and published by itself when the connection returns.
+            </Notice>
+          )}
+
           {!state.authed && (
             <Notice tone="crimson">
               You are not signed in to the shared server, so this publish will only apply to this browser.

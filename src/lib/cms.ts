@@ -1366,6 +1366,27 @@ function gateLiveSnapshot(snap: Snapshot): Snapshot {
   return { ...(snap as any), live: gated };
 }
 
+/* One click publishes to visitors: the offline publish below waits a few
+   seconds for the join first (sleep wake, reconnect backoff, slow mobile
+   network), instead of stranding as device-only when the server is right
+   there. Copies with no server anywhere (pure static, nothing configured)
+   skip the wait — there is nothing to join. True when the server can be
+   reached (or already is). Never throws. */
+const JOIN_BEFORE_PUBLISH_MS = 8000;
+async function joinBeforePublish(): Promise<boolean> {
+  try {
+    if (socket && status === "online") return true;
+    try {
+      if (!socketFactory()) return false;
+    } catch {
+      return false;
+    }
+    return await ensureOnline(JOIN_BEFORE_PUBLISH_MS);
+  } catch {
+    return false;
+  }
+}
+
 export async function publishSection(sectionId: string, note: string): Promise<PublishResult> {
   const def = sectionById(sectionId);
   if (!def || !draft) return { ok: false, error: "nothing-to-do" };
@@ -1389,7 +1410,11 @@ export async function publishSection(sectionId: string, note: string): Promise<P
     notify();
     return { ok: true };
   }
-  if (!socket || status !== "online") {
+  /* One click publishes to visitors (office request): a tap while the tab is
+     momentarily offline (sleep wake, reconnect backoff, slow mobile network)
+     waits a few seconds for the join first, instead of stranding as
+     device-only when the server is right there. */
+  if (!(await joinBeforePublish())) {
     rememberHistory();
     overrides = { ...overrides, [sectionId]: value };
     applyOverrides(overrides);
@@ -4264,7 +4289,9 @@ export async function publish(note: string, content?: Snapshot): Promise<Publish
        server reachable — a local Publish blesses this copy, the server sync
        carries it on when the connection returns). The stamp is cached with
        the words (note 306), so a host sleep afterwards changes nothing. */
-    if (!socket || status !== "online") {
+    /* One click publishes to visitors: the join gets a few seconds first
+       (see joinBeforePublish) before this copy settles for device-only. */
+    if (!(await joinBeforePublish())) {
       setPublishedNotes(BUILD_NOTES);
       blessRunningCode();
       writeCache();
@@ -4291,7 +4318,9 @@ export async function publish(note: string, content?: Snapshot): Promise<Publish
     return { ok: true };
   }
 
-  if (!socket || status !== "online") {
+  /* One click publishes to visitors: the join gets a few seconds first
+     (see joinBeforePublish) before this copy settles for device-only. */
+  if (!(await joinBeforePublish())) {
     // No server reachable: keep the site working locally and remember the
     // override set so it can be sent the moment the connection returns.
     // This still blesses the current update on this copy, so a local Publish
@@ -4503,6 +4532,10 @@ export async function flushPending(): Promise<boolean> {
   writeCache();
   applyOverrides(overrides);
   log = [{ rev, at: Date.now(), by: editorName(), role: myRole === "sub" ? "sub" : "main", note: "Offline changes published", changed: ids }, ...log].slice(0, 30);
+  /* One click publishes to visitors: a device-only publish that finally lands
+     says so out loud — otherwise the office never knows the visitors caught
+     up. Only on a real send (the empty-queue clear above stays quiet). */
+  fireToast("Connection is back — your queued changes are now live for every visitor.", "success");
   notify();
   return true;
 }
