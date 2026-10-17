@@ -88,9 +88,19 @@
         if (ap === "/admin" || ap.indexOf("/admin/") === 0) return;
       } catch (e) {}
       /* Local preview (office request: notice missing in local): ?maintenance=1
-         paints the notice at once, even with no version.json / no server. */
+         paints the notice at once, even with no version.json / no server.
+         Hash-routed copies carry the pass after the # (e.g. /#/?maintenance=1). */
       try {
-        if (q.get("maintenance") === "1" || q.get("showMaintenance") === "1") {
+        var forced = q.get("maintenance") === "1" || q.get("showMaintenance") === "1";
+        if (!forced) {
+          var hh = String(window.location.hash || "");
+          var qi = hh.indexOf("?");
+          if (qi !== -1) {
+            var hq = new URLSearchParams(hh.slice(qi + 1));
+            forced = hq.get("maintenance") === "1" || hq.get("showMaintenance") === "1";
+          }
+        }
+        if (forced) {
           var r0 = document.getElementById("root");
           if (r0 && !r0.hasChildNodes()) {
             r0.innerHTML =

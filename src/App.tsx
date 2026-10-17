@@ -128,6 +128,9 @@ export function App() {
      reloads onto the update. */
   const ready = useCmsReady();
   const stale = useStaleBuild();
+  /* Local preview (?maintenance=1): the notice shows at once, even before boot
+     settles — otherwise the splash covers the very page asked for. */
+  if (maintenance && !ready) return <MaintenanceSite />;
   if (!ready || !stale.settled) return <BootSplash />;
   if (stale.waiting || maintenance) return <MaintenanceSite />;
 

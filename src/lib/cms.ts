@@ -112,15 +112,28 @@ function noteDeployWitness(v: unknown): boolean {
 const DEPLOY_SEEN_KEY = "wom.cms.deploySeen";
 function deployProvesFreshDeploy(): boolean {
   try {
-    if (!deployFromMeta || !currentDeployId) return false;
-    let seen = "";
+    /* Built deploy: the stamped ID proves it — a different ID is a new deploy. */
+    if (deployFromMeta && currentDeployId) {
+      let seen = "";
+      try {
+        seen = localStorage.getItem(DEPLOY_SEEN_KEY) || "";
+      } catch {
+        return false;
+      }
+      if (!seen) return true;
+      return seen !== currentDeployId;
+    }
+    /* Local dev (no stamped deploy): the update number is the deploy token, so
+       each update clears unsaved draft + pending once — the local copy opens
+       fresh as new instead of carrying the last copy's unsaved list. */
     try {
-      seen = localStorage.getItem(DEPLOY_SEEN_KEY) || "";
+      const wantLocal = "n" + BUILD_NOTES;
+      const seenLocal = localStorage.getItem(DEPLOY_SEEN_KEY) || "";
+      if (!seenLocal) return true;
+      return seenLocal !== wantLocal;
     } catch {
       return false;
     }
-    if (!seen) return true;
-    return seen !== currentDeployId;
   } catch {
     return false;
   }
@@ -128,6 +141,7 @@ function deployProvesFreshDeploy(): boolean {
 function markDeploySeen(): void {
   try {
     if (deployFromMeta && currentDeployId) localStorage.setItem(DEPLOY_SEEN_KEY, currentDeployId);
+    else localStorage.setItem(DEPLOY_SEEN_KEY, "n" + BUILD_NOTES);
   } catch {}
 }
 
@@ -255,7 +269,15 @@ export function exitMaintenancePreview(): void {
 function maintenanceForced(): boolean {
   try {
     const q = new URLSearchParams(window.location.search || "");
-    return q.get("maintenance") === "1" || q.get("showMaintenance") === "1";
+    if (q.get("maintenance") === "1" || q.get("showMaintenance") === "1") return true;
+    /* Hash-routed copies carry the pass after the # (e.g. /#/?maintenance=1). */
+    const h = String(window.location.hash || "");
+    const qi = h.indexOf("?");
+    if (qi !== -1) {
+      const hq = new URLSearchParams(h.slice(qi + 1));
+      if (hq.get("maintenance") === "1" || hq.get("showMaintenance") === "1") return true;
+    }
+    return false;
   } catch {
     return false;
   }
@@ -3292,24 +3314,11 @@ export function resetSlidesForNewDeploy(): boolean {
         localStorage.setItem(SLIDES_RESET_KEY, token);
       } catch {}
     };
+    /* No welcome card shipped would be a blank box — but one always ships, so
+       reaching here without one means a bad build: hold the draft untouched. */
     if (!welcome) {
-      /* Empty mode (office fallback: slides emptied clean — no "You are
-         welcome" headline in code): clear the draft slides to [] once per
-         deploy, so no other slide rides into the new deploy. */
-      const d = getDraft();
-      if (Array.isArray((d as any).slides) && (d as any).slides.length === 0) {
-        mark();
-        return false;
-      }
-      pushEditUndo("slides", clone((d as any).slides));
-      (d as any).slides = [];
-      dirty.slides = true;
-      persistDraft();
       mark();
-      fireToast("New deploy — announcement slides cleared.", "info");
-      notify();
-      applyDraftLiveSoon();
-      return true;
+      return false;
     }
     const only = [clone(welcome)];
     const d = getDraft();
