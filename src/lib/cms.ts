@@ -103,6 +103,33 @@ function noteDeployWitness(v: unknown): boolean {
   } catch {}
   return false;
 }
+/* Fresh deploy starts unsaved-clean (office request: unsaved changes are clear
+   and fresh for every new deploy). Every build stamps a fresh opaque deploy ID,
+   so a changed deploy ID proves a new deploy even when the update number is
+   unchanged. DEPLOY_SEEN remembers which deploy this browser already cleaned
+   for; a different stamped deploy clears draft + pending + dirty once, then
+   records itself. Maintenance hold is untouched here — Publish still lifts it. */
+const DEPLOY_SEEN_KEY = "wom.cms.deploySeen";
+function deployProvesFreshDeploy(): boolean {
+  try {
+    if (!deployFromMeta || !currentDeployId) return false;
+    let seen = "";
+    try {
+      seen = localStorage.getItem(DEPLOY_SEEN_KEY) || "";
+    } catch {
+      return false;
+    }
+    if (!seen) return true;
+    return seen !== currentDeployId;
+  } catch {
+    return false;
+  }
+}
+function markDeploySeen(): void {
+  try {
+    if (deployFromMeta && currentDeployId) localStorage.setItem(DEPLOY_SEEN_KEY, currentDeployId);
+  } catch {}
+}
 
 /* Why the maintenance notice is or isn't showing (note 278): call from the
    console as window.__maintState() on the deployed copy. */
@@ -427,7 +454,7 @@ export function checkStaleBuild(): Promise<void> {
    the button carrying this says so before it arms. This is the explicit
    office delete (note 300) — the ONLY path that clears last-published. */
 export function resetLocalCopy(): void {
-  const keys = [CACHE_KEY, DRAFT_KEY, HISTORY_KEY, PENDING_KEY, NOTES_KEY, AFTER_SAVE_KEY, DEPLOY_KEY];
+  const keys = [CACHE_KEY, DRAFT_KEY, HISTORY_KEY, PENDING_KEY, NOTES_KEY, AFTER_SAVE_KEY, DEPLOY_KEY, DEPLOY_SEEN_KEY, "wom.cms.slidesReset"];
   for (const k of keys) {
     try {
       localStorage.removeItem(k);
@@ -1760,7 +1787,11 @@ async function backfillUploadsFrom(fromBase: string, content: Snapshot = overrid
    html (the app fallback), so html answers count as missing like a 404. */
 let uploadHealRunning = false;
 async function uploadNameMissing(name: string): Promise<boolean> {
+  /* Active both online and offline: offline the fetch throws — that proves
+     nothing about the server file (the browser is offline), so answer "not
+     missing" and let the cached copy paint; the next online heal restores. */
   try {
+    if (typeof navigator !== "undefined" && (navigator as any).onLine === false) return false;
     const res = await fetch("/data/uploads/" + name, { cache: "no-store" });
     if (!res.ok) return true;
     const type = String(res.headers.get("content-type") || "").toLowerCase();
@@ -2118,7 +2149,40 @@ export async function startCms() {
      words — the field and both guest keys — go once per update, dirty or
      not, so no unsaved guest row rides into the new update. */
   if (freshEyes) clearDraftGuestSlot();
-  if (cached?.overrides && !freshEyes) {
+  /* Every new deploy starts unsaved-clean (office request): draft + pending
+     clear once per deploy ID, so the unsaved list opens fresh. Deploy IDs are
+     fresh every build, so this runs on every deploy even when the update
+     number is unchanged. Maintenance hold is untouched — Publish still lifts. */
+  let freshDeploy = false;
+  try {
+    freshDeploy = deployProvesFreshDeploy();
+  } catch {
+    freshDeploy = false;
+  }
+  if (freshDeploy) {
+    try {
+      try {
+        localStorage.removeItem(DRAFT_KEY);
+      } catch {}
+      try {
+        localStorage.removeItem(PENDING_KEY);
+      } catch {}
+      draft = null;
+      draftFromRev = 0;
+      dirty = {};
+      pending = null;
+      try {
+        clearRecentCaches();
+      } catch {}
+      try {
+        clearDraftGuestSlot();
+      } catch {}
+    } catch {}
+  }
+  try {
+    markDeploySeen();
+  } catch {}
+  if (cached?.overrides && !freshEyes && !freshDeploy) {
     rev = cached.rev || 0;
     applyOverrides(cached.overrides);
   }
@@ -2158,13 +2222,17 @@ export async function startCms() {
   showDraftIfEditing();
   notify();
   /* Sleep-free (note 413): heal wiped uploads shortly after boot, on return,
-     and every few minutes while open — blank-free without an office click. */
+     online AND offline, and every few minutes while open — blank-free without
+     an office click. Offline the heal proves nothing and skips the restore,
+     but the cached copy keeps painting, so slides stay live with or without
+     network; coming back online restores at once. */
   scheduleUploadHeal(2500);
   try {
     document.addEventListener("visibilitychange", () => {
       if (document.visibilityState === "visible") scheduleUploadHeal(800);
     });
     window.addEventListener("online", () => scheduleUploadHeal(800));
+    window.addEventListener("offline", () => scheduleUploadHeal(800));
     window.setInterval(() => {
       healMissingUploads().catch(() => {});
     }, 5 * 60 * 1000);

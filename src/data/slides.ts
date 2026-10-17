@@ -44,6 +44,8 @@ export type AnnouncementSlide = {
 };
 
 export const SLIDES: AnnouncementSlide[] = [
+  /* Box slide is welcome-only (office request): a single "You are welcome /
+     Welcome home" card. Deploys also reset to this via resetSlidesForNewDeploy. */
   {
     id: "welcome-home",
     image: "src/assets/img/choir.jpg",
@@ -51,16 +53,6 @@ export const SLIDES: AnnouncementSlide[] = [
     line: "First Sunday or fiftieth — there is a seat here with your name on it.",
     cta: "Plan your visit",
     link: "/visit",
-    design: "auto",
-    active: true,
-  },
-  {
-    id: "watch-live",
-    image: "src/assets/img/worshipband.jpg",
-    headline: "We are live every Sunday",
-    line: "9:00 & 11:30 AM. The broadcast plays on this site whenever we are on air.",
-    cta: "Go to the live stream",
-    link: "/watch-live",
     design: "auto",
     active: true,
   },
