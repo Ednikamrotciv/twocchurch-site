@@ -12,6 +12,24 @@ import { pickBakeSource, pickRecent } from "./seed-guard.mjs";
 export async function bakeSeed(rootDir, outPath) {
   const target = outPath || path.join(rootDir, "seed.json");
   const rootSeedPath = path.join(rootDir, "seed.json");
+  /* Clean-deploy flag: with a `clean-deploy.txt` beside package.json, a NEW
+     deploy ships no words — fresh, new and clean until the office clicks
+     Recover and Publish (option A: the file is committed, so every deploy
+     while it sits there opens clean; remove it + rebuild to carry words
+     again). Only the DEPLOY bake goes clean — the root seed keeps its words
+     (it is the office's own backup in git, never a visitor page), and an
+     unwiped store on the same deploy keeps re-serving through the fallback
+     exactly as before. */
+  let cleanDeploy = false;
+  try {
+    await readFile(path.join(rootDir, "clean-deploy.txt"), "utf8");
+    cleanDeploy = true;
+  } catch { /* no flag — words ride as usual */ }
+  if (cleanDeploy && target !== rootSeedPath) {
+    console.log("clean deploy requested (clean-deploy.txt) — shipping an empty bake: Recover + Publish, then REMOVE the file and rebuild to lock words in");
+    await writeFile(target, JSON.stringify({ rev: 0, notes: 0, sections: {}, log: [], by: "", at: 0 }));
+    return { kept: false, count: 0, clean: true };
+  }
   const readJson = async (p) => {
     try {
       return JSON.parse(await readFile(p, "utf8"));

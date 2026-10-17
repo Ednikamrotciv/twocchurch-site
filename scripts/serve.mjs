@@ -79,6 +79,14 @@ if (SRC_CODE && DIST_CODE && DIST_CODE !== SRC_CODE) {
 } else if (SRC_CODE && !DIST_CODE) {
   console.warn(`dist/ has no code word (built before code words) — run \`npm run build\` so dist/ matches code "${SRC_CODE}".`);
 }
+/* Clean-deploy flag (option A): with clean-deploy.txt beside package.json
+   this deploy ships no words — Recover + Publish, then REMOVE the file and
+   rebuild to lock words in. Said out loud here so a clean live site is never
+   a mystery. */
+try {
+  await readFile(path.join(ROOT, "clean-deploy.txt"), "utf8");
+  console.warn("clean-deploy.txt present — this deploy ships no words: Recover + Publish, then REMOVE the file and rebuild to lock words in.");
+} catch { /* words ride as usual */ }
 
 const cms = await (async () => {
   /* Snapshot the published words first (a zip extract cannot touch the

@@ -55,6 +55,15 @@ try {
   console.warn("maintenance hold skipped:", err?.message || err);
 }
 
+/* Clean-deploy flag (option A): with clean-deploy.txt beside package.json the
+   bake above shipped no words — the deploy opens fresh, new and clean until
+   the office clicks Recover and Publish. Remove the file and rebuild to carry
+   words again. */
+try {
+  await readFile(path.join(ROOT, "clean-deploy.txt"), "utf8");
+  console.log("clean deploy on: dist ships no words (clean-deploy.txt) — Recover + Publish, then REMOVE the file and rebuild to lock words in");
+} catch { /* words ride as usual */ }
+
 /* The live feed address: with a valid publish-feed.txt (a public source repo
    line, or a mirror repo line for private sources), deployed copies read fresh
    words straight off the repo within minutes of a publish — no rebuild needed,

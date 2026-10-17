@@ -398,6 +398,20 @@ export async function runAll(fs) {
   } catch (e) {
     ok("feed urls suite", false, String((e && e.message) || e).slice(0, 200));
   }
+  /* J3. clean new deploys (option A): with clean-deploy.txt beside
+     package.json a NEW deploy ships no words — fresh, new and clean until
+     the office clicks Recover and Publish. Only the deploy bake goes clean
+     (the root seed keeps its words, nothing is ever deleted); an unwiped
+     store on the same deploy keeps re-serving through the fallback exactly
+     as before. */
+  const bakerJ3 = text["scripts/bake-seed.mjs"];
+  const devJ3 = text["scripts/vite-cms-backend.mjs"];
+  const serveJ3 = text["scripts/serve.mjs"];
+  ok("clean flag empties only the deploy bake", has(bakerJ3, "clean-deploy.txt") && has(bakerJ3, "target !== rootSeedPath"), "the office root seed must keep its words");
+  ok("clean bake ships loud", has(bakerJ3, "clean deploy requested") && has(bakerJ3, "REMOVE the file and rebuild"), "a wordless deploy must say how it ends");
+  ok("dev bake honors the flag", has(devJ3, "clean-deploy.txt") && has(devJ3, "dev bake ships no words"), "the office preview must open clean too");
+  ok("server names the flag", has(serveJ3, "clean-deploy.txt") && has(serveJ3, "Recover + Publish"), "a clean live site must never be a mystery");
+  ok("build names the flag", has(staticBuild, "clean-deploy.txt") && has(staticBuild, "dist ships no words"), "the build log must state the clean truth");
   /* J. live shows at once, clock vanishes with it (note 306): the Watch page
      checks immediately on open and stays on the short cadence even with no
      gathering on the clock; the fast cadence itself is shorter; a retyped

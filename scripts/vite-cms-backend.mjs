@@ -84,6 +84,20 @@ export function cmsBackend() {
           const r = await cms.call("getContent", "bake", "");
           const res = JSON.parse(r.body);
           const sections = res && res.sections ? JSON.parse(res.sections) : {};
+          /* Clean-deploy flag (like bake-seed.mjs): with clean-deploy.txt
+             beside package.json the deploy preview bakes no words — the
+             office opens clean until Recover + Publish. */
+          let cleanDeploy = false;
+          try {
+            await readFile(path.join(ROOT, "clean-deploy.txt"), "utf8");
+            cleanDeploy = true;
+          } catch {}
+          if (cleanDeploy) {
+            console.log("clean deploy requested (clean-deploy.txt) — dev bake ships no words");
+            await writeFile(path.join(outDir, "seed.json"), JSON.stringify({ rev: 0, notes: 0, sections: {}, log: [], by: "", at: 0 }));
+            console.log(`baked 0 published sections into seed.json`);
+            return;
+          }
           /* Carry the publish stamp like bake-seed.mjs does (note 302): a
              notes-less seed would read as "nothing ever published" and hold
              even a fully-published deploy on maintenance until the next bake. */

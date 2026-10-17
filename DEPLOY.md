@@ -43,6 +43,20 @@ publishing from the admin console releases them on the spot, with no rebuild.
 Delete the file when holding should stop — it never leaves your computer
 (git-ignored), so hosts rebuilding from git always ship clean.
 
+## Clean new deploys (option A)
+
+To open a NEW deploy fresh, new and clean — no retained words until you say
+so — put an empty file named `clean-deploy.txt` beside `package.json`,
+commit it, and push. Every deploy while it sits there ships no words:
+visitors wait on maintenance, and the site goes live only when you click
+Recover (Tools restore of your downloaded content backup) and then Publish —
+always Recover FIRST, or the clean site goes live over your real words.
+Nothing is ever deleted (backups, the office disk and the root seed keep
+everything); sleep-wakes on the same deploy keep re-serving as before.
+To exit the cycle: after Recover + Publish, DELETE `clean-deploy.txt`,
+commit+push, and rebuild — the next bake carries the words again. Without
+the file, deploys carry words exactly as before.
+
 ## The update routine
 
 Publish from the admin console on your own computer and you are done — with
