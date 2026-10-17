@@ -299,7 +299,8 @@ function serverInvolved(): boolean {
     — so waiting here means a publish was actually seen from an older update
     (or nothing was ever published on a server-backed copy: fresh visitor,
     wiped store, or a server reset to notes 0 — still unreviewed, still
-    waits). Server-less copies never wait (no visitors). A publish lifts. */
+    waits). A local copy with no stamped deploy waits on the number gate below
+    until the office publishes. A publish lifts. */
 export function maintenanceShouldWait(): boolean {
   /* Local preview: ?maintenance=1 shows the notice even on server-less local. */
   try {
@@ -314,19 +315,22 @@ export function maintenanceShouldWait(): boolean {
     if (!serverInvolved() && !feedFromMeta()) return false;
     return true;
   }
-  /* No stamped deploy (local dev): the legacy number gate stands. Note 301:
-     a corrupt stamp is unreviewed, never published — wait when server-backed. */
+  /* No stamped deploy (local dev): the number gate locks every new fix until
+     the office publishes — a local Publish blesses the copy even with no
+     server reachable (note 250), so this lock always has a release. Note 301:
+     a corrupt stamp is unreviewed, never published — it waits too. */
   const held = typeof publishedNotes === "number" && Number.isFinite(publishedNotes) ? Math.floor(publishedNotes) : 0;
   if (held >= BUILD_NOTES) return false;
-  if (!serverInvolved()) return false;
   return true;
 }
 /* True while visitors must wait: new code is ahead of the last publish.
    Server-backed copies with no witnessed publish yet wait too (note 300: a
    zero stamp is "nothing proven", not "behind" — but an unreviewed copy all
-   the same), so mobile and desktop agree. Never on a server-less copy (local
-   dev has no visitors), never on the office's preview pass, and never in the
-   office console (#/admin) — which renders around this (note 250).
+   the same), so mobile and desktop agree — and a local copy with no stamped
+   deploy waits on the number gate below until the office publishes (a local
+   Publish always releases, note 250). Never on the office's preview pass,
+   and never in the office console (#/admin) — which renders around this
+   (note 250).
    This also subscribes to connection state, so the first-paint answer cannot
    stick on one device while the server address lands a moment later. */
 export function useMaintenance(): boolean {
@@ -358,10 +362,12 @@ export function useMaintenance(): boolean {
     } catch {}
     return true;
   }
-  /* Note 301: a corrupt stamp is unreviewed, never published. */
+  /* No stamped deploy (local dev): same lock as maintenanceShouldWait — every
+     new fix waits until the office publishes (note 250: a local Publish always
+     releases). The office preview pass still bypasses. Note 301: a corrupt
+     stamp is unreviewed, never published. */
   const held = typeof publishedNotes === "number" && Number.isFinite(publishedNotes) ? Math.floor(publishedNotes) : 0;
   if (held >= BUILD_NOTES) return false;
-  if (!serverInvolved()) return false;
   try {
     if (maintenancePreview()) return false;
   } catch {}
