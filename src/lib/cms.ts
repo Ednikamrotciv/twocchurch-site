@@ -117,6 +117,17 @@ function codeBlessedMatches(): boolean {
     return false;
   }
 }
+/* True when this browser blessed any earlier code or deploy: a returning
+   browser on a new deploy stages clean; a fresh profile (never blessed)
+   still adopts the live words normally, so a new device joining the live
+   site is never clobbered. */
+function hadPriorBlessing(): boolean {
+  try {
+    return !!localStorage.getItem(CODE_BLESS_KEY);
+  } catch {
+    return false;
+  }
+}
 /* True only when this browser blessed OLDER code: a stored blessing exists
    AND names a different word. A missing stamp proves nothing (fresh profile
    is not a new code arrival), so it never triggers anything alone. */
@@ -169,6 +180,26 @@ function noteDeployWitness(v: unknown): boolean {
     if (typeof v === "string" && v && currentDeployId && deployFromMeta && v === currentDeployId) return markDeployPublished();
   } catch {}
   return false;
+}
+/** A same-code attestation lifts the number gate (office request: a Publish
+    click clears the notice on live AND local): the joined backend names the
+    code word it runs — a localhost backend serves its own files, so a word
+    matching this bundle IS this code by construction, and a publish stamped
+    from it is proven office review, not a leak. Equality only, like the word
+    rule itself; a missing or different word proves nothing and changes
+    nothing. This never stages (the clean stage still takes an explicit
+    Publish, a Recover, or a same-deploy witness) — it only blesses, so the
+    notice lifts on the witnessed publish. True when it blessed. */
+function noteCodeWitness(code: unknown, notes: unknown): boolean {
+  try {
+    if (typeof code !== "string" || !code || code !== runningCode) return false;
+    const n = Math.floor(Number(notes));
+    if (!Number.isFinite(n) || n < BUILD_NOTES) return false;
+    blessRunningCode();
+    return true;
+  } catch {
+    return false;
+  }
 }
 /* Fresh deploy starts unsaved-clean (office request: unsaved changes are clear
    and fresh for every new deploy). Every build stamps a fresh opaque deploy ID,
@@ -376,13 +407,11 @@ export function maintenanceShouldWait(): boolean {
   try {
     if (maintenanceForced()) return true;
   } catch {}
-  /* Deploy lock (no numbers): a built copy waits until a publish from its
-     own deploy lands. Server-less copies never wait (no visitors). */
+  /* Deploy lock (no numbers): EVERY deploy holds fresh visitors on the
+     maintenance notice until a publish from its own deploy lands — always,
+     on every new deploy, no exceptions. */
   if (deployFromMeta && currentDeployId) {
     if (publishedDeployId === currentDeployId) return false;
-    /* Deploy lock: any copy whose words can move after deploy waits — server
-       behind it, or a baked feed (note 416). Pure static never waits. */
-    if (!serverInvolved() && !feedFromMeta()) return false;
     return true;
   }
   /* No stamped deploy (local dev): the number gate locks every new fix until
@@ -413,20 +442,17 @@ export function useMaintenance(): boolean {
   } catch {}
   /* Note 302: a known newer update waits even on this (older) bundle — a
      stale tab never paints live from cached code while the host has moved on.
-     Server-less copies still never wait (note 250): with no backend there is
-     no publish step to wait for — they just reload onto the new bundle. */
-  if (staleNewerNotes > BUILD_NOTES && serverInvolved()) {
+     Every new deploy holds until the reload lands, on every copy. */
+  if (staleNewerNotes > BUILD_NOTES) {
     try {
       if (maintenancePreview()) return false;
     } catch {}
     return true;
   }
-  /* Deploy lock (no numbers — same rule as maintenanceShouldWait). */
+  /* Deploy lock (no numbers — same rule as maintenanceShouldWait): EVERY
+     deploy holds until a publish from its own deploy lands — always. */
   if (deployFromMeta && currentDeployId) {
     if (publishedDeployId === currentDeployId) return false;
-    /* Deploy lock: any copy whose words can move after deploy waits — server
-       behind it, or a baked feed (note 416). Pure static never waits. */
-    if (!serverInvolved() && !feedFromMeta()) return false;
     try {
       if (maintenancePreview()) return false;
     } catch {}
@@ -1366,6 +1392,27 @@ function gateLiveSnapshot(snap: Snapshot): Snapshot {
   return { ...(snap as any), live: gated };
 }
 
+/* One click publishes to visitors: the offline publish below waits a few
+   seconds for the join first (sleep wake, reconnect backoff, slow mobile
+   network), instead of stranding as device-only when the server is right
+   there. Copies with no server anywhere (pure static, nothing configured)
+   skip the wait — there is nothing to join. True when the server can be
+   reached (or already is). Never throws. */
+const JOIN_BEFORE_PUBLISH_MS = 8000;
+async function joinBeforePublish(): Promise<boolean> {
+  try {
+    if (socket && status === "online") return true;
+    try {
+      if (!socketFactory()) return false;
+    } catch {
+      return false;
+    }
+    return await ensureOnline(JOIN_BEFORE_PUBLISH_MS);
+  } catch {
+    return false;
+  }
+}
+
 export async function publishSection(sectionId: string, note: string): Promise<PublishResult> {
   const def = sectionById(sectionId);
   if (!def || !draft) return { ok: false, error: "nothing-to-do" };
@@ -1386,10 +1433,39 @@ export async function publishSection(sectionId: string, note: string): Promise<P
   if (sameJSON(value, publishedSection(sectionId))) {
     delete dirty[sectionId];
     persistDraft();
+    /* A no-change section Publish still blesses everywhere (office request:
+       the click must apply to the visitors website — live and local): the
+       words match, so releasing visitors is safe, but stopping here would
+       leave a wiped server and the live box's own deploy unblessed while
+       the office sees success. The bless-only send below carries the same
+       server stamp, converge and live relay as every other publish. */
+    if (!(await joinBeforePublish())) {
+      markDeployPublished();
+      notify();
+      return { ok: true, local: true };
+    }
+    if (!authed) {
+      const saved = sessionPassword();
+      const res = saved ? await login(saved, true) : { ok: false as const };
+      if (!res.ok) {
+        if ((res as any).error === "denied") clearSession();
+        return { ok: false, error: "unauthorized" };
+      }
+    }
+    /* No words move, so no undo entry: the bless only lifts the notice. */
+    const blessOnly = await sendPatch({}, [], note.slice(0, 160), true, true);
+    if (!blessOnly.ok) return { ok: false, error: blessOnly.error };
+    rev = blessOnly.rev ?? rev + 1;
+    setPublishedNotes(BUILD_NOTES);
+    writeCache();
     notify();
-    return { ok: true };
+    return { ok: true, live: blessOnly.relay !== "missed" };
   }
-  if (!socket || status !== "online") {
+  /* One click publishes to visitors (office request): a tap while the tab is
+     momentarily offline (sleep wake, reconnect backoff, slow mobile network)
+     waits a few seconds for the join first, instead of stranding as
+     device-only when the server is right there. */
+  if (!(await joinBeforePublish())) {
     rememberHistory();
     overrides = { ...overrides, [sectionId]: value };
     applyOverrides(overrides);
@@ -1424,7 +1500,7 @@ export async function publishSection(sectionId: string, note: string): Promise<P
   }
   rememberHistory();
   const payload = JSON.stringify(value);
-  const result = await sendPatch({ [sectionId]: payload }, [sectionId], note.slice(0, 160));
+  const result = await sendPatch({ [sectionId]: payload }, [sectionId], note.slice(0, 160), true, true);
   if (!result.ok) return { ok: false, error: result.error };
   rev = result.rev ?? rev + 1;
   updatedAt = Date.now();
@@ -1440,7 +1516,7 @@ export async function publishSection(sectionId: string, note: string): Promise<P
   applyOverrides(overrides);
   writeCache();
   notify();
-  return { ok: true };
+  return { ok: true, live: result.relay !== "missed" };
 }
 
 function stampSermonPublishTimes(list: any[]): void {
@@ -2083,30 +2159,53 @@ export async function pullFromLive(): Promise<LivePullResult> {
       lastLivePullMsg = "Live matches this copy — nothing to pull.";
       return { ok: true, pulled: [] };
     }
-    /* Live/admin is the general control (office request): its publish takes
-       effect on the office copy even when this copy never published on the
-       running code — the words record on the office disk either way. Staging
-       follows only outside a clean stage (a new code arrival stages nothing
-       inbound until Recover or an explicit Publish); mid-edit desks still
-       wait, so unsaved work is never adopted under. Nothing here blesses
-       code, deploy or number gates — those still take an explicit Publish. */
-    const stageInbound = !cleanStageForNewCode;
-    if (pendingSections().length > 0 && stageInbound) {
-      return { ok: false, error: "deferred" };
+    /* Live/admin is the general control (office request): a publish clicked on
+       live/admin automatically lands on local/admin — no second Publish click
+       needed. A live publish IS explicit office review, so it ends a
+       new-deploy clean stage here too; sections the office touched keep the
+       office's unsaved edits (they win), every other section takes live's
+       words at once. Local gates bless with it, so waiting lifts on this copy
+       without another click. */
+    const dirtyBefore = new Set(pendingSections());
+    const dirtyOverlap: Snapshot = {};
+    if (draft) {
+      for (const id of ids) {
+        if (dirtyBefore.has(id)) {
+          try {
+            dirtyOverlap[id] = clone((draft as any)[id]);
+          } catch {}
+        }
+      }
     }
+    cleanStageForNewCode = false;
     rememberHistory();
     const res = await sendPatch(patch, ids, `Pulled from live (${ids.length} ${ids.length === 1 ? "section" : "sections"})`);
     if (!res.ok) return { ok: false, error: res.error };
     rev = res.rev ?? rev + 1;
     updatedAt = Date.now();
     updatedBy = editorName();
+    /* Automatic means automatic: local gates move with the live publish, so a
+       live/admin Publish clears waiting here too — no local Publish needed. */
     setPublishedNotes(BUILD_NOTES);
-    if (stageInbound) {
+    blessRunningCode();
+    markDeployPublished();
+    log = [{ rev, at: updatedAt, by: updatedBy, role: myRole === "sub" ? "sub" : "main", note: "Pulled from live", changed: ids }, ...log].slice(0, 30);
+    if (draft && (Object.keys(dirtyOverlap).length || dirtyBefore.size)) {
+      /* Unsaved office work survives: live stages underneath, the office's own
+         touched sections stay on top exactly as left. */
+      try {
+        for (const id of Object.keys(dirtyOverlap)) {
+          (draft as any)[id] = dirtyOverlap[id];
+          dirty[id] = true;
+        }
+        persistDraft();
+      } catch {}
+      applyOverrides(overrides, true);
+      showDraftIfEditing();
+      writeCache();
+    } else {
       applyOverrides(overrides, false);
       writeCache();
-    }
-    log = [{ rev, at: updatedAt, by: updatedBy, role: myRole === "sub" ? "sub" : "main", note: "Pulled from live", changed: ids }, ...log].slice(0, 30);
-    if (stageInbound) {
       draft = null;
       dirty = {};
       editUndos = [];
@@ -2120,9 +2219,9 @@ export async function pullFromLive(): Promise<LivePullResult> {
     lastLivePullAt = Date.now();
     const imgBit = files.restored ? ` and ${files.restored} uploaded ${files.restored === 1 ? "file" : "files"} came home` : "";
     const missBit = files.failed.length ? ` (${files.failed.length} uploaded ${files.failed.length === 1 ? "file is" : "files are"} missing on live: ${files.failed.slice(0, 3).join(", ")}${files.failed.length > 3 ? "…" : ""})` : "";
-    lastLivePullMsg = stageInbound
-      ? `Live publish saved here — ${ids.length} ${ids.length === 1 ? "section" : "sections"}${imgBit}${missBit}`
-      : `Live publish recorded in the office — ${ids.length} ${ids.length === 1 ? "section" : "sections"}${imgBit}${missBit} (staged clean until Recover)`;
+    lastLivePullMsg =
+      `Live publish saved here — ${ids.length} ${ids.length === 1 ? "section" : "sections"}${imgBit}${missBit}` +
+      (Object.keys(dirtyOverlap).length ? " (your unsaved edits kept on top)" : "");
     fireToast(lastLivePullMsg + ".", "success");
     notify();
     return { ok: true, pulled: ids, filesRestored: files.restored, filesFailed: files.failed };
@@ -2347,25 +2446,43 @@ export async function startCms() {
       try {
         clearDraftGuestSlot();
       } catch {}
+      /* Fresh, clean and new admin on every new deploy: the drawer place
+         (tab, section, open rows, last page) is per-visit memory — a new
+         deploy starts on the admin home, not where the last deploy left off. */
+      try {
+        sessionStorage.removeItem("wom.cms.drawerView");
+      } catch {}
+      try {
+        sessionStorage.removeItem("wom.cms.drawerOpenSections");
+      } catch {}
+      try {
+        sessionStorage.removeItem("wom.cms.drawerOpenEntry");
+      } catch {}
+      try {
+        sessionStorage.removeItem("wom.cms.drawerTouch");
+      } catch {}
+      try {
+        sessionStorage.removeItem("wom.cms.lastAdminPage");
+      } catch {}
     } catch {}
   }
   try {
     markDeploySeen();
   } catch {}
-  /* New code arrival stages clean (office request: no former publish staged
-     on a new deploy — welcome-home slide only until Recover + Publish).
-     Same-code rebuilds skip this (continuity: routine rebuilds never wipe
-     staged words), and fresh profiles skip it too (no older blessing proves
-     no arrival). Inbound words still record on the office disk; only the
-     staged publishable set starts from defaults. */
+  /* Every new deploy stages clean (office request: every new deploy is
+     fresh, clean and new — welcome-home slide only, no former publish
+     staged, until Recover + Publish). EVERY deploy, EVERY browser: a new
+     deploy ID proves a new deploy, so the staged publishable set starts
+     from defaults and the admin drawer opens fresh. Inbound words still
+     record on the office disk; only the staged set starts clean. */
   try {
-    if (codeChangedSinceBless()) {
+    if (codeChangedSinceBless() || freshDeploy) {
       cleanStageForNewCode = true;
       overrides = {};
       applied = clone(defaults);
       if (!cleanStageToastShown) {
         cleanStageToastShown = true;
-        try { fireToast("New code — staged clean until Recover.", "info"); } catch {}
+        try { fireToast("New deploy — staged clean until Recover.", "info"); } catch {}
       }
     }
   } catch { /* staging falls back to the normal path */ }
@@ -2858,6 +2975,10 @@ async function syncFromServer() {
   if (typeof res.notes === "number") setPublishedNotes(res.notes);
   const notesLifted = publishedNotes > notesBefore;
   const deployLifted = noteDeployWitness((res as any).publishDeploy);
+  /* Same-code attestation rides the same answer: a backend running this code
+     with this code published lifts the number gate headless — a live publish
+     clears the local notice with no tab open and no click needed. */
+  const codeWitnessed = noteCodeWitness((res as any).code, res.notes);
   rev = serverRev;
   updatedAt = res.at || 0;
   updatedBy = res.by || "";
@@ -2897,7 +3018,7 @@ async function syncFromServer() {
       applyOverrides(server);
       writeCache();
     }
-  } else if (notesLifted || deployLifted) {
+  } else if (notesLifted || deployLifted || codeWitnessed) {
     /* Content identical but the publish stamp moved (note 278): bump so the
        maintenance notice re-evaluates instead of sticking with first paint. */
     version += 1;
@@ -3495,22 +3616,28 @@ function healDraftSlides() {
 const SLIDES_RESET_KEY = "wom.cms.slidesReset";
 export function resetSlidesForNewDeploy(): boolean {
   try {
-    /* Code-based token, not per-build (office request: unsaved changes stay
-       clean, clear and empty): content rebuilds share the code, so the reset
-       runs once per code release — a rebuild never re-marks slides as unsaved.
-       A new code release starts the drawer over at the welcome card only. */
-    const token = runningCode ? "c" + runningCode : "n" + BUILD_NOTES;
+    /* Per-deploy token (office request: every new deploy is fresh, clean and
+       new): stamped builds reset once per deploy ID, so old slides never
+       ride a rebuild — while the boot clean-stage (no dirty) means the
+       drawer usually already holds welcome-only and this is a quiet no-op,
+       so rebuilds never re-mark slides as unsaved. Local dev keeps the
+       code token (no stamped deploy there). */
+    const token = deployFromMeta && currentDeployId ? "d" + currentDeployId : runningCode ? "c" + runningCode : "n" + BUILD_NOTES;
     let done = "";
     try {
       done = localStorage.getItem(SLIDES_RESET_KEY) || "";
     } catch {}
     if (done === token) return false;
-    const welcome = SLIDES.find((x) => x.id === "welcome-home") || SLIDES[0];
     const mark = () => {
       try {
         localStorage.setItem(SLIDES_RESET_KEY, token);
       } catch {}
     };
+    /* Every new deploy starts from the welcome-home photo slide only — on
+       every browser, fresh or returning. The boot clean-stage already holds
+       welcome-only, so this is usually a quiet no-op; old uploads never ride
+       into the new deploy's drawer. */
+    const welcome = SLIDES.find((x) => x.id === "welcome-home") || SLIDES[0];
     /* No welcome card shipped would be a blank box — but one always ships, so
        reaching here without one means a bad build: hold the draft untouched. */
     if (!welcome) {
@@ -3898,8 +4025,21 @@ export async function importBackup(text: string): Promise<ImportResult> {
   let filesRestored = 0;
   if (incoming.length) {
     const base = serverUrl();
+    /* Same-origin counts (restore+publish must reach every copy): on a
+       server-backed tab with no office address — live/admin talking to its
+       own backend — the files belong to THIS backend. Refusing them published
+       words that pointed at photos only the restoring tab could paint, so a
+       restore+publish "worked" on one tab and nowhere else. An office
+       address still wins when one is set; localhost keeps its old pass. */
     let reachable = !!base;
-    if (!base) {
+    if (!reachable) {
+      try {
+        reachable = !!(socket && status === "online");
+      } catch {
+        reachable = false;
+      }
+    }
+    if (!reachable) {
       try {
         const host = window.location?.hostname || "";
         reachable = host === "localhost" || host === "127.0.0.1" || host === "";
@@ -3915,10 +4055,12 @@ export async function importBackup(text: string): Promise<ImportResult> {
           const name = String(f?.name || "");
           if (!name || typeof f?.data !== "string" || !f.data) throw 0;
           const type = typeof f?.type === "string" && f.type ? f.type : guessUploadType(name);
+          const blob = base64ToBlob(f.data, type);
+          if (!blob.size) throw 0;
           const res = await fetch(`${base}/__restore-file?name=${encodeURIComponent(name)}`, {
             method: "POST",
             headers: { "content-type": type },
-            body: base64ToBlob(f.data, type),
+            body: blob,
           });
           if (!res.ok) throw 0;
           /* Read it back (note 346): a 200 that never became a file used to
@@ -3933,6 +4075,13 @@ export async function importBackup(text: string): Promise<ImportResult> {
           }
           if (!verified) throw 0;
           filesRestored++;
+          /* This browser keeps what it restored: the tab paints instantly
+             and can heal other copies, instead of depending on one disk. */
+          try {
+            await cacheUploadBlob(name, blob);
+          } catch {
+            /* the server copy above is what matters */
+          }
         } catch {
           if (f && typeof f.name === "string") filesFailed.push(f.name);
         }
@@ -3944,7 +4093,7 @@ export async function importBackup(text: string): Promise<ImportResult> {
 
 /* ----------------------------------------------------------------- publish */
 
-export type PublishResult = { ok: boolean; error?: string; local?: boolean };
+export type PublishResult = { ok: boolean; error?: string; local?: boolean; live?: boolean };
 
 /** Only the sections that differ from what is live are sent. */
 function buildPatch(target: Snapshot): { sections: Record<string, string | null>; changed: string[] } {
@@ -3987,7 +4136,209 @@ function convergeNow(): void {
   } catch {}
 }
 
-/** Send a patch in batches that stay well inside the server's CPU budget. */
+/* Every publish reflects everywhere (office request: a Publish click saves to
+   the visitors website from live/admin AND local/admin, and clears the
+   notice on live AND local): the office copy's backend reaches the live box
+   on its own (minute follow + instant push), but the live box cannot reach a
+   localhost office — so without a public mirror an office publish only
+   reached live after the rebuild, minutes later. The publishing tab itself
+   can reach BOTH (it reads live for the fold already), so after every
+   deliberate office publish it relays the same words straight to the live
+   backend with this tab's own session — live visitors and live/admin land it
+   in seconds via the live backend's own shout, with no feed and no rebuild.
+   Best-effort: a denied login (live password differs), 2FA on live, or an
+   unreachable live box simply leaves the minute loops, the feed and the
+   rebuild to carry the publish as before — and the click now SAYS so instead
+   of claiming every visitor is updated. */
+/** Where live is for a relay: "" on the live box itself (it IS live — the
+    backend loop owns that direction, nothing to reach). */
+async function relayLiveBase(): Promise<string> {
+  try {
+    const base = await liveBaseUrl().catch(() => "");
+    if (!base || !/^https?:\/\/[^/\s]+$/i.test(base)) return "";
+    return base;
+  } catch {
+    return "";
+  }
+}
+/* One relay fetch with its own deadline, so awaiting the relay can never
+   hold a Publish click hostage on a stalled network. */
+async function relayFetch(url: string, body: string, ms = 8000): Promise<Response> {
+  const ctrl = typeof AbortController !== "undefined" ? new AbortController() : null;
+  const timer = ctrl ? window.setTimeout(() => ctrl.abort(), ms) : 0;
+  try {
+    return await fetch(url, {
+      method: "POST",
+      headers: { "content-type": "text/plain;charset=utf-8" },
+      body,
+      signal: ctrl ? ctrl.signal : undefined,
+    });
+  } finally {
+    if (timer) window.clearTimeout(timer as ReturnType<typeof setTimeout>);
+  }
+}
+/* The relay's word leg, awaited by explicit Publish clicks and bounded end to
+   end: "landed" (live took the words — its visitors and its notice follow at
+   once), "unneeded" (this IS live, or no session to knock with — the loops
+   own it), or "missed" (denied, 2FA, unreachable, timed out — the minute
+   loops, the feed and the rebuild carry it). Never throws. */
+async function relayPublishWordsToLive(
+  sections: Record<string, string | null>,
+  changed: string[],
+  note: string
+): Promise<"landed" | "missed" | "unneeded"> {
+  const run = async (): Promise<"landed" | "missed" | "unneeded"> => {
+    const base = await relayLiveBase();
+    if (!base) return "unneeded";
+    let pw = "";
+    try {
+      pw = sessionPassword();
+    } catch {
+      pw = "";
+    }
+    if (!pw) return "unneeded";
+    const conn = "relay-" + Math.random().toString(36).slice(2) + Date.now().toString(36);
+    try {
+      const login = await relayFetch(base + "/__cms/login?conn=" + encodeURIComponent(conn), JSON.stringify({ password: pw, want: "main" }));
+      if (!login.ok) return "missed";
+      const data = await login.json().catch(() => null);
+      if (!data || data.ok !== true || (data as any).needCode) return "missed";
+    } catch {
+      return "missed";
+    }
+    /* The relay blesses LIVE's own deploy, never ours: our deploy id would
+       name a build the live box never served, and its visitors would keep
+       waiting. Unknown deploy still rides the words (old-deploys see them);
+       the witness just waits for the rebuild. */
+    let liveDeploy = "";
+    try {
+      const ctrl = typeof AbortController !== "undefined" ? new AbortController() : null;
+      const timer = ctrl ? window.setTimeout(() => ctrl.abort(), 8000) : 0;
+      try {
+        const res = await fetch(base + "/version.json?t=" + Date.now(), {
+          cache: "no-store",
+          headers: { pragma: "no-cache", "cache-control": "no-cache" },
+          signal: ctrl ? ctrl.signal : undefined,
+        });
+        if (res.ok) {
+          const data = await res.json().catch(() => null);
+          const d = String((data && (data as any).deployId) || "");
+          if (/^[A-Za-z0-9_-]{1,80}$/.test(d)) liveDeploy = d;
+        }
+      } finally {
+        if (timer) window.clearTimeout(timer as ReturnType<typeof setTimeout>);
+      }
+    } catch {
+      /* words still ride without the witness */
+    }
+    const ids = (Array.isArray(changed) ? changed : []).filter((id) => /^[a-zA-Z][a-zA-Z0-9-]{0,31}$/.test(id));
+    const batches: string[][] = [];
+    let cur: string[] = [];
+    let size = 0;
+    for (const id of ids) {
+      const chars = sections[id] ? (sections[id] as string).length : 0;
+      if (cur.length && (size + chars > BATCH_CHARS || cur.length >= BATCH_SECTIONS)) {
+        batches.push(cur);
+        cur = [];
+        size = 0;
+      }
+      cur.push(id);
+      size += chars;
+    }
+    if (cur.length) batches.push(cur);
+    if (!batches.length) batches.push([]);
+    for (let b = 0; b < batches.length; b++) {
+      const part: Record<string, string | null> = {};
+      batches[b].forEach((id) => (part[id] = sections[id]));
+      try {
+        const res = await relayFetch(
+          base + "/__cms/publish?conn=" + encodeURIComponent(conn),
+          JSON.stringify({
+            sections: part,
+            note: String(note || "").slice(0, 160),
+            by: editorName(),
+            changed: batches[b],
+            notes: BUILD_NOTES,
+            deploy: liveDeploy,
+            first: b === 0,
+            quiet: b < batches.length - 1,
+          })
+        );
+        if (!res.ok) return "missed";
+        const data = await res.json().catch(() => null);
+        if (!data || data.ok !== true) return "missed";
+      } catch {
+        return "missed";
+      }
+    }
+    return "landed";
+  };
+  try {
+    /* Bounded end to end: the words usually land in a couple of seconds; past
+       the bound the loops are already carrying them, so report missed. */
+    return await Promise.race([
+      run(),
+      new Promise<"missed">((res) => window.setTimeout(() => res("missed"), 25000)),
+    ]);
+  } catch {
+    return "missed";
+  }
+}
+/* The relay's photo leg: every upload the relayed sections point at is read
+   off this copy's own disk and written straight to the live disk under its
+   exact name, so the relayed words point at working photos at once instead
+   of waiting out the mirror push. Always background (photos can be big) —
+   oversize files stay where published (the backfill/mirror log names them);
+   failures leave the minute loops to carry them. Kicked off once the words
+   land; never throws, never awaits. */
+function relayUploadsToLive(sections: Record<string, string | null>): void {
+  (async () => {
+    const base = await relayLiveBase();
+    if (!base) return;
+    try {
+      const names = localUploadNames(sections).slice(0, 30);
+      for (const name of names) {
+        try {
+          const got = await fetch("/data/uploads/" + name, { cache: "no-store" });
+          if (!got.ok) continue;
+          const blob = await got.blob();
+          if (!blob || !blob.size || blob.size > 90 * 1024 * 1024) continue;
+          await fetch(base + "/__restore-file?name=" + encodeURIComponent(name), {
+            method: "POST",
+            headers: { "content-type": (blob as any).type || guessUploadType(name) },
+            body: blob,
+          }).catch(() => null);
+        } catch {
+          /* next file — the loops backstop */
+        }
+      }
+    } catch {
+      /* words already landed above */
+    }
+  })().catch(() => {});
+}
+/* The background chain for automatic sends (live pull, offline flush): words
+   ride when they can, photos chase them, and nothing ever waits. */
+function relayInBackground(sections: Record<string, string | null>, changed: string[], note: string): void {
+  try {
+    relayPublishWordsToLive(sections, changed, note)
+      .then((outcome) => {
+        if (outcome === "landed") {
+          try {
+            relayUploadsToLive(sections);
+          } catch {}
+        }
+      })
+      .catch(() => {});
+  } catch {
+    /* the loops carry the publish */
+  }
+}
+
+/** Send a patch in batches that stay well inside the server's CPU budget.
+    `awaitRelay` is for explicit Publish clicks only: the click waits
+    (bounded) for the live relay's word leg and reports whether live visitors
+    got it — background sends (live pull, offline flush) never wait. */
 async function sendPatch(
   sections: Record<string, string | null>,
   changed: string[],
@@ -3997,8 +4348,9 @@ async function sendPatch(
      moves to this code and waiting visitors are released. False for the
      automatic heal that puts words back on an emptied server: the words
      return but the notice stays until the office really publishes. */
-  bless = true
-): Promise<{ ok: boolean; error?: string; rev?: number; sent: string[]; failed?: string[] }> {
+  bless = true,
+  awaitRelay = false
+): Promise<{ ok: boolean; error?: string; rev?: number; sent: string[]; failed?: string[]; relay?: "landed" | "missed" | "unneeded" }> {
   const batches: string[][] = [];
   let current: string[] = [];
   let size = 0;
@@ -4065,7 +4417,33 @@ async function sendPatch(
      concurrent words, the feed mirror, the Tools numbers. Same guarded paths
      the minute loops take; best-effort, never throws. */
   if (bless) convergeNow();
-  return { ok: true, rev: lastRev, sent };
+  /* Every publish reflects everywhere: relay these same words straight to the
+     live backend (office -> live in seconds, no feed or rebuild wait). The
+     office publish above already succeeded. Explicit clicks await the word
+     leg (bounded) and report it, so the toast can say whether live visitors
+     got it or the loops are carrying it; background sends never wait. */
+  let relay: "landed" | "missed" | "unneeded" = "unneeded";
+  if (bless) {
+    if (awaitRelay) {
+      try {
+        relay = await relayPublishWordsToLive(sections, changed, note);
+      } catch {
+        relay = "missed";
+      }
+      if (relay === "landed") {
+        try {
+          relayUploadsToLive(sections);
+        } catch {}
+      }
+    } else {
+      try {
+        relayInBackground(sections, changed, note);
+      } catch {
+        /* the loops carry the publish */
+      }
+    }
+  }
+  return { ok: true, rev: lastRev, sent, relay };
 }
 
 /** Put the draft live. `content` is only for the publish that waited on a save. */
@@ -4090,22 +4468,25 @@ export async function publish(note: string, content?: Snapshot): Promise<Publish
 
   if (!changed.length) {
     draft = null;
-    if (publishedNotes >= BUILD_NOTES) {
-      /* Deploy lock: a no-change Publish still blesses THIS deploy — without
-         this the notice would stay after publishing on a fresh deploy. Local,
-         live/admin, everywhere: the click always counts. */
-      markDeployPublished();
-      notify();
-      return { ok: true };
-    }
-    /* Visitors are waiting and Publish was clicked with no content changes:
-       bless the current update so maintenance lifts (note 250: even with no
-       server reachable — a local Publish blesses this copy, the server sync
-       carries it on when the connection returns). The stamp is cached with
-       the words (note 306), so a host sleep afterwards changes nothing. */
-    if (!socket || status !== "online") {
+    /* A Publish click always counts everywhere (office request: the click
+       must apply to the visitors website — live and local): even when this
+       copy already holds the stamp, the server and the live box may not — a
+       restart wiped the server's stamp, the live box blesses its own deploy
+       — so a no-change Publish still blesses THIS deploy through the same
+       bless-only sendPatch every other publish rides (server stamp,
+       converge, live relay), instead of stopping at this browser with a
+       success toast while visitors elsewhere keep waiting. Copies with no
+       server anywhere keep the local bless below. */
+    /* One click publishes to visitors: the join gets a few seconds first
+       (see joinBeforePublish) before this copy settles for device-only. */
+    if (!(await joinBeforePublish())) {
       setPublishedNotes(BUILD_NOTES);
       blessRunningCode();
+      /* An offline bless ends the clean stage on this copy too — the office
+         published, so inbound words may stage again like any other publish.
+         The stamp is cached with the words (note 306), so a host sleep
+         afterwards changes nothing. */
+      markDeployPublished();
       writeCache();
       notify();
       return { ok: true, local: true };
@@ -4121,16 +4502,18 @@ export async function publish(note: string, content?: Snapshot): Promise<Publish
         return { ok: false, error: "unauthorized" };
       }
     }
-    const bless = await sendPatch({}, [], note.slice(0, 160));
+    const bless = await sendPatch({}, [], note.slice(0, 160), true, true);
     if (!bless.ok) return { ok: false, error: bless.error };
     rev = bless.rev ?? rev + 1;
     setPublishedNotes(BUILD_NOTES);
     writeCache();
     notify();
-    return { ok: true };
+    return { ok: true, live: bless.relay !== "missed" };
   }
 
-  if (!socket || status !== "online") {
+  /* One click publishes to visitors: the join gets a few seconds first
+     (see joinBeforePublish) before this copy settles for device-only. */
+  if (!(await joinBeforePublish())) {
     // No server reachable: keep the site working locally and remember the
     // override set so it can be sent the moment the connection returns.
     // This still blesses the current update on this copy, so a local Publish
@@ -4173,7 +4556,7 @@ export async function publish(note: string, content?: Snapshot): Promise<Publish
   }
 
   rememberHistory();
-  const result = await sendPatch(sections, changed, payloadNote);
+  const result = await sendPatch(sections, changed, payloadNote, true, true);
   if (!result.ok) {
     if (result.sent.length) {
       // Part of the patch landed; keep the site consistent with what is stored.
@@ -4201,7 +4584,7 @@ export async function publish(note: string, content?: Snapshot): Promise<Publish
     localStorage.removeItem(DRAFT_KEY);
   } catch {}
   notify();
-  return { ok: true };
+  return { ok: true, live: result.relay !== "missed" };
 }
 
 export async function clearLog(): Promise<{ ok: boolean; error?: string }> {
@@ -4342,6 +4725,10 @@ export async function flushPending(): Promise<boolean> {
   writeCache();
   applyOverrides(overrides);
   log = [{ rev, at: Date.now(), by: editorName(), role: myRole === "sub" ? "sub" : "main", note: "Offline changes published", changed: ids }, ...log].slice(0, 30);
+  /* One click publishes to visitors: a device-only publish that finally lands
+     says so out loud — otherwise the office never knows the visitors caught
+     up. Only on a real send (the empty-queue clear above stays quiet). */
+  fireToast("Connection is back — your queued changes are now live for every visitor.", "success");
   notify();
   return true;
 }
@@ -4370,7 +4757,26 @@ export async function undoLastPublish(): Promise<PublishResult> {
         rev = typeof res.rev === "number" ? res.rev : rev;
         undoUntilAt = 0;
         await syncFromServer().catch(() => {});
-        return { ok: true };
+        /* An undo is a publish the other way: live learns it at once through
+           the same relay, so its visitors and its notice follow right away
+           instead of waiting out the loops. */
+        let live = true;
+        try {
+          const snap = getOverrides();
+          const secs: Record<string, string | null> = {};
+          const ids = Object.keys(snap);
+          ids.forEach((id) => (secs[id] = JSON.stringify((snap as Snapshot)[id])));
+          const outcome = await relayPublishWordsToLive(secs, ids, "Undid the last publish");
+          if (outcome === "landed") {
+            try {
+              relayUploadsToLive(secs);
+            } catch {}
+          }
+          live = outcome !== "missed";
+        } catch {
+          live = false;
+        }
+        return { ok: true, live };
       }
       if (res?.err !== "expired") return { ok: false, error: res?.err || "failed" };
       undoUntilAt = 0;
@@ -4408,7 +4814,7 @@ export async function undoLastPublish(): Promise<PublishResult> {
   }
   if (!ids.length) return { ok: false, error: "nothing-to-undo" };
 
-  const result = await sendPatch(sections, ids, "Rolled back to the previous revision");
+  const result = await sendPatch(sections, ids, "Rolled back to the previous revision", true, true);
   if (!result.ok) return { ok: false, error: result.error };
 
   history = history.slice(1);
@@ -4419,7 +4825,7 @@ export async function undoLastPublish(): Promise<PublishResult> {
   applyOverrides(overrides, false);
   writeCache();
   await syncFromServer().catch(() => {});
-  return { ok: true };
+  return { ok: true, live: result.relay !== "missed" };
 }
 
 /** Drop every stored override, so the site shows exactly the shipped content. */
@@ -4441,7 +4847,7 @@ export async function clearAllOverrides(): Promise<PublishResult> {
   const sections: Record<string, string | null> = {};
   ids.forEach((id) => (sections[id] = null));
   rememberHistory();
-  const result = await sendPatch(sections, ids, "Restored the shipped defaults");
+  const result = await sendPatch(sections, ids, "Restored the shipped defaults", true, true);
   if (!result.ok) return { ok: false, error: result.error };
   rev = result.rev ?? rev + 1;
   setPublishedNotes(BUILD_NOTES);
@@ -4449,7 +4855,7 @@ export async function clearAllOverrides(): Promise<PublishResult> {
   applyOverrides({}, false);
   writeCache();
   notify();
-  return { ok: true };
+  return { ok: true, live: result.relay !== "missed" };
 }
 
 /* ----------------------------------------------------------------- helpers */

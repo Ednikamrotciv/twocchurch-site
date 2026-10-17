@@ -34,14 +34,11 @@ something similar — build command, output / publish directory):
 
 ## Holding visitors in maintenance
 
-New code normally holds visitors by itself (it is newer than the last
-publish), but when there is no older stamp to be newer than — a fresh backend,
-a wiped disk — a deploy would open straight away. To hold visitors until you
-publish anyway, keep the `maintenance-hold.txt` file beside `package.json`,
-then build and upload as usual. Fresh visitors see the maintenance notice;
-publishing from the admin console releases them on the spot, with no rebuild.
-Delete the file when holding should stop — it never leaves your computer
-(git-ignored), so hosts rebuilding from git always ship clean.
+Every new deploy holds visitors on the maintenance notice until you publish —
+always, on every deploy, no exceptions. Each build stamps a fresh deploy ID,
+and fresh visitors wait until a publish from that deploy lands. Publishing
+from the admin console releases them on the spot and steps out to the
+visitors website at once, with no rebuild.
 
 ## Clean new deploys (option A)
 
@@ -61,10 +58,12 @@ The first Publish consumes the file by itself (the push commit deletes it),
 so the next rebuild carries words and wakes serve them — no second trip.
 Without the file, deploys carry words exactly as before.
 
-New code also stages clean on its own: the office copy opens on defaults
-(welcome-home slide only) instead of the former publish, until you Recover,
-edit, or Publish — staging anything ends it. Same-code rebuilds keep
-continuity and never wipe staged words.
+Every new deploy also stages clean on its own, on every browser: the admin
+copy opens fresh, new and clean on defaults (welcome-home photo slide only —
+src/assets/img/welcome.jpg) instead of the former publish, with unsaved
+changes empty and the drawer on the admin home — until you Recover, edit, or
+Publish. A live/admin publish ends the clean stage on local/admin by itself
+(see below), so local never needs a second Publish click.
 
 ## The update routine
 
@@ -72,10 +71,12 @@ Publish from the admin console on your own computer and you are done — with
 the live feed below, every copy catches up within minutes with no rebuild.
 Without the feed, rebuild and re-upload after publishing
 (`npm run build`, upload `dist/`).
-Live/admin is the general control: a publish clicked on live/admin records
-itself on the office copy too (while an office tab is open and signed in),
-even if the office never published on the running code — gates still take an
-explicit Publish, and mid-edit desks wait rather than adopt under.
+Live/admin is the general control: a publish clicked on live/admin lands on
+local/admin by itself (while an office tab is open and signed in) — no second
+Publish click on local/admin needed. The live words record on the office disk,
+stage at once (your unsaved edits stay on top where you touched them), and
+local waiting lifts with them. Even a new-deploy clean stage on local ends
+here: a live publish IS office review.
 
 ## The live feed (content without rebuilds)
 

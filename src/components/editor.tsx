@@ -53,6 +53,7 @@ import {
   sectionIsHidden,
 } from "../lib/cmsSchema";
 import * as cms from "../lib/cms";
+import { navigate } from "../lib/router";
 import { cacheUploadBlob, uploadNameOf, useCachedUploadUrl } from "../lib/uploadCache";
 import { serverUrl } from "../lib/remoteserver";
 
@@ -1952,17 +1953,25 @@ export function PublishModal({ open, onClose, state }: { open: boolean; onClose:
       tries += 1;
       if (!cms.websiteIsUnsaved()) {
         window.clearInterval(timer);
+        const wasWaiting = cms.maintenanceShouldWait();
         const res = await cms.finishPlannedPublish();
         setSaving(false);
         if (res && res.ok) {
           fireToast(
             res.local
               ? "The website is saved. The shared server was unreachable, so your changes are on this device until it is back."
+              : res.live === false
+              ? "Saved, and published here. The live site follows within a minute."
               : "Saved, and published — every visitor sees the new content right away.",
-            res.local ? "info" : "success"
+            res.local || res.live === false ? "info" : "success"
           );
           setNote("");
           onClose();
+          /* Every new deploy holds visitors on maintenance until Publish —
+             a Publish that clears it steps out to the visitors website. */
+          try {
+            if (wasWaiting && !cms.maintenanceShouldWait()) navigate("/", undefined, { plain: true });
+          } catch {}
         } else {
           setSaveFailed(true);
         }
@@ -1986,18 +1995,29 @@ export function PublishModal({ open, onClose, state }: { open: boolean; onClose:
         return;
       }
     }
+    const wasWaiting = cms.maintenanceShouldWait();
     setBusy(true);
     const res = await cms.publish(note || defaultNote(changed));
     setBusy(false);
     if (res.ok) {
+      /* The click reports what it actually reached (office request: a Publish
+         saves to the visitors website from either admin): device-only, here
+         with live following, or everywhere at once. */
       fireToast(
         res.local
           ? "Saved on this device. The shared server was unreachable, so other visitors are not updated yet."
+          : res.live === false
+          ? "Published here. The live site follows within a minute."
           : "Published. Every visitor sees the new content right away.",
-        res.local ? "info" : "success"
+        res.local || res.live === false ? "info" : "success"
       );
       setNote("");
       onClose();
+      /* Every new deploy holds visitors on maintenance until Publish — a
+         Publish that clears it steps out to the visitors website at once. */
+      try {
+        if (wasWaiting && !cms.maintenanceShouldWait()) navigate("/", undefined, { plain: true });
+      } catch {}
     } else {
       fireToast(
         res.error === "unauthorized"
@@ -2080,6 +2100,13 @@ export function PublishModal({ open, onClose, state }: { open: boolean; onClose:
 
           {saveNotice}
 
+          {state.authed && state.status !== "online" && (
+            <Notice tone="sky">
+              Not connected to the shared server right now — Publish tries to connect first, and anything it cannot
+              send is queued on this device and published by itself when the connection returns.
+            </Notice>
+          )}
+
           {!state.authed && (
             <Notice tone="crimson">
               You are not signed in to the shared server, so this publish will only apply to this browser.
@@ -2107,7 +2134,13 @@ export function ToolsPage() {
     setBusy(true);
     const res = await cms.undoLastPublish();
     setBusy(false);
-    fireToast(res.ok ? "Rolled back to the previous revision." : `Could not roll back (${res.error}).`, res.ok ? "success" : "error");
+    if (!res.ok) {
+      fireToast(`Could not roll back (${res.error}).`, "error");
+    } else if (res.live === false) {
+      fireToast("Rolled back here. The live site follows within a minute.", "info");
+    } else {
+      fireToast("Rolled back to the previous revision.", "success");
+    }
   };
   /* The ~15-minute server undo window counts down live while it is open. */
   const [, setUndoTick] = useState(0);

@@ -48,7 +48,7 @@ export const SLIDES: AnnouncementSlide[] = [
      blank on local or on a fresh deploy. */
   {
     id: "welcome-home",
-    image: "src/assets/img/choir.jpg",
+    image: "src/assets/img/welcome.jpg",
     headline: "Welcome home",
     line: "First Sunday or fiftieth — there is a seat here with your name on it.",
     cta: "Plan your visit",
