@@ -1823,5 +1823,19 @@ const notes = Number((text["src/lib/hooks.ts"].match(/BUILD_NOTES = (\d+)/) || [
   const apply = text["APPLY_UPDATE.txt"];
   ok("update number consistent", notes > 0 && has(apply, `APPLY THIS UPDATE (${notes})`), "hooks=" + notes);
   ok("pre-bundle notes match", notes > 0 && has(text["index.html"], `name="wom-notes" content="${notes}"`), "the pre-bundle paint must know the running update");
+  /* Unnumbered stale fix (no new number): the running code carries an opaque
+     word — compared by equality, never ordered — so a stale stamp from older
+     code can never release the fix on vscode or on deploy. */
+  const codeId = (text["src/lib/hooks.ts"].match(/export const CODE_ID = "([A-Za-z0-9_-]+)"/) || [])[1] || "";
+  const cmsTail = text["src/lib/cms.ts"];
+  ok("code word unnumbered", codeId !== "" && !/\d/.test(codeId), "the fix must ship with no new number");
+  ok("entry page names the code", has(text["index.html"], `name="wom-code" content="${codeId}"`), "the pre-bundle paint must know the running code");
+  ok("entry gate holds unblessed code", has(text["index.html"], "wom.cms.codeBlessed"), "a stale stamp must never skip the early notice");
+  ok("gates require the blessing", cmsTail.split("codeBlessedMatches()) return false").length - 1 >= 2, "both local gates must hold until Publish blesses this code");
+  ok("publish blesses the code", has(cmsTail, "function blessRunningCode()") && has(cmsTail, "blessRunningCode();"), "an explicit Publish must bless, witnesses never except same-deploy");
+  ok("reset clears the blessing", has(cmsTail, "CODE_BLESS_KEY,"), "an explicit office delete must unbless");
+  ok("stale poll hears code drift", has(cmsTail, "codeIsNew") && has(cmsTail, "staleCodeMismatch"), "a different code in version.json must wait and reload like any newer update");
+  ok("build stamps the code", has(text["scripts/build-static.mjs"], "code: codeWord") && has(text["scripts/build-static.mjs"], "code word stamped into dist/index.html"), "version.json and the entry page must name the code");
+  ok("server warns on code drift", has(text["scripts/serve.mjs"], "DIST_CODE !== SRC_CODE"), "a dist baked from older code must never serve silent");
   return out.join("\n");
 }

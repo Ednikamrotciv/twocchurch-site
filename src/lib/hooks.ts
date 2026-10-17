@@ -109,11 +109,16 @@ export function useLocalState<T>(key: string, initial: T) {
    every SPEC note so a stale deploy is spotted, not guessed (note 244). */
 export const BUILD_NOTES = 413;
 export const BUILD_DATE = "2026-10-13";
+/* Unnumbered code identity (the stale fix ships with no new number): an opaque
+   word naming the running code, compared by equality only — never ordered — so
+   a stale cache can never invert it the way stale numbers did. An explicit
+   office Publish blesses it; the maintenance gates hold until then. */
+export const CODE_ID = "stalefree";
 export function buildStamp() {
-  return { notes: BUILD_NOTES, built: BUILD_DATE };
+  return { notes: BUILD_NOTES, built: BUILD_DATE, code: CODE_ID };
 }
 if (typeof window !== "undefined") {
-  (window as unknown as { __womBuild?: { notes: number; built: string } }).__womBuild = buildStamp();
+  (window as unknown as { __womBuild?: { notes: number; built: string; code: string } }).__womBuild = buildStamp();
 }
 
 /* ---------- toasts (module level so any code can fire one) ---------- */

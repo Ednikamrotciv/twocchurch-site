@@ -52,11 +52,32 @@ try {
 } catch {
   /* built before version stamps — treated as old */
 }
+/* Unnumbered code word (stale fix, no new number): a dist baked from older
+   code can never pass silently even when the update number is unchanged. */
+let SRC_CODE = "";
+try {
+  const srcHooks = await readFile(path.join(ROOT, "src", "lib", "hooks.ts"), "utf8");
+  const cm = /export const CODE_ID = "([A-Za-z0-9_-]+)"/.exec(srcHooks);
+  if (cm) SRC_CODE = cm[1];
+} catch {
+  /* stamp unreadable — the page stamp still shows */
+}
+let DIST_CODE = "";
+try {
+  DIST_CODE = String(JSON.parse(await readFile(path.join(DIST, "version.json"), "utf8")).code || "");
+} catch {
+  /* built before code words — treated as old */
+}
 if (SRC_NOTES) console.log(`site update ${SRC_NOTES} (the same number is in version.json)`);
 if (SRC_NOTES && DIST_NOTES && DIST_NOTES < SRC_NOTES) {
   console.warn(`OLD BUILD: dist/ is update ${DIST_NOTES} but this folder is update ${SRC_NOTES} — run \`npm run build\` before \`npm start\`, or use \`npm run dev\`.`);
 } else if (SRC_NOTES && !DIST_NOTES) {
   console.warn(`dist/ has no version stamp (built before update stamps) — run \`npm run build\` so dist/ matches update ${SRC_NOTES}.`);
+}
+if (SRC_CODE && DIST_CODE && DIST_CODE !== SRC_CODE) {
+  console.warn(`OLD BUILD: dist/ carries code "${DIST_CODE}" but this folder is code "${SRC_CODE}" — run \`npm run build\` before \`npm start\`, or use \`npm run dev\`.`);
+} else if (SRC_CODE && !DIST_CODE) {
+  console.warn(`dist/ has no code word (built before code words) — run \`npm run build\` so dist/ matches code "${SRC_CODE}".`);
 }
 
 const cms = await (async () => {

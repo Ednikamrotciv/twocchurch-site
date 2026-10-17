@@ -4,6 +4,10 @@
      notice before React boots whenever this copy has not published it yet.
      Bump with BUILD_NOTES (src/lib/hooks.ts) on every update. -->
 <meta name="wom-notes" content="413" />
+<!-- The shipped code word (unnumbered stale fix): names the running code with
+     no number, so the gate below holds for this fix even though the update
+     number is unchanged. build-static.mjs stamps it from hooks.ts CODE_ID. -->
+<meta name="wom-code" content="stalefree" />
 
 <meta name="theme-color" content="#08080a">
 <title>The World Overcomers' Ministries Inc. — Where Champions Are Raised in Christ</title>
@@ -140,6 +144,24 @@
         var mp = parseInt(String(mc || ""), 10);
         if (isFinite(mp) && mp > 0) shipped = Math.floor(mp);
         if (shipped > 0 && stored < shipped) {
+          paintMaint();
+          return;
+        }
+      } catch (e) {}
+      /* Unnumbered code lock (the stale fix ships with no new number): the
+         wom-code meta above names the running code, and the app's Publish
+         records it in wom.cms.codeBlessed. A stale stamp from older code can
+         never match it, so the notice paints before React boots whenever this
+         code has not been published yet — no bundle, no version.json, no
+         server needed. */
+      try {
+        var codeMeta = document.querySelector('meta[name="wom-code"]');
+        var codeContent = codeMeta ? codeMeta.getAttribute("content") : "";
+        var blessedCode = null;
+        try {
+          blessedCode = window.localStorage ? window.localStorage.getItem("wom.cms.codeBlessed") : null;
+        } catch (e2) {}
+        if (codeContent && blessedCode !== codeContent) {
           paintMaint();
           return;
         }

@@ -12,7 +12,7 @@ import { fireToast } from "./hooks";
 import { createRemoteSocket, initServerUrl, refreshServerUrl, serverOverride, serverUrl, setServerOverride } from "./remoteserver";
 import { applyBakedRecent, clearRecentCaches } from "./recentstreams";
 import { bakedFeedSpec, feedIsNewer, peekSeed, siteFile, type FeedSeed, type FeedSpec } from "./livefeed";
-import { BUILD_NOTES } from "./hooks";
+import { BUILD_NOTES, CODE_ID } from "./hooks";
 import { cleanChannelInput } from "./embed";
 import { cacheUploadBlob, dataUrlToBlob, getCachedDataUrl, uploadNameOf } from "./uploadCache";
 import { setLiveReportSink } from "./livestatus";
@@ -86,8 +86,51 @@ try {
 } catch {
   publishedDeployId = "";
 }
+/* Unnumbered code identity (the stale fix ships with no new number): the served
+   document names its code in the wom-code meta (build-static stamps it from
+   hooks.ts; the source file carries the same word for dev). Compared by
+   equality only — a stale cache can never invert it. An explicit office Publish
+   blesses it (see markDeployPublished); the local gates hold until then, so the
+   fix arrives fresh on vscode even though the update number is unchanged. */
+const CODE_BLESS_KEY = "wom.cms.codeBlessed";
+function readMetaCode(): string {
+  try {
+    if (typeof document === "undefined") return "";
+    const m = document.querySelector('meta[name="wom-code"]');
+    const c = m ? m.getAttribute("content") : "";
+    if (typeof c === "string" && /^[A-Za-z0-9_-]{1,40}$/.test(c)) return c;
+  } catch {}
+  return "";
+}
+let runningCode = "";
+try {
+  runningCode = readMetaCode() || CODE_ID;
+} catch {
+  runningCode = CODE_ID;
+}
+/** True once an explicit office Publish from THIS code blessed it. */
+function codeBlessedMatches(): boolean {
+  try {
+    if (!runningCode) return false;
+    return localStorage.getItem(CODE_BLESS_KEY) === runningCode;
+  } catch {
+    return false;
+  }
+}
+/** Bless the running code: explicit office publishes only — never witnesses,
+    except a same-deploy witness, which IS this build's code by definition. */
+function blessRunningCode(): void {
+  try {
+    if (runningCode) localStorage.setItem(CODE_BLESS_KEY, runningCode);
+  } catch {}
+}
 /** An explicit office publish on this copy releases this deploy at once. */
 function markDeployPublished(): boolean {
+  /* Every explicit office publish on this copy also blesses the running code
+     (unnumbered stale fix): local, live/admin, everywhere — even with no
+     deploy stamped. A same-deploy witness below blesses too: the same deploy
+     ID is the same build's code. */
+  blessRunningCode();
   if (!currentDeployId || !deployFromMeta) return false;
   if (publishedDeployId === currentDeployId) return false;
   publishedDeployId = currentDeployId;
@@ -154,6 +197,7 @@ if (typeof window !== "undefined") {
     publishedDeploy: publishedDeployId,
     deployLocked: deployFromMeta,
     buildNotes: BUILD_NOTES,
+    code: runningCode,
     liveSiteNotes,
     liveSiteBase,
     liveBakeNotes,
@@ -320,7 +364,7 @@ export function maintenanceShouldWait(): boolean {
      server reachable (note 250), so this lock always has a release. Note 301:
      a corrupt stamp is unreviewed, never published — it waits too. */
   const held = typeof publishedNotes === "number" && Number.isFinite(publishedNotes) ? Math.floor(publishedNotes) : 0;
-  if (held >= BUILD_NOTES) return false;
+  if (held >= BUILD_NOTES && codeBlessedMatches()) return false;
   return true;
 }
 /* True while visitors must wait: new code is ahead of the last publish.
@@ -364,10 +408,10 @@ export function useMaintenance(): boolean {
   }
   /* No stamped deploy (local dev): same lock as maintenanceShouldWait — every
      new fix waits until the office publishes (note 250: a local Publish always
-     releases). The office preview pass still bypasses. Note 301: a corrupt
-     stamp is unreviewed, never published. */
+     releases). The office preview pass still bypasses.
+     Note 301: a corrupt stamp is unreviewed, never published. */
   const held = typeof publishedNotes === "number" && Number.isFinite(publishedNotes) ? Math.floor(publishedNotes) : 0;
-  if (held >= BUILD_NOTES) return false;
+  if (held >= BUILD_NOTES && codeBlessedMatches()) return false;
   try {
     if (maintenancePreview()) return false;
   } catch {}
@@ -399,6 +443,10 @@ const STALE_MAX_TRIES = 5;
 const STALE_WINDOW_MS = 10 * 60 * 1000;
 /* The newest update version.json has named (0 = none known yet). */
 let staleNewerNotes = 0;
+/* Unnumbered code drift (no new number): version.json names its code without a
+   number — a different code is a different build by definition (mixed-asset
+   serve, hand-copied dist). While known, this copy waits like any stale one. */
+let staleCodeMismatch = false;
 let staleCheckSettled = false;
 let staleCheckRunning: Promise<void> | null = null;
 function readStaleAttempts(): { notes: number; at: number; tries: number } | null {
@@ -415,7 +463,7 @@ function readStaleAttempts(): { notes: number; at: number; tries: number } | nul
 /** True while version.json names a newer update than this bundle (note 302):
     visitors wait on maintenance until the reload lands them on the new code. */
 export function isStaleWaiting(): boolean {
-  return staleNewerNotes > BUILD_NOTES;
+  return staleNewerNotes > BUILD_NOTES || staleCodeMismatch;
 }
 /** True once the first version.json check has settled (found newer or not). */
 export function isStaleCheckSettled(): boolean {
@@ -450,15 +498,23 @@ export function checkStaleBuild(): Promise<void> {
         deployFromMeta &&
         !!currentDeployId &&
         vDeploy !== currentDeployId;
-      if (!deployIsNew && (!Number.isFinite(n) || n <= BUILD_NOTES)) {
-        if (staleNewerNotes) {
+      /* Unnumbered code drift: a version.json code that names a different code
+         than this bundle is a different build even when the numbers tie —
+         wait and reload onto it like any newer update. Absent code (older
+         bakes) proves nothing and falls back to the numbers. */
+      const vCode = data && typeof (data as any).code === "string" ? (data as any).code : "";
+      const codeIsNew = !!vCode && !!runningCode && vCode !== runningCode;
+      if (!deployIsNew && !codeIsNew && (!Number.isFinite(n) || n <= BUILD_NOTES)) {
+        if (staleNewerNotes || staleCodeMismatch) {
           staleNewerNotes = 0;
+          staleCodeMismatch = false;
           version += 1;
           notify();
         }
         return;
       }
       staleNewerNotes = deployIsNew ? BUILD_NOTES + 1 : Math.floor(n);
+      if (codeIsNew && !deployIsNew) staleCodeMismatch = true;
       /* Bump so the maintenance notice re-evaluates at once instead of
          sticking with first paint — the old bundle waits, it never plays live. */
       version += 1;
@@ -503,7 +559,7 @@ export function checkStaleBuild(): Promise<void> {
    the button carrying this says so before it arms. This is the explicit
    office delete (note 300) — the ONLY path that clears last-published. */
 export function resetLocalCopy(): void {
-  const keys = [CACHE_KEY, DRAFT_KEY, HISTORY_KEY, PENDING_KEY, NOTES_KEY, AFTER_SAVE_KEY, DEPLOY_KEY, DEPLOY_SEEN_KEY, "wom.cms.slidesReset"];
+  const keys = [CACHE_KEY, DRAFT_KEY, HISTORY_KEY, PENDING_KEY, NOTES_KEY, AFTER_SAVE_KEY, DEPLOY_KEY, DEPLOY_SEEN_KEY, CODE_BLESS_KEY, "wom.cms.slidesReset"];
   for (const k of keys) {
     try {
       localStorage.removeItem(k);
@@ -762,6 +818,13 @@ function applyOverrides(over: Snapshot, keepDraft = true) {
   /* Whatever was waiting to be previewed describes the old content. */
   dropLivePreview();
   overrides = clone(over || {});
+  /* An empty slides list is the blank-black box, never content worth keeping
+     (a stale browser cache, an empty-era bake, a store the lock has not healed
+     yet): drop the key so the shipped welcome card underneath shows instead
+     of nothing. Non-empty slides always pass through untouched. */
+  if (Array.isArray((overrides as any).slides) && (overrides as any).slides.length === 0) {
+    delete (overrides as any).slides;
+  }
   if (!keepDraft) draft = null;
   applySnapshot(merge(overrides));
   /* Live content can land under a draft; edited sections stay, the rest follow it. */
@@ -3929,6 +3992,7 @@ export async function publish(note: string, content?: Snapshot): Promise<Publish
        the words (note 306), so a host sleep afterwards changes nothing. */
     if (!socket || status !== "online") {
       setPublishedNotes(BUILD_NOTES);
+      blessRunningCode();
       writeCache();
       notify();
       return { ok: true, local: true };
@@ -4157,6 +4221,7 @@ export async function flushPending(): Promise<boolean> {
   /* An offline flush is a deliberate office publish (note 293): it blesses
      the running update like any other publish (note 300). */
   setPublishedNotes(BUILD_NOTES);
+  blessRunningCode();
   pending = null;
   try {
     localStorage.removeItem(PENDING_KEY);

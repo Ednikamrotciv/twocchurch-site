@@ -197,12 +197,38 @@ try {
 try {
   const src = await readFile(path.join(ROOT, "src", "lib", "hooks.ts"), "utf8");
   const notes = Number((src.match(/BUILD_NOTES = (\d+)/) || [])[1]) || 0;
+  /* Unnumbered code word (stale fix, no new number): version.json names the
+     running code without ordering it, so a mixed-asset serve is spotted, not
+     guessed. */
+  const codeMatch = /export const CODE_ID = "([A-Za-z0-9_-]+)"/.exec(src);
+  const codeWord = codeMatch ? codeMatch[1] : "";
   const d = new Date();
   const p = (n) => String(n).padStart(2, "0");
-  await writeFile(path.join(OUT, "version.json"), JSON.stringify({ notes, deployId: DEPLOY_ID, built: `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}` }));
-  console.log(`build stamped: update ${notes}`);
+  await writeFile(path.join(OUT, "version.json"), JSON.stringify({ notes, code: codeWord, deployId: DEPLOY_ID, built: `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}` }));
+  console.log(`build stamped: update ${notes}${codeWord ? " code " + codeWord : ""}`);
 } catch (err) {
   console.warn("version.json skipped:", err?.message || err);
+}
+/* Code word on the entry page (unnumbered stale fix): the pre-bundle gate and
+   the app read it synchronously on first paint. The source file already
+   carries the same word for dev; enforce it here so dist can never drift. */
+try {
+  const srcHooks = await readFile(path.join(ROOT, "src", "lib", "hooks.ts"), "utf8");
+  const codeMatch2 = /export const CODE_ID = "([A-Za-z0-9_-]+)"/.exec(srcHooks);
+  const codeWord2 = codeMatch2 ? codeMatch2[1] : "";
+  if (codeWord2) {
+    const shellPath = path.join(OUT, "index.html");
+    let shell = await readFile(shellPath, "utf8");
+    const codeRe = /<meta name="wom-code" content="[^"]*"\s*\/?>/;
+    const codeTag = '<meta name="wom-code" content="' + codeWord2 + '" />';
+    if (codeRe.test(shell)) shell = shell.replace(codeRe, codeTag);
+    else if (shell.includes("</head>")) shell = shell.replace("</head>", "  " + codeTag + "\n</head>");
+    else shell = codeTag + "\n" + shell;
+    await writeFile(shellPath, shell);
+    console.log("code word stamped into dist/index.html: " + codeWord2);
+  }
+} catch (err) {
+  console.warn("code meta skipped:", err?.message || err);
 }
 /* Entry files are never cached (note 302): without this, static hosts serve
    a stale index.html / version.json after an update, so visitors keep running
