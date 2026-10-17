@@ -117,6 +117,17 @@ function codeBlessedMatches(): boolean {
     return false;
   }
 }
+/* True when this browser blessed any earlier code or deploy: a returning
+   browser on a new deploy stages clean; a fresh profile (never blessed)
+   still adopts the live words normally, so a new device joining the live
+   site is never clobbered. */
+function hadPriorBlessing(): boolean {
+  try {
+    return !!localStorage.getItem(CODE_BLESS_KEY);
+  } catch {
+    return false;
+  }
+}
 /* True only when this browser blessed OLDER code: a stored blessing exists
    AND names a different word. A missing stamp proves nothing (fresh profile
    is not a new code arrival), so it never triggers anything alone. */
@@ -1407,6 +1418,31 @@ export async function publishSection(sectionId: string, note: string): Promise<P
   if (sameJSON(value, publishedSection(sectionId))) {
     delete dirty[sectionId];
     persistDraft();
+    /* A no-change section Publish still blesses everywhere (office request:
+       the click must apply to the visitors website — live and local): the
+       words match, so releasing visitors is safe, but stopping here would
+       leave a wiped server and the live box's own deploy unblessed while
+       the office sees success. The bless-only send below carries the same
+       server stamp, converge and live relay as every other publish. */
+    if (!(await joinBeforePublish())) {
+      markDeployPublished();
+      notify();
+      return { ok: true, local: true };
+    }
+    if (!authed) {
+      const saved = sessionPassword();
+      const res = saved ? await login(saved, true) : { ok: false as const };
+      if (!res.ok) {
+        if ((res as any).error === "denied") clearSession();
+        return { ok: false, error: "unauthorized" };
+      }
+    }
+    /* No words move, so no undo entry: the bless only lifts the notice. */
+    const blessOnly = await sendPatch({}, [], note.slice(0, 160));
+    if (!blessOnly.ok) return { ok: false, error: blessOnly.error };
+    rev = blessOnly.rev ?? rev + 1;
+    setPublishedNotes(BUILD_NOTES);
+    writeCache();
     notify();
     return { ok: true };
   }
@@ -2377,20 +2413,22 @@ export async function startCms() {
   try {
     markDeploySeen();
   } catch {}
-  /* New code arrival stages clean (office request: no former publish staged
-     on a new deploy — welcome-home slide only until Recover + Publish).
-     Same-code rebuilds skip this (continuity: routine rebuilds never wipe
-     staged words), and fresh profiles skip it too (no older blessing proves
-     no arrival). Inbound words still record on the office disk; only the
-     staged publishable set starts from defaults. */
+  /* Every new deploy stages clean (office request: every new deploy is
+     fresh, clean and new — welcome-home slide only, no former publish
+     staged, until Recover + Publish). Returning browsers only: a stored
+     blessing proves this browser saw an earlier deploy, while a fresh
+     profile (never blessed) still adopts the live words normally, so a new
+     device joining the live site is never clobbered. Inbound words still
+     record on the office disk; only the staged publishable set starts from
+     defaults. */
   try {
-    if (codeChangedSinceBless()) {
+    if (codeChangedSinceBless() || (freshDeploy && hadPriorBlessing())) {
       cleanStageForNewCode = true;
       overrides = {};
       applied = clone(defaults);
       if (!cleanStageToastShown) {
         cleanStageToastShown = true;
-        try { fireToast("New code — staged clean until Recover.", "info"); } catch {}
+        try { fireToast("New deploy — staged clean until Recover.", "info"); } catch {}
       }
     }
   } catch { /* staging falls back to the normal path */ }
@@ -3520,22 +3558,32 @@ function healDraftSlides() {
 const SLIDES_RESET_KEY = "wom.cms.slidesReset";
 export function resetSlidesForNewDeploy(): boolean {
   try {
-    /* Code-based token, not per-build (office request: unsaved changes stay
-       clean, clear and empty): content rebuilds share the code, so the reset
-       runs once per code release — a rebuild never re-marks slides as unsaved.
-       A new code release starts the drawer over at the welcome card only. */
-    const token = runningCode ? "c" + runningCode : "n" + BUILD_NOTES;
+    /* Per-deploy token (office request: every new deploy is fresh, clean and
+       new): stamped builds reset once per deploy ID, so old slides never
+       ride a rebuild — while the boot clean-stage (no dirty) means the
+       drawer usually already holds welcome-only and this is a quiet no-op,
+       so rebuilds never re-mark slides as unsaved. Local dev keeps the
+       code token (no stamped deploy there). */
+    const token = deployFromMeta && currentDeployId ? "d" + currentDeployId : runningCode ? "c" + runningCode : "n" + BUILD_NOTES;
     let done = "";
     try {
       done = localStorage.getItem(SLIDES_RESET_KEY) || "";
     } catch {}
     if (done === token) return false;
-    const welcome = SLIDES.find((x) => x.id === "welcome-home") || SLIDES[0];
     const mark = () => {
       try {
         localStorage.setItem(SLIDES_RESET_KEY, token);
       } catch {}
     };
+    /* A fresh device keeps what it adopted: with no prior blessing this
+       browser never saw an earlier deploy, so its live words are a join,
+       not a stale — clobbering them to welcome here would wipe the site on
+       the next Publish. Returning browsers (blessed before) reset. */
+    if (!hadPriorBlessing()) {
+      mark();
+      return false;
+    }
+    const welcome = SLIDES.find((x) => x.id === "welcome-home") || SLIDES[0];
     /* No welcome card shipped would be a blank box — but one always ships, so
        reaching here without one means a bad build: hold the draft untouched. */
     if (!welcome) {
@@ -4276,24 +4324,25 @@ export async function publish(note: string, content?: Snapshot): Promise<Publish
 
   if (!changed.length) {
     draft = null;
-    if (publishedNotes >= BUILD_NOTES) {
-      /* Deploy lock: a no-change Publish still blesses THIS deploy — without
-         this the notice would stay after publishing on a fresh deploy. Local,
-         live/admin, everywhere: the click always counts. */
-      markDeployPublished();
-      notify();
-      return { ok: true };
-    }
-    /* Visitors are waiting and Publish was clicked with no content changes:
-       bless the current update so maintenance lifts (note 250: even with no
-       server reachable — a local Publish blesses this copy, the server sync
-       carries it on when the connection returns). The stamp is cached with
-       the words (note 306), so a host sleep afterwards changes nothing. */
+    /* A Publish click always counts everywhere (office request: the click
+       must apply to the visitors website — live and local): even when this
+       copy already holds the stamp, the server and the live box may not — a
+       restart wiped the server's stamp, the live box blesses its own deploy
+       — so a no-change Publish still blesses THIS deploy through the same
+       bless-only sendPatch every other publish rides (server stamp,
+       converge, live relay), instead of stopping at this browser with a
+       success toast while visitors elsewhere keep waiting. Copies with no
+       server anywhere keep the local bless below. */
     /* One click publishes to visitors: the join gets a few seconds first
        (see joinBeforePublish) before this copy settles for device-only. */
     if (!(await joinBeforePublish())) {
       setPublishedNotes(BUILD_NOTES);
       blessRunningCode();
+      /* An offline bless ends the clean stage on this copy too — the office
+         published, so inbound words may stage again like any other publish.
+         The stamp is cached with the words (note 306), so a host sleep
+         afterwards changes nothing. */
+      markDeployPublished();
       writeCache();
       notify();
       return { ok: true, local: true };

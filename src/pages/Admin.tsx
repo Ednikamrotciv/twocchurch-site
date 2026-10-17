@@ -178,10 +178,12 @@ export function Admin() {
   /* Auto-stop watcher lives here so it runs whatever drawer card is open (note 111). */
   useAutoStopLive(canEdit);
 
-  /* Every new code release the announcement slides start over as only the welcome
-     card — old uploads never ride into the new code's drawer (visitors
-     never run this; the reset blesses nothing, Publish lifts the notice). Content
-     rebuilds share the code, so they never re-mark slides as unsaved. */
+  /* Every new deploy the announcement slides start over as only the welcome
+     card — old uploads never ride into the new deploy's drawer (visitors
+     never run this; the reset blesses nothing, Publish lifts the notice).
+     The boot clean-stage usually already holds welcome-only, so this is a
+     quiet no-op that never re-marks slides as unsaved; fresh devices keep
+     the live words they adopted. */
   useEffect(() => {
     cms.resetSlidesForNewDeploy();
   }, []);

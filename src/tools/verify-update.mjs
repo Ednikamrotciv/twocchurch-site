@@ -456,7 +456,11 @@ export async function runAll(fs) {
   const flagJ5 = text["clean-deploy.txt"];
   const localJ5 = text["scripts/cms-local.mjs"];
   ok("clean deploys ship the flag", typeof flagJ5 === "string" && flagJ5.length > 0 && has(flagJ5, "Recover"), "every update must open clean until Recover + Publish");
-  ok("slides reset is code-based", has(cms, '"c" + runningCode') && !has(cms, "const token = deployFromMeta"), "a rebuild must never re-mark slides as unsaved — only new code starts over");
+  /* J12 supersedes the old code-based reset rule (office request: every new
+     deploy is fresh, clean and new): the reset is per-deploy — with the
+     boot clean-stage (no dirty) and the fresh-joiner guard, so rebuilds
+     still never re-mark slides as unsaved and new devices keep live words. */
+  ok("slides reset is per-deploy", has(cms, '"d" + currentDeployId') && has(cms, "hadPriorBlessing"), "a new deploy must start over at welcome-only — code-based tokens let old slides ride rebuilds");
   ok("feed follow guards fresh mirrors", has(localJ5, "bakeEmpty") && has(localJ5, "seedDeploy"), "a retired mirror must not resurrect onto a clean deploy");
   ok("prime names its deploy", has(fbJ4, "deployId: myDeploy") && has(fbJ4, "mirror-takeover"), "the boot prime must prove the first publish is this deploy's own");
   try {
@@ -562,6 +566,25 @@ export async function runAll(fs) {
   ok("shipped default is welcome-home", has(slidesData, 'id: "welcome-home"') && has(slidesData, 'headline: "Welcome home"'), "the drawer default must be the lone welcome card");
   ok("drawer restarts at welcome", has(cms, 'SLIDES.find((x) => x.id === "welcome-home")'), "a new deploy starts the drawer over at the welcome card only");
   ok("empty box heals to welcome", has(cms, "blank-black bug"), "an empty slides list is the bug — it heals to welcome, never blank");
+  /* J12. every Publish click reaches visitors + every new deploy opens
+     welcome-only (office request: clicking publish must apply to the
+     visitors website — live and local — and the box slide must show only
+     the welcome-home photo on every new deploy, since every new deploy is
+     fresh, clean and new): a no-change Publish used to stop at this browser
+     (stamp high locally while a wiped server / the live box's own deploy
+     stayed unblessed), and a per-section publish with nothing changed never
+     blessed at all — both now ride the same bless-only sendPatch as every
+     other publish (server stamp, converge, live relay). And the clean stage
+     plus the drawer reset were code-gated, so same-code rebuilds kept old
+     slides — both are deploy-gated now (returning browsers only, so a fresh
+     device joining live words is never clobbered, and with no dirty, so
+     rebuilds never re-mark slides as unsaved). */
+  ok("no-change publish sends the bless", !has(cms, "if (publishedNotes >= BUILD_NOTES)") && has(cms, "sendPatch({}, [], note.slice(0, 160))"), "a local-only early return leaves the server and the live box behind while the office sees success");
+  ok("section publish blesses when unchanged", has(cms, "A no-change section Publish still blesses everywhere"), "a per-section publish with nothing changed must still lift the notice on the server and the live box");
+  ok("offline bless ends the clean stage", has(cms, "An offline bless ends the clean stage on this copy too"), "an offline publish must not leave inbound words unstaged forever");
+  ok("clean stage is per-deploy", has(cms, "freshDeploy && hadPriorBlessing()") && has(cms, "function hadPriorBlessing()"), "a returning browser on a new deploy must stage clean, not keep the former publish");
+  ok("fresh joiners keep live words", has(cms, "A fresh device keeps what it adopted"), "a new device joining the live site must adopt its words, never clobber them to welcome");
+  ok("deploy reset never re-marks unsaved", has(cms, "never re-mark slides as unsaved") && has(text["src/pages/Admin.tsx"], "quiet no-op that never re-marks slides as unsaved"), "the per-deploy reset must stay a quiet no-op on the staged welcome");
   /* J. live shows at once, clock vanishes with it (note 306): the Watch page
      checks immediately on open and stays on the short cadence even with no
      gathering on the clock; the fast cadence itself is shorter; a retyped
