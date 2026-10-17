@@ -1822,5 +1822,6 @@ export async function runAll(fs) {
 const notes = Number((text["src/lib/hooks.ts"].match(/BUILD_NOTES = (\d+)/) || [])[1]) || 0;
   const apply = text["APPLY_UPDATE.txt"];
   ok("update number consistent", notes > 0 && has(apply, `APPLY THIS UPDATE (${notes})`), "hooks=" + notes);
+  ok("pre-bundle notes match", notes > 0 && has(text["index.html"], `name="wom-notes" content="${notes}"`), "the pre-bundle paint must know the running update");
   return out.join("\n");
 }

@@ -3152,6 +3152,9 @@ export function getDraft(): Snapshot {
   }
   dropLapsedSlides();
   migrateTestimonies();
+  /* Stale flags first, so no healer below trips over a flag left by an older
+     save instead of by the office (see clearPhantomDirty). */
+  clearPhantomDirty();
   healDraftChannel();
   healDraftRecents();
   healDraftSlides();
@@ -3170,6 +3173,34 @@ function migrateTestimonies() {
   draft.testimonies = { items, categories };
   dirty.testimonies = true;
   persistDraft();
+}
+
+/** A flag left over from an older save must never fake an unsaved change: any
+    section whose draft already says exactly what is published is not dirty,
+    whatever its flag claims — the flag goes the way a revert takes it. Runs
+    on read (first, before the healers below), persists only when a flag
+    actually cleared, never notifies. */
+function clearPhantomDirty() {
+  try {
+    if (!draft) return;
+    let cleared = false;
+    for (const def of SECTION_DEFS) {
+      if (!(dirty as any)[def.id]) continue;
+      let same = false;
+      try {
+        same = sameJSON((draft as any)[def.id], publishedSection(def.id));
+      } catch {
+        same = false;
+      }
+      if (same) {
+        delete (dirty as any)[def.id];
+        cleared = true;
+      }
+    }
+    if (cleared) persistDraft();
+  } catch {
+    /* never break the drawer */
+  }
 }
 
 /** The update itself moves stored words to @twocorg (note 352) — a draft the
@@ -3288,10 +3319,22 @@ function healDraftStreamLink() {
     something actually moved, never notifies. */
 function healDraftSlides() {
   try {
-    if (!draft || (dirty as any).slides) return;
+    if (!draft) return;
     const pubSlides = (applied as any)?.slides;
-    if (!Array.isArray(pubSlides) || pubSlides.length !== 1 || String((pubSlides[0] as any)?.id || "") !== "welcome-home") return;
+    const loneWelcome =
+      Array.isArray(pubSlides) && pubSlides.length === 1 && String((pubSlides[0] as any)?.id || "") === "welcome-home";
     const dSlides = (draft as any).slides;
+    /* An empty box is the blank-black bug, never an office edit worth keeping:
+       when the published words are the lone welcome card, a stored empty
+       slides list heals even past a stale flag (the flag goes with it). */
+    if (loneWelcome && Array.isArray(dSlides) && dSlides.length === 0) {
+      (draft as any).slides = JSON.parse(JSON.stringify(pubSlides));
+      delete (dirty as any).slides;
+      persistDraft();
+      return;
+    }
+    if ((dirty as any).slides) return;
+    if (!loneWelcome) return;
     if (Array.isArray(dSlides) && dSlides.length === 1 && String((dSlides[0] as any)?.id || "") === "welcome-home") return;
     (draft as any).slides = JSON.parse(JSON.stringify(pubSlides));
     persistDraft();

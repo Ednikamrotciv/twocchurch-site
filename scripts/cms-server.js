@@ -432,6 +432,11 @@ var MEDIA_CLEAN = false;
    number itself (see the boot block), so the whole clear re-runs once per update — one-shot
    ever-flags from older updates can never catch later drift. */
 var OVERRIDE_CLEAN = 0;
+/* Welcome lock (this fix): the box must never sit blank — a stored slides
+   section left empty or foreign (the empty era, a stray publish) becomes the
+   lone welcome card, once per store (flag rides the meta blob, same pattern).
+   Later office slides are never touched. */
+var WELCOME_LOCK = false;
 /* Set while loading a state stamped with an older history generation: the
    record is forgotten and the clean state is written back at once. */
 var FRESH_GEN = false;
@@ -528,7 +533,7 @@ function undoLeftSec(now) {
 }
 
 function writeMeta() {
-  var meta = JSON.stringify({ by: BY, log: LOG, logGen: LOG_GEN, subs: SUBS, invites: INVITES, totp: TOTP, mainOff: MAIN_OFF, mainHash: MAIN_HASH, pwgen: PWGEN, notes: NOTES, prev: PREV, chReady: CH_READY, mediaClean: MEDIA_CLEAN, overrideClean: OVERRIDE_CLEAN, publishDeploy: PUBLISH_DEPLOY });
+  var meta = JSON.stringify({ by: BY, log: LOG, logGen: LOG_GEN, subs: SUBS, invites: INVITES, totp: TOTP, mainOff: MAIN_OFF, mainHash: MAIN_HASH, pwgen: PWGEN, notes: NOTES, prev: PREV, chReady: CH_READY, mediaClean: MEDIA_CLEAN, overrideClean: OVERRIDE_CLEAN, welcomeLock: WELCOME_LOCK, publishDeploy: PUBLISH_DEPLOY });
   META_CHARS = meta.length;
   writeString(meta, BASE_CHARS + SECTION_CHARS);
   /* The header carries META_CHARS: without this, an admin-only change (an
@@ -680,6 +685,7 @@ function loadState() {
     CH_READY = parsed.chReady === true;
     MEDIA_CLEAN = parsed.mediaClean === true;
     OVERRIDE_CLEAN = typeof parsed.overrideClean === "number" && parsed.overrideClean > 0 ? Math.floor(parsed.overrideClean) : 0;
+    WELCOME_LOCK = parsed.welcomeLock === true;
     PUBLISH_DEPLOY = validDeployId(parsed.publishDeploy);
   } catch (e) {
     NOTES = 0;
@@ -695,6 +701,7 @@ function loadState() {
     CH_READY = false;
     MEDIA_CLEAN = false;
     OVERRIDE_CLEAN = 0;
+    WELCOME_LOCK = false;
     PUBLISH_DEPLOY = "";
   }
   SECTIONS = {};
@@ -861,6 +868,31 @@ try {
   }
 } catch (e) {
   /* a failed clear must never break boot — the console still stands */
+}
+
+/* Welcome lock (this fix): the box must never sit blank on local or deploy.
+   Any stored slides section that is not exactly the lone welcome card (left
+   empty or foreign) becomes it — once per store, no stamp, no rev bump, no
+   publish. A store with no slides section keeps none (the code default and
+   the seed already show the welcome card), and later office slides are never
+   touched. */
+try {
+  if (!WELCOME_LOCK) {
+    WELCOME_LOCK = true;
+    try {
+      if (typeof SECTIONS.slides === "string") {
+        var slidesLock = JSON.parse(SECTIONS.slides);
+        var onlyWelcomeLock = Array.isArray(slidesLock) && slidesLock.length === 1 && slidesLock[0] && typeof slidesLock[0] === "object" && String(slidesLock[0].id || "") === "welcome-home";
+        if (!onlyWelcomeLock) setSection("slides", JSON.stringify(WELCOME_SLIDE_360));
+      }
+    } catch (e) {
+      try { setSection("slides", JSON.stringify(WELCOME_SLIDE_360)); } catch (e2) {}
+    }
+    writeMeta();
+    writeHeader();
+  }
+} catch (e) {
+  /* a failed lock must never break boot — the console still stands */
 }
 
 /* --------------------------------------------------------------- authority */
