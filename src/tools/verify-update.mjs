@@ -510,6 +510,18 @@ export async function runAll(fs) {
   ok("big videos skip the download", has(localJ5, "content-length") && has(localJ5, "announces"), "a hundred-megabyte video must not be fetched just to be refused");
   ok("oversize files leave the commit", has(pushJ7, "PUSH_FILE_MAX_BYTES") && has(pushJ7, "rm") && has(pushJ7, "--cached"), "an over-100 MB video must stay home, out of the push");
   ok("words always ride", has(pushJ7, "the words still ride") && has(pushJ7, "the words always ride"), "whatever was uploaded, the publish must go out");
+  /* J8. the 5 stuck rows clear (office request: unsaved changes clean, clear
+     and fresh): unnumbered updates kept the local dev token at "n413", so a
+     new extract never proved a fresh deploy and the old draft/pending/dirty
+     survived forever. The token now carries the code word (rotated to
+     "cleanfresh" with this build), so every behavior update clears unsaved
+     draft + pending + after-save once on boot — same-code rebuilds keep the
+     token and never wipe unsaved work. */
+  const hooksJ8 = text["src/lib/hooks.ts"];
+  const indexJ8 = text["index.html"];
+  ok("code word rotated", has(hooksJ8, 'CODE_ID = "cleanfresh"') && has(indexJ8, 'wom-code" content="cleanfresh"'), "the new word must retire the bundle that holds the 5 stuck rows");
+  ok("dev token names the code", has(cms, '"n" + BUILD_NOTES + "c" + (runningCode'), "an unnumbered update must still prove a fresh deploy in local dev");
+  ok("fresh clear takes after-save", has(cms, "localStorage.removeItem(AFTER_SAVE_KEY)"), "a queued publish-after-save must not republish stale words after the clear");
   /* J. live shows at once, clock vanishes with it (note 306): the Watch page
      checks immediately on open and stays on the short cadence even with no
      gathering on the clock; the fast cadence itself is shorter; a retyped

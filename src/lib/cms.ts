@@ -190,11 +190,13 @@ function deployProvesFreshDeploy(): boolean {
       if (!seen) return true;
       return seen !== currentDeployId;
     }
-    /* Local dev (no stamped deploy): the update number is the deploy token, so
-       each update clears unsaved draft + pending once — the local copy opens
-       fresh as new instead of carrying the last copy's unsaved list. */
+    /* Local dev (no stamped deploy): the update number PLUS the code word is
+       the deploy token, so each update — numbered or not — clears unsaved
+       draft + pending once: the local copy opens fresh and clean instead of
+       carrying the last copy's unsaved list. Same-code rebuilds keep the
+       token, so routine rebuilds never wipe unsaved work. */
     try {
-      const wantLocal = "n" + BUILD_NOTES;
+      const wantLocal = "n" + BUILD_NOTES + "c" + (runningCode || "");
       const seenLocal = localStorage.getItem(DEPLOY_SEEN_KEY) || "";
       if (!seenLocal) return true;
       return seenLocal !== wantLocal;
@@ -208,7 +210,7 @@ function deployProvesFreshDeploy(): boolean {
 function markDeploySeen(): void {
   try {
     if (deployFromMeta && currentDeployId) localStorage.setItem(DEPLOY_SEEN_KEY, currentDeployId);
-    else localStorage.setItem(DEPLOY_SEEN_KEY, "n" + BUILD_NOTES);
+    else localStorage.setItem(DEPLOY_SEEN_KEY, "n" + BUILD_NOTES + "c" + (runningCode || ""));
   } catch {}
 }
 
@@ -2331,6 +2333,9 @@ export async function startCms() {
       } catch {}
       try {
         localStorage.removeItem(PENDING_KEY);
+      } catch {}
+      try {
+        localStorage.removeItem(AFTER_SAVE_KEY);
       } catch {}
       draft = null;
       draftFromRev = 0;
