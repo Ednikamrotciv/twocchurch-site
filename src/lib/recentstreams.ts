@@ -326,10 +326,18 @@ export async function fetchRecentServices(): Promise<RecentServices | null> {
   const listed = [...grid, ...extra];
   if (!listed.length) return null;
 
+  /* Only @twocorg's own videos paint (note 418): the channel feed is the proof
+     of ownership — every upload the handle publishes is in it — while a walled
+     /videos grid can smuggle in ads, autoplay and related uploads from other
+     channels. Grid-only items with no feed date are unproven, so on the
+     designated channel they wait for the feed instead of painting; anywhere
+     else the grid reads exactly as before. */
+  const designatedRead = !!designatedChannelId();
   const items: RecentService[] = listed
     /* An upload with neither a date nor YouTube's own words is an *upcoming*
        broadcast, not a service that has happened: it is not a recent service. */
     .filter((it) => feed.dates[it.videoId] || it.ago)
+    .filter((it) => !designatedRead || !!feed.dates[it.videoId])
     .map((it) => ({
       videoId: it.videoId,
       title: trimChannel(it.title, feed.channel) || it.title || feed.titles[it.videoId] || "Service",
@@ -348,7 +356,13 @@ export async function fetchRecentServices(): Promise<RecentServices | null> {
      latest uploads, so a read that comes back short must not evict the older
      services already saved — they stay until newer ones push them past KEEP. */
   const known = new Set(collapsed.map((it) => it.videoId));
-  const kept = readRecentServices().items.filter((it) => !it.seeded && !known.has(it.videoId));
+  /* Only @twocorg's own videos stay (note 418): a kept card without a feed date
+     was never proven the handle's — wall garbage and foreign endings linger
+     exactly here — so on the designated channel dateless keeps go. Fresh
+     just-ended seeds are not keeps (they never reach this filter). */
+  const kept = readRecentServices().items.filter(
+    (it) => !it.seeded && !known.has(it.videoId) && (!designatedRead || Number(it.at) > 0)
+  );
   const merged = [...collapsed, ...kept].sort((a, b) => whenOf(b, now) - whenOf(a, now));
 
   return { items: merged.slice(0, KEEP), at: now, channelId: channelId || "" };
@@ -421,7 +435,12 @@ export function readRecentServices(): RecentServices {
     /* A seeded card is a promise that YouTube will publish the service in a
        moment; past a night it is no longer worth showing, and the read would
        have had it by then if it was ever going to. */
-    .filter((it) => !it.seeded || now - it.seeded < SEED_MAX_MS);
+    .filter((it) => !it.seeded || now - it.seeded < SEED_MAX_MS)
+    /* Only @twocorg's own videos paint (note 418): a cached card without a
+       feed date was never proven the handle's — wall garbage and foreign
+       endings linger exactly here — so on the designated channel dateless
+       cards go, except a fresh just-ended seed still waiting on YouTube. */
+    .filter((it) => !designated || Number(it.at) > 0 || (it.seeded && now - it.seeded < SEED_MAX_MS));
   if (!items.length) return designatedFallback();
   return { items, at: Number(cached.at) || 0, channelId: String(cached.channelId || "") };
 }
@@ -466,6 +485,14 @@ export function applyBakedRecent(seed: unknown) {
       if (fresh.length >= KEEP) break;
     }
     if (!fresh.length) return;
+    /* Only @twocorg's own bake paints (note 418): a bake stamped for another
+       channel (built while the field named a guest or a debugging handle)
+       never reaches the card — the designated fallback stands in instead.
+       Unstamped older bakes cannot be judged and still paint. */
+    if (designatedChannelId()) {
+      const bakedFor = String(raw.channelId || "");
+      if (bakedFor && bakedFor !== designatedChannelId()) return;
+    }
     const known = new Set(fresh.map((it) => it.videoId));
     const seeds = current.items.filter((it) => it.seeded && !known.has(it.videoId));
     saveRecentServices({ items: [...seeds, ...fresh].slice(0, KEEP), at: at || Date.now(), channelId: String(raw.channelId || "") });

@@ -59,6 +59,17 @@ function readMetaDeployId(): string {
   } catch {}
   return "";
 }
+/* A baked live feed (dist/feed.json) moves words after deploy, so a feed-backed
+   copy has visitors to protect like a server-backed one (note 416): read
+   synchronously like the deploy and server metas, so the very first paint
+   already knows. Pure static copies (no server, no feed) still never wait —
+   nothing could ever release them, since their words move only via rebuild. */
+function feedFromMeta(): boolean {
+  try {
+    if (typeof document === "undefined") return false;
+    return !!document.querySelector('meta[name="wom-feed"]');
+  } catch { return false; }
+}
 let deployFromMeta = false;
 let currentDeployId = "";
 try {
@@ -231,8 +242,11 @@ export function maintenanceShouldWait(): boolean {
   /* Deploy lock (no numbers): a built copy waits until a publish from its
      own deploy lands. Server-less copies never wait (no visitors). */
   if (deployFromMeta && currentDeployId) {
-    if (!serverInvolved()) return false;
-    return publishedDeployId !== currentDeployId;
+    if (publishedDeployId === currentDeployId) return false;
+    /* Deploy lock: any copy whose words can move after deploy waits — server
+       behind it, or a baked feed (note 416). Pure static never waits. */
+    if (!serverInvolved() && !feedFromMeta()) return false;
+    return true;
   }
   /* No stamped deploy (local dev): the legacy number gate stands. Note 301:
      a corrupt stamp is unreviewed, never published — wait when server-backed. */
@@ -266,7 +280,9 @@ export function useMaintenance(): boolean {
   /* Deploy lock (no numbers — same rule as maintenanceShouldWait). */
   if (deployFromMeta && currentDeployId) {
     if (publishedDeployId === currentDeployId) return false;
-    if (!serverInvolved()) return false;
+    /* Deploy lock: any copy whose words can move after deploy waits — server
+       behind it, or a baked feed (note 416). Pure static never waits. */
+    if (!serverInvolved() && !feedFromMeta()) return false;
     try {
       if (maintenancePreview()) return false;
     } catch {}

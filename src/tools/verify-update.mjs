@@ -1798,6 +1798,27 @@ export async function runAll(fs) {
   ok("main stop clears the guest", has(liveHHH, 'externalYoutubeChannel: "", guestIsLive: false') && has(edHHH, "write(clearGuestOnStop({ ...cms.getDraft().live, isLive: false, liveSince: 0"), "one Stop must end the live and empty the guest slot stamped");
   ok("section publish drops its unsaved row", has(cmsHHH, "(draft as any)[sectionId] = clone(publishedSection(sectionId))"), "publishing live must clear the unsaved change too");
   ok("stopped screen skips the clock", has(watchHHH, "const officeStopped = officeStopActive(LIVE)") && has(watchHHH, "&& !shutNow && !officeStopped ? (") && has(watchHHH, "const waitingForClick = !shutNow && !officeStopped"), "a stopped live must show the previous thumbnail, never the ticking clock");
+  /* III. the notice holds on feed-backed copies (note 416): a standalone
+     copy with a baked feed has visitors to protect like a server-backed one,
+     so an unpublished deploy waits there too — pure static (no server, no
+     feed) still never waits, since nothing could ever release it. */
+  const buildIII = text["scripts/build-static.mjs"];
+  const cmsIII = text["src/lib/cms.ts"];
+  ok("feed stamps its signal", has(buildIII, "wom-feed") && has(buildIII, "feed meta stamped into dist/index.html"), "the gate must know at first paint that words can move");
+  ok("gate hears the feed", has(cmsIII, "function feedFromMeta(): boolean") && has(cmsIII, "!serverInvolved() && !feedFromMeta()"), "an unpublished deploy must wait on feed-backed copies too");
+  ok("pure static never waits", has(cmsIII, "Pure static never waits"), "a copy nothing can release must never hold");
+  /* JJJ. @twocorg-proven recents and never-blank faces (note 418): the
+     channel feed proves ownership — grid-only unknowns, dateless keeps and
+     foreign bakes never paint on the designated channel — and a slide with
+     no paintable photo paints no <img>, borrowing the welcome words when it
+     has none of its own. */
+  const recentJJJ = text["src/lib/recentstreams.ts"];
+  const slidesJJJ = text["src/components/slides.tsx"];
+  ok("fresh reads prove ownership", has(recentJJJ, ".filter((it) => !designatedRead || !!feed.dates[it.videoId])"), "a walled grid must not smuggle foreign uploads in");
+  ok("merges evict the unproven", has(recentJJJ, "(!designatedRead || Number(it.at) > 0)"), "dateless keeps must go on the designated channel");
+  ok("bakes prove their channel", has(recentJJJ, "bakedFor !== designatedChannelId()"), "a bake stamped for another channel must never paint");
+  ok("caches paint proven only", has(recentJJJ, "!designated || Number(it.at) > 0 || (it.seeded"), "old wall garbage must die on the next read");
+  ok("faces never blank", has(slidesJJJ, "const shownPhoto = ") && has(slidesJJJ, "{photo ? <img") && has(slidesJJJ, "welcome-home") && has(slidesJJJ, "never blank"), "an imageless face keeps gradient plus words");
 const notes = Number((text["src/lib/hooks.ts"].match(/BUILD_NOTES = (\d+)/) || [])[1]) || 0;
   const apply = text["APPLY_UPDATE.txt"];
   ok("update number consistent", notes > 0 && has(apply, `APPLY THIS UPDATE (${notes})`), "hooks=" + notes);

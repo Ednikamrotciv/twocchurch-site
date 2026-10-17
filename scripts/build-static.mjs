@@ -71,6 +71,23 @@ try {
     if (!line) console.log("no live feed in publish-feed.txt — deployed copies update on rebuilds only");
     else console.warn(`publish-feed.txt ignored: "${line}" is not owner/repo@branch or a github.com repo address — deployed copies update on rebuilds only`);
   }
+    /* Feed signal on the entry page (note 416): the deployed copy reads it
+       synchronously on first paint — like the wom-server meta above — so the
+       maintenance gate knows at once that words can move after deploy even
+       with no server behind the copy. Route copies below inherit the shell. */
+    try {
+      var shellPathFeed = path.join(OUT, "index.html");
+      var shellFeed = await readFile(shellPathFeed, "utf8");
+      if (shellFeed.indexOf('name="wom-feed"') < 0) {
+        var tagFeed = '<meta name="wom-feed" content="1">';
+        if (shellFeed.indexOf("</head>") >= 0) { shellFeed = shellFeed.replace("</head>", "  " + tagFeed + "\n</head>"); }
+        else { shellFeed = tagFeed + "\n" + shellFeed; }
+        await writeFile(shellPathFeed, shellFeed);
+        console.log("feed meta stamped into dist/index.html");
+      }
+    } catch (errFeed) {
+      console.warn("feed meta skipped:", errFeed && errFeed.message ? errFeed.message : errFeed);
+    }
 } catch (err) {
   console.warn("feed.json skipped:", err?.message || err);
 }

@@ -369,11 +369,17 @@ export function AnnouncementSlide({
   const named = photoOr(slide.image, "welcome");
   const welcome = photoOr("", "welcome");
   const deadNamed = useDeadPhoto(named);
+  const deadWelcome = useDeadPhoto(named === welcome ? "" : welcome);
   /* Sleep-free (note 413): while the server copy is wiped, paint the cached
      upload from this browser instead of the welcome fallback — blank-free. */
   const cachedNamed = useCachedUploadUrl(named);
   const effectiveNamed = cachedNamed || named;
   const original = resolveSlidePhoto(effectiveNamed, welcome, !cachedNamed && deadNamed);
+  /* A face with no paintable photo paints no <img> at all (note 418): the face
+     keeps its palette gradient and its words instead of a blank/broken frame —
+     so the welcome slide is never a blank box, whatever the host lost. Cached
+     uploads paint as before; only the truly imageless face stands down. */
+  const shownPhoto = cachedNamed || !deadNamed ? original : deadWelcome ? "" : welcome;
   /* A film upload plays as it is — visitors work it with the player's own
      volume and time-range controls, flat face only (the 3D stage plays it
      silently while it turns, see slides3d). */
@@ -385,8 +391,8 @@ export function AnnouncementSlide({
   const videoBg = isVideo ? videoFrame.framed : "";
   /* Shown in the frame; read for its colours as it was photographed, so the
      palette is the office's own picture and not the mat the frame puts round it. */
-  const photo = useSlideFrame(original);
-  const palette = useSlidePalette(isVideo ? videoFrame.poster : original);
+  const photo = useSlideFrame(shownPhoto);
+  const palette = useSlidePalette(isVideo ? videoFrame.poster : shownPhoto);
   /* The film element (picture slides render none — the ref stays empty). */
   const videoEl = useRef<HTMLVideoElement | null>(null);
   const videoActiveRef = useRef(!!videoActive);
@@ -415,11 +421,16 @@ export function AnnouncementSlide({
       } catch {}
     }
   }, [videoActive, original]);
+  /* No paintable photo and no words of its own: borrow the welcome card's
+     words (note 418) — “Welcome home” over the palette gradient, never blank. */
+  const hasOwnWords = !!(String(slide.headline || "").trim() || String(slide.line || "").trim() || String(slide.cta || "").trim() || String(slide.link || "").trim());
+  const borrowed = !photo && !hasOwnWords ? SLIDES.find((s) => s.id === "welcome-home") || null : null;
+  const face = borrowed ? { ...borrowed, id: slide.id } : slide;
   /* Painted/translated with the visitor's language — every face follows it. */
-  const headline = tx(String(slide.headline || "").trim());
-  const line = tx(String(slide.line || "").trim());
-  const link = String(slide.link || "").trim();
-  const cta = tx(String(slide.cta || "").trim());
+  const headline = tx(String(face.headline || "").trim());
+  const line = tx(String(face.line || "").trim());
+  const link = String(face.link || "").trim();
+  const cta = tx(String(face.cta || "").trim());
 
   const action = link ? (
     link.startsWith("/") ? (
@@ -618,7 +629,7 @@ export function AnnouncementSlide({
         data-slide={slide.id || undefined}
         style={paletteVars(palette)}
       >
-        <img className="aslide__photo" src={photo} alt="" />
+        {photo ? <img className="aslide__photo" src={photo} alt="" /> : null}
       </div>
     );
   }
@@ -630,7 +641,7 @@ export function AnnouncementSlide({
       case "band":
         return (
           <>
-            <img className="aslide__photo" src={photo} alt="" />
+            {photo ? <img className="aslide__photo" src={photo} alt="" /> : null}
             <span className="aslide__scrim aslide__scrim--side" />
             <div className="aslide__words aslide__band">
               <span className="aslide__orn">◆</span>
@@ -642,9 +653,9 @@ export function AnnouncementSlide({
       case "arch":
         return (
           <>
-            <img className="aslide__photo aslide__photo--under" src={photo} alt="" />
+            {photo ? <img className="aslide__photo aslide__photo--under" src={photo} alt="" /> : null}
             <div className="aslide__arch">
-              <img className="aslide__photo aslide__photo--lit" src={photo} alt="" />
+              {photo ? <img className="aslide__photo aslide__photo--lit" src={photo} alt="" /> : null}
             </div>
             <span className="aslide__archline" />
             <span className="aslide__scrim aslide__scrim--foot" />
@@ -658,7 +669,7 @@ export function AnnouncementSlide({
       case "rays":
         return (
           <>
-            <img className="aslide__photo aslide__photo--warm" src={photo} alt="" />
+            {photo ? <img className="aslide__photo aslide__photo--warm" src={photo} alt="" /> : null}
             <span className="aslide__rays" />
             <span className="aslide__scrim aslide__scrim--foot" />
             <div className="aslide__words aslide__card">{words}</div>
@@ -668,7 +679,7 @@ export function AnnouncementSlide({
       case "seal":
         return (
           <>
-            <img className="aslide__photo aslide__photo--dim" src={photo} alt="" />
+            {photo ? <img className="aslide__photo aslide__photo--dim" src={photo} alt="" /> : null}
             <span className="aslide__sealscrim" />
             <svg className="aslide__mandala" viewBox="0 0 200 200" aria-hidden="true">
               <circle cx="100" cy="100" r="78" />
@@ -683,7 +694,7 @@ export function AnnouncementSlide({
       case "split":
         return (
           <>
-            <img className="aslide__photo" src={photo} alt="" />
+            {photo ? <img className="aslide__photo" src={photo} alt="" /> : null}
             <div className="aslide__words aslide__splitbottom">{words}</div>
           </>
         );
@@ -691,7 +702,7 @@ export function AnnouncementSlide({
       case "numeral":
         return (
           <>
-            <img className="aslide__photo" src={photo} alt="" />
+            {photo ? <img className="aslide__photo" src={photo} alt="" /> : null}
             <span className="aslide__numveil" />
             <div className="aslide__words aslide__numcol">
               <b className="aslide__num">{String(index).padStart(2, "0")}</b>
@@ -703,7 +714,7 @@ export function AnnouncementSlide({
       case "ribbon":
         return (
           <>
-            <img className="aslide__photo aslide__photo--warm" src={photo} alt="" />
+            {photo ? <img className="aslide__photo aslide__photo--warm" src={photo} alt="" /> : null}
             <span className="aslide__scrim aslide__scrim--foot" />
             <div className="aslide__words aslide__ribbon">{words}</div>
           </>
@@ -713,7 +724,7 @@ export function AnnouncementSlide({
       default:
         return (
           <>
-            <img className="aslide__photo" src={photo} alt="" />
+            {photo ? <img className="aslide__photo" src={photo} alt="" /> : null}
             <div className="aslide__words aslide__plate">
               <span className="aslide__tag">{ct("auto.site.b3ce73b7c12e0076")}</span>
               {words}
