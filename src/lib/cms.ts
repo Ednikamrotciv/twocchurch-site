@@ -117,6 +117,28 @@ function codeBlessedMatches(): boolean {
     return false;
   }
 }
+/* True only when this browser blessed OLDER code: a stored blessing exists
+   AND names a different word. A missing stamp proves nothing (fresh profile
+   is not a new code arrival), so it never triggers anything alone. */
+function codeChangedSinceBless(): boolean {
+  try {
+    if (!runningCode) return false;
+    const blessed = localStorage.getItem(CODE_BLESS_KEY);
+    return !!blessed && blessed !== runningCode;
+  } catch {
+    return false;
+  }
+}
+/* Clean-stage for a new code arrival (office request: a new deploy opens
+   clean — welcome-home slide only — with no former publish staged, until
+   Recover + Publish). While set, inbound words (server sync, live pull,
+   seed) never stage into publishable content — the office disk still records
+   them, so nothing is lost — and an explicit Publish sends the staged clean
+   set (the fold's office-wins rule keeps staged clean apart from stored
+   live words by itself). Cleared by Recover/restore staging a backup, or by
+   an explicit office publish (markDeployPublished blesses the code there). */
+let cleanStageForNewCode = false;
+let cleanStageToastShown = false;
 /** Bless the running code: explicit office publishes only — never witnesses,
     except a same-deploy witness, which IS this build's code by definition. */
 function blessRunningCode(): void {
@@ -129,8 +151,10 @@ function markDeployPublished(): boolean {
   /* Every explicit office publish on this copy also blesses the running code
      (unnumbered stale fix): local, live/admin, everywhere — even with no
      deploy stamped. A same-deploy witness below blesses too: the same deploy
-     ID is the same build's code. */
+     ID is the same build's code. Either way the code arrival is over, so a
+     clean stage stages no longer. */
   blessRunningCode();
+  cleanStageForNewCode = false;
   if (!currentDeployId || !deployFromMeta) return false;
   if (publishedDeployId === currentDeployId) return false;
   publishedDeployId = currentDeployId;
@@ -2057,11 +2081,15 @@ export async function pullFromLive(): Promise<LivePullResult> {
       lastLivePullMsg = "Live matches this copy — nothing to pull.";
       return { ok: true, pulled: [] };
     }
-    /* Automatic, so conservative: only a copy already blessed on this update
-       with no unsaved work adopts by itself. Fresh copies and mid-edit desks
-       wait for the office — Publish folds live's newer words in (note 309) —
-       so the update window and the draft stay exactly as the office left them. */
-    if (publishedNotes < BUILD_NOTES || pendingSections().length > 0) {
+    /* Live/admin is the general control (office request): its publish takes
+       effect on the office copy even when this copy never published on the
+       running code — the words record on the office disk either way. Staging
+       follows only outside a clean stage (a new code arrival stages nothing
+       inbound until Recover or an explicit Publish); mid-edit desks still
+       wait, so unsaved work is never adopted under. Nothing here blesses
+       code, deploy or number gates — those still take an explicit Publish. */
+    const stageInbound = !cleanStageForNewCode;
+    if (pendingSections().length > 0 && stageInbound) {
       return { ok: false, error: "deferred" };
     }
     rememberHistory();
@@ -2071,22 +2099,28 @@ export async function pullFromLive(): Promise<LivePullResult> {
     updatedAt = Date.now();
     updatedBy = editorName();
     setPublishedNotes(BUILD_NOTES);
-    applyOverrides(overrides, false);
-    writeCache();
+    if (stageInbound) {
+      applyOverrides(overrides, false);
+      writeCache();
+    }
     log = [{ rev, at: updatedAt, by: updatedBy, role: myRole === "sub" ? "sub" : "main", note: "Pulled from live", changed: ids }, ...log].slice(0, 30);
-    draft = null;
-    dirty = {};
-    editUndos = [];
-    previewBase = null;
-    previewing = false;
-    try {
-      localStorage.removeItem(DRAFT_KEY);
-    } catch {}
+    if (stageInbound) {
+      draft = null;
+      dirty = {};
+      editUndos = [];
+      previewBase = null;
+      previewing = false;
+      try {
+        localStorage.removeItem(DRAFT_KEY);
+      } catch {}
+    }
     const files = await backfillUploadsFrom(read.base);
     lastLivePullAt = Date.now();
     const imgBit = files.restored ? ` and ${files.restored} uploaded ${files.restored === 1 ? "file" : "files"} came home` : "";
     const missBit = files.failed.length ? ` (${files.failed.length} uploaded ${files.failed.length === 1 ? "file is" : "files are"} missing on live: ${files.failed.slice(0, 3).join(", ")}${files.failed.length > 3 ? "…" : ""})` : "";
-    lastLivePullMsg = `Live publish saved here — ${ids.length} ${ids.length === 1 ? "section" : "sections"}${imgBit}${missBit}`;
+    lastLivePullMsg = stageInbound
+      ? `Live publish saved here — ${ids.length} ${ids.length === 1 ? "section" : "sections"}${imgBit}${missBit}`
+      : `Live publish recorded in the office — ${ids.length} ${ids.length === 1 ? "section" : "sections"}${imgBit}${missBit} (staged clean until Recover)`;
     fireToast(lastLivePullMsg + ".", "success");
     notify();
     return { ok: true, pulled: ids, filesRestored: files.restored, filesFailed: files.failed };
@@ -2313,7 +2347,24 @@ export async function startCms() {
   try {
     markDeploySeen();
   } catch {}
-  if (cached?.overrides && !freshEyes && !freshDeploy) {
+  /* New code arrival stages clean (office request: no former publish staged
+     on a new deploy — welcome-home slide only until Recover + Publish).
+     Same-code rebuilds skip this (continuity: routine rebuilds never wipe
+     staged words), and fresh profiles skip it too (no older blessing proves
+     no arrival). Inbound words still record on the office disk; only the
+     staged publishable set starts from defaults. */
+  try {
+    if (codeChangedSinceBless()) {
+      cleanStageForNewCode = true;
+      overrides = {};
+      applied = clone(defaults);
+      if (!cleanStageToastShown) {
+        cleanStageToastShown = true;
+        try { fireToast("New code — staged clean until Recover.", "info"); } catch {}
+      }
+    }
+  } catch { /* staging falls back to the normal path */ }
+  if (cached?.overrides && !freshEyes && !freshDeploy && !cleanStageForNewCode) {
     rev = cached.rev || 0;
     applyOverrides(cached.overrides);
   }
@@ -2833,8 +2884,14 @@ async function syncFromServer() {
       pending = clone(overrides);
       writeJSON(PENDING_KEY, pending);
     }
-    applyOverrides(server);
-    writeCache();
+    /* Clean-stage for a new code arrival stages nothing inbound (office
+       request): the server's retained words stay on the disk, but the staged
+       publishable set stays defaults until Recover or an explicit Publish.
+       Revision/stamp witnesses above still moved, so Publish bases correctly. */
+    if (!cleanStageForNewCode) {
+      applyOverrides(server);
+      writeCache();
+    }
   } else if (notesLifted || deployLifted) {
     /* Content identical but the publish stamp moved (note 278): bump so the
        maintenance notice re-evaluates instead of sticking with first paint. */
@@ -3433,7 +3490,11 @@ function healDraftSlides() {
 const SLIDES_RESET_KEY = "wom.cms.slidesReset";
 export function resetSlidesForNewDeploy(): boolean {
   try {
-    const token = deployFromMeta && currentDeployId ? currentDeployId : "n" + BUILD_NOTES;
+    /* Code-based token, not per-build (office request: unsaved changes stay
+       clean, clear and empty): content rebuilds share the code, so the reset
+       runs once per code release — a rebuild never re-marks slides as unsaved.
+       A new code release starts the drawer over at the welcome card only. */
+    const token = runningCode ? "c" + runningCode : "n" + BUILD_NOTES;
     let done = "";
     try {
       done = localStorage.getItem(SLIDES_RESET_KEY) || "";
@@ -3583,6 +3644,10 @@ export function undoEdit(): { ok: boolean; label?: string } {
 
 function persistDraft() {
   if (!draft || !draftLoaded) return;
+  /* Staging anything ends a clean stage (office request): the moment an edit,
+     a fold or a Recover holds staged words, inbound words stage normally
+     again — clean-until-staged, never clean-forever. */
+  cleanStageForNewCode = false;
   /* A section the site no longer offers (a renamed id from an older save) can
      never be published or cleared, so its flag must not linger forever. */
   for (const id of Object.keys(dirty)) if (!sectionById(id)) delete dirty[id];

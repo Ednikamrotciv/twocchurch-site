@@ -1,10 +1,10 @@
 import vm from "node:vm";
-import { readFile, writeFile, mkdir } from "node:fs/promises";
+import { readFile, writeFile, mkdir, stat } from "node:fs/promises";
 import path from "node:path";
 import { createHash } from "node:crypto";
 import { recordSeen } from "./backup-data.mjs";
 import { notePublished } from "./auto-push.mjs";
-import { DEFAULT_LIVE_ORIGIN, pickLiveOrigin, shouldAdoptLive, adoptPatch } from "./live-follow.mjs";
+import { DEFAULT_LIVE_ORIGIN, pickLiveOrigin, shouldAdoptLive, adoptPatch, referencedUploads, BACKFILL_MAX_BYTES } from "./live-follow.mjs";
 import { openInstantPush } from "./instant-push.mjs";
 import { parseFeedSpec, peekFeedSeed } from "./feed-spec.mjs";
 
@@ -282,11 +282,68 @@ async function folderBuildNotes(rootDir) {
   }
 }
 
+/* Last-publish upload backfill (office request: the last publish saves its
+   photos, not just its words — for live AND local): after a follow loop
+   adopts sections, every upload file they point at but this folder lacks is
+   fetched home into data/uploads/, so a later sleep-wipe restores the last
+   publish instead of dropping to the welcome photo. Only newly adopted
+   sections are ever read, so a new clean deploy (no adopts) resurrects
+   nothing. baseUrls are tried in order, first good answer wins; app-fallback
+   HTML and oversize files are refused with a log line instead of breaking
+   the push that carries the words. Never throws out. */
+async function backfillUploadFiles(rootDir, names, baseUrls, where) {
+  const list = Array.isArray(names) ? [...new Set(names)] : [];
+  const bases = Array.isArray(baseUrls) ? baseUrls.filter(Boolean) : [];
+  if (!list.length || !bases.length) return { fetched: 0 };
+  let fetched = 0;
+  try {
+    await mkdir(path.join(rootDir, "data", "uploads"), { recursive: true });
+  } catch { return { fetched: 0 }; }
+  for (const name of list) {
+    if (!/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(String(name || ""))) continue;
+    try {
+      const st = await stat(path.join(rootDir, "data", "uploads", name)).catch(() => null);
+      if (st && st.isFile() && st.size > 0) continue;
+    } catch { /* missing — fetch it home */ }
+    for (const base of bases) {
+      const ctrl = typeof AbortController !== "undefined" ? new AbortController() : null;
+      const timer = ctrl ? setTimeout(() => ctrl.abort(), 20000) : 0;
+      try {
+        const res = await fetch(String(base) + encodeURIComponent(name), { cache: "no-store", signal: ctrl ? ctrl.signal : undefined });
+        if (!res || !res.ok) continue;
+        const type = String((res.headers && res.headers.get("content-type")) || "").toLowerCase();
+        if (type.includes("text/html")) continue;
+        /* Videos announce their size up front: skip the download when the
+           header already says over the cap, instead of fetching hundreds of
+           megabytes just to refuse them. */
+        const announced = Number((res.headers && res.headers.get("content-length")) || 0);
+        if (announced > BACKFILL_MAX_BYTES) {
+          console.log(`upload backfill: ${name} announces ${(announced / 1048576).toFixed(0)} MB — over the backfill cap, left where published (upload it on the office copy, under 100 MB, so it rides git)`);
+          break;
+        }
+        const buf = Buffer.from(await res.arrayBuffer());
+        if (!buf.length) continue;
+        if (buf.length > BACKFILL_MAX_BYTES) {
+          console.log(`upload backfill: ${name} is ${(buf.length / 1048576).toFixed(0)} MB — over the backfill cap, left where published (upload it on the office copy, under 100 MB, so it rides git)`);
+          break;
+        }
+        await writeFile(path.join(rootDir, "data", "uploads", name), buf);
+        fetched++;
+        break;
+      } catch {
+        /* unreachable for this base — try the next one */
+      } finally {
+        if (timer) clearTimeout(timer);
+      }
+    }
+  }
+  if (fetched) console.log(`upload backfill (${where}): ${fetched} file${fetched === 1 ? "" : "s"} from the last publish saved home`);
+  return { fetched };
+}
 /* The office backend's minute loop (note 344): read the live site's
    published words, adopt them when strictly newer. All decisions in
    live-follow.mjs; this only moves bytes. Never throws out. */
-const FOLLOW_MS = 60 * 1000;
-let followStarted = false;
+const FOLLOW_MS = 60 * 1000;let followStarted = false;
 function startLiveFollow({ rootDir, rpcCall, adoptToken }) {
   if (followStarted) return;
   followStarted = true;
@@ -366,6 +423,14 @@ function startLiveFollow({ rootDir, rpcCall, adoptToken }) {
       }
       if (out && out.ok === true) {
         console.log(`live follow: adopted ${ids.length} section${ids.length === 1 ? "" : "s"} published on live/admin (${ids.slice(0, 4).join(", ")}${ids.length > 4 ? "…" : ""}) — riding auto-deploy out`);
+        /* The last publish saves its photos too (not just its words): fetch
+           adopted uploads home so they ride git out and survive the next
+           wipe on live AND local — then re-arm the push so bytes and words
+           ride one commit. */
+        try {
+          const got = await backfillUploadFiles(rootDir, referencedUploads(patch), [origin + "/data/uploads/"], "live follow");
+          if (got && got.fetched) notePublished(rootDir);
+        } catch { /* words already adopted above */ }
       }
     } finally {
       running = false;
@@ -448,6 +513,31 @@ function startFeedFollow({ rootDir, rpcCall, adoptToken }) {
       }
       const fresh = !localSections || !Object.keys(localSections).length;
       const buildNotes = await folderBuildNotes(rootDir);
+      /* Clean-deploy guard (office request: every new deploy opens clean): on
+         an empty store the wall clock cannot arbitrate, so a retired mirror
+         would resurrect old words onto a clean deploy within seconds of boot.
+         When the deploy bake itself is empty, a fresh mirror is adopted ONLY
+         as this deploy's own first publish (same-deploy witness on the
+         running update or older) — the sleep-wake that serves the first
+         publish. Anything else waits for the rebuild that carries the
+         publish. Bakes carrying words keep the old path untouched. */
+      if (fresh) {
+        let bakeEmpty = false;
+        try {
+          const rawBake = await readFile(path.join(rootDir, "dist", "seed.json"), "utf8");
+          const parsed = JSON.parse(rawBake);
+          bakeEmpty = !parsed || !parsed.sections || typeof parsed.sections !== "object" || !Object.keys(parsed.sections).length;
+        } catch { bakeEmpty = false; }
+        if (bakeEmpty) {
+          let myDeploy = "";
+          try {
+            myDeploy = String(JSON.parse(await readFile(path.join(rootDir, "dist", "version.json"), "utf8")).deployId || "");
+          } catch { /* unknown deploy — stay clean */ }
+          const seedDeploy = seed && typeof seed.publishedDeploy === "string" ? seed.publishedDeploy : "";
+          const seedNotes = seed && typeof seed.notes === "number" && isFinite(seed.notes) ? Math.floor(seed.notes) : 0;
+          if (!myDeploy || seedDeploy !== myDeploy || !(seedNotes > 0 && buildNotes > 0 && seedNotes <= buildNotes)) return;
+        }
+      }
       const verdict = shouldAdoptLive(local, seed, buildNotes, fresh);
       if (verdict !== "adopt") return;
       const patch = adoptPatch(seed.sections);
@@ -466,6 +556,19 @@ function startFeedFollow({ rootDir, rpcCall, adoptToken }) {
       }
       if (out && out.ok === true) {
         console.log(`feed follow: adopted ${ids.length} section${ids.length === 1 ? "" : "s"} published on local/admin (${ids.slice(0, 4).join(", ")}${ids.length > 4 ? "…" : ""}) — live without a rebuild`);
+        /* The last publish saves its photos on live too: fetch adopted
+           uploads off the mirror into this box's disk, so a later wipe
+           restores them instead of dropping to the welcome photo. Mirror
+           layout first, public-source layout second, fastest host first. */
+        try {
+          const base = `${spec.owner}/${spec.repo}`;
+          await backfillUploadFiles(rootDir, referencedUploads(patch), [
+            `https://raw.githubusercontent.com/${base}/${spec.branch}/uploads/`,
+            `https://cdn.jsdelivr.net/gh/${base}@${spec.branch}/uploads/`,
+            `https://raw.githubusercontent.com/${base}/${spec.branch}/data/uploads/`,
+            `https://cdn.jsdelivr.net/gh/${base}@${spec.branch}/data/uploads/`,
+          ], "feed follow");
+        } catch { /* words already adopted above */ }
       }
     } finally {
       running = false;

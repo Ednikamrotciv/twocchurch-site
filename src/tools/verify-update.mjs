@@ -73,6 +73,7 @@ const FILES = [
   ["src/styles/pages.css", null],
   ["APPLY_UPDATE.txt", null],
   ["maintenance-hold.txt", null],
+  ["clean-deploy.txt", null],
   [".gitignore", null],
 ];
 
@@ -412,6 +413,103 @@ export async function runAll(fs) {
   ok("dev bake honors the flag", has(devJ3, "clean-deploy.txt") && has(devJ3, "dev bake ships no words"), "the office preview must open clean too");
   ok("server names the flag", has(serveJ3, "clean-deploy.txt") && has(serveJ3, "Recover + Publish"), "a clean live site must never be a mystery");
   ok("build names the flag", has(staticBuild, "clean-deploy.txt") && has(staticBuild, "dist ships no words"), "the build log must state the clean truth");
+  /* J4. live-led, clean-staged (office request): a live/admin publish takes
+     effect on the office copy even when it never published on the running
+     code (words record on the office disk, nothing blessed); a new code
+     arrival stages clean — welcome-home slide only, no former publish —
+     until Recover or an explicit Publish; the first publish consumes the
+     clean-deploy flag so the next rebuild carries words; and a waking box
+     primes its fallback from the pushed mirror, serving the first publish
+     instead of the deploy-time bake. */
+  const pushJ4 = text["scripts/auto-push.mjs"];
+  const fbJ4 = text["scripts/seed-fallback.mjs"];
+  ok("fresh code stages clean", has(cms, "cleanStageForNewCode") && has(cms, "codeChangedSinceBless"), "a new code arrival must not stage the former publish");
+  ok("live adopt needs no blessing", has(cms, "stageInbound") && has(cms, "general control"), "a live publish must take effect on local unblessed copies too");
+  ok("auto-adopt never stages clean", has(cms, "staged clean until Recover"), "recorded live words must not fill a clean stage by themselves");
+  ok("clean stage ends on staging", has(cms, "clean-until-staged, never clean-forever"), "the first staged edit, fold or Recover must resume normal staging");
+  ok("flag consumed by publish", has(pushJ4, "clean-deploy.txt") && has(pushJ4, "flagGone"), "clean-until-first-publish must end at the first publish");
+  ok("server primes the mirror", has(serve, "primeMirrorSeed"), "a wake must ask the pushed mirror, not only the deploy bake");
+  try {
+    const modJ4 = await import(
+      URL.createObjectURL(new Blob([fbJ4], { type: "text/javascript" }))
+    );
+    const bake = { rev: 10, notes: 413, sections: { home: { t: "Bake words" } } };
+    const newer = { rev: 12, notes: 413, sections: { home: { t: "Published words" } } };
+    const p1 = modJ4.preferMirrorSeed(bake, newer);
+    const p2 = modJ4.preferMirrorSeed({ rev: 0, notes: 0, sections: {} }, newer);
+    const p3 = modJ4.preferMirrorSeed(bake, { rev: 14, notes: 414, sections: { home: { t: 1 } } });
+    const p4 = modJ4.preferMirrorSeed(bake, null);
+    ok("wake prefers pushed mirror", p1.from === "mirror" && p2.from === "bake" && p3.from === "bake" && p4.from === "bake", "newer-same-update wins; clean bakes, newer updates and broken mirrors keep the bake");
+  } catch (e) {
+    ok("mirror-preference suite", false, String((e && e.message) || e).slice(0, 200));
+  }
+  /* J5. every deploy clean, wake after first publish (office request): the
+     update ships clean-deploy.txt so a NEW deploy opens fresh — welcome-home
+     slide only, unsaved changes empty; content rebuilds share the code, so
+     the slides reset never re-marks them as unsaved; live/admin stays the
+     general control (J4 lanes untouched); and a sleep-wake after the first
+     publish serves it — an empty bake adopts the pushed mirror ONLY as its
+     own deploy's first publish (same-deploy witness, running update or
+     older), in the boot prime and in the feed follow alike. Retired mirrors,
+     unstamped mirrors and newer-update mirrors never overlay a clean deploy. */
+  const flagJ5 = text["clean-deploy.txt"];
+  const localJ5 = text["scripts/cms-local.mjs"];
+  ok("clean deploys ship the flag", typeof flagJ5 === "string" && flagJ5.length > 0 && has(flagJ5, "Recover"), "every update must open clean until Recover + Publish");
+  ok("slides reset is code-based", has(cms, '"c" + runningCode') && !has(cms, "const token = deployFromMeta"), "a rebuild must never re-mark slides as unsaved — only new code starts over");
+  ok("feed follow guards fresh mirrors", has(localJ5, "bakeEmpty") && has(localJ5, "seedDeploy"), "a retired mirror must not resurrect onto a clean deploy");
+  ok("prime names its deploy", has(fbJ4, "deployId: myDeploy") && has(fbJ4, "mirror-takeover"), "the boot prime must prove the first publish is this deploy's own");
+  try {
+    const modJ5 = await import(
+      URL.createObjectURL(new Blob([fbJ4], { type: "text/javascript" }))
+    );
+    const emptyBake = { rev: 0, notes: 0, sections: {} };
+    const firstPublish = { rev: 5, notes: 413, sections: { home: { t: "First words" } }, publishedDeploy: "DEPLOY-N" };
+    const t1 = modJ5.preferMirrorSeed(emptyBake, firstPublish, { deployId: "DEPLOY-N", buildNotes: 413 });
+    const t2 = modJ5.preferMirrorSeed(emptyBake, firstPublish, { deployId: "DEPLOY-OTHER", buildNotes: 413 });
+    const t3 = modJ5.preferMirrorSeed(emptyBake, { rev: 5, notes: 414, sections: { home: { t: 1 } }, publishedDeploy: "DEPLOY-N" }, { deployId: "DEPLOY-N", buildNotes: 413 });
+    const t4 = modJ5.preferMirrorSeed(emptyBake, { rev: 5, notes: 413, sections: { home: { t: 1 } } }, { deployId: "DEPLOY-N", buildNotes: 413 });
+    const t5 = modJ5.preferMirrorSeed(emptyBake, firstPublish);
+    const t6 = modJ5.preferMirrorSeed({ rev: 10, notes: 413, sections: { home: { t: "Bake" } } }, { rev: 12, notes: 413, sections: { home: { t: "Mirror" } } }, { deployId: "DEPLOY-N", buildNotes: 413 });
+    ok("takeover serves the first publish", t1.from === "mirror-takeover" && t2.from === "bake" && t3.from === "bake" && t4.from === "bake" && t5.from === "bake" && t6.from === "mirror", "own-deploy first publish wins; retired, newer-update, unstamped and opt-less mirrors keep the bake, worded bakes keep the rev rule");
+  } catch (e) {
+    ok("takeover suite", false, String((e && e.message) || e).slice(0, 200));
+  }
+  /* J6. the last publish saves its photos (office request): after a follow
+     loop adopts sections, the upload files they point at are fetched home —
+     office fetches off live, live fetches off the mirror — so a later sleep
+     wipe restores the last publish on live AND local instead of dropping to
+     the welcome photo. Only newly adopted sections are ever read (a clean
+     deploy adopts nothing, so nothing old is resurrected); app-fallback HTML
+     and oversize files are refused instead of breaking the push. */
+  const followJ6 = text["scripts/live-follow.mjs"];
+  ok("office fetches adopted photos", has(localJ5, 'backfillUploadFiles(rootDir, referencedUploads(patch), [origin + "/data/uploads/"]'), "a live publish must land its bytes in the office folder, not just its words");
+  ok("live fetches adopted photos", has(localJ5, "spec.branch}/uploads/") && has(localJ5, '"feed follow"'), "a mirror adopt must land its bytes on the live disk");
+  ok("backfill refuses junk", has(localJ5, "text/html") && has(localJ5, "BACKFILL_MAX_BYTES"), "fallback pages and giant files must never ride the push");
+  ok("backfill reads adopted only", has(localJ5, "referencedUploads(patch)"), "only newly adopted sections may fetch — never a sweep that resurrects");
+  try {
+    const modJ6 = await import(
+      URL.createObjectURL(new Blob([followJ6], { type: "text/javascript" }))
+    );
+    const refs = modJ6.referencedUploads({ slides: JSON.stringify([{ image: "/data/uploads/a.jpg" }, { image: "/data/uploads/a.jpg" }, { image: "/data/uploads/../evil" }]), home: JSON.stringify({ photo: "/data/uploads/b.png" }) });
+    ok("upload refs extracted once", refs.length === 2 && refs.includes("a.jpg") && refs.includes("b.png"), "got " + JSON.stringify(refs));
+    ok("upload refs empty-safe", modJ6.referencedUploads({}).length === 0 && modJ6.referencedUploads(null).length === 0, "nothing referenced means nothing fetched");
+    ok("backfill capped at the mirror ceiling", modJ6.BACKFILL_MAX_BYTES === 90 * 1024 * 1024, "oversize bytes must stay published-in-place, not break the push");
+  } catch (e) {
+    ok("backfill suite", false, String((e && e.message) || e).slice(0, 200));
+  }
+  /* J7. photos, videos, everything rides — nothing sinks the words (office
+     request: the last publish saves photos, videos, not just words, and all
+     contents): office-disk content is only ever /data/uploads files (words
+     carry the remote links themselves), the backfill announces big videos up
+     front instead of downloading them to refuse them, and the push unstages
+     files over GitHub's 100 MB refusal — named in the log — so the words
+     always ride, whatever was uploaded. */
+  const pushJ7 = text["scripts/auto-push.mjs"];
+  ok("disk content is uploads-only", has(cms, "only /data/uploads/ files live on the office disk"), "one rule must cover photos, videos and audio alike");
+  ok("backfill covers videos too", has(followJ6, "/data/uploads/") && has(cms, 'mp4: "video/mp4"'), "an uploaded sermon video is a /data/uploads file like any photo");
+  ok("big videos skip the download", has(localJ5, "content-length") && has(localJ5, "announces"), "a hundred-megabyte video must not be fetched just to be refused");
+  ok("oversize files leave the commit", has(pushJ7, "PUSH_FILE_MAX_BYTES") && has(pushJ7, "rm") && has(pushJ7, "--cached"), "an over-100 MB video must stay home, out of the push");
+  ok("words always ride", has(pushJ7, "the words still ride") && has(pushJ7, "the words always ride"), "whatever was uploaded, the publish must go out");
   /* J. live shows at once, clock vanishes with it (note 306): the Watch page
      checks immediately on open and stays on the short cadence even with no
      gathering on the clock; the fast cadence itself is shorter; a retyped

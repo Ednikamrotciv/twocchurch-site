@@ -4,7 +4,7 @@ import { gzipSync } from "node:zlib";
 import path from "node:path";
 import { createCmsHost, hashText } from "./cms-local.mjs";
 import { isLoopbackAddr } from "./live-follow.mjs";
-import { answerWithSeedFallback } from "./seed-fallback.mjs";
+import { answerWithSeedFallback, primeMirrorSeed } from "./seed-fallback.mjs";
 import { createGeoProxy } from "./geo-proxy.mjs";
 import { guardAtBoot } from "./backup-data.mjs";
 import { MIME } from "./mime.mjs";
@@ -100,6 +100,15 @@ const cms = await (async () => {
   return createCmsHost(ROOT, { follow: true });
 })();
 const geoProxy = createGeoProxy();
+
+/* Wake serves the first publish (office request): after a publish the office
+   mirrors the seed, so a waking box primes its fallback from the pushed
+   mirror — pushed words serve within seconds instead of waiting out the
+   feed-follow minute on the deploy-time bake. Best effort and silent when
+   there is no feed, no network, or nothing newer to serve. */
+try {
+  await primeMirrorSeed(ROOT, DIST);
+} catch { /* the deploy bake stands */ }
 
 /* The recent-services list stays fresh by itself: every 20 minutes the channel
    is re-read and the bake in seed.json refreshed, and a changed list rides the

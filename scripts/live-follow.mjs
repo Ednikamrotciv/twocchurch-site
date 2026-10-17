@@ -84,8 +84,7 @@ export function shouldAdoptLive(local, live, buildNotes, localFresh) {
    wire carries values parsed (objects), while an office publish sends them
    stringified — both shapes are accepted and stored stringified, so the
    stored bytes match a publish byte-for-byte. */
-export function adoptPatch(liveSections) {
-  const patch = {};
+export function adoptPatch(liveSections) {  const patch = {};
   try {
     const src = typeof liveSections === "string" ? JSON.parse(liveSections) : liveSections;
     if (!src || typeof src !== "object") return patch;
@@ -113,3 +112,36 @@ export function adoptPatch(liveSections) {
   }
   return patch;
 }
+
+/* Upload files a set of sections points at (office request: the last publish
+   saves its photos, not just its words). Values may be stringified section
+   JSON or parsed objects — stringify first, then read every /data/uploads/
+   name, deduplicated, traversal refused. Pure: no network, never throws. */
+const UPLOAD_NAME_RE = /\/data\/uploads\/([A-Za-z0-9][A-Za-z0-9._-]*)/g;
+export function referencedUploads(sections) {
+  const out = [];
+  try {
+    const seen = new Set();
+    const text = typeof sections === "string" ? sections : JSON.stringify(sections);
+    if (!text) return out;
+    let m = null;
+    UPLOAD_NAME_RE.lastIndex = 0;
+    while ((m = UPLOAD_NAME_RE.exec(text)) !== null) {
+      const name = m[1];
+      if (!name || name.includes("..") || seen.has(name)) continue;
+      seen.add(name);
+      out.push(name);
+    }
+  } catch {
+    /* unclear — nothing referenced */
+  }
+  return out;
+}
+
+/* Largest upload the follow loops fetch home on adopt (bytes): the mirror
+   skips files over ~90 MB and GitHub refuses files over 100 MB, so this is
+   the largest file worth fetching — photos, videos, audio, everything the
+   last publish points at. Bigger files stay where they were published and
+   say so in the log (upload them on the office copy, under 100 MB, and they
+   ride git like everything else). */
+export const BACKFILL_MAX_BYTES = 90 * 1024 * 1024;

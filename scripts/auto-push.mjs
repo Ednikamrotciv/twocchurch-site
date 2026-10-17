@@ -15,6 +15,12 @@ import { pushMirror } from "./feed-mirror.mjs";
    package.json, or set WOM_NO_PUSH=1. Auto-push also stays quiet outside a
    git checkout, or when there is no remote to push to. */
 
+/* Largest single file the push carries (bytes): GitHub refuses files over
+   100 MB, and one long video would fail the whole push — words included.
+   Bigger files stay on the office disk, out of the commit, named in the log:
+   the words always ride, whatever was uploaded. */
+export const PUSH_FILE_MAX_BYTES = 100 * 1024 * 1024;
+
 /* Publish-at-once: a minute after the last save the words push themselves out,
    so a publish reaches every copy within about a minute plus the host's own
    rebuild — while a publishing session still lands as a single deploy. */
@@ -98,13 +104,48 @@ async function pushOnce(rootDir) {
       console.warn("auto-deploy: could not bake the new words — will retry after the next publish" + (why ? ` (bake said: ${why})` : " (run `npm run bake-seed` by hand to see the error)"));
       return { skipped: "bake failed" };
     }
+    /* Clean-deploy flag consumed by the first publish (office request: clean
+       until the first Publish, then normal survival — the next rebuild bakes
+       these published words, so sleep-wakes serve them). Staged here so the
+       same commit carries it; a no-op when the file is absent. */
+    const flagRm = await run("git", ["rm", "--quiet", "--", "clean-deploy.txt"], rootDir);
+    const flagGone = flagRm.code === 0;
     const add = await run("git", ["add", "-A", "--", "data", "seed.json"], rootDir);
     if (add.code !== 0) return { skipped: "git add failed" };
+    /* No file may sink the words (a video over GitHub's 100 MB refusal fails
+       the whole push): unstage oversize staged files — they stay on the
+       office disk, out of the commit, named below. Deletions stay staged
+       (no working file to measure), and everything else rides as before. */
+    let excludedBig = [];
+    try {
+      const staged = await run("git", ["diff", "--cached", "--name-only", "-z", "--", "data", "seed.json"], rootDir);
+      const files = String(staged.out || "").split("\0").map((s) => s.trim()).filter(Boolean);
+      const { stat } = await import("node:fs/promises");
+      for (const f of files) {
+        if (f.includes("..")) continue;
+        let size = 0;
+        try {
+          const st = await stat(path.join(rootDir, f));
+          if (!st.isFile()) continue;
+          size = st.size;
+        } catch {
+          continue; /* deleted or unreadable — its staging stands */
+        }
+        if (size > PUSH_FILE_MAX_BYTES) {
+          const unstage = await run("git", ["rm", "--cached", "--quiet", "--", f], rootDir);
+          if (unstage.code === 0) excludedBig.push(`${f} (${(size / 1048576).toFixed(0)} MB)`);
+        }
+      }
+    } catch { /* measuring never breaks the push */ }
+    if (excludedBig.length) {
+      console.warn(`auto-deploy: ${excludedBig.length} file(s) over 100 MB stay home, out of this push (${excludedBig.slice(0, 3).join(", ")}) — the words still ride; shrink the file under 100 MB (or host the video elsewhere and paste its link) to carry it`);
+    }
     const again = await run("git", ["status", "--porcelain", "--", "data", "seed.json"], rootDir);
-    if (!again.out.trim()) return { skipped: "nothing new to deploy" };
+    if (!again.out.trim() && !flagGone) return { skipped: "nothing new to deploy" };
     const day = new Date().toISOString().slice(0, 16).replace("T", " ");
-    const commit = await run("git", ["commit", "-m", `content update ${day}`, "--quiet"], rootDir);
+    const commit = await run("git", ["commit", "-m", `content update ${day}` + (flagGone ? " (clean-deploy flag consumed by first publish)" : ""), "--quiet"], rootDir);
     if (commit.code !== 0) return { skipped: "git commit failed" };
+    if (flagGone) console.log("auto-deploy: clean-deploy.txt consumed by this publish — the next rebuild carries these words");
     const push = await run("git", ["push", "--quiet"], rootDir);
     if (push.code !== 0) {
       /* Name the usual suspects (note 307): huge uploads break the push while

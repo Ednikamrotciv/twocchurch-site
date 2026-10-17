@@ -112,8 +112,11 @@ export const BUILD_DATE = "2026-10-13";
 /* Unnumbered code identity (the stale fix ships with no new number): an opaque
    word naming the running code, compared by equality only — never ordered — so
    a stale cache can never invert it the way stale numbers did. An explicit
-   office Publish blesses it; the maintenance gates hold until then. */
-export const CODE_ID = "atonce";
+   office Publish blesses it; the maintenance gates hold until then. Bump the
+   word with EVERY behavior update: a changed word both retires stale bundles
+   and stages a new deploy clean (a same word across rebuilds means continuity,
+   so routine same-code rebuilds never wipe staged words). */
+export const CODE_ID = "livelead";
 export function buildStamp() {
   return { notes: BUILD_NOTES, built: BUILD_DATE, code: CODE_ID };
 }

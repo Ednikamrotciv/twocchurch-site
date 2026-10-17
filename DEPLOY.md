@@ -46,16 +46,25 @@ Delete the file when holding should stop — it never leaves your computer
 ## Clean new deploys (option A)
 
 To open a NEW deploy fresh, new and clean — no retained words until you say
-so — put an empty file named `clean-deploy.txt` beside `package.json`,
-commit it, and push. Every deploy while it sits there ships no words:
-visitors wait on maintenance, and the site goes live only when you click
+so — the update ships an empty file named `clean-deploy.txt` beside
+`package.json` (committed, like `maintenance-hold.txt`): keep it there and
+every deploy while it sits there ships no words. Each new update re-ships
+it, so every new code deploy opens clean again; content rebuilds after the
+first Publish carry words as usual.
+Visitors wait on maintenance, and the site goes live only when you click
 Recover (Tools restore of your downloaded content backup) and then Publish —
 always Recover FIRST, or the clean site goes live over your real words.
 Nothing is ever deleted (backups, the office disk and the root seed keep
-everything); sleep-wakes on the same deploy keep re-serving as before.
-To exit the cycle: after Recover + Publish, DELETE `clean-deploy.txt`,
-commit+push, and rebuild — the next bake carries the words again. Without
-the file, deploys carry words exactly as before.
+everything); after the first Publish, sleep-wakes serve it (the pushed
+mirror carries the first publish until the rebuild that locks it in).
+The first Publish consumes the file by itself (the push commit deletes it),
+so the next rebuild carries words and wakes serve them — no second trip.
+Without the file, deploys carry words exactly as before.
+
+New code also stages clean on its own: the office copy opens on defaults
+(welcome-home slide only) instead of the former publish, until you Recover,
+edit, or Publish — staging anything ends it. Same-code rebuilds keep
+continuity and never wipe staged words.
 
 ## The update routine
 
@@ -63,6 +72,10 @@ Publish from the admin console on your own computer and you are done — with
 the live feed below, every copy catches up within minutes with no rebuild.
 Without the feed, rebuild and re-upload after publishing
 (`npm run build`, upload `dist/`).
+Live/admin is the general control: a publish clicked on live/admin records
+itself on the office copy too (while an office tab is open and signed in),
+even if the office never published on the running code — gates still take an
+explicit Publish, and mid-edit desks wait rather than adopt under.
 
 ## The live feed (content without rebuilds)
 

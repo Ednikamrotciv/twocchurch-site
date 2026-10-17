@@ -114,6 +114,145 @@ export async function loadBakedSeed(rootDir, distDir) {
   return null;
 }
 
+/* Pure decision: a baked seed and a pushed mirror seed in, the one to serve.
+   The mirror is the office's latest pushed publish; the bake is the deploy's.
+   The mirror wins only when it is strictly newer work on the SAME-or-older
+   update (rev higher, notes at or below the bake): a newer update in the
+   mirror means the office moved on — this copy must wait for the update, not
+   serve its words — and a clean/empty bake (notes 0, e.g. a clean deploy)
+   never adopts mirror words by itself, EXCEPT as the first publish of its own
+   deploy (opts.takeover below): the mirror then proves, by naming this
+   deploy's own witness on the running update or older, that the office already
+   published here — so a sleep-wake after that first publish serves it instead
+   of the empty bake. Older mirrors, unstamped mirrors and newer-update
+   mirrors still keep the bake, so a clean deploy can never resurrect retired
+   words. Never throws. */
+export function preferMirrorSeed(bake, mirror, opts) {
+  try {
+    const good = (s) => {
+      if (!s || typeof s !== "object") return null;
+      const sections = s.sections;
+      if (!sections || typeof sections !== "object" || !Object.keys(sections).length) return null;
+      return {
+        rev: typeof s.rev === "number" ? s.rev : 0,
+        notes: typeof s.notes === "number" ? s.notes : 0,
+        seed: s,
+      };
+    };
+    const b = good(bake);
+    const m = good(mirror);
+    /* Either side unusable keeps the bake: in particular a clean/empty bake
+       (a clean deploy) never adopts mirror words by itself — UNLESS the
+       mirror is this deploy's own first publish (same-deploy witness, running
+       update or older): then the office published here already, and wakes
+       serve it. The first Publish plus the rebuild that carries it still
+       restores the bake itself afterwards. */
+    if (!m || !b) {
+      if (!b && m && opts && typeof opts === "object") {
+        const myDeploy = typeof opts.deployId === "string" ? opts.deployId : "";
+        const build = typeof opts.buildNotes === "number" && isFinite(opts.buildNotes) ? Math.floor(opts.buildNotes) : 0;
+        const mDeploy = mirror && typeof mirror.publishedDeploy === "string" ? mirror.publishedDeploy : "";
+        if (myDeploy && mDeploy === myDeploy && m.notes > 0 && build > 0 && m.notes <= build) {
+          return { seed: mirror, from: "mirror-takeover" };
+        }
+      }
+      return { seed: bake || null, from: "bake" };
+    }
+    if (m.rev > b.rev && m.notes <= b.notes) return { seed: mirror, from: "mirror" };
+    return { seed: bake, from: "bake" };
+  } catch {
+    return { seed: bake || null, from: "bake" };
+  }
+}
+
+/* Boot-time prime (office request: sleep-wake serves the first publish, not
+   the deploy-time bake): after a publish the office mirrors the seed, so a
+   waking box asks the mirror first and serves pushed words within seconds
+   instead of waiting out the feed-follow minute on a stale bake. On a clean
+   deploy (empty bake) the mirror is adopted ONLY as this deploy's own first
+   publish (same-deploy witness, running update or older) — retired mirrors
+   can never resurrect onto a clean deploy. Best effort — unreachable mirror,
+   unconfigured feed, or a guarded case above all fall back to the bake
+   silently. Node only runs inside; the top-level stays importable without
+   Node (tests). */
+export async function primeMirrorSeed(rootDir, distDir) {
+  try {
+    const fs = await import("node:fs/promises");
+    const path = await import("node:path");
+    const { readFeedConfig, effectiveFeed } = await import("./feed-config.mjs");
+    const cfg = await readFeedConfig(rootDir);
+    const feed = effectiveFeed(cfg);
+    const m = /^\s*([A-Za-z0-9_.-]+)\/([A-Za-z0-9_.-]+)@([A-Za-z0-9_.\/-]+)\s*$/.exec(feed || "");
+    if (!m || (m[1] === "owner" && m[2] === "repo")) return { primed: false };
+    if (!seedCache) await loadBakedSeed(rootDir, distDir);
+    /* This deploy's own witness and update, for the clean-bake takeover rule
+       above: the deployed version.json names both (the takeover needs them,
+       the normal mirror-wins path ignores them). */
+    let myDeploy = "";
+    try {
+      myDeploy = String(JSON.parse(await fs.readFile(path.join(distDir, "version.json"), "utf8")).deployId || "");
+    } catch { /* unknown deploy — takeovers stay off, the bake stands */ }
+    let buildNotes = 0;
+    try {
+      const hooksSrc = await fs.readFile(path.join(rootDir, "src", "lib", "hooks.ts"), "utf8");
+      buildNotes = Number((hooksSrc.match(/BUILD_NOTES = (\d+)/) || [])[1]) || 0;
+    } catch { /* unknown update — takeovers stay off */ }
+    const base = `${m[1]}/${m[2]}`;
+    const urls = [
+      `https://raw.githubusercontent.com/${base}/${m[3]}/seed.json`,
+      `https://cdn.jsdelivr.net/gh/${base}@${m[3]}/seed.json`,
+    ];
+    for (const url of urls) {
+      let data = null;
+      try {
+        const ctrl = typeof AbortController !== "undefined" ? new AbortController() : null;
+        const timer = ctrl ? setTimeout(() => ctrl.abort(), 6000) : 0;
+        try {
+          const res = await fetch(url, { cache: "no-store", signal: ctrl ? ctrl.signal : undefined });
+          if (!res.ok) continue;
+          data = await res.json().catch(() => null);
+        } finally {
+          if (timer) clearTimeout(timer);
+        }
+      } catch {
+        continue;
+      }
+      /* A clean deploy bakes no usable seed (the cache stays null) — decide
+         against an empty stand-in so the takeover rule below can still fire
+         for this deploy's own first publish. Anything else keeps the bake. */
+      const bake = seedCache || { rev: 0, notes: 0, sections: {}, log: [], by: "", at: 0, publishedDeploy: "" };
+      const pick = preferMirrorSeed(
+        { rev: bake.rev, notes: bake.notes, sections: bake.sections },
+        data,
+        { deployId: myDeploy, buildNotes }
+      );
+      /* A takeover serves the mirror's own witness (it names THIS deploy, so
+         tabs release on it); the normal mirror-wins path keeps the bake's
+         witness as before, so a newer deploy's words can never release this
+         box by themselves. */
+      if (pick.from === "mirror-takeover") {
+        const kept = usableSeed({ ...data });
+        if (kept) {
+          seedCache = kept;
+          console.log(`seed fallback primed from this deploy's first publish (rev ${kept.rev}) — wakes serve it, not the empty bake`);
+          return { primed: true };
+        }
+      }
+      if (pick.from === "mirror") {
+        const kept = usableSeed({ ...data, publishedDeploy: bake.publishedDeploy });
+        if (kept) {
+          seedCache = kept;
+          console.log(`seed fallback primed from the pushed mirror (rev ${kept.rev}) — wakes serve the first publish, not the deploy bake`);
+          return { primed: true };
+        }
+      }
+      return { primed: false };
+    }
+    return { primed: false };
+  } catch {
+    return { primed: false };
+  }
+}
 /* Drop-in for the /__cms/getContent answer path. Any other method passes
    through untouched; any failure returns the live answer unchanged — the
    fallback must never break content. */
