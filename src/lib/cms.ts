@@ -181,6 +181,26 @@ function noteDeployWitness(v: unknown): boolean {
   } catch {}
   return false;
 }
+/** A same-code attestation lifts the number gate (office request: a Publish
+    click clears the notice on live AND local): the joined backend names the
+    code word it runs — a localhost backend serves its own files, so a word
+    matching this bundle IS this code by construction, and a publish stamped
+    from it is proven office review, not a leak. Equality only, like the word
+    rule itself; a missing or different word proves nothing and changes
+    nothing. This never stages (the clean stage still takes an explicit
+    Publish, a Recover, or a same-deploy witness) — it only blesses, so the
+    notice lifts on the witnessed publish. True when it blessed. */
+function noteCodeWitness(code: unknown, notes: unknown): boolean {
+  try {
+    if (typeof code !== "string" || !code || code !== runningCode) return false;
+    const n = Math.floor(Number(notes));
+    if (!Number.isFinite(n) || n < BUILD_NOTES) return false;
+    blessRunningCode();
+    return true;
+  } catch {
+    return false;
+  }
+}
 /* Fresh deploy starts unsaved-clean (office request: unsaved changes are clear
    and fresh for every new deploy). Every build stamps a fresh opaque deploy ID,
    so a changed deploy ID proves a new deploy even when the update number is
@@ -1438,13 +1458,13 @@ export async function publishSection(sectionId: string, note: string): Promise<P
       }
     }
     /* No words move, so no undo entry: the bless only lifts the notice. */
-    const blessOnly = await sendPatch({}, [], note.slice(0, 160));
+    const blessOnly = await sendPatch({}, [], note.slice(0, 160), true, true);
     if (!blessOnly.ok) return { ok: false, error: blessOnly.error };
     rev = blessOnly.rev ?? rev + 1;
     setPublishedNotes(BUILD_NOTES);
     writeCache();
     notify();
-    return { ok: true };
+    return { ok: true, live: blessOnly.relay !== "missed" };
   }
   /* One click publishes to visitors (office request): a tap while the tab is
      momentarily offline (sleep wake, reconnect backoff, slow mobile network)
@@ -1485,7 +1505,7 @@ export async function publishSection(sectionId: string, note: string): Promise<P
   }
   rememberHistory();
   const payload = JSON.stringify(value);
-  const result = await sendPatch({ [sectionId]: payload }, [sectionId], note.slice(0, 160));
+  const result = await sendPatch({ [sectionId]: payload }, [sectionId], note.slice(0, 160), true, true);
   if (!result.ok) return { ok: false, error: result.error };
   rev = result.rev ?? rev + 1;
   updatedAt = Date.now();
@@ -1501,7 +1521,7 @@ export async function publishSection(sectionId: string, note: string): Promise<P
   applyOverrides(overrides);
   writeCache();
   notify();
-  return { ok: true };
+  return { ok: true, live: result.relay !== "missed" };
 }
 
 function stampSermonPublishTimes(list: any[]): void {
@@ -2921,6 +2941,10 @@ async function syncFromServer() {
   if (typeof res.notes === "number") setPublishedNotes(res.notes);
   const notesLifted = publishedNotes > notesBefore;
   const deployLifted = noteDeployWitness((res as any).publishDeploy);
+  /* Same-code attestation rides the same answer: a backend running this code
+     with this code published lifts the number gate headless — a live publish
+     clears the local notice with no tab open and no click needed. */
+  const codeWitnessed = noteCodeWitness((res as any).code, res.notes);
   rev = serverRev;
   updatedAt = res.at || 0;
   updatedBy = res.by || "";
@@ -2960,7 +2984,7 @@ async function syncFromServer() {
       applyOverrides(server);
       writeCache();
     }
-  } else if (notesLifted || deployLifted) {
+  } else if (notesLifted || deployLifted || codeWitnessed) {
     /* Content identical but the publish stamp moved (note 278): bump so the
        maintenance notice re-evaluates instead of sticking with first paint. */
     version += 1;
@@ -4039,7 +4063,7 @@ export async function importBackup(text: string): Promise<ImportResult> {
 
 /* ----------------------------------------------------------------- publish */
 
-export type PublishResult = { ok: boolean; error?: string; local?: boolean };
+export type PublishResult = { ok: boolean; error?: string; local?: boolean; live?: boolean };
 
 /** Only the sections that differ from what is live are sent. */
 function buildPatch(target: Snapshot): { sections: Record<string, string | null>; changed: string[] } {
@@ -4082,46 +4106,75 @@ function convergeNow(): void {
   } catch {}
 }
 
-/* Every publish reflects everywhere (office request: visitors, local site,
-   live/admin, local/admin): the office copy's backend reaches the live box on
-   its own (minute follow + instant push), but the live box cannot reach a
+/* Every publish reflects everywhere (office request: a Publish click saves to
+   the visitors website from live/admin AND local/admin, and clears the
+   notice on live AND local): the office copy's backend reaches the live box
+   on its own (minute follow + instant push), but the live box cannot reach a
    localhost office — so without a public mirror an office publish only
    reached live after the rebuild, minutes later. The publishing tab itself
    can reach BOTH (it reads live for the fold already), so after every
    deliberate office publish it relays the same words straight to the live
    backend with this tab's own session — live visitors and live/admin land it
    in seconds via the live backend's own shout, with no feed and no rebuild.
-   Best-effort and silent: a denied login (live password differs), 2FA on
-   live, or an unreachable live box simply leaves the minute loops, the feed
-   and the rebuild to carry the publish as before. Never throws, never
-   awaits — the office publish already succeeded before this runs. */
-async function relayPublishToOtherSide(
+   Best-effort: a denied login (live password differs), 2FA on live, or an
+   unreachable live box simply leaves the minute loops, the feed and the
+   rebuild to carry the publish as before — and the click now SAYS so instead
+   of claiming every visitor is updated. */
+/** Where live is for a relay: "" on the live box itself (it IS live — the
+    backend loop owns that direction, nothing to reach). */
+async function relayLiveBase(): Promise<string> {
+  try {
+    const base = await liveBaseUrl().catch(() => "");
+    if (!base || !/^https?:\/\/[^/\s]+$/i.test(base)) return "";
+    return base;
+  } catch {
+    return "";
+  }
+}
+/* One relay fetch with its own deadline, so awaiting the relay can never
+   hold a Publish click hostage on a stalled network. */
+async function relayFetch(url: string, body: string, ms = 8000): Promise<Response> {
+  const ctrl = typeof AbortController !== "undefined" ? new AbortController() : null;
+  const timer = ctrl ? window.setTimeout(() => ctrl.abort(), ms) : 0;
+  try {
+    return await fetch(url, {
+      method: "POST",
+      headers: { "content-type": "text/plain;charset=utf-8" },
+      body,
+      signal: ctrl ? ctrl.signal : undefined,
+    });
+  } finally {
+    if (timer) window.clearTimeout(timer as ReturnType<typeof setTimeout>);
+  }
+}
+/* The relay's word leg, awaited by explicit Publish clicks and bounded end to
+   end: "landed" (live took the words — its visitors and its notice follow at
+   once), "unneeded" (this IS live, or no session to knock with — the loops
+   own it), or "missed" (denied, 2FA, unreachable, timed out — the minute
+   loops, the feed and the rebuild carry it). Never throws. */
+async function relayPublishWordsToLive(
   sections: Record<string, string | null>,
   changed: string[],
   note: string
-): Promise<void> {
-  try {
-    const base = await liveBaseUrl().catch(() => "");
-    if (!base || !/^https?:\/\/[^/\s]+$/i.test(base)) return; // this IS live — the backend loop owns the other direction
+): Promise<"landed" | "missed" | "unneeded"> {
+  const run = async (): Promise<"landed" | "missed" | "unneeded"> => {
+    const base = await relayLiveBase();
+    if (!base) return "unneeded";
     let pw = "";
     try {
       pw = sessionPassword();
     } catch {
       pw = "";
     }
-    if (!pw) return;
+    if (!pw) return "unneeded";
     const conn = "relay-" + Math.random().toString(36).slice(2) + Date.now().toString(36);
     try {
-      const login = await fetch(base + "/__cms/login?conn=" + encodeURIComponent(conn), {
-        method: "POST",
-        headers: { "content-type": "text/plain;charset=utf-8" },
-        body: JSON.stringify({ password: pw, want: "main" }),
-      });
-      if (!login.ok) return;
+      const login = await relayFetch(base + "/__cms/login?conn=" + encodeURIComponent(conn), JSON.stringify({ password: pw, want: "main" }));
+      if (!login.ok) return "missed";
       const data = await login.json().catch(() => null);
-      if (!data || data.ok !== true || (data as any).needCode) return;
+      if (!data || data.ok !== true || (data as any).needCode) return "missed";
     } catch {
-      return;
+      return "missed";
     }
     /* The relay blesses LIVE's own deploy, never ours: our deploy id would
        name a build the live box never served, and its visitors would keep
@@ -4129,11 +4182,21 @@ async function relayPublishToOtherSide(
        the witness just waits for the rebuild. */
     let liveDeploy = "";
     try {
-      const res = await fetch(base + "/version.json?t=" + Date.now(), { cache: "no-store" });
-      if (res.ok) {
-        const data = await res.json().catch(() => null);
-        const d = String((data && (data as any).deployId) || "");
-        if (/^[A-Za-z0-9_-]{1,80}$/.test(d)) liveDeploy = d;
+      const ctrl = typeof AbortController !== "undefined" ? new AbortController() : null;
+      const timer = ctrl ? window.setTimeout(() => ctrl.abort(), 8000) : 0;
+      try {
+        const res = await fetch(base + "/version.json?t=" + Date.now(), {
+          cache: "no-store",
+          headers: { pragma: "no-cache", "cache-control": "no-cache" },
+          signal: ctrl ? ctrl.signal : undefined,
+        });
+        if (res.ok) {
+          const data = await res.json().catch(() => null);
+          const d = String((data && (data as any).deployId) || "");
+          if (/^[A-Za-z0-9_-]{1,80}$/.test(d)) liveDeploy = d;
+        }
+      } finally {
+        if (timer) window.clearTimeout(timer as ReturnType<typeof setTimeout>);
       }
     } catch {
       /* words still ride without the witness */
@@ -4158,10 +4221,9 @@ async function relayPublishToOtherSide(
       const part: Record<string, string | null> = {};
       batches[b].forEach((id) => (part[id] = sections[id]));
       try {
-        const res = await fetch(base + "/__cms/publish?conn=" + encodeURIComponent(conn), {
-          method: "POST",
-          headers: { "content-type": "text/plain;charset=utf-8" },
-          body: JSON.stringify({
+        const res = await relayFetch(
+          base + "/__cms/publish?conn=" + encodeURIComponent(conn),
+          JSON.stringify({
             sections: part,
             note: String(note || "").slice(0, 160),
             by: editorName(),
@@ -4170,21 +4232,39 @@ async function relayPublishToOtherSide(
             deploy: liveDeploy,
             first: b === 0,
             quiet: b < batches.length - 1,
-          }),
-        });
-        if (!res.ok) return;
+          })
+        );
+        if (!res.ok) return "missed";
         const data = await res.json().catch(() => null);
-        if (!data || data.ok !== true) return;
+        if (!data || data.ok !== true) return "missed";
       } catch {
-        return;
+        return "missed";
       }
     }
-    /* The photos ride with the words: every upload the relayed sections point
-       at is read off this copy's own disk and written straight to the live
-       disk under its exact name, so the relayed words point at working
-       photos at once instead of waiting out the mirror push. Oversize files
-       stay where published (the backfill/mirror log names them); failures
-       leave the minute loops to carry them. */
+    return "landed";
+  };
+  try {
+    /* Bounded end to end: the words usually land in a couple of seconds; past
+       the bound the loops are already carrying them, so report missed. */
+    return await Promise.race([
+      run(),
+      new Promise<"missed">((res) => window.setTimeout(() => res("missed"), 25000)),
+    ]);
+  } catch {
+    return "missed";
+  }
+}
+/* The relay's photo leg: every upload the relayed sections point at is read
+   off this copy's own disk and written straight to the live disk under its
+   exact name, so the relayed words point at working photos at once instead
+   of waiting out the mirror push. Always background (photos can be big) —
+   oversize files stay where published (the backfill/mirror log names them);
+   failures leave the minute loops to carry them. Kicked off once the words
+   land; never throws, never awaits. */
+function relayUploadsToLive(sections: Record<string, string | null>): void {
+  (async () => {
+    const base = await relayLiveBase();
+    if (!base) return;
     try {
       const names = localUploadNames(sections).slice(0, 30);
       for (const name of names) {
@@ -4205,12 +4285,30 @@ async function relayPublishToOtherSide(
     } catch {
       /* words already landed above */
     }
+  })().catch(() => {});
+}
+/* The background chain for automatic sends (live pull, offline flush): words
+   ride when they can, photos chase them, and nothing ever waits. */
+function relayInBackground(sections: Record<string, string | null>, changed: string[], note: string): void {
+  try {
+    relayPublishWordsToLive(sections, changed, note)
+      .then((outcome) => {
+        if (outcome === "landed") {
+          try {
+            relayUploadsToLive(sections);
+          } catch {}
+        }
+      })
+      .catch(() => {});
   } catch {
-    /* the minute loops, the feed and the rebuild carry the publish */
+    /* the loops carry the publish */
   }
 }
 
-/** Send a patch in batches that stay well inside the server's CPU budget. */
+/** Send a patch in batches that stay well inside the server's CPU budget.
+    `awaitRelay` is for explicit Publish clicks only: the click waits
+    (bounded) for the live relay's word leg and reports whether live visitors
+    got it — background sends (live pull, offline flush) never wait. */
 async function sendPatch(
   sections: Record<string, string | null>,
   changed: string[],
@@ -4220,8 +4318,9 @@ async function sendPatch(
      moves to this code and waiting visitors are released. False for the
      automatic heal that puts words back on an emptied server: the words
      return but the notice stays until the office really publishes. */
-  bless = true
-): Promise<{ ok: boolean; error?: string; rev?: number; sent: string[]; failed?: string[] }> {
+  bless = true,
+  awaitRelay = false
+): Promise<{ ok: boolean; error?: string; rev?: number; sent: string[]; failed?: string[]; relay?: "landed" | "missed" | "unneeded" }> {
   const batches: string[][] = [];
   let current: string[] = [];
   let size = 0;
@@ -4290,16 +4389,31 @@ async function sendPatch(
   if (bless) convergeNow();
   /* Every publish reflects everywhere: relay these same words straight to the
      live backend (office -> live in seconds, no feed or rebuild wait). The
-     office publish above already succeeded — this never awaits, never throws,
-     and a relay that cannot land simply leaves the loops to carry it. */
+     office publish above already succeeded. Explicit clicks await the word
+     leg (bounded) and report it, so the toast can say whether live visitors
+     got it or the loops are carrying it; background sends never wait. */
+  let relay: "landed" | "missed" | "unneeded" = "unneeded";
   if (bless) {
-    try {
-      relayPublishToOtherSide(sections, changed, note).catch(() => {});
-    } catch {
-      /* the loops carry the publish */
+    if (awaitRelay) {
+      try {
+        relay = await relayPublishWordsToLive(sections, changed, note);
+      } catch {
+        relay = "missed";
+      }
+      if (relay === "landed") {
+        try {
+          relayUploadsToLive(sections);
+        } catch {}
+      }
+    } else {
+      try {
+        relayInBackground(sections, changed, note);
+      } catch {
+        /* the loops carry the publish */
+      }
     }
   }
-  return { ok: true, rev: lastRev, sent };
+  return { ok: true, rev: lastRev, sent, relay };
 }
 
 /** Put the draft live. `content` is only for the publish that waited on a save. */
@@ -4358,13 +4472,13 @@ export async function publish(note: string, content?: Snapshot): Promise<Publish
         return { ok: false, error: "unauthorized" };
       }
     }
-    const bless = await sendPatch({}, [], note.slice(0, 160));
+    const bless = await sendPatch({}, [], note.slice(0, 160), true, true);
     if (!bless.ok) return { ok: false, error: bless.error };
     rev = bless.rev ?? rev + 1;
     setPublishedNotes(BUILD_NOTES);
     writeCache();
     notify();
-    return { ok: true };
+    return { ok: true, live: bless.relay !== "missed" };
   }
 
   /* One click publishes to visitors: the join gets a few seconds first
@@ -4412,7 +4526,7 @@ export async function publish(note: string, content?: Snapshot): Promise<Publish
   }
 
   rememberHistory();
-  const result = await sendPatch(sections, changed, payloadNote);
+  const result = await sendPatch(sections, changed, payloadNote, true, true);
   if (!result.ok) {
     if (result.sent.length) {
       // Part of the patch landed; keep the site consistent with what is stored.
@@ -4440,7 +4554,7 @@ export async function publish(note: string, content?: Snapshot): Promise<Publish
     localStorage.removeItem(DRAFT_KEY);
   } catch {}
   notify();
-  return { ok: true };
+  return { ok: true, live: result.relay !== "missed" };
 }
 
 export async function clearLog(): Promise<{ ok: boolean; error?: string }> {
@@ -4613,7 +4727,26 @@ export async function undoLastPublish(): Promise<PublishResult> {
         rev = typeof res.rev === "number" ? res.rev : rev;
         undoUntilAt = 0;
         await syncFromServer().catch(() => {});
-        return { ok: true };
+        /* An undo is a publish the other way: live learns it at once through
+           the same relay, so its visitors and its notice follow right away
+           instead of waiting out the loops. */
+        let live = true;
+        try {
+          const snap = getOverrides();
+          const secs: Record<string, string | null> = {};
+          const ids = Object.keys(snap);
+          ids.forEach((id) => (secs[id] = JSON.stringify((snap as Snapshot)[id])));
+          const outcome = await relayPublishWordsToLive(secs, ids, "Undid the last publish");
+          if (outcome === "landed") {
+            try {
+              relayUploadsToLive(secs);
+            } catch {}
+          }
+          live = outcome !== "missed";
+        } catch {
+          live = false;
+        }
+        return { ok: true, live };
       }
       if (res?.err !== "expired") return { ok: false, error: res?.err || "failed" };
       undoUntilAt = 0;
@@ -4651,7 +4784,7 @@ export async function undoLastPublish(): Promise<PublishResult> {
   }
   if (!ids.length) return { ok: false, error: "nothing-to-undo" };
 
-  const result = await sendPatch(sections, ids, "Rolled back to the previous revision");
+  const result = await sendPatch(sections, ids, "Rolled back to the previous revision", true, true);
   if (!result.ok) return { ok: false, error: result.error };
 
   history = history.slice(1);
@@ -4662,7 +4795,7 @@ export async function undoLastPublish(): Promise<PublishResult> {
   applyOverrides(overrides, false);
   writeCache();
   await syncFromServer().catch(() => {});
-  return { ok: true };
+  return { ok: true, live: result.relay !== "missed" };
 }
 
 /** Drop every stored override, so the site shows exactly the shipped content. */
@@ -4684,7 +4817,7 @@ export async function clearAllOverrides(): Promise<PublishResult> {
   const sections: Record<string, string | null> = {};
   ids.forEach((id) => (sections[id] = null));
   rememberHistory();
-  const result = await sendPatch(sections, ids, "Restored the shipped defaults");
+  const result = await sendPatch(sections, ids, "Restored the shipped defaults", true, true);
   if (!result.ok) return { ok: false, error: result.error };
   rev = result.rev ?? rev + 1;
   setPublishedNotes(BUILD_NOTES);
@@ -4692,7 +4825,7 @@ export async function clearAllOverrides(): Promise<PublishResult> {
   applyOverrides({}, false);
   writeCache();
   notify();
-  return { ok: true };
+  return { ok: true, live: result.relay !== "missed" };
 }
 
 /* ----------------------------------------------------------------- helpers */

@@ -993,6 +993,11 @@ self.rpc = {
       by: BY,
       notes: NOTES,
       publishDeploy: PUBLISH_DEPLOY,
+      /* Same-code attestation (office request: a Publish clears the notice on
+         live AND local): the word this backend runs, so an unstamped copy
+         can prove a witnessed publish came from its own running code.
+         Empty when the host never told us — which proves nothing. */
+      code: typeof self.__codeWord === "string" ? self.__codeWord : "",
       sections: "{" + parts.join(",") + "}",
       log: LOG,
       admin: admins.has(info.conn.id),
@@ -1006,7 +1011,7 @@ self.rpc = {
      still lands within the half minute on every copy. Public read — it names
      no words, only whether the words moved. */
   contentRev: function (info) {
-    return ok({ rev: REV, notes: NOTES, publishDeploy: PUBLISH_DEPLOY, at: AT });
+    return ok({ rev: REV, notes: NOTES, publishDeploy: PUBLISH_DEPLOY, at: AT, code: typeof self.__codeWord === "string" ? self.__codeWord : "" });
   },
 
   /* Office-reported on-air answer (note 318): reads are public (visitors ask
