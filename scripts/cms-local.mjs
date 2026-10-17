@@ -64,19 +64,6 @@ export async function createCmsHost(rootDir, opts) {
   const scriptSrc = await readFile(path.join(rootDir, "scripts", "cms-server.js"), "utf8");
   if (!scriptSrc.trim()) throw new Error("cms-local: scripts/cms-server.js is empty");
 
-  /* Same-code attestation (office request: a Publish clears the notice on
-     live AND local): the backend names the code word it runs, so an
-     unstamped copy witnessing a publish can prove it came from its own
-     running code. Read once per boot — a code update restarts the backend,
-     so a stale word here is impossible while the process runs. Empty when
-     unreadable: clients treat that as unattested, the old behavior. */
-  let codeWord = "";
-  try {
-    const hooksSrc = await readFile(path.join(rootDir, "src", "lib", "hooks.ts"), "utf8");
-    const word = /CODE_ID\s*=\s*"([A-Za-z0-9_-]{1,40})"/.exec(String(hooksSrc));
-    if (word) codeWord = word[1];
-  } catch { /* unattested — clients keep the old behavior */ }
-
   const dataDir = path.join(rootDir, "data");
   await mkdir(dataDir, { recursive: true });
 
@@ -191,7 +178,7 @@ export async function createCmsHost(rootDir, opts) {
      server code through `self` — only this process's own minute loop below
      ever learns it (see the adoptLive rpc in cms-server.js). */
   const adoptToken = "adopt-" + createHash("sha256").update(String(Date.now()) + ":" + String(Math.random()) + ":" + String(process.pid || 0)).digest("hex");
-  vm.runInContext(scriptSrc + "\nself.__adoptToken = " + JSON.stringify(adoptToken) + ";\nself.__codeWord = " + JSON.stringify(codeWord) + ";", sandbox, { filename: "cms-server.js" });
+  vm.runInContext(scriptSrc + "\nself.__adoptToken = " + JSON.stringify(adoptToken) + ";", sandbox, { filename: "cms-server.js" });
   const rpc = selfObj.rpc || {};
   console.log(`cms backend: running the site's own server code (${Object.keys(rpc).length} rpc methods)`);
   /* A publish tapped on live/admin reaches this copy by itself (note 344):
@@ -423,23 +410,6 @@ function startLiveFollow({ rootDir, rpcCall, adoptToken }) {
       const patch = adoptPatch(live.sections);
       const ids = Object.keys(patch);
       if (!ids.length) return;
-      /* The relay (office -> live in seconds) lands the same words both
-         stores already hold with only the clocks apart: adopting identical
-         words would bump the revision and log "from the live site" for
-         nothing, and invite the other loop to answer in kind. Same words
-         mean nothing to write — the publish already reflects everywhere. */
-      try {
-        let same = true;
-        for (const id of ids) {
-          if (JSON.stringify(localSections[id]) !== patch[id]) {
-            same = false;
-            break;
-          }
-        }
-        if (same) return;
-      } catch {
-        /* unclear — adopt below as before */
-      }
       const res = await rpcCall(
         "adoptLive",
         "livefollow",
@@ -573,21 +543,6 @@ function startFeedFollow({ rootDir, rpcCall, adoptToken }) {
       const patch = adoptPatch(seed.sections);
       const ids = Object.keys(patch);
       if (!ids.length) return;
-      /* Same-words guard like the office loop above: the relay already lands
-         identical words on both stores with only the clocks apart, so there
-         is nothing to write and no revision to bump. */
-      try {
-        let same = true;
-        for (const id of ids) {
-          if (JSON.stringify(localSections[id]) !== patch[id]) {
-            same = false;
-            break;
-          }
-        }
-        if (same) return;
-      } catch {
-        /* unclear — adopt below as before */
-      }
       const res = await rpcCall(
         "adoptFeed",
         "feedfollow",

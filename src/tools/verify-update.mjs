@@ -41,7 +41,6 @@ const FILES = [
   ["src/components/editor.tsx", "tsx"],
   ["src/lib/hooks.ts", "ts"],
   ["src/data/photos.ts", "ts"],
-  ["src/data/slides.ts", "ts"],
   ["src/lib/cmsSchema.ts", "ts"],
   ["src/lib/autostop.ts", "ts"],
   ["src/data/live.ts", "ts"],
@@ -456,11 +455,7 @@ export async function runAll(fs) {
   const flagJ5 = text["clean-deploy.txt"];
   const localJ5 = text["scripts/cms-local.mjs"];
   ok("clean deploys ship the flag", typeof flagJ5 === "string" && flagJ5.length > 0 && has(flagJ5, "Recover"), "every update must open clean until Recover + Publish");
-  /* J12 supersedes the old code-based reset rule (office request: every new
-     deploy is fresh, clean and new): the reset is per-deploy — with the
-     boot clean-stage (no dirty) and the fresh-joiner guard, so rebuilds
-     still never re-mark slides as unsaved and new devices keep live words. */
-  ok("slides reset is per-deploy", has(cms, '"d" + currentDeployId') && has(cms, "hadPriorBlessing"), "a new deploy must start over at welcome-only — code-based tokens let old slides ride rebuilds");
+  ok("slides reset is code-based", has(cms, '"c" + runningCode') && !has(cms, "const token = deployFromMeta"), "a rebuild must never re-mark slides as unsaved — only new code starts over");
   ok("feed follow guards fresh mirrors", has(localJ5, "bakeEmpty") && has(localJ5, "seedDeploy"), "a retired mirror must not resurrect onto a clean deploy");
   ok("prime names its deploy", has(fbJ4, "deployId: myDeploy") && has(fbJ4, "mirror-takeover"), "the boot prime must prove the first publish is this deploy's own");
   try {
@@ -527,108 +522,6 @@ export async function runAll(fs) {
   ok("code word rotated", has(hooksJ8, 'CODE_ID = "cleanfresh"') && has(indexJ8, 'wom-code" content="cleanfresh"'), "the new word must retire the bundle that holds the 5 stuck rows");
   ok("dev token names the code", has(cms, '"n" + BUILD_NOTES + "c" + (runningCode'), "an unnumbered update must still prove a fresh deploy in local dev");
   ok("fresh clear takes after-save", has(cms, "localStorage.removeItem(AFTER_SAVE_KEY)"), "a queued publish-after-save must not republish stale words after the clear");
-  /* J9. restore+publish reaches every copy (office request: works on one
-     live/admin is not enough — visitors, admin copies and local/admin must
-     all land it): the restore used to refuse file writes on a server-backed
-     tab with no office address, publishing words that pointed at photos only
-     the restoring tab could paint. Same-origin now counts, the office
-     address still wins when set, and what is restored is cached in the
-     restoring browser too. */
-  ok("restore writes same-origin", has(cms, "reachable = !!(socket && status"), "live/admin talking to its own backend must save the photos there, not drop them");
-  ok("office address still wins", has(cms, "still wins when one is set"), "a pointed copy must keep sending its files to the office");
-  ok("restore caches what it restores", has(cms, "await cacheUploadBlob(name, blob)"), "the restoring tab must paint instantly and heal others, not depend on one disk");
-  /* J10. every publish reflects everywhere (office request: visitors website,
-     local website, live/admin, local/admin): the live box cannot reach a
-     localhost office, so without a mirror an office publish waited out the
-     rebuild. The publishing tab relays the same words (+ photos) straight to
-     the live backend with its own session — live lands it in seconds via its
-     own shout — and the follow loops skip identical words so the relay never
-     answers itself. */
-  /* J13 supersedes the fire-and-forget relay below (office request: a Publish
-     click saves to the visitors website from either admin AND says what it
-     reached): explicit clicks await the bounded word leg and report it, so
-     the toast is the truth — everywhere at once, or here with live
-     following. Background sends still never wait. */
-  ok("publish relays to live", has(cms, "relayPublishWordsToLive") && has(cms, "/__cms/login?conn=") && has(cms, "/__cms/publish?conn="), "an office publish must reach the live backend in seconds, no feed or rebuild wait");
-  ok("relay blesses live's deploy", has(cms, "own deploy") && has(cms, "/version.json?t="), "the relay must witness the deploy live actually serves, never ours");
-  ok("relay carries the photos", has(cms, "/__restore-file?name=") && has(cms, "localUploadNames(sections)"), "relayed words must point at working photos at once, not after the mirror");
-  ok("relay never breaks publish", has(cms, "never throws") && has(cms, "relayInBackground(sections, changed, note)"), "a relay that cannot land must leave the loops to carry the publish");
-  ok("loops skip identical words", has(text["scripts/cms-local.mjs"], "nothing to write") && has(text["scripts/cms-local.mjs"], "JSON.stringify(localSections[id]) !== patch[id]"), "the relay lands the same words both stores hold — adopting them again would bump and log for nothing");
-  /* J11. one click publishes to visitors + welcome-home on every new deploy
-     (office request: no publishing "in everything" — one Publish click sends
-     every changed section to the visitors website, from mobile or desktop;
-     and every new deploy opens on the welcome-home slide): the offline
-     publish waits a few seconds for the join on all three publish paths
-     before settling for device-only; a queued device-only publish announces
-     itself when it finally lands; the modal says so while offline; and the
-     shipped drawer default is the lone welcome-home card (empty boxes heal
-     to it, never blank). */
-  const slidesData = text["src/data/slides.ts"];
-  const joins = cms.split("await joinBeforePublish()").length - 1;
-  ok("publish waits for the join", has(cms, "JOIN_BEFORE_PUBLISH_MS = 8000") && joins >= 3, "all three offline publish paths must try the join first, not strand as device-only");
-  ok("queued publish lands loudly", has(cms, "queued changes are now live for every visitor"), "the office must hear when device-only words finally reach visitors");
-  ok("modal names the queue", has(ed, "queued on this device and published by itself"), "the click-time notice must say what happens while offline");
-  ok("shipped default is welcome-home", has(slidesData, 'id: "welcome-home"') && has(slidesData, 'headline: "Welcome home"'), "the drawer default must be the lone welcome card");
-  ok("drawer restarts at welcome", has(cms, 'SLIDES.find((x) => x.id === "welcome-home")'), "a new deploy starts the drawer over at the welcome card only");
-  ok("empty box heals to welcome", has(cms, "blank-black bug"), "an empty slides list is the bug — it heals to welcome, never blank");
-  /* J12. every Publish click reaches visitors + every new deploy opens
-     welcome-only (office request: clicking publish must apply to the
-     visitors website — live and local — and the box slide must show only
-     the welcome-home photo on every new deploy, since every new deploy is
-     fresh, clean and new): a no-change Publish used to stop at this browser
-     (stamp high locally while a wiped server / the live box's own deploy
-     stayed unblessed), and a per-section publish with nothing changed never
-     blessed at all — both now ride the same bless-only sendPatch as every
-     other publish (server stamp, converge, live relay). And the clean stage
-     plus the drawer reset were code-gated, so same-code rebuilds kept old
-     slides — both are deploy-gated now (returning browsers only, so a fresh
-     device joining live words is never clobbered, and with no dirty, so
-     rebuilds never re-mark slides as unsaved). */
-  ok("no-change publish sends the bless", !has(cms, "if (publishedNotes >= BUILD_NOTES)") && has(cms, "sendPatch({}, [], note.slice(0, 160), true, true)"), "a local-only early return leaves the server and the live box behind while the office sees success");
-  ok("section publish blesses when unchanged", has(cms, "A no-change section Publish still blesses everywhere"), "a per-section publish with nothing changed must still lift the notice on the server and the live box");
-  ok("offline bless ends the clean stage", has(cms, "An offline bless ends the clean stage on this copy too"), "an offline publish must not leave inbound words unstaged forever");
-  ok("clean stage is per-deploy", has(cms, "freshDeploy && hadPriorBlessing()") && has(cms, "function hadPriorBlessing()"), "a returning browser on a new deploy must stage clean, not keep the former publish");
-  ok("fresh joiners keep live words", has(cms, "A fresh device keeps what it adopted"), "a new device joining the live site must adopt its words, never clobber them to welcome");
-  ok("deploy reset never re-marks unsaved", has(cms, "never re-mark slides as unsaved") && has(text["src/pages/Admin.tsx"], "quiet no-op that never re-marks slides as unsaved"), "the per-deploy reset must stay a quiet no-op on the staged welcome");
-  /* J13. a Publish click saves to visitors + clears the notice, live AND
-     local (office request: from live/admin it saves to the visitors website,
-     from local/admin it saves to the visitors website, and the click clears
-     the maintenance notice on live and local): the backend names the code
-     word it runs, so an unstamped copy witnessing a publish proves it came
-     from its own running code and lifts the number gate headless — a live
-     publish clears the local notice with no tab open and no click needed.
-     And explicit clicks await the bounded word relay and report it, so the
-     toast is the truth — everywhere at once, or here with live following —
-     while background sends never wait. */
-  const srvJ13 = text["scripts/cms-server.js"];
-  const hostJ13 = text["scripts/cms-local.mjs"];
-  ok("backend names its code", has(hostJ13, "self.__codeWord") && has(hostJ13, "CODE_ID"), "the host must hand its running word to the server code");
-  ok("answers attest the code", has(srvJ13, "code: typeof self.__codeWord"), "getContent and the rev stamp must carry the word headless copies can prove");
-  ok("witness needs the running word", has(cms, "function noteCodeWitness") && has(cms, "code !== runningCode"), "a missing or different word must prove nothing");
-  ok("witness needs the publish", has(cms, "n < BUILD_NOTES"), "an unpublished word must never lift the notice");
-  ok("sync takes the witness", has(cms, "noteCodeWitness((res as any).code, res.notes)"), "every server answer must try the witness, not just deploys");
-  ok("witness re-evaluates the notice", has(cms, "notesLifted || deployLifted || codeWitnessed"), "a witnessed publish must re-render instead of sticking with first paint");
-  ok("clicks await the word relay", has(cms, "awaitRelay = false") && has(cms, ", true, true)"), "explicit clicks must wait out the bounded relay; background sends never wait");
-  ok("relay is bounded", has(cms, "25000") && has(cms, "relayFetch"), "awaiting the relay must never hold a click hostage on a stalled network");
-  ok("result names live", has(cms, "live?: boolean") && has(cms, 'relay !== "missed"'), "the click result must say whether live visitors got it");
-  ok("toasts tell the truth", has(ed, "The live site follows within a minute."), "a click live missed must say so, not claim every visitor");
-  ok("undo relays too", has(cms, '"Undid the last publish"'), "an undo is a publish the other way — live must learn it at once");
-  try {
-    const mkRpc = (word) => {
-      const fn = new Function("state", "self", "pubsub", "console", srvJ13 + "\nreturn self.rpc;");
-      const self = { __codeWord: word };
-      return fn(new Uint8Array(8 * 1024 * 1024), self, { publish() {} }, console);
-    };
-    const anon13 = { id: "anon-att", net: ["x", 0, 0], subscribe() {}, topics: new Set() };
-    const rpcW = mkRpc("cleanfresh");
-    const both = (rpc) => [JSON.parse(rpc.getContent({ conn: anon13 })), JSON.parse(rpc.contentRev({ conn: anon13 }))];
-    const [cW, rW] = both(rpcW);
-    ok("server attests its code", cW.ok === true && cW.code === "cleanfresh" && rW.ok === true && rW.code === "cleanfresh", "words=" + cW.code + " rev=" + rW.code);
-    const [cE, rE] = both(mkRpc(""));
-    ok("empty attestation proves nothing", cE.ok === true && cE.code === "" && rE.code === "", "an untold word must stay empty, never wrong");
-  } catch (e) {
-    ok("attestation suite", false, String((e && e.message) || e).slice(0, 200));
-  }
   /* J. live shows at once, clock vanishes with it (note 306): the Watch page
      checks immediately on open and stays on the short cadence even with no
      gathering on the clock; the fast cadence itself is shorter; a retyped
