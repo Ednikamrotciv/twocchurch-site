@@ -88,14 +88,22 @@ export function cmsBackend() {
              notes-less seed would read as "nothing ever published" and hold
              even a fully-published deploy on maintenance until the next bake. */
           let notes = typeof res.notes === "number" && res.notes > 0 ? Math.floor(res.notes) : 0;
+          /* …and the publish history with it (note 303): without log/by/at a
+             host restart clears "Last published" in the admin console. */
+          let log = Array.isArray(res.log) ? res.log.slice(0, 20) : [];
+          let by = typeof res.by === "string" ? res.by.slice(0, 60) : "";
+          let at = typeof res.at === "number" ? res.at : 0;
           let publishedDeploy = typeof res.publishDeploy === "string" && /^[A-Za-z0-9_-]{1,80}$/.test(res.publishDeploy) ? res.publishDeploy : "";
-          if (!notes) {
+          if (!notes && !log.length && !by && !at) {
             try {
               const prev = JSON.parse(await readFile(path.join(outDir, "seed.json"), "utf8"));
               if (typeof prev?.notes === "number" && prev.notes > 0) notes = Math.floor(prev.notes);
+              if (Array.isArray(prev?.log)) log = prev.log.slice(0, 20);
+              if (typeof prev?.by === "string") by = prev.by.slice(0, 60);
+              if (typeof prev?.at === "number") at = prev.at;
             } catch {}
           }
-          await writeFile(path.join(outDir, "seed.json"), JSON.stringify({ rev: typeof res.rev === "number" ? res.rev : 0, notes, sections, ...(publishedDeploy ? { publishedDeploy } : {}) }));
+          await writeFile(path.join(outDir, "seed.json"), JSON.stringify({ rev: typeof res.rev === "number" ? res.rev : 0, notes, sections, log, by, at, ...(publishedDeploy ? { publishedDeploy } : {}) }));
           console.log(`baked ${Object.keys(sections).length} published sections into seed.json`);
         }
       } catch (err) {

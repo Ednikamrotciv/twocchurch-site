@@ -15,7 +15,10 @@ import { pushMirror } from "./feed-mirror.mjs";
    package.json, or set WOM_NO_PUSH=1. Auto-push also stays quiet outside a
    git checkout, or when there is no remote to push to. */
 
-const DELAY_MS = 120000;
+/* Publish-at-once: a minute after the last save the words push themselves out,
+   so a publish reaches every copy within about a minute plus the host's own
+   rebuild — while a publishing session still lands as a single deploy. */
+const DELAY_MS = 60000;
 
 let runner = null;
 let hookSender = null;
@@ -81,9 +84,18 @@ async function pushOnce(rootDir) {
     const dirty = await run("git", ["status", "--porcelain", "--", "data", "seed.json"], rootDir);
     if (dirty.code !== 0) return { skipped: "git status failed" };
     if (!dirty.out.trim()) return { skipped: "nothing new to deploy" };
-    const bake = await run("node", ["scripts/bake-seed.mjs"], rootDir);
+    /* process.execPath (note 307): the exact node running this backend — a
+       bare "node" relies on PATH and can fail on machines where only npm's
+       node is present. */
+    const bake = await run(process.execPath || "node", ["scripts/bake-seed.mjs"], rootDir);
     if (bake.code !== 0) {
-      console.warn("auto-deploy: could not bake the new words — will retry after the next publish");
+      /* Say WHY (note 307): the old line hid the real error, so a broken
+         bake looked identical to "nothing happened" and the live bake went
+         stale — then every sleep brought maintenance back. The words are
+         still safe here; the next publish retries. To fix now, run
+         `npm run bake-seed` by hand and read its error. */
+      const why = String((bake.err || "") + "\n" + (bake.out || "")).trim().split("\n").slice(0, 3).join(" | ").slice(0, 300);
+      console.warn("auto-deploy: could not bake the new words — will retry after the next publish" + (why ? ` (bake said: ${why})` : " (run `npm run bake-seed` by hand to see the error)"));
       return { skipped: "bake failed" };
     }
     const add = await run("git", ["add", "-A", "--", "data", "seed.json"], rootDir);
@@ -95,7 +107,13 @@ async function pushOnce(rootDir) {
     if (commit.code !== 0) return { skipped: "git commit failed" };
     const push = await run("git", ["push", "--quiet"], rootDir);
     if (push.code !== 0) {
-      console.warn("auto-deploy: push failed (offline, or the login expired) — the words are safe here and will go out after the next publish");
+      /* Name the usual suspects (note 307): huge uploads break the push while
+         looking like a login problem. GitHub refuses files over 100 MB — one
+         long video in data/uploads/ is enough. The words are safe here and
+         will go out after the next publish; shrink or remove the big file,
+         then publish again (or push by hand to see git's own error). */
+      const pushWhy = String((push.err || "") + "\n" + (push.out || "")).trim().split("\n").slice(0, 2).join(" | ").slice(0, 240);
+      console.warn("auto-deploy: push failed (offline, login expired, or a file over the host's size limit — check data/uploads/ for videos near/over 100 MB) — the words are safe here and will go out after the next publish" + (pushWhy ? ` (git said: ${pushWhy})` : ""));
       return { skipped: "git push failed" };
     }
     console.log("auto-deploy: new words pushed — the live site updates itself in a few minutes");

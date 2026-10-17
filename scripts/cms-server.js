@@ -1135,6 +1135,71 @@ self.rpc = {
     return ok({ adopted: ids });
   },
 
+  /* Feed-follow adoption (publish-at-once): the live box's own loop writes
+     the office mirror's newer words here with the per-boot token — same door
+     as adoptLive (token + loopback at the http doors). Unlike adoptLive it
+     never bumps the revision or the clock: the stamp stays the feed's own, so
+     the office never re-adopts what it just published and the two loops
+     cannot chase each other. Same validation otherwise; the live nudge goes
+     out when words actually move. */
+  adoptFeed: function (info, raw) {
+    var payload;
+    try {
+      payload = JSON.parse(raw);
+    } catch (e) {
+      return fail("bad-payload");
+    }
+    if (!payload || typeof payload !== "object") return fail("bad-payload");
+    if (typeof self.__adoptToken !== "string" || !self.__adoptToken) return fail("denied");
+    if (payload.token !== self.__adoptToken) return fail("denied");
+    if (!payload.sections || typeof payload.sections !== "object") return fail("empty");
+    var ids = [];
+    var id;
+    for (id in payload.sections) {
+      if (Object.prototype.hasOwnProperty.call(payload.sections, id)) ids.push(id);
+    }
+    if (!ids.length) return fail("empty");
+    if (ids.length > SLOTS) return fail("too-many");
+    var notes = typeof payload.notes === "number" && payload.notes >= 0 && payload.notes <= 999999 ? Math.floor(payload.notes) : 0;
+    var deploy = validDeployId(payload.deploy);
+    var at = typeof payload.at === "number" && isFinite(payload.at) && payload.at > 0 ? Math.floor(payload.at) : 0;
+    var i, value;
+    for (i = 0; i < ids.length; i++) {
+      id = ids[i];
+      if (!/^[a-zA-Z][a-zA-Z0-9-]{0,31}$/.test(id)) return fail("bad-id");
+      value = payload.sections[ids[i]];
+      if (typeof value !== "string" || value.length > MAX_SECTION_CHARS) return fail("bad-value");
+      try {
+        var parsed = JSON.parse(value);
+        if (parsed === null || typeof parsed !== "object") return fail("bad-value");
+      } catch (e) {
+        return fail("bad-value");
+      }
+    }
+    var free = state.length - (HEADER + (SECTION_CHARS + META_CHARS) * 2);
+    for (i = 0; i < ids.length; i++) {
+      value = payload.sections[ids[i]];
+      if (typeof value === "string") free -= value.length * 2;
+    }
+    if (free < 8192) return fail("no-space");
+    for (i = 0; i < ids.length; i++) {
+      var err = setSection(ids[i], payload.sections[ids[i]]);
+      if (err) return fail(err);
+    }
+    if (notes > NOTES) NOTES = notes;
+    if (at > 0) AT = at;
+    BY = typeof payload.by === "string" ? payload.by.slice(0, 60) : "";
+    if (typeof deploy === "string" && deploy && (ids.length || notes)) PUBLISH_DEPLOY = deploy;
+    writeMeta();
+    writeHeader();
+    try {
+      pubsub.publish("content", JSON.stringify({ rev: REV, at: AT, by: BY }));
+    } catch (e) {
+      /* a missed nudge is harmless: clients refresh on their next sync */
+    }
+    return ok({ adopted: ids });
+  },
+
   login: function (info, raw) {
     if (!allowAttempt(info.conn)) return fail("rate");
     /* Either box opens whichever account matches — a sub-admin password works

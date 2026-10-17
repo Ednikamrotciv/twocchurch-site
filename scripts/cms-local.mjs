@@ -5,6 +5,8 @@ import { createHash } from "node:crypto";
 import { recordSeen } from "./backup-data.mjs";
 import { notePublished } from "./auto-push.mjs";
 import { DEFAULT_LIVE_ORIGIN, pickLiveOrigin, shouldAdoptLive, adoptPatch } from "./live-follow.mjs";
+import { openInstantPush } from "./instant-push.mjs";
+import { parseFeedSpec, peekFeedSeed } from "./feed-spec.mjs";
 
 const STATE_SIZE = 8 * 1024 * 1024;
 
@@ -199,6 +201,17 @@ export async function createCmsHost(rootDir, opts) {
     } catch (err) {
       console.warn("live follow skipped:", err?.message || err);
     }
+    /* The live box follows the office mirror the same guarded way
+       (publish-at-once): a local/admin publish rides the feed out, and the
+       live box adopts it within about a minute — no rebuild wait. RENDER-only
+       (startFeedFollow self-skips anywhere else, where the minute loop above
+       already owns this direction). Like all loops here, serving processes
+       only (note 377) — never bakes or builds. */
+    try {
+      startFeedFollow({ rootDir, rpcCall: call, adoptToken });
+    } catch (err) {
+      console.warn("feed follow skipped:", err?.message || err);
+    }
   }
 
   function openConn(id) {
@@ -360,6 +373,106 @@ function startLiveFollow({ rootDir, rpcCall, adoptToken }) {
   };
   setTimeout(() => round().catch(() => {}), 20000);
   setInterval(() => round().catch(() => {}), FOLLOW_MS);
+  /* Instant lane (publish-at-once): hear the live box's publish shouts in
+     about a second over its event stream instead of on the next minute — the
+     same round runs above, so the same guards decide. The minute poll stays
+     as the backstop; a host without the stream simply retries its backoff. */
+  try {
+    openInstantPush({
+      originFor: async () => {
+        let fileText = "";
+        try {
+          fileText = await readFile(path.join(rootDir, "cms-server.txt"), "utf8");
+        } catch {
+          /* no setup file — the default address answers (note 343) */
+        }
+        return pickLiveOrigin(fileText) || DEFAULT_LIVE_ORIGIN;
+      },
+      connId: "officefollow",
+      onContent: () => {
+        round().catch(() => {});
+      },
+      log: (msg) => console.log(`live follow: ${msg}`),
+    });
+  } catch {
+    /* the minute poll above still brings every publish home */
+  }
+}
+
+/* The live box follows the office mirror (publish-at-once): about twice a
+   minute it reads the baked feed's seed and adopts it when strictly newer —
+   same guards as the office loop (never across a newer update, never from an
+   empty answer, the wall clock arbitrates). Adoption goes through adoptFeed
+   (see cms-server.js), which never bumps the revision or the clock: the stamp
+   stays the feed's own, so the office never re-adopts what it just published
+   and the two loops cannot chase each other. RENDER-only: anywhere else the
+   office minute loop above already owns this direction. Never throws out. */
+const FEED_FOLLOW_MS = 30 * 1000;
+let feedFollowStarted = false;
+function startFeedFollow({ rootDir, rpcCall, adoptToken }) {
+  if (feedFollowStarted) return;
+  feedFollowStarted = true;
+  if (!process.env.RENDER) return; // the live box only — it IS live
+  if (typeof fetch !== "function") {
+    console.log("feed follow off (no fetch in this Node)");
+    return;
+  }
+  let running = false;
+  const round = async () => {
+    if (running) return;
+    running = true;
+    try {
+      let spec = null;
+      try {
+        const raw = await readFile(path.join(rootDir, "dist", "feed.json"), "utf8");
+        spec = parseFeedSpec(JSON.parse(raw).feed);
+      } catch {
+        /* standalone box (no baked feed) — nothing to follow */
+      }
+      if (!spec) return;
+      const seed = await peekFeedSeed(spec);
+      if (!seed || typeof seed !== "object") return;
+      const here = await rpcCall("getContent", "feedfollow", "");
+      let local = null;
+      try {
+        local = JSON.parse(here.body);
+      } catch {
+        return;
+      }
+      if (!local || local.ok !== true) return;
+      let localSections = {};
+      try {
+        localSections = local.sections ? JSON.parse(local.sections) : {};
+      } catch {
+        return;
+      }
+      const fresh = !localSections || !Object.keys(localSections).length;
+      const buildNotes = await folderBuildNotes(rootDir);
+      const verdict = shouldAdoptLive(local, seed, buildNotes, fresh);
+      if (verdict !== "adopt") return;
+      const patch = adoptPatch(seed.sections);
+      const ids = Object.keys(patch);
+      if (!ids.length) return;
+      const res = await rpcCall(
+        "adoptFeed",
+        "feedfollow",
+        JSON.stringify({ token: adoptToken, sections: patch, notes: seed.notes, at: seed.at, by: typeof seed.by === "string" ? seed.by : "", deploy: typeof seed.publishedDeploy === "string" ? seed.publishedDeploy : "" })
+      );
+      let out = null;
+      try {
+        out = JSON.parse(res.body);
+      } catch {
+        return;
+      }
+      if (out && out.ok === true) {
+        console.log(`feed follow: adopted ${ids.length} section${ids.length === 1 ? "" : "s"} published on local/admin (${ids.slice(0, 4).join(", ")}${ids.length > 4 ? "…" : ""}) — live without a rebuild`);
+      }
+    } finally {
+      running = false;
+    }
+  };
+  setTimeout(() => round().catch(() => {}), 10000);
+  setInterval(() => round().catch(() => {}), FEED_FOLLOW_MS);
 }
 
 /* Recents follow the published channel on the same cycle (note 346): after

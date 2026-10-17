@@ -69,11 +69,26 @@ export async function bakeSeed(rootDir, outPath) {
       if (typeof prev?.publishedDeploy === "string" && /^[A-Za-z0-9_-]{1,80}$/.test(prev.publishedDeploy)) publishedDeploy = prev.publishedDeploy;
     } catch {}
   }
+  /* The publish history rides the same bake (note 303): Render's free tier
+     wipes the live store on every sleep, and the stamp alone is not enough —
+     without the history every wake cleared "Last published" in the admin
+     console. Kept across empty bakes like the stamp above. */
+  let log = Array.isArray(res.log) ? res.log.slice(0, 20) : [];
+  let by = typeof res.by === "string" ? res.by.slice(0, 60) : "";
+  let at = typeof res.at === "number" ? res.at : 0;
+  if (!log.length && !by && !at) {
+    try {
+      const prev = JSON.parse(await readFile(target, "utf8"));
+      if (Array.isArray(prev?.log)) log = prev.log.slice(0, 20);
+      if (typeof prev?.by === "string") by = prev.by.slice(0, 60);
+      if (typeof prev?.at === "number") at = prev.at;
+    } catch { /* no previous history — ships empty */ }
+  }
   /* The recents ride the same file (note 366): the backend knows no `recent`,
      so carry the newest list already on disk — the refresh below overwrites
      with fresher. Without this a re-bake silently drops the list. */
   const carried = pickRecent((await readJson(rootSeedPath))?.recent, (await readJson(target))?.recent);
-  await writeFile(target, JSON.stringify({ rev, notes, sections, ...(carried ? { recent: carried } : {}), ...(publishedDeploy ? { publishedDeploy } : {}) }));
+  await writeFile(target, JSON.stringify({ rev, notes, sections, log, by, at, ...(carried ? { recent: carried } : {}), ...(publishedDeploy ? { publishedDeploy } : {}) }));
   console.log(`bake-seed: baked ${ids.length} sections into ${path.relative(rootDir, target)}`);
   /* The recent-services list ships in the same file, so every copy paints the
      same services as the preview (see bake-recent.mjs). Best effort — a missed
@@ -99,5 +114,14 @@ export async function bakeSeed(rootDir, outPath) {
 }
 
 if (process.argv[1] && process.argv[1].endsWith("bake-seed.mjs")) {
-  await bakeSeed(process.cwd());
+  /* Loud failure (note 307): auto-push only retries after the next publish,
+     so a silent non-zero exit leaves the live bake stale with no hint. Say
+     what broke and keep the previous seed — never wipe it on the way out. */
+  try {
+    await bakeSeed(process.cwd());
+  } catch (err) {
+    console.error("bake-seed failed:", err?.message || err);
+    console.error("fix it, then run `npm run bake-seed` again — the previous seed.json was kept.");
+    process.exitCode = 1;
+  }
 }

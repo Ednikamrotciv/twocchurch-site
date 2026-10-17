@@ -21,6 +21,25 @@ export function feedSeedUrls(spec: FeedSpec): string[] {
   ];
 }
 
+/* Feed-backed uploads (wipe durability): anything the office pushed lives on
+   the public repo too, so a copy whose disk copy is gone can still paint and
+   heal it. uploadsDir is the baked layout — "uploads" for a mirror repo,
+   "data/uploads" for a public source repo. Raw first (fresh minutes after a
+   push, serves any size GitHub holds); jsdelivr second (fast, cached, but
+   slow to learn new files and capped in size). Pure: no network, never throws. */
+export function feedUploadUrls(spec: FeedSpec | null, name: string, uploadsDir: string): string[] {
+  const clean = String(name == null ? "" : name);
+  if (!spec || !clean) return [];
+  if (/[/\\]/.test(clean) || clean.includes("..")) return [];
+  if (!/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(clean)) return [];
+  const dir = uploadsDir === "uploads" ? "uploads" : "data/uploads";
+  const base = `${spec.owner}/${spec.repo}`;
+  return [
+    `https://raw.githubusercontent.com/${base}/${spec.branch}/${dir}/${clean}`,
+    `https://cdn.jsdelivr.net/gh/${base}@${spec.branch}/${dir}/${clean}`,
+  ];
+}
+
 export type FeedSeed = { rev: number; sections: Record<string, unknown>; notes?: number; publishedDeploy?: string };
 
 /** True when the fetched seed is worth painting (newer than ours). */
@@ -78,6 +97,20 @@ export async function bakedFeedSpec(): Promise<FeedSpec | null> {
     return parseFeedSpec(data && (data.feed || data.spec));
   } catch {
     return null;
+  }
+}
+
+/** The baked uploads layout ("uploads" for a mirror repo, "data/uploads" for
+    a public source repo) — "data/uploads" when no feed is baked. Never throws. */
+export async function bakedFeedUploadsDir(): Promise<string> {
+  try {
+    const res = await fetch(siteFile("feed.json"), { cache: "no-store" });
+    if (!res.ok) return "data/uploads";
+    const data = await res.json().catch(() => null);
+    if (data && data.uploads === "uploads") return "uploads";
+    return "data/uploads";
+  } catch {
+    return "data/uploads";
   }
 }
 

@@ -54,6 +54,7 @@ const FILES = [
   ["src/pages/Home.tsx", "tsx"],
   ["src/components/slides.tsx", "tsx"],
   ["src/lib/uploadCache.ts", "ts"],
+  ["src/lib/livefeed.ts", "ts"],
   ["src/App.tsx", "tsx"],
   ["scripts/build-static.mjs", "js"],
   ["scripts/serve.mjs", "js"],
@@ -62,7 +63,10 @@ const FILES = [
   ["scripts/bake-recent.mjs", "js"],
   ["scripts/auto-push.mjs", "js"],
   ["scripts/live-follow.mjs", "js"],
+  ["scripts/instant-push.mjs", "js"],
+  ["scripts/feed-spec.mjs", "js"],
   ["scripts/seed-guard.mjs", "js"],
+  ["scripts/feed-mirror.mjs", "js"],
   ["scripts/cms-local.mjs", "js"],
   ["index.html", null],
   ["src/styles/admin.css", null],
@@ -321,6 +325,79 @@ export async function runAll(fs) {
   ok("static hosts never cache the entry", has(staticBuild, "_headers") && has(staticBuild, ".htaccess") && has(staticBuild, "no-store, must-revalidate"));
   ok("server never caches the stamp", has(serve, 'base === "version.json"'), "a cached version.json hides the update");
   ok("dev bake keeps the stamp", has(backend, "notes, sections"), "a notes-less seed holds a published deploy on maintenance");
+  /* J0. free-host sleep is harmless (note 303): Render's free tier wipes the
+     live store on every sleep, which used to clear the admin publish
+     (sections, stamp AND history) so the site looked like a new update until
+     the office published again. The bake now carries the publish history
+     with the stamp, and the fallback serves all of it — a wake re-serves the
+     last publish with its history, no office action needed. */
+  const bakeHist = text["scripts/bake-seed.mjs"];
+  const pushHist = text["scripts/auto-push.mjs"];
+  const seedBakerHist = text["scripts/bake-seed.mjs"];
+  const fbHist = text["scripts/seed-fallback.mjs"];
+  ok("bake carries the history", has(bakeHist, "note 303") && has(bakeHist, "log, by, at"), "a stamp-only bake clears Last published on every wake");
+  ok("dev bake carries the history", has(backend, "note 303"));
+  ok("fallback serves the history", has(fbHist, "out.log = good.log"), "words without history still clear Last published");
+  try {
+    const modJ0 = await import(
+      URL.createObjectURL(new Blob([text["scripts/seed-fallback.mjs"]], { type: "text/javascript" }))
+    );
+    const wiped = JSON.stringify({ ok: true, rev: 0, at: 0, by: "", notes: 0, sections: "{}", log: [], admin: false, pwgen: 3 });
+    const baked = {
+      rev: 15,
+      notes: 309,
+      sections: { home: JSON.stringify({ title: "Live words" }) },
+      log: [{ rev: 15, at: 1700000000000, by: "office", note: "Sunday update", changed: ["home"] }],
+      by: "office",
+      at: 1700000000000,
+    };
+    const w = JSON.parse(modJ0.fallbackGetContent(wiped, baked));
+    ok("wake re-serves words+stamp+history", w.seeded === true && w.rev === 15 && w.notes === 309 && JSON.parse(JSON.parse(w.sections).home).title === "Live words" && w.log.length === 1 && w.log[0].note === "Sunday update" && w.by === "office" && w.at === 1700000000000, "a wake must restore the whole publish");
+    const bare = JSON.parse(modJ0.fallbackGetContent(wiped, { rev: 4, notes: 0, sections: { home: JSON.stringify({ t: 1 }) } }));
+    ok("history-less bake stays safe", bare.seeded === true && Array.isArray(bare.log) && bare.log.length === 0 && bare.by === "" && bare.at === 0);
+    const liveFull = JSON.stringify({ ok: true, rev: 16, at: 1, by: "office", notes: 309, sections: JSON.stringify({ home: JSON.stringify({ title: "Newer" }) }), log: [{ rev: 16 }], admin: false, pwgen: 3 });
+    const lf = JSON.parse(modJ0.fallbackGetContent(liveFull, baked));
+    ok("fallback leaves a live store alone", lf.sections !== undefined && JSON.parse(JSON.parse(lf.sections).home).title === "Newer" && lf.seeded !== true, "a healthy store must never be overlaid");
+  } catch (e) {
+    ok("wake suite", false, String((e && e.message) || e).slice(0, 200));
+  }
+  /* J1. the deploy must actually go out (note 307): a failed bake must say
+     why instead of failing silently (a silent stale bake is how every sleep
+     brought maintenance back), and a push broken by a huge upload must name
+     the file size, not look like a login failure. */
+  ok("bake uses the running node", has(pushHist, "process.execPath"), "a bare 'node' can miss PATH and fail every bake");
+  ok("bake failure says why", has(pushHist, "bake said:") && has(pushHist, "npm run bake-seed"), "a silent bake failure leaves the live bake stale with no hint");
+  ok("push failure names big files", has(pushHist, "100 MB") && has(pushHist, "data/uploads/"), "a video over the host limit looks exactly like a login failure");
+  ok("bake CLI fails loudly", has(seedBakerHist, "bake-seed failed:") && has(seedBakerHist, "previous seed.json was kept"), "bake must never wipe a good seed on the way out");
+  /* J2. uploads outlive every wipe (feed-backed durability): anything the
+     office pushed lives on the public repo too — a public source repo at
+     data/uploads/<name> (committed by auto-push), a private source's mirror
+     at uploads/<name> (synced by feed-mirror.mjs). Copies paint the repo
+     copy when the disk copy is gone and heal the server from it, so recovery
+     needs no uploader's browser. Dormant with no feed configured. */
+  const mirrorJ2 = text["scripts/feed-mirror.mjs"];
+  const feedLib = text["src/lib/livefeed.ts"];
+  const upCache = text["src/lib/uploadCache.ts"];
+  const slidesJ2 = text["src/components/slides.tsx"];
+  ok("mirror syncs uploads", has(mirrorJ2, '"clone"') && has(mirrorJ2, 'path.join(tmp, "uploads")') && has(mirrorJ2, "data\\/uploads"), "a seed-only mirror leaves uploads on the wiped disk");
+  ok("mirror caps huge files", has(mirrorJ2, "90 * 1024 * 1024") && has(mirrorJ2, "100 MB"), "one huge video must not fail the whole mirror push");
+  ok("feed bakes the uploads layout", has(staticBuild, "uploads: uploadsDir") && has(staticBuild, 'cfg.mirror ? "uploads"'), "copies must know where the repo keeps uploads");
+  ok("upload fallback reads the feed", has(upCache, "feedUrlsForUpload") && has(upCache, "bakedFeedUploadsDir"), "the repo copy must be resolvable per session");
+  ok("slides paint feed uploads", has(slidesJ2, "useFeedUploadUrl") && has(slidesJ2, "paintableFeed"), "a wiped disk must not blank visitors without a cache");
+  ok("heal pulls from the feed", has(cms, "feedUrlsForUpload") && has(cms, "cacheUploadBlob(name, b)"), "any open copy must heal the server, not just the uploader's");
+  try {
+    const ebJ2 = await import("https://esm.sh/esbuild-wasm@0.21.5?bundle");
+    try { await ebJ2.default.initialize({ wasmURL: "https://esm.sh/esbuild-wasm@0.21.5/esbuild.wasm" }); } catch {}
+    const lfJ2 = await import(
+      URL.createObjectURL(new Blob([(await ebJ2.default.transform(feedLib, { loader: "ts" })).code], { type: "text/javascript" }))
+    );
+    const spec = { owner: "mychurch", repo: "live", branch: "main" };
+    const mu = lfJ2.feedUploadUrls(spec, "abc-photo.jpg", "uploads");
+    const su = lfJ2.feedUploadUrls(spec, "abc-photo.jpg", "data/uploads");
+    ok("feed upload urls are pure", mu.length === 2 && mu[0] === "https://raw.githubusercontent.com/mychurch/live/main/uploads/abc-photo.jpg" && su[0] === "https://raw.githubusercontent.com/mychurch/live/main/data/uploads/abc-photo.jpg" && lfJ2.feedUploadUrls(spec, "../evil", "uploads").length === 0 && lfJ2.feedUploadUrls(null, "a.jpg", "uploads").length === 0, "raw first, layout-aware, traversal refused");
+  } catch (e) {
+    ok("feed urls suite", false, String((e && e.message) || e).slice(0, 200));
+  }
   /* J. live shows at once, clock vanishes with it (note 306): the Watch page
      checks immediately on open and stays on the short cadence even with no
      gathering on the clock; the fast cadence itself is shorter; a retyped
@@ -1837,5 +1914,64 @@ const notes = Number((text["src/lib/hooks.ts"].match(/BUILD_NOTES = (\d+)/) || [
   ok("stale poll hears code drift", has(cmsTail, "codeIsNew") && has(cmsTail, "staleCodeMismatch"), "a different code in version.json must wait and reload like any newer update");
   ok("build stamps the code", has(text["scripts/build-static.mjs"], "code: codeWord") && has(text["scripts/build-static.mjs"], "code word stamped into dist/index.html"), "version.json and the entry page must name the code");
   ok("server warns on code drift", has(text["scripts/serve.mjs"], "DIST_CODE !== SRC_CODE"), "a dist baked from older code must never serve silent");
+  /* KKK. publish lands everywhere at once (publish-at-once, unnumbered): the
+     office hears live publishes in about a second over the event stream, the
+     live box adopts the office mirror within about a minute without bumping
+     its stamp, every publish converges all lanes immediately, and the slow
+     lanes tick every minute. */
+  const pushKKK = text["scripts/instant-push.mjs"];
+  const specKKK = text["scripts/feed-spec.mjs"];
+  const localKKK = text["scripts/cms-local.mjs"];
+  const srvKKK = text["scripts/cms-server.js"];
+  const cmsKKK = text["src/lib/cms.ts"];
+  const autoKKK = text["scripts/auto-push.mjs"];
+  ok("stream framing is pure", has(pushKKK, "export function splitSse") && has(pushKKK, "export function openInstantPush"), "the push must stay runnable anywhere");
+  ok("office hears live at once", has(localKKK, "openInstantPush") && has(localKKK, "officefollow"), "a live/admin publish must reach the office in about a second");
+  ok("live box follows the mirror", has(localKKK, "startFeedFollow") && has(localKKK, "process.env.RENDER") && has(localKKK, "FEED_FOLLOW_MS"), "a local/admin publish must reach live without a rebuild");
+  ok("feed adopt never churns", has(srvKKK, "adoptFeed: function (info, raw)") && has(srvKKK, "never bumps the revision"), "the stamp must stay the feed's own");
+  ok("feed address is pure", has(specKKK, "export function parseFeedSpec") && has(specKKK, "export function feedSeedUrls") && has(specKKK, "export async function peekFeedSeed"), "the live box must resolve the mirror like the tabs do");
+  ok("publish converges now", has(cmsKKK, "function convergeNow()") && has(cmsKKK, "if (bless) convergeNow();"), "every bless must pull all lanes at once");
+  ok("slow lanes tick fast", has(cmsKKK, "syncFromFeed().catch(() => {}), 60 * 1000"), "server-less copies must read the mirror every minute");
+  ok("push rides faster", has(autoKKK, "DELAY_MS = 60000"), "the words must push a minute after the last save");
+  try {
+    const ebKKK = await import("https://esm.sh/esbuild-wasm@0.21.5?bundle");
+    try { await ebKKK.default.initialize({ wasmURL: "https://esm.sh/esbuild-wasm@0.21.5/esbuild.wasm" }); } catch {}
+    const tcPush = await ebKKK.default.transform(pushKKK, { loader: "js", format: "cjs" });
+    const modPush = { exports: {} };
+    new Function("module", "exports", tcPush.code)(modPush, modPush.exports);
+    const split = modPush.exports.splitSse;
+    const two = split('data: {"rev":9}\n\ndata: {"rev":10}\n\n');
+    ok("frames split messages", two.messages.length === 2 && two.rest === "", "got " + JSON.stringify(two.messages));
+    const beat = split(':\n\n');
+    ok("heartbeats ignored", beat.messages.length === 0 && beat.rest === "", "a beat must emit nothing");
+    const half = split('data: {"rev":');
+    const full = split(half.rest + '11}\n\ntrailer');
+    ok("rest kept across chunks", half.messages.length === 0 && full.messages.length === 1 && full.rest === "trailer", "a split frame must wait for its end");
+    const tcSpec = await ebKKK.default.transform(specKKK, { loader: "js", format: "cjs" });
+    const modSpec = { exports: {} };
+    new Function("module", "exports", tcSpec.code)(modSpec, modSpec.exports);
+    const parsed = modSpec.exports.parseFeedSpec("ownerx/repo-y@main");
+    ok("feed spec parses", !!parsed && parsed.owner === "ownerx" && parsed.repo === "repo-y" && parsed.branch === "main" && modSpec.exports.parseFeedSpec("nope") === null, "owner/repo@branch or nothing");
+    const urls = modSpec.exports.feedSeedUrls(parsed);
+    ok("mirror first", urls.length === 2 && urls[0].indexOf("cdn.jsdelivr.net") !== -1 && urls[1].indexOf("raw.githubusercontent.com") !== -1, "fastest host first");
+  } catch (e) {
+    ok("instant-push suite", false, String((e && e.message) || e).slice(0, 200));
+  }
+  try {
+    const openKKK = stubAuth(srvKKK) + '\nself.__adoptToken = "t";';
+    const rpcKKK = loadVm(openKKK, new Uint8Array(8 * 1024 * 1024));
+    const connKKK = { id: "t", net: ["local", 0, 0], subscribe() {}, topics: new Set() };
+    const feed = (payload) => JSON.parse(rpcKKK.adoptFeed({ conn: connKKK }, JSON.stringify(payload)));
+    const good = { token: "t", sections: { home: JSON.stringify({ title: "Feed words" }) }, notes: 413, at: 1700000000000, by: "office", deploy: "" };
+    const r1 = feed(good);
+    const g1 = JSON.parse(rpcKKK.getContent({ conn: connKKK }, ""));
+    ok("feed adopt writes words", r1.ok === true && JSON.parse(g1.sections).home.title === "Feed words", "pub=" + JSON.stringify(r1).slice(0, 120));
+    ok("feed adopt never churns", g1.ok === true && g1.rev === 0 && g1.at === 1700000000000 && g1.notes === 413, "rev=" + g1.rev + " at=" + g1.at);
+    ok("feed adopt needs the token", feed({ ...good, token: "wrong" }).ok === false, "a forged write must be refused");
+    ok("feed adopt needs words", feed({ token: "t", sections: {} }).ok === false, "blank answers adopt nothing");
+    ok("feed adopt validates", feed({ token: "t", sections: { home: "not-json" } }).ok === false, "junk must never store");
+  } catch (e) {
+    ok("adopt-feed suite", false, String((e && e.message) || e).slice(0, 200));
+  }
   return out.join("\n");
 }

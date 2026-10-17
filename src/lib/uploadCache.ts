@@ -7,6 +7,7 @@
    or running local immediately shows the last uploads, blank-free. */
 
 import { useEffect, useState } from "react";
+import { bakedFeedSpec, bakedFeedUploadsDir, feedUploadUrls } from "./livefeed";
 
 const IDB_NAME = "wom-uploads";
 const IDB_STORE = "files";
@@ -166,6 +167,40 @@ export function useCachedUploadUrl(url: string): string {
 /** True when this URL is an office-server upload (needs the disk to exist). */
 export function isOfficeUploadUrl(url: string): boolean {
   return !!uploadNameOf(url);
+}
+
+/* Feed-backed durability (wipe survival): the baked feed address plus the
+   baked uploads layout, resolved once per session. [] when no feed is baked
+   (rebuild-only copies behave exactly as before). Never throws. */
+let feedSpecCache: { spec: any; dir: string } | null | undefined = undefined;
+export async function feedUrlsForUpload(name: string): Promise<string[]> {
+  const clean = String(name || "").trim();
+  if (!clean) return [];
+  try {
+    if (feedSpecCache === undefined) {
+      const [spec, dir] = await Promise.all([bakedFeedSpec(), bakedFeedUploadsDir()]);
+      feedSpecCache = spec ? { spec, dir } : null;
+    }
+    if (!feedSpecCache) return [];
+    return feedUploadUrls(feedSpecCache.spec, clean, feedSpecCache.dir);
+  } catch {
+    return [];
+  }
+}
+
+/** React hook: repo-copy URLs for an upload URL, once the baked feed resolves. */
+export function useFeedUploadUrl(url: string): string {
+  const name = uploadNameOf(url);
+  const [feed, setFeed] = useState("");
+  useEffect(() => {
+    if (!name) return;
+    let alive = true;
+    feedUrlsForUpload(name).then((urls) => {
+      if (alive && urls.length) setFeed(urls[0]);
+    }).catch(() => {});
+    return () => { alive = false; };
+  }, [name]);
+  return feed;
 }
 
 export { dataUrlToBlob };

@@ -63,7 +63,14 @@ try {
   const cfg = await readFeedConfig(ROOT);
   const feed = effectiveFeed(cfg);
   if (feed) {
-    await writeFile(path.join(OUT, "feed.json"), JSON.stringify({ feed }));
+    /* Uploads layout for wipe durability: a mirror repo carries uploads at
+       its top ("uploads/<name>", synced by feed-mirror.mjs), while a public
+       source repo carries them where the office keeps them
+       ("data/uploads/<name>", committed by auto-push). Copies read this back
+       through bakedFeedUploadsDir() and paint/heal off the repo when the disk
+       copy is gone. */
+    const uploadsDir = cfg.mirror ? "uploads" : "data/uploads";
+    await writeFile(path.join(OUT, "feed.json"), JSON.stringify({ feed, uploads: uploadsDir }));
     console.log(`live feed on: ${feed} — deployed copies refresh without rebuilds`);
   } else {
     const rawFeed = await readFile(path.join(ROOT, "publish-feed.txt"), "utf8").catch(() => "");

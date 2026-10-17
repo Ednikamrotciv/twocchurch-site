@@ -58,7 +58,8 @@ the repo stays exactly as it is, private or public:
 - **Repo already public:** put `owner/repo@branch` (e.g.
   `mychurch/world-overcomers-site@main`) in `publish-feed.txt`, commit, push.
 - **Repo private (keep it so):** create an empty **public** repo on github.com
-  (30 seconds, any name — it holds only the tiny snapshot), paste its address
+  (30 seconds, any name — it holds the tiny snapshot plus the uploads the
+  published words point at), paste its address
   (`https://github.com/owner/name`) in `publish-feed.txt` instead, commit,
   push. Each publish mirrors the snapshot there by itself, using the login
   pushing already uses.
@@ -107,6 +108,31 @@ A Render Web Service works as the always-on backend:
   ever deleted by hand.
 - Use the paid (non-sleeping) instance type, or the service sleeps and every
   copy works from its last baked words until it wakes.
+- Free tier sleeps — and that is fine now (notes 303–309): sleep wipes the live
+  store, but the wake re-serves the last publish whole (words, stamp AND
+  history) from the deploy's own bake, so visitors stay live and "Last
+  published" stays put with no office action. The one rule: publish LOCALLY
+  (the office computer has the disk, the git login and the auto-push), and let
+  the push + rebuild carry each publish to Render. A publish on live /admin
+  between deploys works but lives on the ephemeral disk only — the next sleep
+  lets it go, so always publish the same words locally afterwards. Optional:
+  a free keep-awake ping (e.g. UptimeRobot every 5 minutes to
+  `https://xxx.onrender.com/version.json`) skips the 30–60s cold boot after a
+  sleep; it only makes first loads faster, nothing depends on it.
+- Uploads survive the same way, with one extra rule: only uploads baked at
+  deploy time ride in `dist/data/uploads/` (the wake serves those from the
+  build itself when the disk copy is gone). An upload published on live /admin
+  between deploys is ephemeral — the next sleep takes it. So publish uploads
+  locally too, then let the auto-push + rebuild bake them in. The sleep-free
+  browser cache (this build) covers the gap: a browser that uploaded restores
+  the missing file to the server on its next visit — but only that browser,
+  and only files small enough to keep (videos near/over 100 MB also break the
+  git push itself — the terminal says so now — so keep videos short or host
+  them off-disk). With the live feed set up (above), pushed uploads are also
+  fetchable straight off the public repo by EVERY copy: a wiped disk paints
+  the repo copy and any open copy heals the server from it — recovery no
+  longer needs the uploader's browser. Without the feed, only the uploader's
+  browser can heal.
 
 Then put the service's `https://xxx.onrender.com` URL alone in
 `cms-server.txt`, commit, push, and rebuild the static site once.

@@ -14,7 +14,7 @@ import { applyBakedRecent, clearRecentCaches } from "./recentstreams";
 import { bakedFeedSpec, feedIsNewer, peekSeed, siteFile, type FeedSeed, type FeedSpec } from "./livefeed";
 import { BUILD_NOTES, CODE_ID } from "./hooks";
 import { cleanChannelInput } from "./embed";
-import { cacheUploadBlob, dataUrlToBlob, getCachedDataUrl, uploadNameOf } from "./uploadCache";
+import { cacheUploadBlob, dataUrlToBlob, feedUrlsForUpload, getCachedDataUrl, uploadNameOf } from "./uploadCache";
 import { setLiveReportSink } from "./livestatus";
 
 export type Snapshot = Record<string, any>;
@@ -1657,7 +1657,9 @@ function startFeed() {
   if (feedStarted) return;
   feedStarted = true;
   syncFromFeed().catch(() => {});
-  window.setInterval(() => syncFromFeed().catch(() => {}), 5 * 60 * 1000);
+  /* Publish-at-once: server-less copies read the mirror every minute, so a
+     publish rides out without a rebuild and without a tap. */
+  window.setInterval(() => syncFromFeed().catch(() => {}), 60 * 1000);
   document.addEventListener("visibilitychange", () => {
     if (document.visibilityState === "visible") syncFromFeed().catch(() => {});
   });
@@ -1937,8 +1939,25 @@ export async function healMissingUploads(): Promise<{ restored: number; checked:
       if (!missing) continue;
       try {
         const dataUrl = await getCachedDataUrl(name);
-        if (!dataUrl) continue;
-        const blob = dataUrlToBlob(dataUrl);
+        let blob = dataUrlToBlob(dataUrl || "");
+        /* Wipe durability (feed): when this browser never cached the file,
+           anything the office pushed is fetchable off the public repo — so
+           ANY open copy heals the server, not just the uploader's browser.
+           The fetched bytes are kept in this browser's cache too. */
+        if (!blob || !(blob as any).size) {
+          for (const u of await feedUrlsForUpload(name)) {
+            try {
+              const r = await fetch(u, { cache: "no-store" });
+              if (!r.ok) continue;
+              const b = await r.blob();
+              if (!b || !(b as any).size) continue;
+              if (String((b as any).type || "").toLowerCase().includes("text/html")) continue;
+              blob = b;
+              try { await cacheUploadBlob(name, b); } catch {}
+              break;
+            } catch {}
+          }
+        }
         if (!blob || !(blob as any).size) continue;
         const put = await fetch("/__restore-file?name=" + encodeURIComponent(name), {
           method: "POST",
@@ -3879,6 +3898,25 @@ function rememberHistory() {
 const BATCH_CHARS = 20000;
 const BATCH_SECTIONS = 4;
 
+/* Publish-at-once convergence, run after every deliberate publish: pull live's
+   concurrent words, the feed mirror and the Tools numbers right away instead
+   of waiting for each lane's next tick. Same guarded paths the loops take;
+   best-effort, never throws. */
+function convergeNow(): void {
+  try {
+    pullFromLive().catch(() => {});
+  } catch {}
+  try {
+    syncFromFeed().catch(() => {});
+  } catch {}
+  try {
+    refreshLiveSiteNotes().catch(() => {});
+  } catch {}
+  try {
+    refreshLiveBake().catch(() => {});
+  } catch {}
+}
+
 /** Send a patch in batches that stay well inside the server's CPU budget. */
 async function sendPatch(
   sections: Record<string, string | null>,
@@ -3952,6 +3990,11 @@ async function sendPatch(
     });
   }
   if (bless) markDeployPublished();
+  /* Publish-at-once convergence: this copy just published, so pull every
+     other lane at once instead of waiting for its next tick — live's
+     concurrent words, the feed mirror, the Tools numbers. Same guarded paths
+     the minute loops take; best-effort, never throws. */
+  if (bless) convergeNow();
   return { ok: true, rev: lastRev, sent };
 }
 

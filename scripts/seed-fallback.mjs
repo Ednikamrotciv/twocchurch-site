@@ -9,8 +9,8 @@
    root seed.json). A restart serves the last deployed words immediately —
    never blank. Uploads already survive the same way (serve.mjs serves
    data/uploads/ out of dist/ when the disk copy is gone).
-   The fallback carries the bake's sections, revision AND publish stamp (note
-   300): the stamp is the bake-time record of the last real publish, so a
+   The fallback carries the bake's sections, revision, publish stamp AND
+   publish history (notes 300 + 303): the stamp is the bake-time record of the last real publish, so a
    restarted server keeps serving the last published update instead of
    dropping every visitor into update-mode (and clearing "last published")
    with no new update. A genuinely new code release still waits: its update
@@ -38,8 +38,14 @@ function usableSeed(obj) {
   if (!sections || typeof sections !== "object" || !Object.keys(sections).length) return null;
   const rev = typeof obj.rev === "number" ? obj.rev : 0;
   const notes = typeof obj.notes === "number" ? obj.notes : 0;
+  /* The publish history rides the same bake (note 303): Render's free tier
+     wipes the live store on every sleep, and serving words+stamp without the
+     history cleared "Last published" in the admin console on every wake. */
+  const log = Array.isArray(obj.log) ? obj.log.slice(0, 20) : [];
+  const by = typeof obj.by === "string" ? obj.by.slice(0, 60) : "";
+  const at = typeof obj.at === "number" ? obj.at : 0;
   const publishedDeploy = typeof obj.publishedDeploy === "string" && /^[A-Za-z0-9_-]{1,80}$/.test(obj.publishedDeploy) ? obj.publishedDeploy : "";
-  return { rev, notes, sections, publishedDeploy };
+  return { rev, notes, sections, log, by, at, publishedDeploy };
 }
 
 /* Pure decision: a live getContent answer plus a baked seed in, the answer to
@@ -66,6 +72,11 @@ export function fallbackGetContent(bodyText, seed) {
        waits for the office. See the header. */
     out.notes = good.notes;
     out.publishDeploy = good.publishedDeploy;
+    /* …and its publish history (note 303): without log/by/at every host
+       restart cleared "Last published" in the admin console. */
+    out.log = good.log;
+    out.by = good.by;
+    out.at = good.at;
     out.seeded = true;
     return JSON.stringify(out);
   } catch {

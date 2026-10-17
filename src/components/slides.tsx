@@ -8,7 +8,7 @@ import { motion } from "framer-motion";
 import { Link, isPathMode, refreshRoute } from "../lib/router";
 import { Icon } from "./ui";
 import { photoOr } from "../data/photos";
-import { useCachedUploadUrl } from "../lib/uploadCache";
+import { useCachedUploadUrl, useFeedUploadUrl } from "../lib/uploadCache";
 import { useCmsVersion } from "../lib/cms";
 import { ct } from "../data/copy";
 import { tx } from "../lib/i18n";
@@ -373,13 +373,22 @@ export function AnnouncementSlide({
   /* Sleep-free (note 413): while the server copy is wiped, paint the cached
      upload from this browser instead of the welcome fallback — blank-free. */
   const cachedNamed = useCachedUploadUrl(named);
-  const effectiveNamed = cachedNamed || named;
-  const original = resolveSlidePhoto(effectiveNamed, welcome, !cachedNamed && deadNamed);
+  /* Wipe durability (feed): anything the office pushed lives on the public
+     repo too, so when the disk copy is gone AND this browser never cached it,
+     the repo copy paints — any visitor, not just the uploader's browser. */
+  const feedNamed = useFeedUploadUrl(named);
+  const deadFeed = useDeadPhoto(feedNamed);
+  /* The repo copy paints only while the disk copy is actually gone — a healthy
+     local file always wins, so no visitor depends on the repo hosts. */
+  const localDead = !cachedNamed && deadNamed;
+  const paintableFeed = localDead && feedNamed && !deadFeed ? feedNamed : "";
+  const effectiveNamed = cachedNamed || paintableFeed || named;
+  const original = resolveSlidePhoto(effectiveNamed, welcome, !cachedNamed && !paintableFeed && deadNamed);
   /* A face with no paintable photo paints no <img> at all (note 418): the face
      keeps its palette gradient and its words instead of a blank/broken frame —
      so the welcome slide is never a blank box, whatever the host lost. Cached
      uploads paint as before; only the truly imageless face stands down. */
-  const shownPhoto = cachedNamed || !deadNamed ? original : deadWelcome ? "" : welcome;
+  const shownPhoto = cachedNamed || paintableFeed || !deadNamed ? original : deadWelcome ? "" : welcome;
   /* A film upload plays as it is — visitors work it with the player's own
      volume and time-range controls, flat face only (the 3D stage plays it
      silently while it turns, see slides3d). */

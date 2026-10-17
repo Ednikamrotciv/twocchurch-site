@@ -113,7 +113,7 @@ export const BUILD_DATE = "2026-10-13";
    word naming the running code, compared by equality only — never ordered — so
    a stale cache can never invert it the way stale numbers did. An explicit
    office Publish blesses it; the maintenance gates hold until then. */
-export const CODE_ID = "stalefree";
+export const CODE_ID = "atonce";
 export function buildStamp() {
   return { notes: BUILD_NOTES, built: BUILD_DATE, code: CODE_ID };
 }
