@@ -247,6 +247,19 @@ export function exitMaintenancePreview(): void {
     window.location.reload();
   } catch {}
 }
+/* Local maintenance preview (office request: notice page missing in local):
+   `?maintenance=1` (or `?showMaintenance=1`) forces the notice on any copy,
+   including server-less local dev which otherwise never waits (no visitors).
+   Visitors on deploys still wait via the deploy lock; this only adds a local
+   way to see the page. Never blesses, never publishes. */
+function maintenanceForced(): boolean {
+  try {
+    const q = new URLSearchParams(window.location.search || "");
+    return q.get("maintenance") === "1" || q.get("showMaintenance") === "1";
+  } catch {
+    return false;
+  }
+}
 /** True while a server is (or was) in play: online, offline after contact, a
     socket waiting, or an address to reach. A copy that never had a server has
     no visitors to protect, so it never waits (note 250). */
@@ -266,6 +279,10 @@ function serverInvolved(): boolean {
     wiped store, or a server reset to notes 0 — still unreviewed, still
     waits). Server-less copies never wait (no visitors). A publish lifts. */
 export function maintenanceShouldWait(): boolean {
+  /* Local preview: ?maintenance=1 shows the notice even on server-less local. */
+  try {
+    if (maintenanceForced()) return true;
+  } catch {}
   /* Deploy lock (no numbers): a built copy waits until a publish from its
      own deploy lands. Server-less copies never wait (no visitors). */
   if (deployFromMeta && currentDeployId) {
@@ -294,6 +311,10 @@ export function useMaintenance(): boolean {
   useCmsVersion();
   /* Re-render when status/socket changes (notify without a version bump). */
   useSyncExternalStore(subscribe, () => stateObj);
+  /* Local preview: ?maintenance=1 shows the notice even on server-less local. */
+  try {
+    if (maintenanceForced()) return true;
+  } catch {}
   /* Note 302: a known newer update waits even on this (older) bundle — a
      stale tab never paints live from cached code while the host has moved on.
      Server-less copies still never wait (note 250): with no backend there is
@@ -3272,8 +3293,23 @@ export function resetSlidesForNewDeploy(): boolean {
       } catch {}
     };
     if (!welcome) {
+      /* Empty mode (office fallback: slides emptied clean — no "You are
+         welcome" headline in code): clear the draft slides to [] once per
+         deploy, so no other slide rides into the new deploy. */
+      const d = getDraft();
+      if (Array.isArray((d as any).slides) && (d as any).slides.length === 0) {
+        mark();
+        return false;
+      }
+      pushEditUndo("slides", clone((d as any).slides));
+      (d as any).slides = [];
+      dirty.slides = true;
+      persistDraft();
       mark();
-      return false;
+      fireToast("New deploy — announcement slides cleared.", "info");
+      notify();
+      applyDraftLiveSoon();
+      return true;
     }
     const only = [clone(welcome)];
     const d = getDraft();

@@ -44,18 +44,11 @@ export type AnnouncementSlide = {
 };
 
 export const SLIDES: AnnouncementSlide[] = [
-  /* Box slide is welcome-only (office request): a single "You are welcome /
-     Welcome home" card. Deploys also reset to this via resetSlidesForNewDeploy. */
-  {
-    id: "welcome-home",
-    image: "src/assets/img/choir.jpg",
-    headline: "Welcome home",
-    line: "First Sunday or fiftieth — there is a seat here with your name on it.",
-    cta: "Plan your visit",
-    link: "/visit",
-    design: "auto",
-    active: true,
-  },
+  /* Office request: no "You are welcome" headline exists in the code — only
+     "Welcome home" ever shipped — so per the fallback ("if you cant find it
+     empty all the slide and clean") the box ships with NO announcement slides.
+     Empty is clean: the box keeps turning with the welcome photo/logo
+     (see AnnouncementSlides stand-in) instead of going blank. */
 ];
 
 /** A slide upload visitors can play: mp4/m4v/webm/ogv/ogg/mov (with ?/# trailers). */

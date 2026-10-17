@@ -87,6 +87,22 @@
         var ap = window.location.pathname || "/";
         if (ap === "/admin" || ap.indexOf("/admin/") === 0) return;
       } catch (e) {}
+      /* Local preview (office request: notice missing in local): ?maintenance=1
+         paints the notice at once, even with no version.json / no server. */
+      try {
+        if (q.get("maintenance") === "1" || q.get("showMaintenance") === "1") {
+          var r0 = document.getElementById("root");
+          if (r0 && !r0.hasChildNodes()) {
+            r0.innerHTML =
+              '<div style="min-height:100vh;min-height:100dvh;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:1rem;background:#07070a;color:#f5f0e6;font-family:Georgia,serif;text-align:center;padding:2rem;">' +
+              '<img src="/src/assets/logo-mark.png" alt="" aria-hidden="true" style="width:72px;height:72px;object-fit:contain;" onerror="this.style.display=\'none\'">' +
+              "<h1 style=\"margin:0;font-size:2rem;font-weight:600;\">We&rsquo;ll be right back</h1>" +
+              '<p style="margin:0;max-width:34rem;line-height:1.6;opacity:0.85;">The site is being updated. Please check back shortly.</p>' +
+              "</div>";
+          }
+          return;
+        }
+      } catch (e) {}
       var stored = 0;
       try {
         var raw = window.localStorage ? window.localStorage.getItem("wom.cms.notes") : null;
