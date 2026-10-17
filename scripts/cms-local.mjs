@@ -410,6 +410,23 @@ function startLiveFollow({ rootDir, rpcCall, adoptToken }) {
       const patch = adoptPatch(live.sections);
       const ids = Object.keys(patch);
       if (!ids.length) return;
+      /* The relay (office -> live in seconds) lands the same words both
+         stores already hold with only the clocks apart: adopting identical
+         words would bump the revision and log "from the live site" for
+         nothing, and invite the other loop to answer in kind. Same words
+         mean nothing to write — the publish already reflects everywhere. */
+      try {
+        let same = true;
+        for (const id of ids) {
+          if (JSON.stringify(localSections[id]) !== patch[id]) {
+            same = false;
+            break;
+          }
+        }
+        if (same) return;
+      } catch {
+        /* unclear — adopt below as before */
+      }
       const res = await rpcCall(
         "adoptLive",
         "livefollow",
@@ -543,6 +560,21 @@ function startFeedFollow({ rootDir, rpcCall, adoptToken }) {
       const patch = adoptPatch(seed.sections);
       const ids = Object.keys(patch);
       if (!ids.length) return;
+      /* Same-words guard like the office loop above: the relay already lands
+         identical words on both stores with only the clocks apart, so there
+         is nothing to write and no revision to bump. */
+      try {
+        let same = true;
+        for (const id of ids) {
+          if (JSON.stringify(localSections[id]) !== patch[id]) {
+            same = false;
+            break;
+          }
+        }
+        if (same) return;
+      } catch {
+        /* unclear — adopt below as before */
+      }
       const res = await rpcCall(
         "adoptFeed",
         "feedfollow",

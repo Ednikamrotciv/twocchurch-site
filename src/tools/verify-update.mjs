@@ -522,6 +522,28 @@ export async function runAll(fs) {
   ok("code word rotated", has(hooksJ8, 'CODE_ID = "cleanfresh"') && has(indexJ8, 'wom-code" content="cleanfresh"'), "the new word must retire the bundle that holds the 5 stuck rows");
   ok("dev token names the code", has(cms, '"n" + BUILD_NOTES + "c" + (runningCode'), "an unnumbered update must still prove a fresh deploy in local dev");
   ok("fresh clear takes after-save", has(cms, "localStorage.removeItem(AFTER_SAVE_KEY)"), "a queued publish-after-save must not republish stale words after the clear");
+  /* J9. restore+publish reaches every copy (office request: works on one
+     live/admin is not enough — visitors, admin copies and local/admin must
+     all land it): the restore used to refuse file writes on a server-backed
+     tab with no office address, publishing words that pointed at photos only
+     the restoring tab could paint. Same-origin now counts, the office
+     address still wins when set, and what is restored is cached in the
+     restoring browser too. */
+  ok("restore writes same-origin", has(cms, "reachable = !!(socket && status"), "live/admin talking to its own backend must save the photos there, not drop them");
+  ok("office address still wins", has(cms, "still wins when one is set"), "a pointed copy must keep sending its files to the office");
+  ok("restore caches what it restores", has(cms, "await cacheUploadBlob(name, blob)"), "the restoring tab must paint instantly and heal others, not depend on one disk");
+  /* J10. every publish reflects everywhere (office request: visitors website,
+     local website, live/admin, local/admin): the live box cannot reach a
+     localhost office, so without a mirror an office publish waited out the
+     rebuild. The publishing tab relays the same words (+ photos) straight to
+     the live backend with its own session — live lands it in seconds via its
+     own shout — and the follow loops skip identical words so the relay never
+     answers itself. */
+  ok("publish relays to live", has(cms, "relayPublishToOtherSide") && has(cms, "/__cms/login?conn=") && has(cms, "/__cms/publish?conn="), "an office publish must reach the live backend in seconds, no feed or rebuild wait");
+  ok("relay blesses live's deploy", has(cms, "own deploy") && has(cms, "/version.json?t="), "the relay must witness the deploy live actually serves, never ours");
+  ok("relay carries the photos", has(cms, "/__restore-file?name=") && has(cms, "localUploadNames(sections)"), "relayed words must point at working photos at once, not after the mirror");
+  ok("relay never breaks publish", has(cms, "never awaits, never throws") && has(cms, "relayPublishToOtherSide(sections, changed, note).catch"), "a relay that cannot land must leave the loops to carry the publish");
+  ok("loops skip identical words", has(text["scripts/cms-local.mjs"], "nothing to write") && has(text["scripts/cms-local.mjs"], "JSON.stringify(localSections[id]) !== patch[id]"), "the relay lands the same words both stores hold — adopting them again would bump and log for nothing");
   /* J. live shows at once, clock vanishes with it (note 306): the Watch page
      checks immediately on open and stays on the short cadence even with no
      gathering on the clock; the fast cadence itself is shorter; a retyped

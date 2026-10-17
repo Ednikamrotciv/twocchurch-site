@@ -3898,8 +3898,21 @@ export async function importBackup(text: string): Promise<ImportResult> {
   let filesRestored = 0;
   if (incoming.length) {
     const base = serverUrl();
+    /* Same-origin counts (restore+publish must reach every copy): on a
+       server-backed tab with no office address — live/admin talking to its
+       own backend — the files belong to THIS backend. Refusing them published
+       words that pointed at photos only the restoring tab could paint, so a
+       restore+publish "worked" on one tab and nowhere else. An office
+       address still wins when one is set; localhost keeps its old pass. */
     let reachable = !!base;
-    if (!base) {
+    if (!reachable) {
+      try {
+        reachable = !!(socket && status === "online");
+      } catch {
+        reachable = false;
+      }
+    }
+    if (!reachable) {
       try {
         const host = window.location?.hostname || "";
         reachable = host === "localhost" || host === "127.0.0.1" || host === "";
@@ -3915,10 +3928,12 @@ export async function importBackup(text: string): Promise<ImportResult> {
           const name = String(f?.name || "");
           if (!name || typeof f?.data !== "string" || !f.data) throw 0;
           const type = typeof f?.type === "string" && f.type ? f.type : guessUploadType(name);
+          const blob = base64ToBlob(f.data, type);
+          if (!blob.size) throw 0;
           const res = await fetch(`${base}/__restore-file?name=${encodeURIComponent(name)}`, {
             method: "POST",
             headers: { "content-type": type },
-            body: base64ToBlob(f.data, type),
+            body: blob,
           });
           if (!res.ok) throw 0;
           /* Read it back (note 346): a 200 that never became a file used to
@@ -3933,6 +3948,13 @@ export async function importBackup(text: string): Promise<ImportResult> {
           }
           if (!verified) throw 0;
           filesRestored++;
+          /* This browser keeps what it restored: the tab paints instantly
+             and can heal other copies, instead of depending on one disk. */
+          try {
+            await cacheUploadBlob(name, blob);
+          } catch {
+            /* the server copy above is what matters */
+          }
         } catch {
           if (f && typeof f.name === "string") filesFailed.push(f.name);
         }
@@ -3985,6 +4007,134 @@ function convergeNow(): void {
   try {
     refreshLiveBake().catch(() => {});
   } catch {}
+}
+
+/* Every publish reflects everywhere (office request: visitors, local site,
+   live/admin, local/admin): the office copy's backend reaches the live box on
+   its own (minute follow + instant push), but the live box cannot reach a
+   localhost office — so without a public mirror an office publish only
+   reached live after the rebuild, minutes later. The publishing tab itself
+   can reach BOTH (it reads live for the fold already), so after every
+   deliberate office publish it relays the same words straight to the live
+   backend with this tab's own session — live visitors and live/admin land it
+   in seconds via the live backend's own shout, with no feed and no rebuild.
+   Best-effort and silent: a denied login (live password differs), 2FA on
+   live, or an unreachable live box simply leaves the minute loops, the feed
+   and the rebuild to carry the publish as before. Never throws, never
+   awaits — the office publish already succeeded before this runs. */
+async function relayPublishToOtherSide(
+  sections: Record<string, string | null>,
+  changed: string[],
+  note: string
+): Promise<void> {
+  try {
+    const base = await liveBaseUrl().catch(() => "");
+    if (!base || !/^https?:\/\/[^/\s]+$/i.test(base)) return; // this IS live — the backend loop owns the other direction
+    let pw = "";
+    try {
+      pw = sessionPassword();
+    } catch {
+      pw = "";
+    }
+    if (!pw) return;
+    const conn = "relay-" + Math.random().toString(36).slice(2) + Date.now().toString(36);
+    try {
+      const login = await fetch(base + "/__cms/login?conn=" + encodeURIComponent(conn), {
+        method: "POST",
+        headers: { "content-type": "text/plain;charset=utf-8" },
+        body: JSON.stringify({ password: pw, want: "main" }),
+      });
+      if (!login.ok) return;
+      const data = await login.json().catch(() => null);
+      if (!data || data.ok !== true || (data as any).needCode) return;
+    } catch {
+      return;
+    }
+    /* The relay blesses LIVE's own deploy, never ours: our deploy id would
+       name a build the live box never served, and its visitors would keep
+       waiting. Unknown deploy still rides the words (old-deploys see them);
+       the witness just waits for the rebuild. */
+    let liveDeploy = "";
+    try {
+      const res = await fetch(base + "/version.json?t=" + Date.now(), { cache: "no-store" });
+      if (res.ok) {
+        const data = await res.json().catch(() => null);
+        const d = String((data && (data as any).deployId) || "");
+        if (/^[A-Za-z0-9_-]{1,80}$/.test(d)) liveDeploy = d;
+      }
+    } catch {
+      /* words still ride without the witness */
+    }
+    const ids = (Array.isArray(changed) ? changed : []).filter((id) => /^[a-zA-Z][a-zA-Z0-9-]{0,31}$/.test(id));
+    const batches: string[][] = [];
+    let cur: string[] = [];
+    let size = 0;
+    for (const id of ids) {
+      const chars = sections[id] ? (sections[id] as string).length : 0;
+      if (cur.length && (size + chars > BATCH_CHARS || cur.length >= BATCH_SECTIONS)) {
+        batches.push(cur);
+        cur = [];
+        size = 0;
+      }
+      cur.push(id);
+      size += chars;
+    }
+    if (cur.length) batches.push(cur);
+    if (!batches.length) batches.push([]);
+    for (let b = 0; b < batches.length; b++) {
+      const part: Record<string, string | null> = {};
+      batches[b].forEach((id) => (part[id] = sections[id]));
+      try {
+        const res = await fetch(base + "/__cms/publish?conn=" + encodeURIComponent(conn), {
+          method: "POST",
+          headers: { "content-type": "text/plain;charset=utf-8" },
+          body: JSON.stringify({
+            sections: part,
+            note: String(note || "").slice(0, 160),
+            by: editorName(),
+            changed: batches[b],
+            notes: BUILD_NOTES,
+            deploy: liveDeploy,
+            first: b === 0,
+            quiet: b < batches.length - 1,
+          }),
+        });
+        if (!res.ok) return;
+        const data = await res.json().catch(() => null);
+        if (!data || data.ok !== true) return;
+      } catch {
+        return;
+      }
+    }
+    /* The photos ride with the words: every upload the relayed sections point
+       at is read off this copy's own disk and written straight to the live
+       disk under its exact name, so the relayed words point at working
+       photos at once instead of waiting out the mirror push. Oversize files
+       stay where published (the backfill/mirror log names them); failures
+       leave the minute loops to carry them. */
+    try {
+      const names = localUploadNames(sections).slice(0, 30);
+      for (const name of names) {
+        try {
+          const got = await fetch("/data/uploads/" + name, { cache: "no-store" });
+          if (!got.ok) continue;
+          const blob = await got.blob();
+          if (!blob || !blob.size || blob.size > 90 * 1024 * 1024) continue;
+          await fetch(base + "/__restore-file?name=" + encodeURIComponent(name), {
+            method: "POST",
+            headers: { "content-type": (blob as any).type || guessUploadType(name) },
+            body: blob,
+          }).catch(() => null);
+        } catch {
+          /* next file — the loops backstop */
+        }
+      }
+    } catch {
+      /* words already landed above */
+    }
+  } catch {
+    /* the minute loops, the feed and the rebuild carry the publish */
+  }
 }
 
 /** Send a patch in batches that stay well inside the server's CPU budget. */
@@ -4065,6 +4215,17 @@ async function sendPatch(
      concurrent words, the feed mirror, the Tools numbers. Same guarded paths
      the minute loops take; best-effort, never throws. */
   if (bless) convergeNow();
+  /* Every publish reflects everywhere: relay these same words straight to the
+     live backend (office -> live in seconds, no feed or rebuild wait). The
+     office publish above already succeeded — this never awaits, never throws,
+     and a relay that cannot land simply leaves the loops to carry it. */
+  if (bless) {
+    try {
+      relayPublishToOtherSide(sections, changed, note).catch(() => {});
+    } catch {
+      /* the loops carry the publish */
+    }
+  }
   return { ok: true, rev: lastRev, sent };
 }
 
