@@ -80,6 +80,21 @@ export async function createCmsHost(rootDir, opts) {
   const dataDir = path.join(rootDir, "data");
   await mkdir(dataDir, { recursive: true });
 
+  /* Clean-deploy mode (office request: every new deploy opens fresh —
+     welcome-home slide only — until Recover + Publish): with
+     clean-deploy.txt beside package.json the backend starts with no words,
+     even when a previous store file is still on disk (a fresh extract over
+     the folder, a Render sleep-wake, any unwiped disk). The boot guard above
+     already parked such a store aside; this is the belt behind it, so old
+     slides can never re-serve through the fallback on a clean deploy. The
+     first Publish saves its words normally (saveSoon below) and consumes
+     the flag, so normal serving resumes by itself. */
+  let cleanDeploy = false;
+  try {
+    await readFile(path.join(rootDir, "clean-deploy.txt"), "utf8");
+    cleanDeploy = true;
+  } catch { /* words ride as usual */ }
+
   /* The shipped code is the original state: when it changes (a fresh extract),
      the publish history is cleared while every published section is kept, so
      nothing old can override the new code yet no content is lost.
@@ -95,12 +110,16 @@ export async function createCmsHost(rootDir, opts) {
   let saveTimer = null;
   let saving = false;
   let dirtyAgain = false;
-  try {
-    const prev = await readFile(statePath);
-    state.set(prev.subarray(0, Math.min(prev.length, STATE_SIZE)));
-    if (prev.length) console.log(`cms backend: loaded ${prev.length} bytes from data/cms-state.bin`);
-  } catch {
-    console.log("cms backend: fresh state (data/cms-state.bin will be created on first publish)");
+  if (cleanDeploy) {
+    console.log("cms backend: clean deploy (clean-deploy.txt) — starting with no words until Recover + Publish");
+  } else {
+    try {
+      const prev = await readFile(statePath);
+      state.set(prev.subarray(0, Math.min(prev.length, STATE_SIZE)));
+      if (prev.length) console.log(`cms backend: loaded ${prev.length} bytes from data/cms-state.bin`);
+    } catch {
+      console.log("cms backend: fresh state (data/cms-state.bin will be created on first publish)");
+    }
   }
   if (prevHash && prevHash !== scriptHash) {
     if (clearPublishLog(state, scriptSrc)) {
@@ -370,6 +389,21 @@ function startLiveFollow({ rootDir, rpcCall, adoptToken }) {
     if (running) return;
     running = true;
     try {
+      /* Clean-deploy mode (office request: every new deploy opens fresh):
+         while clean-deploy.txt is present an empty store must not adopt the
+         live site's retired words — within a minute of boot the old slides
+         would be back on the clean deploy. The office Recover + Publish (or
+         the first explicit publish, which consumes the flag) ends this. */
+      try {
+        await readFile(path.join(rootDir, "clean-deploy.txt"), "utf8");
+        if (!round.warnedClean) {
+          round.warnedClean = true;
+          console.log("live follow: clean deploy (clean-deploy.txt) — holding until Recover + Publish, retired live words stay where they are");
+        }
+        return;
+      } catch {
+        /* no flag — follow as usual */
+      }
       let fileText = "";
       try {
         fileText = await readFile(path.join(rootDir, "cms-server.txt"), "utf8");

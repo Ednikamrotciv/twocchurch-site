@@ -2434,8 +2434,11 @@ export async function pullFromLive(): Promise<LivePullResult> {
          bless the running code, exactly like a pull that carried words. Only
          outside a clean stage (a new code arrival still takes its explicit
          Publish or Recover), only with no unsaved work of its own pending,
-         and never across updates — nothing here stages, moves or loses words. */
-      if (!cleanStageForNewCode && pendingSections().length === 0 && read.notes === BUILD_NOTES && read.sections && Object.keys(read.sections).length > 0) {
+         only a publish NEWER than this copy's first sighting (a stale live
+         publish must not clear the notice by itself — same rule as the sync
+         twin), and never across updates — nothing here stages, moves or
+         loses words. */
+      if (!cleanStageForNewCode && pendingSections().length === 0 && read.notes === BUILD_NOTES && read.sections && Object.keys(read.sections).length > 0 && read.at > 0 && deployFirstSeenAt > 0 && read.at > deployFirstSeenAt) {
         setPublishedNotes(BUILD_NOTES);
         blessRunningCode();
         writeCache();
@@ -3322,17 +3325,30 @@ async function syncFromServer() {
     }
   } catch {}
   /* Local copies (npm run dev / standalone preview) lift on a witnessed
-     same-update publish too — a local Publish always released, and a publish
-     witnessed from the joined server now does as well. */
+     same-update publish that is NEWER than this copy's first sighting (office
+     request: an unsaved change showing means no Publish was clicked — a stale
+     publish the backend already had must never clear the local notice by
+     itself). Same strict rule as the deploy twin below: a real new click
+     stamps a newer clock and lifts; anything older predates this copy and
+     still holds until its own click. */
+  let serverPublishIsNew = false;
   try {
-    if (!deployFromMeta && typeof res.notes === "number" && Math.floor(res.notes) === BUILD_NOTES && typeof res.at === "number" && res.at > 0) {
+    serverPublishIsNew = typeof res.at === "number" && res.at > 0 && deployFirstSeenAt > 0 && res.at > deployFirstSeenAt;
+  } catch {
+    serverPublishIsNew = false;
+  }
+  try {
+    if (!deployFromMeta && typeof res.notes === "number" && Math.floor(res.notes) === BUILD_NOTES && serverPublishIsNew) {
       blessRunningCode();
     }
   } catch {}
   /* Same-code attestation rides the same answer: a backend running this code
      with this code published lifts the number gate headless — a live publish
-     clears the local notice with no tab open and no click needed. */
-  const codeWitnessed = noteCodeWitness((res as any).code, res.notes);
+     clears the local notice with no tab open and no click needed. Gated on
+     the same newness: an old publish attesting forever must not lift a copy
+     that never saw it happen (the deploy twin below re-checks the same
+     clock, so stamping it twice changes nothing there). */
+  const codeWitnessed = serverPublishIsNew && noteCodeWitness((res as any).code, res.notes);
   /* A publish newer than this deploy releases it (note 420): the same-ID
      witness above only matches a publish stamped from this exact deploy, so
      one Publish on live/admin used to leave every other deploy — a stale

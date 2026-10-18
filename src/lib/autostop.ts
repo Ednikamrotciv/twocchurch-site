@@ -60,10 +60,8 @@ function stopForStream(live: any, air: LiveStatus): boolean {
        command stays unstamped and the next Publish leaves the on-air state
        alone, whatever else it carries. */
     askForRecentServices({ videoId: air.videoId, title: air.title });
-    fireToast(
-      "The @twocorg stream ended by itself — no need to publish, the screen is back on the previous services. The finished service is in Recent services.",
-      "info"
-    );
+    /* Silent by office request: a natural end needs no publish and raises no
+       notice — no need to publish, no toast. The filing above is the record. */
     return true;
   }
   /* The ending must belong to this session; the office's word beats it. */
@@ -91,11 +89,9 @@ function stopForStream(live: any, air: LiveStatus): boolean {
   );
   if (airedGuest) clearIdleGuest();
 
-  const where = air.platform === "facebook" ? "Facebook" : "YouTube";
-  fireToast(
-    `The stream ended on ${where} by itself — no need to publish, the screen is back on the previous services. The finished service is in Recent services.`,
-    "info"
-  );
+  /* Silent by office request on every platform: the end files itself and
+     raises no notice — no need to publish, no toast. The filing above is
+     the record. */
   return true;
 }
 
