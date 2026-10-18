@@ -851,6 +851,26 @@ export function guestLiveNow(): boolean {
   return !!g && snapshot.status.state === "live" && isStatusForTarget(snapshot.status, g);
 }
 
+/** The main channel is live right now (the main opens by itself): the shared
+    answer reads live for the current main-channel address — no Play press
+    needed, the channel setting is the office's intent. The guest's own answer
+    never counts here (guestLiveNow covers it); Facebook keeps its own screen.
+    Unstamped legacy caches pass through like everywhere else. */
+export function mainLiveNow(): boolean {
+  try {
+    const t = liveTarget()?.url || "";
+    if (!t) return false;
+    const s = snapshot.status;
+    if (s.state !== "live" || s.platform !== "youtube") return false;
+    if (!isStatusForTarget(s, t)) return false;
+    const g = guestTarget()?.url || "";
+    if (g && s.target && s.target === g) return false;
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 /** The watched broadcast's ending (0 when none): the stream's way to stop the site. */
 export function liveEndedAt(): number {
   return Number(snapshot.status.endedAt) || 0;

@@ -53,7 +53,6 @@ import {
   sectionIsHidden,
 } from "../lib/cmsSchema";
 import * as cms from "../lib/cms";
-import { navigate } from "../lib/router";
 import { cacheUploadBlob, uploadNameOf, useCachedUploadUrl } from "../lib/uploadCache";
 import { serverUrl } from "../lib/remoteserver";
 
@@ -876,7 +875,7 @@ export function LiveTransportButtons() {
           <Icon name="alert" size={14} />
           <span>
             Nothing is set to play yet. Paste the stream link, or the channel to watch, in the fields above — until then
-            the Watch live screen stays on the countdown until Play is pressed and published.
+            the Watch live screen stays on the countdown until the channel is live — no press needed, Play is only a manual override.
           </span>
         </p>
       )}
@@ -1953,7 +1952,6 @@ export function PublishModal({ open, onClose, state }: { open: boolean; onClose:
       tries += 1;
       if (!cms.websiteIsUnsaved()) {
         window.clearInterval(timer);
-        const wasWaiting = cms.maintenanceShouldWait();
         const res = await cms.finishPlannedPublish();
         setSaving(false);
         if (res && res.ok) {
@@ -1967,11 +1965,6 @@ export function PublishModal({ open, onClose, state }: { open: boolean; onClose:
           );
           setNote("");
           onClose();
-          /* Every new deploy holds visitors on maintenance until Publish —
-             a Publish that clears it steps out to the visitors website. */
-          try {
-            if (wasWaiting && !cms.maintenanceShouldWait()) navigate("/", undefined, { plain: true });
-          } catch {}
         } else {
           setSaveFailed(true);
         }
@@ -1995,7 +1988,6 @@ export function PublishModal({ open, onClose, state }: { open: boolean; onClose:
         return;
       }
     }
-    const wasWaiting = cms.maintenanceShouldWait();
     setBusy(true);
     const res = await cms.publish(note || defaultNote(changed));
     setBusy(false);
@@ -2013,11 +2005,6 @@ export function PublishModal({ open, onClose, state }: { open: boolean; onClose:
       );
       setNote("");
       onClose();
-      /* Every new deploy holds visitors on maintenance until Publish — a
-         Publish that clears it steps out to the visitors website at once. */
-      try {
-        if (wasWaiting && !cms.maintenanceShouldWait()) navigate("/", undefined, { plain: true });
-      } catch {}
     } else {
       fireToast(
         res.error === "unauthorized"

@@ -138,13 +138,15 @@ export function WatchLive() {
   /* The shared on-air answer (notes 83, 133); `streaming` is the narrower screen question. Declared
      here, before `liveSource` (note 412): the initializer below reads it, and reading a later
      declaration crashed the page (`Cannot access 'streaming' before initialization`). */
-  /* The main channel plays only on the office's Play press (note 408) AND a
-     detected live answer (note 410): press alone never autoplays — autoplay
-     only works once the main livestream has started live on the channel. A
-     broadcast the check finds with no switch behind it never autoplays — the
-     guest still opens on detection while IT is live, and Facebook plays while
-     IT is live (configuring it is the intent). */
-  const streaming = screenAir.state === "live" && !shutNow && (guestLive || fbLive || !!LIVE.isLive);
+  /* The main channel plays by itself (note 400): a detected @twocorg live
+     autoplays with no Play press — the channel setting is the office's
+     intent, like the guest and Facebook (configuring them is the intent).
+     Play stays a manual override (it opens the channel while the read is
+     walled, and it releases a Stop); a published Stop still holds the main
+     until Play. Press alone never autoplays — autoplay only works once the
+     main livestream has started live on the channel. */
+  const mainDetected = screenAir.state === "live" && !guestLive && !fbLive;
+  const streaming = screenAir.state === "live" && !shutNow && (guestLive || fbLive || (mainDetected && !officeStopped));
 
   /* The two lists under the screen: recent services (read off the channel) and previous sermons (the office's write-ups). */
   const limit = recentLimit();
@@ -212,10 +214,10 @@ export function WatchLive() {
     (guestLive && guestUrl ? guestUrl : hasChannel ? targetUrl : watchUrl({ platform: "youtube", youtubeId: LIVE.youtubeId }) || targetUrl);
 
   /* The `streaming` answer lives above, beside `overrideId` (note 412). */
-  /* Live but unpressed (note 408): the main address reads live with no switch
-     behind it — the screen waits on the ticking clock (never the ended screen:
-     something IS live), naming the gathering, until the office presses Play.
-     The shut latch still closes first. */
+  /* Live but not yet playable: the main address reads live while its id still
+     verifies (or the screen sits behind a press-free detection) — the screen
+     waits on the ticking clock (never the ended screen: something IS live),
+     naming the gathering. The shut latch still closes first. */
   const waitingForClick = !shutNow && !officeStopped && !LIVE.isLive && !guestLive && !fbLive && airForTarget.state === "live";
   /* What the badges show (note 386): the stream itself, or the office's
      switch — never the bare service clock — and never another channel's

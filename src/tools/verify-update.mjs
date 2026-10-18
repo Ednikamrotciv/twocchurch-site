@@ -1980,7 +1980,7 @@ export async function runAll(fs) {
   ok("stop clears the guest, guest never touches main", has(edYY, "export function GuestTransportButtons()") && has(edYY, "write(clearGuestOnStop(") && has(edYY, "The stop also empties") && has(edYY, "write({ guestIsLive: true, guestCommandAt: Date.now() })"), "one Stop ends the live and empties the guest; the guest row still commands only its slot");
   ok("guest keys gated on their stamp", has(cmsYY, "out.guestIsLive") && has(cmsYY, "guestCommandAt"), "only a guest click may send the guest state");
   ok("badges hear the guest switch", has(storeYY, "(LIVE as any).guestIsLive"), "a forced guest must light LIVE too");
-  ok("guest press opens its walled channel", has(watchYY, "const overrideId = ") && has(watchYY, "(!streaming && overrideId)") && has(watchYY, ") : overrideGuest && overrideId ? (") && !has(watchYY, ") : overrideId ? (") && has(watchYY, "(guestLive || fbLive || !!LIVE.isLive)"), "a published guest Play may open the channel, a pressed main waits for detection — and only a live slot plays by itself");
+  ok("guest press opens its walled channel", has(watchYY, "const overrideId = ") && has(watchYY, "(!streaming && overrideId)") && has(watchYY, ") : overrideGuest && overrideId ? (") && !has(watchYY, ") : overrideId ? (") && has(watchYY, "(mainDetected && !officeStopped)"), "a published guest Play may open the channel, a detected main plays by itself — and only a live slot plays by itself");
   ok("follow is unknown-only", has(watchYY, 'airForTarget.state === "unknown"') && has(watchYY, 'guestAir.state === "unknown"'), "a verified off must stay on the clock");
   ok("guest keys ship false", has(liveYY, "guestIsLive: false") && has(seedYY, '"guestIsLive":false'), "no copy may open with a guest forced");
   ok("apply leads own-slot", has(applyYY, "EACH FIELD COMMANDS ITS OWN SLOT"), "the office must meet the independent rows first");
@@ -2026,10 +2026,10 @@ export async function runAll(fs) {
   ok("dots sit at the row end", has(cssZZ, ".transport-row__live"), "the light must fit the field area");
   ok("override is this update", has(srvZZ, "OVERRIDE_NO_413 = 413"), "first boot must re-run the clear");
   ok("apply leads with naming and dots", has(applyZZ, "NEXT BROADCAST NAMES THE SCREEN") && has(applyZZ, "LIGHTS ITS OWN DOT"), "the office must meet the heading and the lights first");
-  /* AAA. the main waits for the Play press, the guest arrives empty, the
-     crash names itself (note 408): no bare main detection opens badges or
-     player (the guest still opens on detection); an unpressed live main waits
-     on the clock; the draft guest sweeps once per update; the boundary prints
+  /* AAA. the main opens by itself, the guest arrives empty, the crash names
+     itself (note 400): a detected main live opens badges and player with no
+     press (a published Stop still holds); an unverified live main waits on
+     the clock; the draft guest sweeps once per update; the boundary prints
      the route and logs the stack. */
   const storeAAA = text["src/lib/store.ts"];
   const liveAAA = text["src/lib/livestatus.ts"];
@@ -2039,23 +2039,24 @@ export async function runAll(fs) {
   const boundAAA = text["src/components/ErrorBoundary.tsx"];
   const srvAAA = text["scripts/cms-server.js"];
   const applyAAA = text["APPLY_UPDATE.txt"];
-  ok("main detection opens nothing", has(storeAAA, "if (guestLiveNow()) return true;") && !has(storeAAA, "is on air, or the office's switch says so"), "badges must wait for the press");
+  ok("main detection lights badges", has(storeAAA, "if (guestLiveNow()) return true;") && has(storeAAA, "mainLiveNow() && !officeStopActive(LIVE)"), "a detected main must light badges with no press; a published Stop still holds");
   ok("guest answer is pure", has(liveAAA, "export function guestLiveNow(): boolean"), "only the guest stamp counts");
-  ok("player waits for the press", has(watchAAA, "(guestLive || fbLive || !!LIVE.isLive)") && has(watchAAA, "const waitingForClick = !shutNow"), "an unpressed live main never autoplays");
+  ok("main answer is pure", has(liveAAA, "export function mainLiveNow(): boolean"), "only the main stamp counts for the main");
+  ok("detected main autoplays", has(watchAAA, "(mainDetected && !officeStopped)") && has(watchAAA, "const waitingForClick = !shutNow"), "a detected main must autoplay with no press; a published Stop still holds");
   ok("unpressed live waits, never ends", has(watchAAA, "!onAirNow && !waitingForClick ? ("), "something IS live — the clock, not the ended screen");
   ok("draft guest sweeps per update", has(cmsAAA, "function clearDraftGuestSlot()") && has(cmsAAA, "if (freshEyes) clearDraftGuestSlot();"), "no unsaved guest row rides in");
-  ok("drawer follows the press rule", has(edAAA, "until Play is pressed and published") && has(edAAA, "The screen plays it once published."), "no copy may promise self-start");
+  ok("drawer promises self-start", has(edAAA, "no press needed, Play is only a manual override") && has(edAAA, "The screen plays it once published."), "the drawer must promise the no-press rule");
   ok("crash names its page", has(boundAAA, "componentStack") && has(boundAAA, "Page: ${this.state.route}"), "the next screenshot must name the page");
   ok("override is this update", has(srvAAA, "OVERRIDE_NO_413 = 413"), "first boot must re-run the clear");
   ok("apply leads with press and empty", has(applyAAA, "MAIN WAITS FOR THE PLAY PRESS") && has(applyAAA, "GUEST ARRIVES EMPTY"), "the office must meet the press rule first");
-  /* BBB. autoplay only when the main is live (note 410): a pressed main with
-     an unknown read waits on the clock — only the commanded guest slot opens
-     walled; a pressed main with a detected broadcast still plays by itself. */
+  /* BBB. autoplay when the main is live (note 400): a main with an unknown
+     read waits on the clock — only the commanded guest slot opens walled; a
+     detected main broadcast plays by itself with no press. */
   const watchBBB = text["src/pages/WatchLive.tsx"];
   const srvBBB = text["scripts/cms-server.js"];
   const applyBBB = text["APPLY_UPDATE.txt"];
   ok("main press never autoplays walled", has(watchBBB, ") : overrideGuest && overrideId ? (") && !has(watchBBB, ") : overrideId ? (") && has(watchBBB, "const overrideMain = "), "a pressed main must wait for detection, not open the channel");
-  ok("pressed-live main still plays", has(watchBBB, "(guestLive || fbLive || !!LIVE.isLive)") && has(watchBBB, "autoPlay={streaming && watchable}") && has(watchBBB, "const waitingForClick = !shutNow"), "press plus detection must still autoplay with sound");
+  ok("detected main plays with sound", has(watchBBB, "(mainDetected && !officeStopped)") && has(watchBBB, "autoPlay={streaming && watchable}") && has(watchBBB, "const waitingForClick = !shutNow"), "detection must autoplay with sound, no press; a published Stop still holds");
   ok("guest press still opens walled", has(watchBBB, "const overrideGuest = ") && has(watchBBB, 'guestAir.state === "unknown"'), "a published guest Play must still open its channel");
   ok("override is this update", has(srvBBB, "OVERRIDE_NO_413 = 413"), "first boot must re-run the clear");
   ok("apply leads with detection-gated autoplay", has(applyBBB, "AUTOPLAY ONLY WHEN THE MAIN IS LIVE"), "the office must meet the detection rule first");

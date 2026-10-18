@@ -2,7 +2,7 @@ import { fireToast } from "./hooks";
 import { ct } from "../data/copy";
 import { currentLang, tx } from "./i18n";
 import { LIVE } from "../data/live";
-import { guestLiveNow, liveEndedAt, liveNow } from "./livestatus";
+import { guestLiveNow, liveEndedAt, liveNow, mainLiveNow, officeStopActive } from "./livestatus";
 import { COUNTRY_CURRENCY, FALLBACK_RATES } from "../data/currencies";
 
 export const KEYS = {
@@ -469,9 +469,10 @@ export function onAir(info?: NextServiceInfo | null): boolean {
   return true;
 }
 
-/** What the badges and the Watch screen SHOW (notes 386, 408): the office's
-    switch says so — the main channel never opens the site by itself any more,
-    only a Play press (published) lights it. The temporary guest still opens on
+/** What the badges and the Watch screen SHOW (notes 386, 400): the main
+    channel opens by itself — a detected @twocorg live lights it with no Play
+    press, the channel setting is the office's intent. A published office Stop
+    still holds until Play releases it. The temporary guest still opens on
     detection (typing the field is the office's intent for a one-off), and the
     service clock alone never lights LIVE — it only counts down and arms the
     short cadence. Cadence callers (App's `expecting`, Watch's `justNow`, the
@@ -483,6 +484,9 @@ export function displayLive(info?: NextServiceInfo | null): boolean {
      badges while the event runs — set only by the guest row's buttons,
      cleared with the slot, never the bare clock. */
   if ((LIVE as any).guestIsLive) return true;
+  /* Self-start: the detected main broadcast lights the badges — Play stays a
+     manual override (a walled read, or releasing a Stop), never a requirement. */
+  if (mainLiveNow() && !officeStopActive(LIVE)) return true;
   if (!LIVE.isLive) return false;
   const cut = streamCut();
   if (cut && cut >= (info?.isLive ? info.at.getTime() : 0)) return false;
