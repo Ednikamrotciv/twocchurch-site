@@ -171,8 +171,7 @@ function blessRunningCode(): void {
   } catch {}
 }
 /** An explicit office publish on this copy releases this deploy at once. */
-function markDeployPublished(): boolean {
-  /* Every explicit office publish on this copy also blesses the running code
+function markDeployPublished(): boolean {  /* Every explicit office publish on this copy also blesses the running code
      (unnumbered stale fix): local, live/admin, everywhere — even with no
      deploy stamped. A same-deploy witness below blesses too: the same deploy
      ID is the same build's code. Either way the code arrival is over, so a
@@ -220,6 +219,81 @@ function noteCodeWitness(code: unknown, notes: unknown): boolean {
     const n = Math.floor(Number(notes));
     if (!Number.isFinite(n) || n < BUILD_NOTES) return false;
     blessRunningCode();
+    return true;
+  } catch {
+    return false;
+  }
+}
+/* Birth time of this deploy/boot (publish-clears-everywhere): deploy IDs and
+   dev-boot IDs both stamp Date.now() in base36 as their middle segment
+   ("dpl-<ms>-<rand>", "dev-<ms>-<rand>"). A witnessed publish stamped before
+   this build can never be a publish FROM this deploy — but one stamped
+   at/after the birth happened during this deploy's lifetime, so it releases
+   this copy too even though the IDs differ (local dev boot, a stale-cached
+   phone, the office copy). 0 when unparseable: the strict same-ID rule above
+   stands alone, exactly as before. */
+function parseIdBirth(id: unknown): number {
+  try {
+    const m =
+      /^dpl-([0-9a-z]+)-[A-Za-z0-9_-]+$/.exec(String(id || "")) ||
+      /^dev-([0-9a-z]+)-[A-Za-z0-9_-]+$/.exec(String(id || ""));
+    if (!m) return 0;
+    const ms = parseInt(m[1], 36);
+    if (!Number.isFinite(ms) || ms < 1704067200000 || ms > Date.now() + 86400000) return 0;
+    return Math.floor(ms);
+  } catch {
+    return 0;
+  }
+}
+const myBirthMs: number = parseIdBirth(currentDeployId) || parseIdBirth(devBootId) || 0;
+/* The baked seed's own publish stamp (carried-seed release): when this deploy
+   was baked straight from the live publish it still serves, the deploy
+   provably carries reviewed words — fresh copies open live, no second click.
+   Recorded by applySeedOnce; only a stamp from the running update counts, so
+   empty bakes (clean deploys) and cross-update stamps never match. */
+let lastSeedStamp = { deploy: "", at: 0, notes: 0 };
+/* The newest live stamp this copy has seen (server answers carry deploy + at
+   + notes): shown in window.__maintState() for publish tracing. */
+let serverStamp = { deploy: "", at: 0, notes: 0 };
+/** True while a deploy/dev-boot gate (not the number gate) holds this copy. */
+function holdingDeployGate(): boolean {
+  try {
+    if (deployFromMeta && currentDeployId && publishedDeployId !== currentDeployId) return true;
+    if (devBootId && publishedDeployId !== devBootId) return true;
+  } catch {}
+  return false;
+}
+/** A witnessed publish from this deploy's lifetime releases it (same update,
+    sanely stamped, code-attested): the publish demonstrably happened after
+    this build, so it IS office review of this deploy — the IDs need not
+    match. A pre-build publish (older stamp) never releases: new deploys still
+    hold until their own publish. True when it releases. */
+function witnessedPublishReleases(deploy: unknown, at: unknown, notes: unknown, code: unknown): boolean {
+  try {
+    if (!myBirthMs) return false;
+    if (typeof deploy !== "string" || !/^[A-Za-z0-9_-]{1,80}$/.test(deploy)) return false;
+    const ms = Math.floor(Number(at));
+    if (!Number.isFinite(ms) || ms <= 0 || ms > Date.now() + 300000) return false;
+    if (ms < myBirthMs) return false;
+    if (Math.floor(Number(notes)) !== BUILD_NOTES) return false;
+    if (typeof code === "string" && code) {
+      if (code !== runningCode) return false;
+    } else if (!codeBlessedMatches()) return false;
+    return true;
+  } catch {
+    return false;
+  }
+}
+/** This deploy was baked from the live publish it still serves (exact stamp
+    match, running update): the carried words ARE the reviewed publish, so
+    fresh copies open live instead of waiting out a redundant second publish.
+    True when it releases. */
+function carriedSeedReleases(deploy: unknown, at: unknown, notes: unknown): boolean {
+  try {
+    if (!lastSeedStamp.deploy || !lastSeedStamp.at) return false;
+    if (typeof deploy !== "string" || deploy !== lastSeedStamp.deploy) return false;
+    if (Math.floor(Number(at)) !== lastSeedStamp.at) return false;
+    if (Math.floor(Number(notes)) !== BUILD_NOTES || lastSeedStamp.notes !== BUILD_NOTES) return false;
     return true;
   } catch {
     return false;
@@ -289,8 +363,14 @@ if (typeof window !== "undefined") {
     publishedNotes,
     deployId: currentDeployId,
     devBoot: devBootId,
+    birthMs: myBirthMs,
     publishedDeploy: publishedDeployId,
     deployLocked: deployFromMeta,
+    holding: holdingDeployGate(),
+    cleanStage: cleanStageForNewCode,
+    codeBlessed: codeBlessedMatches(),
+    seedStamp: { ...lastSeedStamp },
+    serverStamp: { ...serverStamp },
     buildNotes: BUILD_NOTES,
     code: runningCode,
     liveSiteNotes,
@@ -1769,6 +1849,18 @@ async function applySeedOnce() {
            shows until the office publishes. A baked publish from THIS deploy
            releases at once; anything else waits. No numbers. */
         noteDeployWitness((seed as any).publishedDeploy);
+        /* Carried-seed release (publish-clears-everywhere): remember the bake's
+           own publish stamp, so a deploy baked straight from the live publish
+           it still serves can prove it later (see carriedSeedReleases). */
+        try {
+          lastSeedStamp = {
+            deploy: typeof (seed as any).publishedDeploy === "string" ? (seed as any).publishedDeploy : "",
+            at: Math.floor(Number((seed as any).at)) || 0,
+            notes: Math.floor(Number((seed as any).notes)) || 0,
+          };
+        } catch {
+          /* stamp stays empty — no carried release from this bake */
+        }
         applyOverrides(seed.sections);
       }
     }
@@ -1792,6 +1884,20 @@ async function syncFromFeed() {
     /* The baked services paint on every feed read — even when the words are
        not newer, the list may be (a Sunday uploads with no publish). */
     applyBakedRecent(seed);
+    /* Publish-clears-everywhere over the feed: a witnessed publish from this
+       deploy's lifetime, or the live publish this deploy was baked from,
+       releases the gate — even though the feed names another deploy. */
+    if (holdingDeployGate()) {
+      const stamp = seed as FeedSeed;
+      const fd = typeof (stamp as any).publishedDeploy === "string" ? (stamp as any).publishedDeploy : "";
+      const fa = Math.floor(Number((stamp as any).at)) || 0;
+      const fn = typeof stamp.notes === "number" ? Math.floor(stamp.notes) : 0;
+      if (fd && (noteDeployWitness(fd) || witnessedPublishReleases(fd, fa, fn, "") || carriedSeedReleases(fd, fa, fn))) {
+        markDeployPublished();
+        version += 1;
+        notify();
+      }
+    }
     if (!feedIsNewer(seed, rev)) return;
     const live = seed as FeedSeed;
     /* An empty feed must never clear published words either (note 289) — a
@@ -2212,6 +2318,16 @@ export async function pullFromLive(): Promise<LivePullResult> {
     if (!ids.length) {
       lastLivePullAt = Date.now();
       lastLivePullMsg = "Live matches this copy — nothing to pull.";
+      /* A live publish with no word changes (a bless-only publish) still
+         releases this copy: the click already proved office review, so local
+         waiting lifts with it — no second Publish click. */
+      try {
+        setPublishedNotes(BUILD_NOTES);
+        blessRunningCode();
+        markDeployPublished();
+        writeCache();
+      } catch {}
+      notify();
       return { ok: true, pulled: [] };
     }
     /* Live/admin is the general control (office request): a publish clicked on
@@ -2356,6 +2472,11 @@ async function foldLiveInto(target: Snapshot | null, onlyId?: string): Promise<{
    the pull below is the same guarded path the shout itself takes. */
 let contentWatchStarted = false;
 let contentWatchRunning = false;
+/* Last freshness stamp seen (note 384): a publish moves rev AND/OR the stamp
+   (adoptFeed moves the stamp with no rev bump), so the watch syncs when
+   either moves — otherwise a cross-deploy publish lands on the server while
+   every other copy keeps showing maintenance. */
+let lastRevStamp = { rev: -1, deploy: "", notes: -1, at: -1 };
 function startContentWatch() {
   if (contentWatchStarted) return;
   contentWatchStarted = true;
@@ -2367,8 +2488,15 @@ function startContentWatch() {
       try {
         const raw = await socket.rpc.contentRev("");
         const r = typeof raw === "string" ? JSON.parse(raw) : raw;
-        if (r && r.ok && typeof r.rev === "number" && r.rev !== rev) await syncFromServer().catch(() => {});
-        else if (r && r.ok && deployFromMeta && currentDeployId && typeof r.publishDeploy === "string" && r.publishDeploy === currentDeployId && publishedDeployId !== currentDeployId) await syncFromServer().catch(() => {});
+        if (r && r.ok && typeof r.rev === "number") {
+          const rr = r.rev;
+          const dd = typeof r.publishDeploy === "string" ? r.publishDeploy : lastRevStamp.deploy;
+          const nn = typeof r.notes === "number" ? Math.floor(r.notes) : lastRevStamp.notes;
+          const aa = typeof r.at === "number" ? Math.floor(r.at) : lastRevStamp.at;
+          const stampMoved = rr !== lastRevStamp.rev || dd !== lastRevStamp.deploy || nn !== lastRevStamp.notes || aa !== lastRevStamp.at;
+          lastRevStamp = { rev: rr, deploy: dd, notes: nn, at: aa };
+          if (r.rev !== rev || (stampMoved && holdingDeployGate())) await syncFromServer().catch(() => {});
+        }
       } finally {
         contentWatchRunning = false;
       }
@@ -3034,6 +3162,25 @@ async function syncFromServer() {
      with this code published lifts the number gate headless — a live publish
      clears the local notice with no tab open and no click needed. */
   const codeWitnessed = noteCodeWitness((res as any).code, res.notes);
+  /* Publish-clears-everywhere (office request: one Publish click clears the
+     notice on desktop, local AND mobile): a witnessed publish from this
+     deploy's lifetime — followed/relayed onto this backend after this build
+     — or the live publish this deploy was baked from releases the gate even
+     though the IDs differ. Queued device-only work skips it (the flush
+     blesses on landing instead). */
+  const stampDeploy = typeof (res as any).publishDeploy === "string" ? (res as any).publishDeploy : "";
+  const stampAt = typeof (res as any).at === "number" ? Math.floor((res as any).at) : 0;
+  const stampNotes = typeof res.notes === "number" ? Math.floor(res.notes) : 0;
+  serverStamp = { deploy: stampDeploy, at: stampAt, notes: stampNotes };
+  let stampReleased = false;
+  if (holdingDeployGate() && !pending && !plannedPublish()) {
+    if (
+      witnessedPublishReleases(stampDeploy, stampAt, stampNotes, (res as any).code) ||
+      carriedSeedReleases(stampDeploy, stampAt, stampNotes)
+    ) {
+      stampReleased = true;
+    }
+  }
   rev = serverRev;
   updatedAt = res.at || 0;
   updatedBy = res.by || "";
@@ -3068,15 +3215,27 @@ async function syncFromServer() {
     /* Clean-stage for a new code arrival stages nothing inbound (office
        request): the server's retained words stay on the disk, but the staged
        publishable set stays defaults until Recover or an explicit Publish.
-       Revision/stamp witnesses above still moved, so Publish bases correctly. */
+       Revision/stamp witnesses above still moved, so Publish bases correctly.
+       A witnessed publish from this deploy's lifetime is the exception: it IS
+       office review, so the clean stage ends and the reviewed words stage at
+       once (the office's own unsaved edits stay on top) — no second click. */
+    if (stampReleased) {
+      cleanStageForNewCode = false;
+      rememberHistory();
+    }
     if (!cleanStageForNewCode) {
       applyOverrides(server);
       writeCache();
     }
-  } else if (notesLifted || deployLifted || codeWitnessed) {
+  } else if (notesLifted || deployLifted || codeWitnessed || stampReleased) {
     /* Content identical but the publish stamp moved (note 278): bump so the
        maintenance notice re-evaluates instead of sticking with first paint. */
     version += 1;
+  }
+  if (stampReleased) {
+    setPublishedNotes(stampNotes);
+    markDeployPublished();
+    writeCache();
   }
   notify();
 }
@@ -4436,7 +4595,11 @@ async function sendPatch(
       by: editorName(),
       changed: ids,
       notes: bless ? BUILD_NOTES : 0,
-      deploy: bless ? currentDeployId || "" : "",
+      /* A local publish stamps its dev boot like a deploy stamps its build:
+         every tab of the same `npm run dev` run shares the boot id, so the
+         publish releases them all through the same witness — and the stamp
+         rides the bake/mirror out to every other copy. */
+      deploy: bless ? currentDeployId || devBootId || "" : "",
       /* Only the first batch snapshots the superseded publish for the
          server-side ~15-minute undo (note 291) — later batches must not
          re-snapshot mid-publish. */
@@ -4799,7 +4962,7 @@ export async function undoLastPublish(): Promise<PublishResult> {
   /* Server window first: exact, any device, and it consumes the window. */
   if (socket && status === "online" && authed && undoCountdownSec() > 0) {
     try {
-      const res = JSON.parse(await socket.rpc.undoPublish(JSON.stringify({ by: editorName(), deploy: currentDeployId || "" })));
+      const res = JSON.parse(await socket.rpc.undoPublish(JSON.stringify({ by: editorName(), deploy: currentDeployId || devBootId || "" })));
       /* A changed/retired password ends the session here too (note 297) —
          the held words stay; only an explicit office delete may clear
          last-published (note 300). */

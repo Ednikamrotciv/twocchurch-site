@@ -40,6 +40,16 @@ and fresh visitors wait until a publish from that deploy lands. Publishing
 from the admin console releases them on the spot and steps out to the
 visitors website at once, with no rebuild.
 
+One Publish clears every copy — desktop, local and mobile. A publish stamped
+after a copy's own build is provably office review of that copy, so local
+(`npm run dev`), phones on older cached pages, and the office copy all step
+out to the visitors website with no second click (unsigned tabs included —
+the office backend follows the publish home and every tab witnesses it).
+A deploy baked straight from the live publish it still serves opens live the
+same way. Anything else still holds: a new deploy built after the last
+publish, an empty (clean) bake, and a new code update all wait until you
+Recover + Publish from them. Restarting `npm run dev` still starts fresh.
+
 ## Clean new deploys (option A)
 
 To open a NEW deploy fresh, new and clean — no retained words until you say

@@ -17,6 +17,10 @@ and visitors wait on the maintenance notice until you Publish — Publish then
 steps out to the visitors website. Reloads in the same run keep continuity
 (still live after Publish); restarting dev starts fresh again.
 
+A publish from anywhere else (live/admin, another computer) lands here by
+itself too: the dev backend follows it home within about a minute and the
+maintenance notice lifts with the words — no Publish click needed on local.
+
 If dev ever shows a stale or blank page after updating these files, run once:
 
 ```sh
