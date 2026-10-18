@@ -3416,26 +3416,6 @@ input, select, textarea { font-size: 1rem !important; }
   color: var(--muted);
   margin: 0;
 }
-/* The notice's own way out (note 422): a quiet gold-outline pill — the fast
-   lane usually clears the notice by itself, this is for the stuck tab. */
-.maint__retry {
-  margin-top: 0.6rem;
-  padding: 0.55rem 1.4rem;
-  border-radius: 999px;
-  border: 1px solid var(--gold-ui);
-  background: transparent;
-  color: var(--gold-2);
-  font: inherit;
-  font-size: 0.92rem;
-  cursor: pointer;
-}
-.maint__retry:disabled {
-  opacity: 0.6;
-  cursor: default;
-}
-[data-theme="light"] .maint__retry {
-  color: var(--gold);
-}
 .maint__update {
   font-size: 0.82rem;
   letter-spacing: 0.02em;

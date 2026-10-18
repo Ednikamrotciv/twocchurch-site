@@ -126,6 +126,16 @@
           return;
         }
       } catch (e) {}
+      /* Pure static copies (note 421): no office server and no live feed can
+         ever move words after deploy, so there is no publish step to wait
+         for — the shipped words ARE the site. Holding them behind the stamps
+         below would trap every fresh visitor with no release. Server- and
+         feed-backed copies still wait below. */
+      try {
+        var hasServer = !!document.querySelector('meta[name="wom-server"]');
+        var hasFeed = !!document.querySelector('meta[name="wom-feed"]');
+        if (!hasServer && !hasFeed) return;
+      } catch (e) {}
       var stored = 0;
       try {
         var raw = window.localStorage ? window.localStorage.getItem("wom.cms.notes") : null;

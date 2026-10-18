@@ -214,13 +214,6 @@ const DEPLOY_SEEN_KEY = "wom.cms.deploySeen";
    older predates it and still holds. Stamped beside the seen deploy, same
    raise-only care as every other witness. */
 const DEPLOY_SEEN_AT_KEY = "wom.cms.deploySeenAt";
-/* Server-to-browser clock skew (note 421): the publish clock runs on the
-   server while first-seen runs on this browser, and devices with a fast
-   clock used to outrun a just-made publish — so a publish lands as long as
-   it is not OLDER than first-seen beyond this margin. A stale pre-deploy
-   publish minutes older still holds; every new deploy still waits for its
-   own Publish. */
-const PUBLISH_SKEW_MS = 15 * 60 * 1000;
 let deployFirstSeenAt = 0;
 try {
   const raw = localStorage.getItem(DEPLOY_SEEN_AT_KEY);
@@ -2350,7 +2343,7 @@ function startContentWatch() {
            that lane leaves `rev` standing while the stamp moves. A newer
            publish clock on the running update — or a publish stamp this copy
            has not witnessed — pulls the same guarded sync the shout takes. */
-        else if (r && r.ok && typeof r.at === "number" && r.at > 0 && deployFirstSeenAt > 0 && r.at + PUBLISH_SKEW_MS > deployFirstSeenAt && typeof r.notes === "number" && Math.floor(r.notes) === BUILD_NOTES && publishedDeployId !== currentDeployId) await syncFromServer().catch(() => {});
+        else if (r && r.ok && typeof r.at === "number" && r.at > 0 && deployFirstSeenAt > 0 && r.at > deployFirstSeenAt && typeof r.notes === "number" && Math.floor(r.notes) === BUILD_NOTES && publishedDeployId !== currentDeployId) await syncFromServer().catch(() => {});
         else if (r && r.ok && typeof r.notes === "number" && r.notes > publishedNotes) await syncFromServer().catch(() => {});
       } finally {
         contentWatchRunning = false;
@@ -2362,42 +2355,12 @@ function startContentWatch() {
   window.setInterval(() => {
     tick().catch(() => {});
   }, 30_000);
-  /* While THIS copy waits on maintenance (note 422): ask every ten seconds
-     instead — the notice clears moments after the publish lands even when the
-     socket shout never arrived. The running guard above collapses overlaps,
-     and quiet copies keep the half-minute cadence. */
-  window.setInterval(() => {
-    try {
-      if (!maintenanceShouldWait()) return;
-    } catch {
-      return;
-    }
-    tick().catch(() => {});
-  }, 10_000);
   document.addEventListener("visibilitychange", () => {
     if (document.visibilityState === "visible") tick().catch(() => {});
   });
   window.addEventListener("online", () => {
     tick().catch(() => {});
   });
-}
-
-/* A stuck visitor's way out (note 422): the notice's own Check-again button
-   re-asks every lane at once — server words, feed mirror, newer bundle —
-   instead of waiting out each lane's next tick. Best-effort, never throws; a
-   release re-renders the site by itself through the version bump. */
-export function recheckMaintenance(): void {
-  try {
-    syncFromServer().catch(() => {});
-  } catch {
-    /* offline — the lanes below still try */
-  }
-  try {
-    syncFromFeed().catch(() => {});
-  } catch {}
-  try {
-    checkStaleBuild().catch(() => {});
-  } catch {}
 }
 
 /* The automatic half runs in any signed-in office tab: right after boot, every
@@ -3096,9 +3059,8 @@ async function syncFromServer() {
      (a new code arrival stages nothing inbound until Recover or an explicit
      Publish), never on seeded or empty answers (those returned above), never
      across updates, and never on a copy with no stamped deploy (local dev
-     keeps its number gate). Newer within skew (note 421): the publish clock
-     runs on the server and first-seen on this browser, so a margin covers a
-     fast device clock — only a publish older than that still holds. */
+     keeps its number gate). Strictly newer — no tolerance: on skewed clocks
+     the publish that missed just needs one more click, which always lands. */
   const serverAt = typeof res.at === "number" ? res.at : 0;
   if (
     !cleanStageForNewCode &&
@@ -3107,7 +3069,7 @@ async function syncFromServer() {
     codeWitnessed &&
     typeof res.notes === "number" && Math.floor(res.notes) === BUILD_NOTES &&
     Object.keys(server).length > 0 &&
-    serverAt > 0 && deployFirstSeenAt > 0 && serverAt + PUBLISH_SKEW_MS > deployFirstSeenAt
+    serverAt > 0 && deployFirstSeenAt > 0 && serverAt > deployFirstSeenAt
   ) {
     markDeployPublished();
   }
