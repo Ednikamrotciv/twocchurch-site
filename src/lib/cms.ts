@@ -1120,6 +1120,15 @@ export function pendingSections(): string[] {
   if (!draft) return [];
   const out: string[] = [];
   for (const def of SECTION_DEFS) {
+    if (def.id === "live" && draft[def.id] && typeof draft[def.id] === "object") {
+      /* Unstamped on-air state (a natural end, note 394) needs no publish and
+         shows no unsaved row: compare the gated draft, so only a clicked
+         command or another edited field counts as pending. */
+      try {
+        const gated = gateLiveCommand((draft as any)[def.id], publishedSection(def.id));
+        if (sameJSON(publishedSection(def.id), gated)) continue;
+      } catch {}
+    }
     if (!sameJSON(publishedSection(def.id), draft[def.id])) out.push(def.id);
   }
   return out;
@@ -1259,8 +1268,17 @@ function objectPending(def: SectionDef, before: any, after: any): PendingLine[] 
     if (detail) out.push({ what: f.label, detail });
   }
   /* Live transport keys have no drawer field but still dirty the section (note 413):
-     name them so Delete/Put back never sit on a generic "changed" that will not clear. */
+     name them so Delete/Put back never sit on a generic "changed" that will not clear.
+     Unstamped on-air state (a natural end, note 394) needs no publish, so it
+     names nothing here: only a clicked command (liveCommandAt/guestCommandAt
+     newer than published) or another edited field lists. */
   if (def.id === "live" && before && after && typeof before === "object" && typeof after === "object") {
+    let liveClicked = false;
+    let guestClicked = false;
+    try {
+      liveClicked = Number((after as any).liveCommandAt || 0) > Number((before as any).liveCommandAt || 0);
+      guestClicked = Number((after as any).guestCommandAt || 0) > Number((before as any).guestCommandAt || 0);
+    } catch { liveClicked = false; guestClicked = false; }
     const liveKeys: { key: string; label: string }[] = [
       { key: "isLive", label: "On-air switch" },
       { key: "liveSince", label: "Session start" },
@@ -1274,8 +1292,12 @@ function objectPending(def: SectionDef, before: any, after: any): PendingLine[] 
       { key: "externalYoutubeChannel", label: "Guest channel" },
     ];
     const fieldPaths = new Set((def.fields || []).map((f: any) => String(f.path || "").split(".")[0]));
+    const gatedOnAir = new Set(["isLive", "liveSince", "liveCut", "liveCommandAt", "liveEndedBy"]);
+    const gatedGuest = new Set(["guestIsLive", "guestCommandAt"]);
     for (const { key, label } of liveKeys) {
       if (fieldPaths.has(key)) continue;
+      if (gatedOnAir.has(key) && !liveClicked) continue;
+      if (gatedGuest.has(key) && !guestClicked) continue;
       if (!sameJSON((before as any)[key], (after as any)[key])) {
         const b = (before as any)[key];
         const a = (after as any)[key];
@@ -3851,6 +3873,7 @@ export function getDraft(): Snapshot {
   healDraftSlides();
   healDraftStreamLink();
   healDraftGuest();
+  healDraftLiveTransport();
   return draft;
 }
 
@@ -3997,6 +4020,52 @@ function healDraftStreamLink() {
     if (!dLive || typeof dLive !== "object" || Array.isArray(dLive)) return;
     if (!String(dLive.youtubeId || "")) return;
     (draft as any).live = { ...dLive, youtubeId: "" };
+    persistDraft();
+  } catch {
+    /* never break the drawer */
+  }
+}
+
+/** A natural end needs no publish (note 394) — an unstamped on-air change
+    the stream filed by itself must never sit as an unsaved Live stream row
+    (the attached screenshot: On-air switch / Session end / Ended by with
+    Delete). An untouched live section follows the published words here for
+    the gated on-air fields; a clicked command (stamped liveCommandAt /
+    guestCommandAt) always wins. Runs on read, persists only when something
+    actually moved, never notifies. */
+function healDraftLiveTransport() {
+  try {
+    if (!draft) return;
+    const dLive = (draft as any).live;
+    if (!dLive || typeof dLive !== "object" || Array.isArray(dLive)) return;
+    let pub: any = null;
+    try { pub = publishedSection("live"); } catch { return; }
+    if (!pub || typeof pub !== "object") return;
+    const at = Number((dLive as any).liveCommandAt) || 0;
+    const pat = Number((pub as any).liveCommandAt) || 0;
+    const gat = Number((dLive as any).guestCommandAt) || 0;
+    const gpat = Number((pub as any).guestCommandAt) || 0;
+    const next: any = { ...dLive };
+    let moved = false;
+    if (!(at > pat)) {
+      for (const k of ["isLive", "liveSince", "liveCut", "liveCommandAt", "liveEndedBy"]) {
+        try {
+          if (!sameJSON((next as any)[k], (pub as any)[k])) { (next as any)[k] = clone((pub as any)[k]); moved = true; }
+        } catch {}
+      }
+    }
+    if (!(gat > gpat)) {
+      for (const k of ["guestIsLive", "guestCommandAt"]) {
+        try {
+          if (!sameJSON((next as any)[k], (pub as any)[k])) { (next as any)[k] = clone((pub as any)[k]); moved = true; }
+        } catch {}
+      }
+    }
+    if (!moved) return;
+    (draft as any).live = next;
+    try {
+      if (sameJSON((draft as any).live, pub)) delete (dirty as any).live;
+    } catch {}
     persistDraft();
   } catch {
     /* never break the drawer */
@@ -4925,18 +4994,31 @@ async function sendPatch(
      always wins). */
   deployStamp?: string
 ): Promise<{ ok: boolean; error?: string; rev?: number; sent: string[]; failed?: string[]; relay?: "landed" | "missed" | "unneeded" }> {
-  /* The durable stamp for this send: our own deploy when stamped, else the
-     live deploy the relay blesses (wake durability), else unstamped. Dev-boot
-     IDs never count as our own here (see ownDeployIsDevBoot) — the live relay
-     below blesses live's own deploy, never ours. */
+  /* The durable stamp for this send. Stamped copies name their own deploy
+     for both the server and the relay. Dev-boot copies (npm run dev) split
+     them: the local server is blessed with this boot's own dev ID so fresh
+     local visitors match it at once (a Publish clears the local maintenance
+     notice), while the live relay carries the live deploy it blesses, never
+     ours — live visitors release on their own build. Unstamped copies use the
+     live stamp for both, else unstamped. */
   let durableDeploy = "";
+  let relayDeploy = "";
   try {
     if (bless) {
-      if (currentDeployId && deployFromMeta && !ownDeployIsDevBoot()) durableDeploy = currentDeployId;
-      else if (typeof deployStamp === "string" && /^[A-Za-z0-9_-]{1,80}$/.test(deployStamp)) durableDeploy = deployStamp;
+      if (currentDeployId && deployFromMeta && !ownDeployIsDevBoot()) {
+        durableDeploy = currentDeployId;
+        relayDeploy = currentDeployId;
+      } else if (ownDeployIsDevBoot() && currentDeployId && deployFromMeta) {
+        durableDeploy = currentDeployId;
+        if (typeof deployStamp === "string" && /^[A-Za-z0-9_-]{1,80}$/.test(deployStamp)) relayDeploy = deployStamp;
+      } else if (typeof deployStamp === "string" && /^[A-Za-z0-9_-]{1,80}$/.test(deployStamp)) {
+        durableDeploy = deployStamp;
+        relayDeploy = deployStamp;
+      }
     }
   } catch {
     durableDeploy = "";
+    relayDeploy = "";
   }
   const batches: string[][] = [];
   let current: string[] = [];
@@ -5025,7 +5107,7 @@ async function sendPatch(
   if (bless) {
     if (awaitRelay) {
       try {
-        relay = await relayPublishWordsToLive(sections, changed, note, durableDeploy);
+        relay = await relayPublishWordsToLive(sections, changed, note, relayDeploy || durableDeploy);
       } catch {
         relay = "missed";
       }
@@ -5038,12 +5120,12 @@ async function sendPatch(
            words there in the background so live visitors leave maintenance
            without needing another click. */
         try {
-          scheduleRelayRetry(sections, changed, note, durableDeploy);
+          scheduleRelayRetry(sections, changed, note, relayDeploy || durableDeploy);
         } catch {}
       }
     } else {
       try {
-        relayInBackground(sections, changed, note, durableDeploy);
+        relayInBackground(sections, changed, note, relayDeploy || durableDeploy);
       } catch {
         /* the loops carry the publish */
       }

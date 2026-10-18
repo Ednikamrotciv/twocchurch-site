@@ -1399,8 +1399,8 @@ export async function runAll(fs) {
   const rsDD = text["src/lib/recentstreams.ts"];
   const lsDD = text["src/lib/livestatus.ts"];
   const applyDD = text["APPLY_UPDATE.txt"];
-  ok("override stamp per-update", has(srvDD, "var OVERRIDE_CLEAN = 0;") && has(srvDD, "overrideClean: OVERRIDE_CLEAN") && has(srvDD, "OVERRIDE_NO_413 = 413") && has(srvDD, "OVERRIDE_CLEAN !== OVERRIDE_NO_413"), "the clear must re-run on every new update, not once ever");
-  ok("override clears everything old", has(srvDD, "live413.youtubeChannel = \"@twocorg\"") && has(srvDD, "live413.youtubeId = \"\"") && has(srvDD, "live413.hiddenReplays = []") && has(srvDD, "live413.externalYoutubeChannel = \"\"") && has(srvDD, "live413.guestIsLive = false") && has(srvDD, "WELCOME_SLIDE_360") && has(srvDD, "String(slides413[0].id || \"\") === \"welcome-home\""), "channel, stray link, guest, guest switch, take-offs and slides must all go");
+  ok("override stamp per-update", has(srvDD, "var OVERRIDE_CLEAN = 0;") && has(srvDD, "overrideClean: OVERRIDE_CLEAN") && has(srvDD, "OVERRIDE_NO_414 = 414") && has(srvDD, "OVERRIDE_CLEAN !== OVERRIDE_NO_414"), "the clear must re-run on every new update, not once ever");
+  ok("override clears everything old", has(srvDD, "live414.youtubeChannel = \"@twocorg\"") && has(srvDD, "live414.youtubeId = \"\"") && has(srvDD, "live414.hiddenReplays = []") && has(srvDD, "live414.externalYoutubeChannel = \"\"") && has(srvDD, "live414.guestIsLive = false") && has(srvDD, "WELCOME_SLIDE_360") && has(srvDD, "String(slides414[0].id || \"\") === \"welcome-home\""), "channel, stray link, guest, guest switch, take-offs and slides must all go");
   ok("override never blesses", has(srvDD, "no rev bump") && has(srvDD, "later office work is never touched"), "the clear must not publish");
   ok("draft stray link heals", has(cmsDD, "healDraftStreamLink()") && has(cmsDD, "(draft as any).live = { ...dLive, youtubeId: \"\" }"), "an untouched draft must follow the words");
   ok("browser caches drop on new update", has(rsDD, "export function clearRecentCaches()") && has(cmsDD, "if (freshEyes) clearRecentCaches();"), "old cards must not ride into the new update");
@@ -1917,7 +1917,7 @@ export async function runAll(fs) {
   const seedUU = text["seed.json"];
   const edUU2 = text["src/components/editor.tsx"];
   const applyUU2 = text["APPLY_UPDATE.txt"];
-  ok("override is this update", has(srvUU2, "OVERRIDE_NO_413 = 413") && has(srvUU2, 'live413.externalYoutubeChannel = ""'), "first boot must re-run the clear, guest included");
+  ok("override is this update", has(srvUU2, "OVERRIDE_NO_414 = 414") && has(srvUU2, 'live414.externalYoutubeChannel = ""'), "first boot must re-run the clear, guest included");
   ok("guest ships empty", has(seedUU, '"externalYoutubeChannel":""'), "no copy may open with a guest set");
   ok("buttons still arm", has(edUU2, "liveCommandAt: Date.now()") && has(edUU2, "Pause the livestream") && has(edUU2, "Play the livestream") && has(edUU2, 'icon="stop"'), "removing the paragraph must not touch the transport");
   ok("promise text gone", !has(edUU2, "Play and pause are one button") && !has(edUU2, "there is nothing to publish"), "the drawer keeps only the unconfigured warning");
@@ -2024,7 +2024,7 @@ export async function runAll(fs) {
   ok("each row lights its own slot", has(edZZ, "const mainLive = ") && has(edZZ, "const guestLiveNow = ") && has(edZZ, "transport-row__live") && has(edZZ, "isStatusForTarget(airNow, mainUrl)") && has(edZZ, "isStatusForTarget(guestAirNow, guestUrlNow)"), "one row must never light for the other");
   ok("dots blink without extra polling", has(edZZ, "useLiveStream()") && has(edZZ, "live-dot"), "the rows subscribe to the shared check");
   ok("dots sit at the row end", has(cssZZ, ".transport-row__live"), "the light must fit the field area");
-  ok("override is this update", has(srvZZ, "OVERRIDE_NO_413 = 413"), "first boot must re-run the clear");
+  ok("override is this update", has(srvZZ, "OVERRIDE_NO_414 = 414"), "first boot must re-run the clear");
   ok("apply leads with naming and dots", has(applyZZ, "NEXT BROADCAST NAMES THE SCREEN") && has(applyZZ, "LIGHTS ITS OWN DOT"), "the office must meet the heading and the lights first");
   /* AAA. the main opens by itself, the guest arrives empty, the crash names
      itself (note 400): a detected main live opens badges and player with no
@@ -2047,7 +2047,7 @@ export async function runAll(fs) {
   ok("draft guest sweeps per update", has(cmsAAA, "function clearDraftGuestSlot()") && has(cmsAAA, "if (freshEyes) clearDraftGuestSlot();"), "no unsaved guest row rides in");
   ok("drawer promises self-start", has(edAAA, "no press needed, Play is only a manual override") && has(edAAA, "The screen plays it once published."), "the drawer must promise the no-press rule");
   ok("crash names its page", has(boundAAA, "componentStack") && has(boundAAA, "Page: ${this.state.route}"), "the next screenshot must name the page");
-  ok("override is this update", has(srvAAA, "OVERRIDE_NO_413 = 413"), "first boot must re-run the clear");
+  ok("override is this update", has(srvAAA, "OVERRIDE_NO_414 = 414"), "first boot must re-run the clear");
   ok("apply leads with press and empty", has(applyAAA, "MAIN WAITS FOR THE PLAY PRESS") && has(applyAAA, "GUEST ARRIVES EMPTY"), "the office must meet the press rule first");
   /* BBB. autoplay when the main is live (note 400): a main with an unknown
      read waits on the clock — only the commanded guest slot opens walled; a
@@ -2058,7 +2058,7 @@ export async function runAll(fs) {
   ok("main press never autoplays walled", has(watchBBB, ") : overrideGuest && overrideId ? (") && !has(watchBBB, ") : overrideId ? (") && has(watchBBB, "const overrideMain = "), "a pressed main must wait for detection, not open the channel");
   ok("detected main plays with sound", has(watchBBB, "(mainDetected && !officeStopped)") && has(watchBBB, "autoPlay={streaming && watchable}") && has(watchBBB, "const waitingForClick = !shutNow"), "detection must autoplay with sound, no press; a published Stop still holds");
   ok("guest press still opens walled", has(watchBBB, "const overrideGuest = ") && has(watchBBB, 'guestAir.state === "unknown"'), "a published guest Play must still open its channel");
-  ok("override is this update", has(srvBBB, "OVERRIDE_NO_413 = 413"), "first boot must re-run the clear");
+  ok("override is this update", has(srvBBB, "OVERRIDE_NO_414 = 414"), "first boot must re-run the clear");
   ok("apply leads with detection-gated autoplay", has(applyBBB, "AUTOPLAY ONLY WHEN THE MAIN IS LIVE"), "the office must meet the detection rule first");
   /* CCC. the Watch page loads (note 412): `liveSource` reads `streaming`, so
      the answer must be declared first — reading a later declaration threw on
@@ -2068,9 +2068,9 @@ export async function runAll(fs) {
   const applyCCC = text["APPLY_UPDATE.txt"];
   ok("streaming declared before liveSource", watchCCC.indexOf("const streaming = ") !== -1 && watchCCC.indexOf("const streaming = ") < watchCCC.indexOf("(!streaming && overrideId)"), "the initializer must never read across the dead zone");
   ok("rule expression unchanged", has(watchCCC, "(guestLive || fbLive || !!LIVE.isLive)") && has(watchCCC, "autoPlay={streaming && watchable}") && has(watchCCC, ") : overrideGuest && overrideId ? ("), "the reorder must move the rule, never rewrite it");
-  ok("override is this update", has(srvCCC, "OVERRIDE_NO_413 = 413"), "first boot must re-run the clear");
+  ok("override is this update", has(srvCCC, "OVERRIDE_NO_414 = 414"), "first boot must re-run the clear");
   ok("apply leads with the crash fix", has(applyCCC, "WATCH PAGE PLAYS AGAIN"), "the office must meet the fix first");
-  /* GGG. update 413: unsaved Delete clears, one Recent services, verified livestream, sleep-free uploads (note 413). */
+  /* GGG. update 414: unsaved Delete clears, one Recent services, verified livestream, sleep-free uploads (note 413). */
   const cmsGGG = text["src/lib/cms.ts"];
   const adminGGG = text["src/pages/Admin.tsx"];
   const watchGGG = text["src/pages/WatchLive.tsx"];
@@ -2087,7 +2087,7 @@ export async function runAll(fs) {
   ok("player verifies autoplay", has(blocksGGG, "Autoplay never opens an unverified id"), "the frame must never open unverified");
   ok("uploads cached", has(upGGG, "wom-uploads") && has(edGGG, "cacheUploadBlob(kept"), "every upload must stay in this browser");
   ok("uploads heal", has(cmsGGG, "healMissingUploads") && has(slidesGGG, "useCachedUploadUrl"), "sleep must restore and paint cached, blank-free");
-  ok("override is 413", has(srvGGG, "OVERRIDE_NO_413 = 413"), "first boot must re-run the clear");
+  ok("override is 414", has(srvGGG, "OVERRIDE_NO_414 = 414"), "first boot must re-run the clear");
   ok("maintenance locked per deploy", has(text["scripts/build-static.mjs"], "const DEPLOY_ID =") && has(text["scripts/build-static.mjs"], "hold: true, deployId"), "every build must hold on a fresh deploy id");
   ok("deploy id number-free", has(cmsGGG, "wom.cms.deployPublished") && has(cmsGGG, "wom-deploy") && has(srvGGG, "PUBLISH_DEPLOY"), "old or new code must look new without numbers");
   ok("publish releases its deploy", has(cmsGGG, "deploy: bless ? currentDeployId") && has(srvGGG, "publishDeploy: PUBLISH_DEPLOY"), "a publish from the deploy must release it");
