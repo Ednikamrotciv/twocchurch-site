@@ -264,11 +264,14 @@ function holdingDeployGate(): boolean {
   return false;
 }
 /** A witnessed publish from this deploy's lifetime releases it (same update,
-    sanely stamped, code-attested): the publish demonstrably happened after
-    this build, so it IS office review of this deploy — the IDs need not
-    match. A pre-build publish (older stamp) never releases: new deploys still
+    sanely stamped): the publish demonstrably happened after this build, so it
+    IS office review of this deploy — the IDs need not match. Like the
+    reference publish (417): the witnessed number lifts every copy — desktop,
+    local and mobile — with no identity check; the joined backend is already
+    the content authority (its words stage unwitnessed), so no attestation is
+    asked. A pre-build publish (older stamp) never releases: new deploys still
     hold until their own publish. True when it releases. */
-function witnessedPublishReleases(deploy: unknown, at: unknown, notes: unknown, code: unknown): boolean {
+function witnessedPublishReleases(deploy: unknown, at: unknown, notes: unknown): boolean {
   try {
     if (!myBirthMs) return false;
     if (typeof deploy !== "string" || !/^[A-Za-z0-9_-]{1,80}$/.test(deploy)) return false;
@@ -276,9 +279,6 @@ function witnessedPublishReleases(deploy: unknown, at: unknown, notes: unknown, 
     if (!Number.isFinite(ms) || ms <= 0 || ms > Date.now() + 300000) return false;
     if (ms < myBirthMs) return false;
     if (Math.floor(Number(notes)) !== BUILD_NOTES) return false;
-    if (typeof code === "string" && code) {
-      if (code !== runningCode) return false;
-    } else if (!codeBlessedMatches()) return false;
     return true;
   } catch {
     return false;
@@ -1892,7 +1892,7 @@ async function syncFromFeed() {
       const fd = typeof (stamp as any).publishedDeploy === "string" ? (stamp as any).publishedDeploy : "";
       const fa = Math.floor(Number((stamp as any).at)) || 0;
       const fn = typeof stamp.notes === "number" ? Math.floor(stamp.notes) : 0;
-      if (fd && (noteDeployWitness(fd) || witnessedPublishReleases(fd, fa, fn, "") || carriedSeedReleases(fd, fa, fn))) {
+      if (fd && (noteDeployWitness(fd) || witnessedPublishReleases(fd, fa, fn) || carriedSeedReleases(fd, fa, fn))) {
         markDeployPublished();
         version += 1;
         notify();
@@ -2608,27 +2608,40 @@ export async function startCms() {
   } catch {
     freshDeploy = false;
   }
-  if (freshDeploy) {
-    try {
+ if (freshDeploy) {
+   try {
+     try {
+       localStorage.removeItem(DRAFT_KEY);
+     } catch {}
+     try {
+       localStorage.removeItem(PENDING_KEY);
+     } catch {}
+     try {
+       localStorage.removeItem(AFTER_SAVE_KEY);
+     } catch {}
+     draft = null;
+     draftFromRev = 0;
+     dirty = {};
+     pending = null;
+      /* Unsaved-clean means every unsaved trace: the undo of the last publish,
+         the one-step edit undos, and any waiting live preview are from the old
+         deploy, so they go with the draft — the new deploy's unsaved list
+         opens empty ("Everything is published"). The publish stamp, the deploy
+         blessing and the cached words are untouched here: only unsaved work is
+         cleared, and Publish still lifts maintenance. */
       try {
-        localStorage.removeItem(DRAFT_KEY);
+        localStorage.removeItem(HISTORY_KEY);
       } catch {}
-      try {
-        localStorage.removeItem(PENDING_KEY);
-      } catch {}
-      try {
-        localStorage.removeItem(AFTER_SAVE_KEY);
-      } catch {}
-      draft = null;
-      draftFromRev = 0;
-      dirty = {};
-      pending = null;
-      try {
-        clearRecentCaches();
-      } catch {}
-      try {
-        clearDraftGuestSlot();
-      } catch {}
+      history = [];
+      editUndos = [];
+      previewBase = null;
+      previewing = false;
+     try {
+       clearRecentCaches();
+     } catch {}
+     try {
+       clearDraftGuestSlot();
+     } catch {}
       /* Fresh, clean and new admin on every new deploy: the drawer place
          (tab, section, open rows, last page) is per-visit memory — a new
          deploy starts on the admin home, not where the last deploy left off. */
@@ -2685,6 +2698,21 @@ export async function startCms() {
     /* the codegen stamp is best-effort; the paint above already decided */
   }
   history = readJSON<any[]>(HISTORY_KEY, []) || [];
+  /* Fresh-deploy enforcement (office request: unsaved opens empty): the reads
+     above run after the clearing, so on a new deploy they must stay empty even
+     if the store was written again between the two — history reloads here, so
+     it is forced back to empty on a fresh deploy. */
+  if (freshDeploy) {
+    if (history.length) {
+      history = [];
+      try {
+        localStorage.removeItem(HISTORY_KEY);
+      } catch {}
+    }
+    editUndos = [];
+    previewBase = null;
+    previewing = false;
+  }
   try {
     const nn = readJSON<number>(NOTES_KEY, 0);
     /* Raise-only, never wipe (note 300): a transient storage failure keeps the
@@ -2701,6 +2729,14 @@ export async function startCms() {
      desktop, wiped store, slow server — back into update-mode with no new
      update, and persist it. The gate now decides from evidence alone. */
   pending = readJSON<Snapshot | null>(PENDING_KEY, null);
+  /* The pending read above runs after the clearing: on a fresh deploy it stays
+     cleared — an offline queue from the old deploy never rides in as unsaved. */
+  if (freshDeploy && pending) {
+    pending = null;
+    try {
+      localStorage.removeItem(PENDING_KEY);
+    } catch {}
+  }
   /* Boot numbers are final here (seed + stored stamp): bump once so the
      maintenance notice re-evaluates instead of sticking with first paint
      (note 278). One extra render, boot only. */
@@ -3163,19 +3199,21 @@ async function syncFromServer() {
      clears the local notice with no tab open and no click needed. */
   const codeWitnessed = noteCodeWitness((res as any).code, res.notes);
   /* Publish-clears-everywhere (office request: one Publish click clears the
-     notice on desktop, local AND mobile): a witnessed publish from this
-     deploy's lifetime — followed/relayed onto this backend after this build
-     — or the live publish this deploy was baked from releases the gate even
-     though the IDs differ. Queued device-only work skips it (the flush
-     blesses on landing instead). */
+     notice on desktop, local AND mobile — like the reference publish in 417,
+     where the witnessed number lifts every copy): a witnessed publish from
+     this deploy's lifetime — followed/relayed onto this backend after this
+     build — or the live publish this deploy was baked from releases the gate
+     even though the IDs differ. Staging follows the same path as every other
+     sync (the office draft stays on top; queued device-only work flushes on
+     sign-in exactly as before), so nothing queued is lost. */
   const stampDeploy = typeof (res as any).publishDeploy === "string" ? (res as any).publishDeploy : "";
   const stampAt = typeof (res as any).at === "number" ? Math.floor((res as any).at) : 0;
   const stampNotes = typeof res.notes === "number" ? Math.floor(res.notes) : 0;
   serverStamp = { deploy: stampDeploy, at: stampAt, notes: stampNotes };
   let stampReleased = false;
-  if (holdingDeployGate() && !pending && !plannedPublish()) {
+  if (holdingDeployGate()) {
     if (
-      witnessedPublishReleases(stampDeploy, stampAt, stampNotes, (res as any).code) ||
+      witnessedPublishReleases(stampDeploy, stampAt, stampNotes) ||
       carriedSeedReleases(stampDeploy, stampAt, stampNotes)
     ) {
       stampReleased = true;
@@ -3824,18 +3862,20 @@ function healDraftSlides() {
 /* Deploy lock, slides edition: every new deploy the announcement slides in
    the admin start over as only the welcome card — old uploads never ride
    into the new deploy's drawer. Once per deploy per browser, office only
-   (called from the admin console mount — visitors never run it). Unsaved
-   work, like any office edit: Publish carries it live and lifts maintenance;
-   the reset itself blesses nothing, so the notice stays until Publish. */
+   (called from the admin console mount — visitors never run it). Staged clean,
+   never unsaved: the welcome card lands in the staged set with no draft edit,
+   so the unsaved list opens empty ("Everything is published") — Publish still
+   carries it live and lifts maintenance; the reset itself blesses nothing, so
+   the notice stays until Publish. */
 const SLIDES_RESET_KEY = "wom.cms.slidesReset";
 export function resetSlidesForNewDeploy(): boolean {
   try {
     /* Per-deploy token (office request: every new deploy is fresh, clean and
        new): stamped builds reset once per deploy ID, dev boots once per boot
        id — so old slides never ride a rebuild — while the boot clean-stage
-       (no dirty) means the drawer usually already holds welcome-only and this
-       is a quiet no-op, so rebuilds never re-mark slides as unsaved. No boot
-       id and no stamped deploy (shim missing) keeps the code token. */
+       usually already holds welcome-only and this is a quiet no-op, so
+       rebuilds never re-mark slides as unsaved. No boot id
+       and no stamped deploy (shim missing) keeps the code token. */
     const token = deployFromMeta && currentDeployId ? "d" + currentDeployId : devBootId ? "b" + devBootId : runningCode ? "c" + runningCode : "n" + BUILD_NOTES;
     let done = "";
     try {
@@ -3859,19 +3899,40 @@ export function resetSlidesForNewDeploy(): boolean {
       return false;
     }
     const only = [clone(welcome)];
-    const d = getDraft();
-    if (sameJSON((d as any).slides, only)) {
+    /* Read without creating: a fresh deploy cleared the draft, and creating one
+       here would persist a clean clone and end the clean stage early. */
+    const stagedSlides = (overrides as any)?.slides !== undefined ? (overrides as any).slides : (applied as any)?.slides;
+    const draftSlides = draft ? (draft as any).slides : undefined;
+    if (sameJSON(stagedSlides !== undefined ? stagedSlides : (defaults as any)?.slides, only) && (draft === null || sameJSON(draftSlides, only))) {
       mark();
       return false;
     }
-    pushEditUndo("slides", clone((d as any).slides));
-    (d as any).slides = only;
-    dirty.slides = true;
-    persistDraft();
+    /* Stage the welcome card as clean content — not as an office edit: no undo
+       entry, no dirty flag, no draft creation, and no persistDraft (which would
+       end the clean stage). The unsaved list stays empty; Publish carries the
+       staged set live like any clean deploy. */
+    try {
+      (overrides as any).slides = clone(only);
+    } catch {}
+    try {
+      applySnapshot(merge(overrides));
+    } catch {}
+    /* A carried-over draft follows the staged card home without becoming
+       unsaved: aligned clean, never flagged dirty. No draft means no write. */
+    if (draft) {
+      try {
+        (draft as any).slides = clone(only);
+      } catch {}
+      try {
+        delete (dirty as any).slides;
+      } catch {}
+      try {
+        writeJSON(DRAFT_KEY, { rev: draftFromRev, content: draft, dirty });
+      } catch {}
+    }
     mark();
     fireToast("New deploy — announcement slides start over with the welcome card only.", "info");
     notify();
-    applyDraftLiveSoon();
     return true;
   } catch {
     return false;

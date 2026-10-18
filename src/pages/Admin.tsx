@@ -180,10 +180,10 @@ export function Admin() {
 
   /* Every new deploy the announcement slides start over as only the welcome
      card — old uploads never ride into the new deploy's drawer (visitors
-     never run this; the reset blesses nothing, Publish lifts the notice).
-     The boot clean-stage usually already holds welcome-only, so this is a
-     quiet no-op that never re-marks slides as unsaved; fresh devices keep
-     the live words they adopted. */
+     never run this; the reset stages clean, never unsaved, and blesses
+     nothing, Publish lifts the notice). The boot clean-stage usually already
+     holds welcome-only, so this is a quiet no-op that never re-marks slides as unsaved; the unsaved list
+     opens empty; fresh devices keep the live words they adopted. */
   useEffect(() => {
     cms.resetSlidesForNewDeploy();
   }, []);
