@@ -629,6 +629,36 @@ export async function runAll(fs) {
   } catch (e) {
     ok("attestation suite", false, String((e && e.message) || e).slice(0, 200));
   }
+  /* J14. Publish on one browser lifts every copy, local included (office
+     request: Publish in one browser must clear maintenance everywhere — a
+     second browser still waiting after the first browser's Publish is the
+     bug): the feed mirror now names the publishing backend's code word at
+     bake time, feed followers witness it with the same equality rule as a
+     server answer, and a live answer naming a different word proves drift
+     (local dev has no version.json) so old bundles wait and reload onto the
+     new code instead of stranding on maintenance. */
+  const bakeJ14 = text["scripts/bake-seed.mjs"];
+  const devBakeJ14 = text["scripts/vite-cms-backend.mjs"];
+  const feedJ14 = text["src/lib/livefeed.ts"];
+  ok("bake names the word", has(bakeJ14, "Feed witness: carry the publishing backend") && has(bakeJ14, "...(code ? { code } : {})"), "the mirror must carry the word feed followers prove");
+  ok("dev bake names the word", has(devBakeJ14, "Feed witness (note 302)") && has(devBakeJ14, "...(code ? { code } : {})"), "local bakes must attest like office bakes");
+  ok("feed carries the word", has(feedJ14, "publishedDeploy?: string; code?: string"), "the feed type must carry the attestation through");
+  ok("feed witnesses the word", has(cms, "noteCodeWitness((live as any).code, live.notes)"), "a feed-carried publish must bless headless like a server answer");
+  ok("drift waits and reloads", has(cms, "function noteServerCodeDrift") && has(cms, "noteServerCodeDrift((res as any).code)"), "a live answer naming another word must wait and reload, never strand");
+  ok("drift shares the reload guard", has(cms, "async function attemptStaleReload") && has(cms, "await attemptStaleReload()"), "drift reloads must stay bounded by the same guard as the version poll");
+  /* J15. same-browser tabs lift with no lane at all + no lane never waits
+     (office request: Publish on one browser must work in every tab of that
+     browser even with no server and no feed, and a copy nothing can release
+     must paint instead of stranding on maintenance): every publish already
+     records words + stamp in the shared cache, so other tabs adopt it on the
+     storage event — words when newer, stamps always — with the same staging
+     and empty guards as every inbound lane; and both number gates skip the
+     wait when no server was ever involved and no baked feed exists. */
+  ok("cache names the word", has(cms, "publishedDeploy: publishedDeployId, code: runningCode"), "cross-tab witnesses need the writer's word in the cache");
+  ok("cross-tab adopts the cache", has(cms, "function adoptCrossTabCache") && has(cms, "event.key !== CACHE_KEY"), "other tabs must adopt words + stamps on the storage event");
+  ok("cross-tab never loops", has(cms, "startCrossTabLane") && has(cms, "can never loop"), "the lane must be once-registered and idempotent");
+  ok("cross-tab guards inbound", has(cms, "!cleanStageForNewCode") && has(cms, "never into a") && has(cms, "note 289"), "clean stages and held words survive a tab publish");
+  ok("no lane never waits", (cms.split("No lane to ever release it").length - 1) >= 2 && has(cms, "if (!serverInvolved() && !feedFromMeta()) return false;"), "both number gates must paint when nothing could release them");
   /* J. live shows at once, clock vanishes with it (note 306): the Watch page
      checks immediately on open and stays on the short cadence even with no
      gathering on the clock; the fast cadence itself is shorter; a retyped
@@ -1762,7 +1792,7 @@ export async function runAll(fs) {
   ok("cadence still hears the clock", has(storePP, "export function onAir(info?: NextServiceInfo | null): boolean") && has(appPP, "onAir(gathering)") && has(watchPP, "onAir(info) || info.msUntil"), "detection must stay armed around services");
   ok("badges ask displayLive", has(layPP, "displayLive(info)") && has(homePP, "displayLive(info)") && has(blocksPP, "displayLive(info)") && has(watchPP, "displayLive(info) && !shutNow"), "pill, hero, card and panel must all wait for the stream");
   ok("bare clock lights nothing", !has(layPP, "const live = onAir(info);") && !has(homePP, "{onAir(info) ? (") && !has(blocksPP, "const live = onAir(info);") && !has(watchPP, "const onAirNow = onAir(info);"), "no badge may read the clock answer");
-  ok("screen shuts after an end", has(watchPP, "nextScreenShut(shut, shutPrevRef.current, guestUrl, screenAir.state") && has(watchPP, "const streaming = screenAir.state === \"live\" && !shutNow && (guestLive || fbLive || !!LIVE.isLive);") && has(livePP2, "export function nextScreenShut(") && has(livePP2, "export type ScreenShut") && has(watchPP, "screenAir.state === \"off\""), "any end must close the screen, never hand another channel over");
+  ok("screen shuts after an end", has(watchPP, "nextScreenShut(shut, shutPrevRef.current, guestUrl, screenAir.state") && has(watchPP, "const streaming = screenAir.state === \"live\" && !shutNow && (guestLive || fbLive || (mainDetected && !officeStopped));") && has(livePP2, "export function nextScreenShut(") && has(livePP2, "export type ScreenShut") && has(watchPP, "screenAir.state === \"off\""), "any end must close the screen, never hand another channel over");
   ok("guest still clears", has(cmsPP, "healDraftGuest()") && has(cmsPP, "(draft as any).live = { ...dLive, externalYoutubeChannel: \"\" }") && has(cmsPP, "guestCleared: guestCleared || undefined") && has(edPP, "res.guestCleared"), "untouched drafts and restores must follow the clear");
   ok("drawer carries no promise text", !has(edPP, "the LIVE badge and the player wait for the stream itself") && !has(edPP, "Play and pause are one button") && !has(edPP, "the site is showing live by itself") && has(edPP, "Nothing is set to play yet"), "the promise paragraph is gone but functional — the unconfigured warning stays");
   ok("apply leads with the shut", has(applyPP, "never plays another channel's livestream by itself"), "the office must meet the closed screen first");

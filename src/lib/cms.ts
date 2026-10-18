@@ -201,6 +201,35 @@ function noteCodeWitness(code: unknown, notes: unknown): boolean {
     return false;
   }
 }
+/* Code drift proven by a live server answer (note 302): the joined backend
+   names a different word than this bundle runs — local dev has no
+   version.json, so the poll above can never spot it there. Wait like any
+   stale copy and reload onto the new bundle (bounded, same guard as the
+   version.json path), so a Publish on the new code releases every copy
+   instead of stranding old bundles on maintenance while the office sees
+   success. A missing word proves nothing; our own word witnessed back ends
+   the drift (local dev proves this only here). Never throws. */
+function noteServerCodeDrift(v: unknown): void {
+  try {
+    if (typeof v !== "string" || !v || v === runningCode) {
+      if (staleCodeMismatch && (!Number.isFinite(staleNewerNotes) || staleNewerNotes <= BUILD_NOTES)) {
+        staleCodeMismatch = false;
+        version += 1;
+        notify();
+      }
+      return;
+    }
+    if (!runningCode) return;
+    const was = staleCodeMismatch;
+    staleCodeMismatch = true;
+    if (!Number.isFinite(staleNewerNotes) || staleNewerNotes <= BUILD_NOTES) staleNewerNotes = BUILD_NOTES + 1;
+    if (!was) {
+      version += 1;
+      notify();
+    }
+    void attemptStaleReload().catch(() => {});
+  } catch {}
+}
 /* Fresh deploy starts unsaved-clean (office request: unsaved changes are clear
    and fresh for every new deploy). Every build stamps a fresh opaque deploy ID,
    so a changed deploy ID proves a new deploy even when the update number is
@@ -328,7 +357,7 @@ function storedCodegenProvesNewUpdate(): boolean {
     (note 300) — so a returning copy stays live on its last publish even
     before (or without) the first server answer. */
 function writeCache() {
-  writeJSON(CACHE_KEY, { rev, overrides, notes: publishedNotes, publishedDeploy: publishedDeployId });
+  writeJSON(CACHE_KEY, { rev, overrides, notes: publishedNotes, publishedDeploy: publishedDeployId, code: runningCode });
 }
 /* The office's preview pass: ?preview=1 shows the new site before it is
    published, so an update is verifiable first (note 250). The grant is
@@ -449,6 +478,10 @@ export function maintenanceShouldWait(): boolean {
      a corrupt stamp is unreviewed, never published — it waits too. */
   const held = typeof publishedNotes === "number" && Number.isFinite(publishedNotes) ? Math.floor(publishedNotes) : 0;
   if (held >= BUILD_NOTES && codeBlessedMatches()) return false;
+  /* No lane to ever release it (note 250): a copy that never had a server and
+     has no baked feed waits on nothing — there is no publish step to wait
+     for, so it paints and reloads onto new bundles instead of stranding. */
+  if (!serverInvolved() && !feedFromMeta()) return false;
   return true;
 }
 /* True while visitors must wait: new code is ahead of the last publish.
@@ -499,6 +532,10 @@ export function useMaintenance(): boolean {
   try {
     if (maintenancePreview()) return false;
   } catch {}
+  /* No lane to ever release it (note 250): a copy that never had a server and
+     has no baked feed waits on nothing — there is no publish step to wait
+     for, so it paints and reloads onto new bundles instead of stranding. */
+  if (!serverInvolved() && !feedFromMeta()) return false;
   return true;
 }
 /** True while this tab previews the new site although visitors wait. */
@@ -553,6 +590,28 @@ export function isStaleWaiting(): boolean {
 export function isStaleCheckSettled(): boolean {
   return staleCheckSettled;
 }
+/* Bounded reload onto the new bundle, shared by the version.json poll below
+   and the live-answer drift witness (local dev has no version.json): a few
+   attempts inside a few minutes, then stop reloading but KEEP waiting
+   (maintenance stays, no live flash, no infinite loop). A reload that still
+   serves the old bundle retries. */
+async function attemptStaleReload(): Promise<void> {
+  try {
+    const now = Date.now();
+    const prev = readStaleAttempts();
+    if (prev && prev.notes === staleNewerNotes && now - prev.at < STALE_WINDOW_MS && prev.tries >= STALE_MAX_TRIES) return;
+    const tries = prev && prev.notes === staleNewerNotes && now - prev.at < STALE_WINDOW_MS ? prev.tries + 1 : 1;
+    const at = prev && prev.notes === staleNewerNotes && now - prev.at < STALE_WINDOW_MS ? prev.at : now;
+    try {
+      sessionStorage.setItem(STALE_RELOAD_KEY, JSON.stringify({ notes: staleNewerNotes, at, tries }));
+    } catch {}
+  } catch {}
+  /* Warm the entry document past the HTTP cache, then reload onto it. */
+  try {
+    await fetch(window.location.href, { cache: "reload" } as RequestInit);
+  } catch {}
+  window.location.reload();
+}
 /** Re-render hook for the stale-build gate (settled + waiting). */
 export function useStaleBuild(): { settled: boolean; waiting: boolean } {
   useCmsVersion();
@@ -603,25 +662,7 @@ export function checkStaleBuild(): Promise<void> {
          sticking with first paint — the old bundle waits, it never plays live. */
       version += 1;
       notify();
-      
-      /* Retryable guard: a few attempts inside a few minutes, then stop
-         reloading but KEEP waiting (maintenance stays, no live flash, no
-         infinite loop). A reload that still serves the old bundle retries. */
-      try {
-        const now = Date.now();
-        const prev = readStaleAttempts();
-        if (prev && prev.notes === staleNewerNotes && now - prev.at < STALE_WINDOW_MS && prev.tries >= STALE_MAX_TRIES) return;
-        const tries = prev && prev.notes === staleNewerNotes && now - prev.at < STALE_WINDOW_MS ? prev.tries + 1 : 1;
-        const at = prev && prev.notes === staleNewerNotes && now - prev.at < STALE_WINDOW_MS ? prev.at : now;
-        try {
-          sessionStorage.setItem(STALE_RELOAD_KEY, JSON.stringify({ notes: staleNewerNotes, at, tries }));
-        } catch {}
-      } catch {}
-      /* Warm the entry document past the HTTP cache, then reload onto it. */
-      try {
-        await fetch(window.location.href, { cache: "reload" } as RequestInit);
-      } catch {}
-      window.location.reload();
+      await attemptStaleReload();
     } catch {
       /* dev runs and hosts without version.json simply skip */
     } finally {
@@ -1778,6 +1819,12 @@ async function syncFromFeed() {
     rev = live.rev;
     if (typeof live.notes === "number") setPublishedNotes(live.notes);
     noteDeployWitness((live as any).publishedDeploy);
+    /* Feed-carried publish (office request: Publish answers everywhere): the
+       mirror names the publishing backend's code word, so an unstamped copy
+       witnessing its own running word at this update's number blesses
+       headless — the same equality rule as a server answer. A different word
+       (stale copy) or no word proves nothing and changes nothing. */
+    noteCodeWitness((live as any).code, live.notes);
     applyOverrides(liveSections);
     writeCache();
   } catch {
@@ -2401,6 +2448,8 @@ export async function startCms() {
   starting = true;
   /* Reconnect the instant the network/tab returns (no waiting out the timer). */
   startAutoRetry();
+  /* Same-browser tabs adopt each other's publishes (no server or feed needed). */
+  startCrossTabLane();
   /* Which shared store, if any: the local backend, or the office
      server this copy was pointed at (deploy config or admin console). */
   await initServerUrl().catch(() => {});
@@ -2721,6 +2770,54 @@ function startAutoRetry() {
   window.addEventListener("online", autoRetryNow);
   document.addEventListener("visibilitychange", () => {
     if (document.visibilityState === "visible") autoRetryNow();
+  });
+}
+/* Same-browser publish lane (office request: Publish on one browser works in
+   all): every publish already records words + stamp in the shared cache, so
+   every OTHER tab in this browser adopts it here — words when newer, stamps
+   always — with no server and no feed involved. The storage event fires only
+   in the other tabs, never the writer, and the rev / raise-only / equality
+   guards make it idempotent, so this can never loop. Staging rules hold: a
+   clean stage stages nothing inbound (stamps + witnesses still move), and an
+   empty cache never clears published words (note 289). */
+let crossTabListening = false;
+function adoptCrossTabCache(): void {
+  let read: { rev?: unknown; overrides?: unknown; notes?: unknown; publishedDeploy?: unknown; code?: unknown } | null = null;
+  try {
+    read = readJSON<any>(CACHE_KEY, null);
+  } catch {
+    return;
+  }
+  if (!read || typeof read !== "object") return;
+  const incomingRev = typeof read.rev === "number" ? read.rev : 0;
+  const incoming = (read.overrides && typeof read.overrides === "object" ? read.overrides : {}) as Snapshot;
+  const notesBefore = publishedNotes;
+  const deployBefore = publishedDeployId;
+  if (typeof read.notes === "number") setPublishedNotes(read.notes);
+  noteDeployWitness(read.publishedDeploy);
+  const codeWitnessed = noteCodeWitness(read.code, read.notes);
+  const stampMoved = publishedNotes > notesBefore || publishedDeployId !== deployBefore;
+  /* Words ride only when newer, never empty over held words, never into a
+     clean stage — the same guards as every other inbound lane. */
+  if (incomingRev > rev && Object.keys(incoming).length > 0 && !cleanStageForNewCode) {
+    rev = incomingRev;
+    applyOverrides(clone(incoming));
+    writeCache();
+  } else if (stampMoved || codeWitnessed) {
+    /* Pure stamp move (a bless-only publish): re-render so the maintenance
+       notice re-evaluates instead of sticking with first paint. */
+    version += 1;
+  }
+  notify();
+}
+function startCrossTabLane(): void {
+  if (crossTabListening) return;
+  crossTabListening = true;
+  window.addEventListener("storage", (event: StorageEvent) => {
+    try {
+      if (!event || event.key !== CACHE_KEY) return;
+      adoptCrossTabCache();
+    } catch {}
   });
 }
 
@@ -3075,6 +3172,9 @@ async function syncFromServer() {
      with this code published lifts the number gate headless — a live publish
      clears the local notice with no tab open and no click needed. */
   const codeWitnessed = noteCodeWitness((res as any).code, res.notes);
+  /* A live answer naming a different code proves drift (local has no
+     version.json to prove it) — wait and reload onto the new bundle. */
+  noteServerCodeDrift((res as any).code);
   /* A publish newer than this deploy releases it (note 420): the same-ID
      witness above only matches a publish stamped from this exact deploy, so
      one Publish on live/admin used to leave every other deploy — a stale

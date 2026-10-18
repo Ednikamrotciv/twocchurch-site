@@ -75,6 +75,11 @@ export async function bakeSeed(rootDir, outPath) {
   let notes = typeof res.notes === "number" && res.notes > 0 ? Math.floor(res.notes) : 0;
   /* Deploy lock: carry the publish deploy ID like the stamp above. */
   let publishedDeploy = typeof res.publishDeploy === "string" && /^[A-Za-z0-9_-]{1,80}$/.test(res.publishDeploy) ? res.publishDeploy : "";
+  /* Feed witness: carry the publishing backend's code word (note 302) so a
+     feed-following copy can prove a publish came from its own running code
+     and lift maintenance headless — the same equality rule as a server
+     answer. A missing word proves nothing and is left out, never faked. */
+  const code = typeof res.code === "string" && /^[A-Za-z0-9_-]{1,40}$/.test(res.code) ? res.code : "";
   if (!notes) {
     try {
       const prev = JSON.parse(await readFile(target, "utf8"));
@@ -106,7 +111,7 @@ export async function bakeSeed(rootDir, outPath) {
      so carry the newest list already on disk — the refresh below overwrites
      with fresher. Without this a re-bake silently drops the list. */
   const carried = pickRecent((await readJson(rootSeedPath))?.recent, (await readJson(target))?.recent);
-  await writeFile(target, JSON.stringify({ rev, notes, sections, log, by, at, ...(carried ? { recent: carried } : {}), ...(publishedDeploy ? { publishedDeploy } : {}) }));
+  await writeFile(target, JSON.stringify({ rev, notes, sections, log, by, at, ...(carried ? { recent: carried } : {}), ...(publishedDeploy ? { publishedDeploy } : {}), ...(code ? { code } : {}) }));
   console.log(`bake-seed: baked ${ids.length} sections into ${path.relative(rootDir, target)}`);
   /* The recent-services list ships in the same file, so every copy paints the
      same services as the preview (see bake-recent.mjs). Best effort — a missed

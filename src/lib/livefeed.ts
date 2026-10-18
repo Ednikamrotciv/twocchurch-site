@@ -40,7 +40,7 @@ export function feedUploadUrls(spec: FeedSpec | null, name: string, uploadsDir: 
   ];
 }
 
-export type FeedSeed = { rev: number; sections: Record<string, unknown>; notes?: number; publishedDeploy?: string };
+export type FeedSeed = { rev: number; sections: Record<string, unknown>; notes?: number; publishedDeploy?: string; code?: string };
 
 /** True when the fetched seed is worth painting (newer than ours). */
 export function feedIsNewer(seed: unknown, currentRev: number): seed is FeedSeed {
