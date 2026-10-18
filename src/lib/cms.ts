@@ -208,6 +208,20 @@ function noteCodeWitness(code: unknown, notes: unknown): boolean {
    for; a different stamped deploy clears draft + pending + dirty once, then
    records itself. Maintenance hold is untouched here — Publish still lifts it. */
 const DEPLOY_SEEN_KEY = "wom.cms.deploySeen";
+/* When this browser first saw its current deploy (note 420): the clock a
+   witnessed publish is measured against — a server publish newer than this
+   moment is a publish FOR this deploy, whatever deploy id it names; anything
+   older predates it and still holds. Stamped beside the seen deploy, same
+   raise-only care as every other witness. */
+const DEPLOY_SEEN_AT_KEY = "wom.cms.deploySeenAt";
+let deployFirstSeenAt = 0;
+try {
+  const raw = localStorage.getItem(DEPLOY_SEEN_AT_KEY);
+  const n = raw === null ? 0 : Number(JSON.parse(raw));
+  if (Number.isFinite(n) && (n as number) > 0) deployFirstSeenAt = Math.floor(n as number);
+} catch {
+  /* storage may be blocked — startCms re-reads later */
+}
 function deployProvesFreshDeploy(): boolean {
   try {
     /* Built deploy: the stamped ID proves it — a different ID is a new deploy. */
@@ -240,8 +254,20 @@ function deployProvesFreshDeploy(): boolean {
 }
 function markDeploySeen(): void {
   try {
-    if (deployFromMeta && currentDeployId) localStorage.setItem(DEPLOY_SEEN_KEY, currentDeployId);
-    else localStorage.setItem(DEPLOY_SEEN_KEY, "n" + BUILD_NOTES + "c" + (runningCode || ""));
+    const want = deployFromMeta && currentDeployId ? currentDeployId : "n" + BUILD_NOTES + "c" + (runningCode || "");
+    let prev = "";
+    try {
+      prev = localStorage.getItem(DEPLOY_SEEN_KEY) || "";
+    } catch {}
+    /* A changed deploy restarts the clock (note 420): the first-seen moment
+       below is what proves a later server publish belongs to this deploy. */
+    if (prev !== want || !(deployFirstSeenAt > 0)) {
+      deployFirstSeenAt = Date.now();
+      try {
+        localStorage.setItem(DEPLOY_SEEN_AT_KEY, JSON.stringify(deployFirstSeenAt));
+      } catch {}
+    }
+    localStorage.setItem(DEPLOY_SEEN_KEY, want);
   } catch {}
 }
 
@@ -252,6 +278,7 @@ if (typeof window !== "undefined") {
     publishedNotes,
     deployId: currentDeployId,
     publishedDeploy: publishedDeployId,
+    deployFirstSeenAt,
     deployLocked: deployFromMeta,
     buildNotes: BUILD_NOTES,
     code: runningCode,
@@ -2162,6 +2189,21 @@ export async function pullFromLive(): Promise<LivePullResult> {
     if (!ids.length) {
       lastLivePullAt = Date.now();
       lastLivePullMsg = "Live matches this copy — nothing to pull.";
+      /* No words to carry, but the stamp still counts (note 420): live holds
+         a same-update publish with real words and this copy already speaks
+         them — yet without adopting the stamp this copy keeps waiting until
+         somebody taps Publish here too. So adopt it: raise the stamp and
+         bless the running code, exactly like a pull that carried words. Only
+         outside a clean stage (a new code arrival still takes its explicit
+         Publish or Recover), only with no unsaved work of its own pending,
+         and never across updates — nothing here stages, moves or loses words. */
+      if (!cleanStageForNewCode && pendingSections().length === 0 && read.notes === BUILD_NOTES && read.sections && Object.keys(read.sections).length > 0) {
+        setPublishedNotes(BUILD_NOTES);
+        blessRunningCode();
+        writeCache();
+        version += 1;
+        notify();
+      }
       return { ok: true, pulled: [] };
     }
     /* Live/admin is the general control (office request): its publish takes
@@ -2296,6 +2338,13 @@ function startContentWatch() {
         const r = typeof raw === "string" ? JSON.parse(raw) : raw;
         if (r && r.ok && typeof r.rev === "number" && r.rev !== rev) await syncFromServer().catch(() => {});
         else if (r && r.ok && deployFromMeta && currentDeployId && typeof r.publishDeploy === "string" && r.publishDeploy === currentDeployId && publishedDeployId !== currentDeployId) await syncFromServer().catch(() => {});
+        /* A publish the rev stamp cannot see (note 420): the feed-follow
+           adoption writes words with no rev bump, so a live publish carried
+           that lane leaves `rev` standing while the stamp moves. A newer
+           publish clock on the running update — or a publish stamp this copy
+           has not witnessed — pulls the same guarded sync the shout takes. */
+        else if (r && r.ok && typeof r.at === "number" && r.at > 0 && deployFirstSeenAt > 0 && r.at > deployFirstSeenAt && typeof r.notes === "number" && Math.floor(r.notes) === BUILD_NOTES && publishedDeployId !== currentDeployId) await syncFromServer().catch(() => {});
+        else if (r && r.ok && typeof r.notes === "number" && r.notes > publishedNotes) await syncFromServer().catch(() => {});
       } finally {
         contentWatchRunning = false;
       }
@@ -2999,6 +3048,31 @@ async function syncFromServer() {
      with this code published lifts the number gate headless — a live publish
      clears the local notice with no tab open and no click needed. */
   const codeWitnessed = noteCodeWitness((res as any).code, res.notes);
+  /* A publish newer than this deploy releases it (note 420): the same-ID
+     witness above only matches a publish stamped from this exact deploy, so
+     one Publish on live/admin used to leave every other deploy — a stale
+     phone, a rebuild, any copy whose id differs — waiting until somebody
+     tapped Publish there too. A server publish stamped from the running
+     update, carrying real words and attested to this code, whose clock is
+     NEWER than this deploy first went live, IS a publish for this deploy —
+     while anything older predates it and still holds. Never in a clean stage
+     (a new code arrival stages nothing inbound until Recover or an explicit
+     Publish), never on seeded or empty answers (those returned above), never
+     across updates, and never on a copy with no stamped deploy (local dev
+     keeps its number gate). Strictly newer — no tolerance: on skewed clocks
+     the publish that missed just needs one more click, which always lands. */
+  const serverAt = typeof res.at === "number" ? res.at : 0;
+  if (
+    !cleanStageForNewCode &&
+    deployFromMeta && currentDeployId &&
+    publishedDeployId !== currentDeployId &&
+    codeWitnessed &&
+    typeof res.notes === "number" && Math.floor(res.notes) === BUILD_NOTES &&
+    Object.keys(server).length > 0 &&
+    serverAt > 0 && deployFirstSeenAt > 0 && serverAt > deployFirstSeenAt
+  ) {
+    markDeployPublished();
+  }
   rev = serverRev;
   updatedAt = res.at || 0;
   updatedBy = res.by || "";

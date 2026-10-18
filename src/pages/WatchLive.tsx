@@ -112,13 +112,26 @@ export function WatchLive() {
   /* Strict (note 358): a named video from another channel never autoplays —
      video answers carry no channel id, so those pass; a stamped foreign one
      does not. The guest's own stamped video plays while IT is live (note
-     380) — everything else about it already says the guest address. */
-  const playableId = detectedId && idVerdict === true && (isDesignatedChannel(airForTarget.channelId, designatedId) || (guestLive && isGuestTargetUrl(screenAir.target, guestUrl))) ? detectedId : "";
-  const verifiedFallbackId = fallbackId && fallbackVerdict === true ? fallbackId : "";
-  const watchable = !!playableId || !!detectedChannel || fbLive || !!verifiedFallbackId;
-  /* Dead-video gate (note 413): a named id plays only once verified — unknown
-     (offline, probe down, still checking) waits on the clock instead of
-     autoplaying into the black "unavailable" frame. Dead never plays. */
+     380) — everything else about it already says the guest address.
+     Unknown plays (note 420): a verdict that never settles (offline, probe
+     down, still checking) used to sit the screen on the ticking clock for a
+     broadcast that was already on air — so `true` OR `null` opens the player,
+     which verifies behind the frame itself. Only a proven-dead id is held
+     back, and it still reaches the player below for its fallback. */
+  const idOk = idVerdict === true || idVerdict === null;
+  const playableId = detectedId && idOk && (isDesignatedChannel(airForTarget.channelId, designatedId) || (guestLive && isGuestTargetUrl(screenAir.target, guestUrl))) ? detectedId : "";
+  const verifiedFallbackId = fallbackId && (fallbackVerdict === true || fallbackVerdict === null) ? fallbackId : "";
+  /* A named id YouTube says is gone still reaches the player (note 420): the
+     player's own dead fallback names it and offers the platform link — never
+     the black "unavailable" frame, and never the ticking clock for a live
+     that is already on air. */
+  const deadLiveId = detectedId && idVerdict === false && (isDesignatedChannel(airForTarget.channelId, designatedId) || (guestLive && isGuestTargetUrl(screenAir.target, guestUrl))) ? detectedId : "";
+  const watchable = !!playableId || !!deadLiveId || !!detectedChannel || fbLive || !!verifiedFallbackId;
+  /* Dead-video gate (note 413, opened note 420): a named id reaches the
+     player while its verdict is still unknown — offline, probe down, still
+     checking — and the player verifies behind the frame, swapping to its
+     fallback when the id proves dead. A proven-dead id goes straight to that
+     fallback below. Dead never plays blind into the black frame. */
   const checkingLiveId = !!detectedId && idVerdict === null;
   const checkingFallbackId = !!fallbackId && !playableId && !detectedChannel && !fbLive && fallbackVerdict === null;
   /* Play means play for the guest, patience for the main (notes 404, 410):
@@ -208,7 +221,7 @@ export function WatchLive() {
       ? { platform: "facebook", facebookUrl: LIVE.facebookUrl }
       : platform === "facebook"
       ? { platform: "facebook", facebookUrl: LIVE.facebookUrl }
-      : { platform: "youtube", youtubeId: playableId || verifiedFallbackId, youtubeChannelId: detectedChannel || (!streaming && overrideId) || undefined };
+      : { platform: "youtube", youtubeId: playableId || deadLiveId || verifiedFallbackId, youtubeChannelId: detectedChannel || (!streaming && overrideId) || undefined };
   const youtubeLink =
     watchUrl({ platform: "youtube", youtubeId: playableId }) ||
     (guestLive && guestUrl ? guestUrl : hasChannel ? targetUrl : watchUrl({ platform: "youtube", youtubeId: LIVE.youtubeId }) || targetUrl);
@@ -341,7 +354,7 @@ export function WatchLive() {
                 </div>
               )}
 
-              {(checkingLiveId || checkingFallbackId) && !shutNow && !officeStopped ? (
+              {(checkingLiveId || checkingFallbackId) && !playableId && !deadLiveId && !verifiedFallbackId && !shutNow && !officeStopped ? (
                 <LiveWaiting cover={cover} />
               ) : streaming && watchable ? (
                 <VideoPlayer

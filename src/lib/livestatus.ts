@@ -511,11 +511,29 @@ function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
 
 /** Page HTML via a same-origin / office-server proxy, else public CORS proxy. */
 async function fetchPage(url: string): Promise<string | null> {
+  const sameOrigin = await fetchPageSameOrigin(url);
+  if (sameOrigin) return sameOrigin;
   const local = await fetchPageLocal(url);
   if (local) return local;
   const office = await fetchPageOffice(url);
   if (office) return office;
   return fetchPageRemote(url);
+}
+
+/** Same-origin YouTube read (`scripts/serve.mjs` /__yt, note 420): the office
+    server AND the deployed server both answer it, so every copy — local runs
+    and deployed visitors alike — reads through its own host first instead of
+    paying for the office or public doors. Static hosts answer nothing here
+    and fall through below, exactly as before. */
+async function fetchPageSameOrigin(url: string): Promise<string | null> {
+  try {
+    const res = await withTimeout(fetch(`/__yt?url=${encodeURIComponent(url)}`, { cache: "no-store" }), CHECK_TIMEOUT_MS);
+    if (!res || !res.ok) return null;
+    const text = await res.text();
+    return typeof text === "string" && text.length > 0 ? text : null;
+  } catch {
+    return null;
+  }
 }
 
 /* Last resort for hosts with no proxy: a free public CORS proxy.
@@ -1099,6 +1117,31 @@ function oembedUrl(id: string): string {
   return `https://www.youtube.com/oembed?url=${encodeURIComponent("https://www.youtube.com/watch?v=" + id)}&format=json`;
 }
 
+/** noembed's door to the same answer (note 420): YouTube's oEmbed endpoint
+    answers no CORS headers, so a direct browser read of it can fail while the
+    video itself plays fine — every verdict then stuck `null`, and the Watch
+    screen sat on the ticking clock for a live that was already on air.
+    noembed mirrors oEmbed over CORS-open headers: `html` means it plays,
+    `error` means it is gone, anything else is unknown. Never throws. */
+function noembedUrl(id: string): string {
+  return `https://noembed.com/embed?url=${encodeURIComponent("https://www.youtube.com/watch?v=" + id)}`;
+}
+
+async function noembedVerdict(id: string, signal?: AbortSignal): Promise<boolean | null> {
+  try {
+    const res = await fetch(noembedUrl(id), { cache: "no-store", signal });
+    if (!res || !res.ok) return null;
+    const data = await res.json().catch(() => null);
+    if (!data || typeof data !== "object") return null;
+    const d = data as { html?: unknown; error?: unknown };
+    if (typeof d.html === "string" && d.html.length > 0) return true;
+    if (d.error) return false;
+    return null;
+  } catch {
+    return null;
+  }
+}
+
 /** Cache-only peek (no fetch): true = played before, false = known dead, null = never asked. */
 export function peekVerified(videoId: string): boolean | null {
   const id = parseYoutubeId(videoId);
@@ -1122,7 +1165,16 @@ export async function verifyYoutubeId(videoId: string): Promise<boolean | null> 
       const ctrl = typeof AbortController !== "undefined" ? new AbortController() : null;
       const timer = ctrl ? window.setTimeout(() => ctrl.abort(), VERIFY_TIMEOUT_MS) : 0;
       try {
-        const res = await fetch(oembedUrl(id), { cache: "no-store" });
+        /* CORS-open door first (note 420): the direct oEmbed read below can
+           fail on headers while the video plays fine, so ask the mirror that
+           answers cross-origin — and keep oEmbed itself as the fallback, with
+           the same `oembedPlayable` reading, for the networks that reach it. */
+        const viaMirror = await noembedVerdict(id, ctrl ? ctrl.signal : undefined);
+        if (viaMirror !== null) {
+          verifyCache.set(id, { ok: viaMirror, at: Date.now() });
+          return viaMirror;
+        }
+        const res = await fetch(oembedUrl(id), { cache: "no-store", signal: ctrl ? ctrl.signal : undefined });
         const verdict = oembedPlayable(res.status);
         if (verdict !== null) verifyCache.set(id, { ok: verdict, at: Date.now() });
         return verdict;
