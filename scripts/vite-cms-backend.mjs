@@ -20,6 +20,19 @@ const SHIM_TAG = '<script src="/scripts/local-shim.js"></script>';
    in Node — the same backend scripts/serve.mjs runs in production. */
 export function cmsBackend() {
   const ROOT = process.cwd();
+  /* Fresh-deploy ritual for local dev (office request: every `npm run dev`
+     opens like a new deploy — the maintenance notice holds until Publish and
+     the copy stages welcome-only until Recover + Publish, just like the
+     deployed site). A fresh opaque deploy ID is minted per dev-server boot
+     and stamped into the entry page below (meta wom-deploy, the same stamp
+     build-static.mjs bakes per build) plus the dev version.json beside it,
+     so the client takes its deploy-lock path instead of the number gate
+     (which released forever after the first local publish). The office disk
+     is untouched — Recover restores it, Publish folds it in — and a Publish
+     from this boot stamps this ID server-side through the normal
+     durableDeploy path, releasing the hold. */
+  const devDeployId =
+    "dev-" + Date.now().toString(36) + "-" + Math.random().toString(36).slice(2, 8);
   const geoProxy = createGeoProxy();
   let cms = null;
   let siteVersion = "vite";
@@ -43,6 +56,7 @@ export function cmsBackend() {
       } catch {
         /* same snapshot-and-recover as scripts/serve.mjs — never fatal */
       }
+      console.log(`dev server: fresh deploy ${devDeployId} — maintenance holds until Publish, staged welcome-only until Recover + Publish (like a new deploy; the office disk is untouched)`);
       /* Follow live only while serving (note 378): this hook also runs for
          `vite build`, where a minute loop would hold the build process open
          forever — exactly how the Vercel deploy got stuck. */
@@ -54,8 +68,16 @@ export function cmsBackend() {
        office server through server.json instead. */
     transformIndexHtml(html, ctx) {
       if (!ctx || !ctx.server) return undefined;
-      const src = String(html);
-      if (src.includes(SHIM_TAG)) return undefined;
+      let src = String(html);
+      /* Fresh-deploy ritual (see above): stamp this boot's deploy ID into the
+         entry page, like build-static.mjs stamps each build — the client's
+         deploy lock reads it synchronously on first paint. */
+      if (!src.includes('name="wom-deploy"')) {
+        const tag = '<meta name="wom-deploy" content="' + devDeployId + '">';
+        if (src.includes("</head>")) src = src.replace("</head>", "  " + tag + "\n</head>");
+        else src = tag + "\n" + src;
+      }
+      if (src.includes(SHIM_TAG)) return src === html ? undefined : src;
       if (src.includes(ENTRY_TAG)) return src.replace(ENTRY_TAG, SHIM_TAG + "\n    " + ENTRY_TAG);
       return src + "\n" + SHIM_TAG + "\n";
     },
@@ -183,8 +205,30 @@ export function cmsBackend() {
             return;
           }
 
-          if (pathname === "/scripts/local-shim.js" && req.method === "GET") {
-            const shim = await readFile(path.join(ROOT, "scripts", "local-shim.js"), "utf8");
+          /* Fresh-deploy ritual (see above): the dev version.json names this
+             boot's deploy ID, so the stale-build check agrees with the entry
+             page instead of reloading onto a "newer" deploy. Best effort —
+             without it the check simply skips, as before. */
+          if (pathname === "/version.json" && req.method === "GET") {
+            let notes = 0;
+            let code = "";
+            try {
+              const hooksSrc = await readFile(path.join(ROOT, "src", "lib", "hooks.ts"), "utf8");
+              notes = Number((hooksSrc.match(/BUILD_NOTES = (\d+)/) || [])[1]) || 0;
+              const word = /CODE_ID\s*=\s*"([A-Za-z0-9_-]{1,40})"/.exec(String(hooksSrc));
+              if (word) code = word[1];
+            } catch { /* the deploy ID below is what matters */ }
+            const body = JSON.stringify({ notes, code, deployId: devDeployId });
+            res.writeHead(200, {
+              "content-type": "application/json; charset=utf-8",
+              "content-length": Buffer.byteLength(body),
+              "cache-control": "no-store",
+            });
+            res.end(body);
+            return;
+          }
+
+          if (pathname === "/scripts/local-shim.js" && req.method === "GET") {            const shim = await readFile(path.join(ROOT, "scripts", "local-shim.js"), "utf8");
             const body = shim.split("__SITE_VERSION__").join(siteVersion);
             res.writeHead(200, {
               "content-type": "text/javascript; charset=utf-8",
