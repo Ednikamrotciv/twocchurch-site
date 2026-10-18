@@ -49,7 +49,7 @@ export const LIVE_STATUS_KEY = "wom.livestatus";
     unless a watcher asks urgent (the Watch page does: it checks at once). */
 const FRESH_MS = 45_000;
 /** Give the proxy this long before calling the check a failure. */
-const CHECK_TIMEOUT_MS = 8_000;
+const CHECK_TIMEOUT_MS = 15_000;
 /** Poll cadence (note 310): fast while a broadcast is expected or the Watch
     page is open — a YouTube start shows in seconds and the waiting clock
     vanishes with it — slower in the quiet week. Live and local share this
@@ -668,11 +668,7 @@ export async function checkLiveStream(opts: { facebook?: boolean } = {}): Promis
   /* The guest's own report, matched the same way (note 380): only an answer
      stamped for the guest address may stand for the guest. */
   const officeGuest = guest && officeRep && officeRep.target === guest.url && reportCarriesVideo(officeRep) ? officeRep : null;
-  /* Guest and main are independent doors — ask both at once instead of
-     serially, halving the worst-case wait. */
-  const guestHtmlPromise = guest && !officeGuest ? fetchPage(guest.url) : Promise.resolve(null);
-  const mainHtmlPromise = target && !officeHit ? fetchPage(target.url) : Promise.resolve(null);
-  const guestHtml = await guestHtmlPromise;
+  const guestHtml = guest && !officeGuest ? await fetchPage(guest.url) : null;
   const guestAns: { state: LiveState; videoId: string; title: string; channelId: string } = !guest
     ? { state: "unset", videoId: "", title: "", channelId: "" }
     : officeGuest
@@ -682,7 +678,7 @@ export async function checkLiveStream(opts: { facebook?: boolean } = {}): Promis
     : guestHtml === null
     ? { state: "unknown", videoId: "", title: "", channelId: "" }
     : await resolveYoutube(guest, guestHtml);
-  const html = await mainHtmlPromise;
+  const html = target && !officeHit ? await fetchPage(target.url) : null;
   const youtube: { state: LiveState; videoId: string; title: string; channelId: string } = !target
     ? { state: "unset", videoId: "", title: "", channelId: "" }
     : officeHit
@@ -789,9 +785,6 @@ let timer = 0;
 let polling = false;
 /** When the last answer was fetched (ms) — the freshness clock. */
 let lastCheckAt = snapshot.status.checkedAt;
-/** A failed check (offline) re-asks the instant the tab wakes instead of
-    waiting out the quiet timer in onWake. Set in run(), read in onWake. */
-let lastCheckFailed = false;
 /** The address the last answer was about, so a new one is checked at once. */
 let lastTarget = "";
 
@@ -1007,11 +1000,9 @@ async function run() {
      turns a live stream into an ended one. */
   if (next.state === "unknown" && snapshot.status.state === "live") {
     lastCheckAt = Date.now();
-    lastCheckFailed = true;
     schedule(delay());
     return;
   }
-  lastCheckFailed = next.state === "unknown";
   saveLiveStatus(next);
   publish({ status: next });
   /* This copy may be the office: a definitive answer goes to the server at
@@ -1027,8 +1018,7 @@ async function run() {
 
 function onWake() {
   if (document.visibilityState !== "visible") return;
-  /* A failed check (offline) never waits out the quiet timer. */
-  if (!lastCheckFailed && Date.now() - lastCheckAt < 15_000) return;
+  if (Date.now() - lastCheckAt < 15_000) return;
   schedule(0);
 }
 

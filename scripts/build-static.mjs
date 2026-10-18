@@ -108,6 +108,28 @@ try {
   console.warn("feed.json skipped:", err?.message || err);
 }
 
+/* Origin address for wake-time priming (sleep-wake after the first publish):
+   the git remote names the public source repo, so bake it into
+   dist/origin.json — a waking box with no live feed configured primes its
+   fallback off the pushed source seed instead of the deploy-time bake (see
+   primeMirrorSeed in seed-fallback.mjs). Best effort and silent: no git
+   remote, a non-github remote, or a build farm without git all skip it, and
+   private repos 404 at prime time and stay skipped. Public owner/repo@branch
+   only, never a secret. */
+try {
+  const { execFile: gitExec } = await import("node:child_process");
+  const gitOut = (args) => new Promise((res) => gitExec("git", args, { cwd: ROOT, timeout: 8000 }, (err, stdout) => res(err ? "" : String(stdout || "").trim())));
+  const remote = await gitOut(["config", "--get", "remote.origin.url"]);
+  let branch = await gitOut(["rev-parse", "--abbrev-ref", "HEAD"]);
+  if (!branch || branch === "HEAD") branch = "main";
+  let gm = /^https?:\/\/github\.com\/([A-Za-z0-9_.-]+)\/([A-Za-z0-9_.-]+?)(?:\.git)?\/?$/i.exec(remote);
+  if (!gm) gm = /^git@github\.com:([A-Za-z0-9_.-]+)\/([A-Za-z0-9_.-]+?)(?:\.git)?\/?$/i.exec(remote);
+  if (gm && gm[1] !== "owner" && gm[2] !== "repo" && /^[A-Za-z0-9_.\/-]+$/.test(branch)) {
+    await writeFile(path.join(OUT, "origin.json"), JSON.stringify({ source: `${gm[1]}/${gm[2]}@${branch}` }));
+    console.log(`origin baked in: ${gm[1]}/${gm[2]}@${branch} — waking boxes prime the first publish off the source repo`);
+  }
+} catch { /* no git remote — wakes prime off the feed only */ }
+
 /* The office server, baked in: when the repo carries a cms-server.txt with
    the office address (one origin, e.g. https://office.example.com), every
    deployed copy joins that shared backend automatically — sign-in,

@@ -3,7 +3,6 @@
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Swiper from "swiper";
-import "swiper/css";
 import { Autoplay, EffectCreative } from "swiper/modules";
 import { motion } from "framer-motion";
 import { Link, isPathMode, refreshRoute } from "../lib/router";

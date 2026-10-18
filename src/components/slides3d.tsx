@@ -1,18 +1,16 @@
 /* Announcement slides as a rotating 4-sided stage. The four faces walk through
    every announcement on their own (note 227) — past four, the faces turn over
    to the next ones. Faces without a picture carry the church logo; with no
-   slides at all the stage keeps the welcome photo, like the flat stand-in.
-   Flat swiper fallback in ./slides.tsx. */
+   slides at all the stage is all logo. Flat swiper fallback in ./slides.tsx. */
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { tx, currentLang, useI18nTick, i18nTickN } from "../lib/i18n";
 import * as THREE from "three";
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
-import { Sparkles } from "@react-three/drei";
+import { Sparkles } from "@react-three/drei/core/Sparkles";
 import { SLIDE_FRAME } from "../lib/slideFrame";
 import { isSlideVideoUrl } from "../data/slides";
 import { LOGO_MARK } from "../data/site";
-import { photoSrc } from "../data/photos";
 import { siteFile } from "../lib/livefeed";
 import type { AnnouncementSlide as SlideT } from "../data/slides";
 
@@ -523,9 +521,7 @@ function useFaceTextures(
       const photos = await Promise.all(slots.map(load));
       if (!alive) return;
       const painted = slots.map((slot, i) => {
-        /* Cap face resolution: past ~1400px wide the memory (4 faces ×
-           RGBA) and upload cost climb faster than visible sharpness. */
-        const W = Math.min(1408, Math.round((slot.aspect > 1.2 ? 1024 : 768) * Math.min(1.5, Math.max(1, pageZoom))));
+        const W = Math.round((slot.aspect > 1.2 ? 1024 : 768) * Math.min(2.5, Math.max(1, pageZoom)));
         const H = Math.round(W / slot.aspect);
         let cv = drawFace(slot, photos[i], W, H, logoUrl);
         let tainted = false;
@@ -794,20 +790,18 @@ function Cuboid({ slides, apiRef, held, logo, theme }: { slides: (SlideT | null)
   /* The four sides carry the slides' own content (box material order is
      +x, -x, +y, -y, +z, -z: the caps get no slide and stay plain dark).
      A face with no picture of its own carries the church logo — the stage
-     never shows a blank face. With no slides at all every face keeps the
-     welcome photo instead (a fresh deploy greets rather than brands).
+     never shows a blank face, and with no slides at all it is all logo.
      Each face is painted with its slide's own words, the same content the
      flat stage shows. */
   const slots: FaceSlot[] = useMemo(() => {
-    const fallback = countSlides > 0 ? logo : photoSrc("welcome");
     const faces = [faceSlides[1], faceSlides[3], null, null, faceSlides[0], faceSlides[2]];
     const urls = faces.map((f) => {
       const u = f?.image;
-      return u && String(u).trim() ? String(u) : fallback;
+      return u && String(u).trim() ? String(u) : logo;
     });
     const aspects = [SIDE_ASPECT, SIDE_ASPECT, CAP_ASPECT, CAP_ASPECT, SIDE_ASPECT, SIDE_ASPECT];
     return urls.map((url, i) => ({ slide: faces[i], url, aspect: aspects[i] }));
-  }, [faceSlides, logo, countSlides]);
+  }, [faceSlides, logo]);
   const faceFx = useFaceTextures(slots, logo);
   const textures = faceFx.textures;
   const fxRef = useRef(faceFx);
@@ -929,28 +923,20 @@ export function CuboidSpace3D({ slides, apiRef, held }: { slides: SlideT[]; apiR
   }, []);
   const light = theme === "light";
   const logo = useMemo(() => siteFile(LOGO_MARK), []);
-  /* A zoomed box shows its faces bigger — let the canvas render denser too,
-     capped: past 2x the fill-rate cost climbs faster than the sharpness. */
+  /* A zoomed box shows its faces bigger — let the canvas render denser too. */
   const pageZoom = usePageZoomFactor();
-  const reducedMotion = (() => {
-    try {
-      return window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-    } catch {
-      return false;
-    }
-  })();
   return (
     <div className="aslides__gl">
       <Canvas
-        dpr={[1, Math.min(2, 1.5 * Math.max(1, pageZoom))]}
+        dpr={[1, Math.min(3, 1.75 * Math.max(1, pageZoom))]}
         camera={{ fov: FOV, position: CAM_POS }}
-        gl={{ antialias: true, alpha: true, preserveDrawingBuffer: false }}
+        gl={{ antialias: true, alpha: true, preserveDrawingBuffer: true }}
       >
         <ambientLight intensity={light ? 1.25 : 0.95} />
         <directionalLight position={[5, 7, 8]} intensity={light ? 1.35 : 1.15} />
         <directionalLight position={[-6, -2, 4]} intensity={0.3} color="#e8bd62" />
         <CameraRig />
-        {!reducedMotion && <Sparkles count={28} scale={[15, 7, 4]} position={[0, 0, -3.5]} size={2.4} speed={0.22} opacity={0.5} color="#e8c37a" />}
+        <Sparkles count={42} scale={[15, 7, 4]} position={[0, 0, -3.5]} size={2.4} speed={0.22} opacity={0.5} color="#e8c37a" />
         <CuboidFit>
           <Cuboid slides={slides} apiRef={apiRef} held={held} logo={logo} theme={theme} />
         </CuboidFit>

@@ -25,7 +25,8 @@ import { readLiveStatus, recheckLiveNow, guestTarget, isGuestTargetUrl, useLiveS
 import { SITE, SERVICES, img } from "../data/site";
 import { recentLimit } from "../data/live";
 import { ytWatch } from "../data/sermons";
-import { askForRecentServices, useRecentServices } from "../lib/recentstreams";
+import { askForRecentServices, fetchPreviousLives, readRecentServices, subscribeRecentServices } from "../lib/recentstreams";
+import type { RecentService } from "../lib/recentstreams";
 import { BRANCHES } from "../data/branches";
 import type { ChurchEvent } from "../data/content";
 import { PHOTO_SLOTS, bundledPhoto, photoById, photoKeyOf, resolvePhoto } from "../data/photos";
@@ -965,23 +966,65 @@ export function GuestTransportButtons() {
 
 /* ------------------------------- the services the site is carrying */
 
-/** Finished services, read from the church's channel; take-offs publish with the section (note 109). */
+/** Whatever channel the field names, read for its previous lives (admin
+    only): the last previous live broadcasts, newest first — re-read when the
+    field moves, when a service is seeded or ends, and on a quiet cadence. */
+function usePreviousLives(channel: string) {
+  const [lives, setLives] = useState<RecentService[]>([]);
+  const [reading, setReading] = useState(false);
+  useEffect(() => {
+    let alive = true;
+    if (!channel) {
+      setLives([]);
+      setReading(false);
+      return;
+    }
+    setReading(true);
+    const read = () => {
+      fetchPreviousLives(channel, 24)
+        .then((res) => {
+          if (!alive) return;
+          setReading(false);
+          setLives(res ? res.items : []);
+        })
+        .catch(() => {
+          if (!alive) return;
+          setReading(false);
+          setLives([]);
+        });
+    };
+    /* The field types ahead of the read: wait out the keystrokes. */
+    const timer = window.setTimeout(read, 700);
+    const unsub = subscribeRecentServices(read);
+    const iv = window.setInterval(read, 90_000);
+    return () => {
+      alive = false;
+      window.clearTimeout(timer);
+      window.clearInterval(iv);
+      unsub();
+    };
+  }, [channel]);
+  return { lives, reading };
+}
+
+/** Finished services, read from the channel in the field above; take-offs publish with the section (note 109). */
 export function RecentServicesPanel() {
   useCmsTick();
-  const now = useNow(30000);
   const live = draftLive();
-  /* The head office's gathering, read the way the site reads it — a broadcast
-     is expected around it, which is when the list is worth watching closely. */
-  const info = nextService(SERVICES, now, churchTimezone());
-  const onNow = !!live.isLive || !!info?.isLive;
-  const recent = useRecentServices({ soon: onNow, liveNow: onNow });
   const limit = recentLimit(live.recentLimit);
 
   /* Read from the draft, so a take-off shows here, on the live section and on
      the page in the same breath (the applied content follows). */
   const hiddenIds: string[] = Array.isArray(live.hiddenReplays) ? live.hiddenReplays.map((id: any) => String(id)) : [];
   const hidden = new Set(hiddenIds);
-  const items = recent.items;
+  const channelSet = !!String(live.youtubeChannel || "").trim();
+  const cleanedChannel = String(live.youtubeChannel || "").trim().replace(/@@+/g, "@").replace(/\s+/g, "");
+  /* Any channel in the field takes the last previous lives: the panel follows
+     the draft channel above — its last previous live broadcasts — with a
+     just-ended service seeded on top while YouTube publishes it. */
+  const { lives, reading } = usePreviousLives(cleanedChannel);
+  const seeds = readRecentServices().items.filter((it) => it.seeded && !lives.some((l) => l.videoId === it.videoId));
+  const items = [...seeds, ...lives];
   const shown = items.filter((it) => !hidden.has(it.videoId)).slice(0, limit);
   const off = hiddenIds.map(
     (id) =>
@@ -1004,11 +1047,9 @@ export function RecentServicesPanel() {
   };
   const putBack = (id: string) => writeHidden(hiddenIds.filter((x) => x !== id));
 
-  const channelSet = !!String(live.youtubeChannel || "").trim();
   /* One tap back to the church's channel (note 346): restores carry
      debugging channels otherwise, and the recents follow the published
      channel — so the wrong list stays until a @twocorg publish moves it. */
-  const cleanedChannel = String(live.youtubeChannel || "").trim().replace(/@@+/g, "@").replace(/\s+/g, "");
   const resetChannel = () => {
     const latest = cms.getDraft().live || {};
     cms.setSectionValue("live", { ...latest, youtubeChannel: "@twocorg" });
@@ -1065,9 +1106,11 @@ export function RecentServicesPanel() {
         </ul>
       ) : (
         <p className="muted">
-          {channelSet
-            ? "Nothing here yet — the list fills itself as services finish."
-            : "Paste the channel above (the YouTube channel the page watches) and the finished services appear here by themselves."}
+          {!channelSet
+            ? "Paste the channel above (the YouTube channel the page watches) and the finished services appear here by themselves."
+            : reading
+            ? `Reading ${cleanedChannel}'s previous lives…`
+            : "No previous lives on this channel yet — they appear here as services finish."}
         </p>
       )}
 

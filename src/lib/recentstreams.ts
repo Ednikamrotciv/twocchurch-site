@@ -69,6 +69,26 @@ function channelPageUrl(): string {
   return target.url.replace(/\/live\/*$/i, "");
 }
 
+/** The published channel's own id, synchronously known: a UC id pasted
+    straight in answers directly; otherwise the resolved id the reads saved
+    beside the same cleaned value; otherwise the designated map (so @twocorg
+    answers with no read at all); otherwise nothing is known yet. The moment a
+    @channel is published, every @twocorg-only door below opens for it — its
+    own list is kept, other channels' lists go, and grid-only items wait for
+    the feed exactly like the church's. */
+export function publishedChannelId(): string {
+  const pasted = cleanChannelInput(LIVE.youtubeChannel);
+  if (!pasted) return "";
+  const direct = channelIdIn(pasted);
+  if (direct) return direct;
+  try {
+    const cached = readStore<{ value?: string; id?: string } | null>(CHANNEL_KEY, null);
+    if (cached && cached.value === pasted && cached.id) return String(cached.id);
+  } catch {
+    /* uncached — fall through to the map */
+  }
+  return designatedChannelId(pasted);
+}
 /** The channel id behind the office's channel setting, resolving a handle once. */
 async function resolveChannelId(): Promise<string> {
   /* Cleaned (note 321): a doubled "@" must resolve like the handle it is. */
@@ -332,7 +352,7 @@ export async function fetchRecentServices(): Promise<RecentServices | null> {
      channels. Grid-only items with no feed date are unproven, so on the
      designated channel they wait for the feed instead of painting; anywhere
      else the grid reads exactly as before. */
-  const designatedRead = !!designatedChannelId();
+  const designatedRead = !!publishedChannelId();
   const items: RecentService[] = listed
     /* An upload with neither a date nor YouTube's own words is an *upcoming*
        broadcast, not a service that has happened: it is not a recent service. */
@@ -368,6 +388,115 @@ export async function fetchRecentServices(): Promise<RecentServices | null> {
   return { items: merged.slice(0, KEEP), at: now, channelId: channelId || "" };
 }
 
+/* -------------------------------------- previous lives of any channel */
+
+/** Streams-tab addresses for a pasted channel plus a known id, fastest first. */
+function streamsPagesFor(pasted: string, channelId: string): string[] {
+  const out: string[] = [];
+  if (channelId) out.push(`https://www.youtube.com/channel/${channelId}/streams`);
+  const raw = String(pasted || "").trim();
+  if (/^https?:\/\//i.test(raw)) out.push(raw.replace(/\/+$/, "") + "/streams");
+  else if (/^UC[\w-]{20,24}$/.test(raw)) out.push(`https://www.youtube.com/channel/${raw}/streams`);
+  else {
+    const m = /^@?([\w.-]+)$/.exec(raw);
+    if (m) out.push(`https://www.youtube.com/@${m[1]}/streams`);
+  }
+  return [...new Set(out)];
+}
+
+/** Channel pages for id resolution from a pasted value, mirrors the bake. */
+function channelPagesFor(pasted: string): string[] {
+  const raw = String(pasted || "").trim();
+  if (!raw) return [];
+  if (/^https?:\/\//i.test(raw)) return [raw.replace(/\/+$/, "")];
+  if (/^UC[\w-]{20,24}$/.test(raw)) return [`https://www.youtube.com/channel/${raw}`];
+  const m = /^@?([\w.-]+)$/.exec(raw);
+  if (m) return [`https://www.youtube.com/@${m[1]}`];
+  return [];
+}
+
+/** The channel id behind any pasted value (parameterized twin of resolveChannelId). */
+async function resolveChannelIdFor(pasted: string): Promise<string> {
+  if (!pasted) return "";
+  const direct = channelIdIn(pasted);
+  if (direct) return direct;
+  const designated = designatedChannelId(pasted);
+  if (designated) return designated;
+  const cached = readStore<{ value?: string; id?: string } | null>(CHANNEL_KEY, null);
+  if (cached && cached.value === pasted && cached.id) return String(cached.id);
+  for (const page of channelPagesFor(pasted)) {
+    const html = await fetchText(page);
+    if (!html) continue;
+    const id =
+      /"externalId":"(UC[\w-]{20,24})"/.exec(html)?.[1] ||
+      /"channelId":"(UC[\w-]{20,24})"/.exec(html)?.[1] ||
+      /youtube\.com\/channel\/(UC[\w-]{20,24})/.exec(html)?.[1] ||
+      "";
+    if (id) {
+      writeStore(CHANNEL_KEY, { value: pasted, id });
+      return id;
+    }
+  }
+  return "";
+}
+
+/** Ago lines that are not a finished broadcast: upcoming, premieres, live-now. */
+function isUnfinishedAgo(ago: string): boolean {
+  return /upcoming|premier|scheduled|watching|started streaming|^\s*live\b/i.test(String(ago || ""));
+}
+
+/** Any channel's previous live broadcasts, newest first (the admin read): the
+    /streams tab IS the live list, so regular uploads never qualify — the feed
+    only dates them. Ended broadcasts only: upcoming and live-now markers are
+    refused, and feed dates in the future with them. Fails quietly (null), so
+    the last good list stands. */
+export async function fetchPreviousLives(channelInput: string, depth = KEEP): Promise<RecentServices | null> {
+  const pasted = cleanChannelInput(channelInput);
+  if (!pasted) return null;
+  const channelId = await resolveChannelIdFor(pasted);
+  let html: string | null = null;
+  for (const page of streamsPagesFor(pasted, channelId)) {
+    const h = await fetchText(page);
+    if (h && h.includes("lockupMetadataViewModel")) {
+      html = h;
+      break;
+    }
+  }
+  /* No readable live list, no previous lives: a feed-only read would mix
+     regular uploads in, so the last good list stands instead. */
+  if (!html) return null;
+  const xml = channelId ? await fetchText(`https://www.youtube.com/feeds/videos.xml?channel_id=${channelId}`) : null;
+  const feed = xml
+    ? parseFeed(xml)
+    : { dates: {} as Record<string, number>, titles: {} as Record<string, string>, channel: "" };
+  const grid = parseVideosPage(html);
+  const now = Date.now();
+  const items: RecentService[] = grid
+    .filter((it) => !isUnfinishedAgo(it.ago))
+    .filter((it) => feed.dates[it.videoId] || it.ago)
+    .map((it) => ({
+      videoId: it.videoId,
+      title: trimChannel(it.title, feed.channel) || it.title || feed.titles[it.videoId] || "Service",
+      at: feed.dates[it.videoId] || approxFromAgo(it.ago, now),
+      ago: it.ago,
+      thumb: `https://i.ytimg.com/vi/${it.videoId}/hqdefault.jpg`,
+    }))
+    /* Scheduled premieres sit in the feed with tomorrow's date — not previous. */
+    .filter((it) => !(it.at > now + 30 * 60_000));
+  if (!items.length) return null;
+  /* One message however many times it was published, newest first. */
+  const collapsed = collapseSameMessage(items, now).sort((a, b) => whenOf(b, now) - whenOf(a, now));
+  return { items: collapsed.slice(0, Math.max(1, depth)), at: now, channelId: channelId || "" };
+}
+
+/** Wake every open recents read at once (Stop, Play and autostop seed into it). */
+export function subscribeRecentServices(fn: () => void): () => void {
+  listeners.add(fn);
+  return () => {
+    listeners.delete(fn);
+  };
+}
+
 /* The designated channel's previous services, baked into the code (note 364):
    every public proxy is down and the deployed bake is empty until seed.json is
    deployed — so a standalone visitor would see no recents and no still on the
@@ -392,10 +521,17 @@ const DESIGNATED_FALLBACK_ITEMS: Array<{ videoId: string; title: string; at: num
   { videoId: "gVJP8wlL9dM", title: "It Will End in Praise - Evang Steve K Pelemo", at: 1788419927000 },
   { videoId: "suLunbMiN78", title: "SUNDAY SERVICE, AUG. 30TH. 2026", at: 1788127709000 },
 ];
-/** The fallback list — only for the designated channel, [] anywhere else. */
+/** The fallback list — only for the designated channel, [] anywhere else. A
+    published @channel takes the designation, but the baked items stay
+    @twocorg's own: nothing else's lives can ship in the code, so anywhere
+    but @twocorg the live read and the shipped bake fill the card instead. */
 export function designatedFallback(): RecentServices {
   const designated = designatedChannelId();
-  if (!designated) return { ...EMPTY };
+  /* The baked items are @twocorg's own: serve them only under that
+     designation — anywhere else (including a published @channel, whose own
+     lives no code can ship) the live read and the shipped bake fill the
+     card instead. */
+  if (!designated || designated !== designatedChannelId("@twocorg")) return { ...EMPTY };
   return {
     items: DESIGNATED_FALLBACK_ITEMS.map((it) => ({
       videoId: it.videoId,
@@ -419,7 +555,9 @@ export function readRecentServices(): RecentServices {
      fresh read forever. Seeds and empty caches pass through; the next read
      (or the baked @twocorg list) fills the card back in. */
   const cachedChannelId = String(cached.channelId || "");
-  const designated = designatedChannelId();
+  /* A published @channel takes all @twocorg does: its own list is kept, any
+     other channel's list falls to the fallback. */
+  const designated = publishedChannelId();
   if (designated && cachedChannelId && cachedChannelId !== designated) return designatedFallback();
   const now = Date.now();
   const items = cached.items
@@ -485,13 +623,13 @@ export function applyBakedRecent(seed: unknown) {
       if (fresh.length >= KEEP) break;
     }
     if (!fresh.length) return;
-    /* Only @twocorg's own bake paints (note 418): a bake stamped for another
+    /* Only the published channel's own bake paints: a bake stamped for another
        channel (built while the field named a guest or a debugging handle)
-       never reaches the card — the designated fallback stands in instead.
-       Unstamped older bakes cannot be judged and still paint. */
-    if (designatedChannelId()) {
+       never reaches the card. Unstamped older bakes cannot be judged and
+       still paint. */
+    if (publishedChannelId()) {
       const bakedFor = String(raw.channelId || "");
-      if (bakedFor && bakedFor !== designatedChannelId()) return;
+      if (bakedFor && bakedFor !== publishedChannelId()) return;
     }
     const known = new Set(fresh.map((it) => it.videoId));
     const seeds = current.items.filter((it) => it.seeded && !known.has(it.videoId));

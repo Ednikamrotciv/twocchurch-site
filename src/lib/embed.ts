@@ -16,43 +16,31 @@ export const EMBED_REFERRER_POLICY = "strict-origin-when-cross-origin";
 /** The file extensions a browser will play straight from a URL. */
 const VIDEO_FILE = /\.(mp4|m4v|webm|ogv|ogg|mov|m3u8)(\?|#|$)/i;
 
-/** A video file the office uploaded (hosted by the upload service).
-    Only real video addresses count: a file with a video extension, an
-    office upload path, or a blob/data video already cached in this browser.
-    A bare https URL is NOT enough (it used to pass anything, so a pasted
-    page link played a dead <video>). */
+/** A video file the office uploaded (hosted by the upload service). */
 export function isUploadVideoUrl(input: string): boolean {
   const value = String(input || "").trim();
   if (!value) return false;
-  if (VIDEO_FILE.test(value)) return true;
-  if (/^blob:/i.test(value)) return true;
-  if (/^data:video\//i.test(value)) return true;
-  if (/\/data\/uploads\//.test(value)) return true;
-  if (/^src\//.test(value)) return VIDEO_FILE.test(value);
-  return false;
+  return VIDEO_FILE.test(value) || /^https?:\/\//.test(value) || /^src\//.test(value);
 }
 
-/** Accepts a bare id, a watch link, a share link, an embed link or a live link.
-    Anything else answers "" (garbage used to be trimmed into a fake id,
-    which embedded a dead "unavailable" player instead of falling back). */
+/** Accepts a bare id, a watch link, a share link, an embed link or a live link. */
 export function parseYoutubeId(input: string): string {
   const value = String(input || "").trim();
   if (!value) return "";
-  /* YouTube video ids are exactly 11 chars of [A-Za-z0-9_-]. */
-  if (/^[\w-]{11}$/.test(value)) return value;
+  if (/^[\w-]{6,20}$/.test(value)) return value;
   const patterns = [
-    /[?&]v=([\w-]{11})/,
-    /youtu\.be\/([\w-]{11})/,
-    /youtube\.com\/live\/([\w-]{11})/,
-    /youtube\.com\/embed\/([\w-]{11})/,
-    /youtube\.com\/shorts\/([\w-]{11})/,
-    /youtube\.com\/watch\/([\w-]{11})/,
+    /[?&]v=([\w-]{6,20})/,
+    /youtu\.be\/([\w-]{6,20})/,
+    /youtube\.com\/live\/([\w-]{6,20})/,
+    /youtube\.com\/embed\/([\w-]{6,20})/,
+    /youtube\.com\/shorts\/([\w-]{6,20})/,
+    /youtube\.com\/watch\/([\w-]{6,20})/,
   ];
   for (const re of patterns) {
     const m = re.exec(value);
     if (m) return m[1];
   }
-  return "";
+  return value.replace(/[^\w-]/g, "").slice(0, 20);
 }
 
 export function youtubeEmbed(id: string, autoplay = true): string {

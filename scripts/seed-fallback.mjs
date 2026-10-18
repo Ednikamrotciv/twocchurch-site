@@ -95,7 +95,19 @@ export async function loadBakedSeed(rootDir, distDir) {
     const path = await import("node:path");
     const tries = [];
     if (distDir) tries.push(path.join(distDir, "seed.json"));
-    if (rootDir && rootDir !== distDir) tries.push(path.join(rootDir, "seed.json"));
+    /* Clean-deploy flag: with clean-deploy.txt beside package.json this deploy
+       ships no words — the committed root seed is the office's own backup in
+       git, never a visitor page, so a clean copy must never fall through to
+       it and resurface the last publish. Without the flag the root seed stays
+       the second source, as before. Never throws. */
+    let cleanDeploy = false;
+    try {
+      if (rootDir) {
+        await fs.readFile(path.join(rootDir, "clean-deploy.txt"), "utf8");
+        cleanDeploy = true;
+      }
+    } catch { /* words ride as usual */ }
+    if (!cleanDeploy && rootDir && rootDir !== distDir) tries.push(path.join(rootDir, "seed.json"));
     for (const file of tries) {
       try {
         const seed = usableSeed(JSON.parse(await fs.readFile(file, "utf8")));
@@ -167,14 +179,15 @@ export function preferMirrorSeed(bake, mirror, opts) {
 
 /* Boot-time prime (office request: sleep-wake serves the first publish, not
    the deploy-time bake): after a publish the office mirrors the seed, so a
-   waking box asks the mirror first and serves pushed words within seconds
-   instead of waiting out the feed-follow minute on a stale bake. On a clean
-   deploy (empty bake) the mirror is adopted ONLY as this deploy's own first
-   publish (same-deploy witness, running update or older) — retired mirrors
-   can never resurrect onto a clean deploy. Best effort — unreachable mirror,
-   unconfigured feed, or a guarded case above all fall back to the bake
-   silently. Node only runs inside; the top-level stays importable without
-   Node (tests). */
+   waking box asks the pushed mirror first — then the baked source-repo
+   address (dist/origin.json, no feed config needed) — and serves pushed
+   words within seconds instead of waiting out the feed-follow minute on a
+   stale bake. On a clean deploy (empty bake) the mirror is adopted ONLY as
+   this deploy's own first publish (same-deploy witness, running update or
+   older) — retired mirrors can never resurrect onto a clean deploy. Best
+   effort — unreachable mirror, unconfigured feed, or a guarded case above
+   all fall back to the bake silently. Node only runs inside; the top-level
+   stays importable without Node (tests). */
 export async function primeMirrorSeed(rootDir, distDir) {
   try {
     const fs = await import("node:fs/promises");
@@ -183,7 +196,20 @@ export async function primeMirrorSeed(rootDir, distDir) {
     const cfg = await readFeedConfig(rootDir);
     const feed = effectiveFeed(cfg);
     const m = /^\s*([A-Za-z0-9_.-]+)\/([A-Za-z0-9_.-]+)@([A-Za-z0-9_.\/-]+)\s*$/.exec(feed || "");
-    if (!m || (m[1] === "owner" && m[2] === "repo")) return { primed: false };
+    const haveFeed = m && !(m[1] === "owner" && m[2] === "repo");
+    /* Origin address for wake-time priming (sleep-wake after the first
+       publish): build-static.mjs bakes the public source repo into
+       dist/origin.json, so a waking box with no feed configured primes off
+       the pushed source seed — the office push carries the first publish
+       there. Same takeover/mirror-wins rules as the feed source below; a
+       private repo 404s and stays skipped. Never throws. */
+    let origin = "";
+    try {
+      const rawOrigin = JSON.parse(await fs.readFile(path.join(distDir, "origin.json"), "utf8"));
+      const om = /^\s*([A-Za-z0-9_.-]+)\/([A-Za-z0-9_.-]+)@([A-Za-z0-9_.\/-]+)\s*$/.exec(String((rawOrigin && rawOrigin.source) || ""));
+      if (om && !(om[1] === "owner" && om[2] === "repo")) origin = `${om[1]}/${om[2]}@${om[3]}`;
+    } catch { /* no origin baked — the feed alone stands */ }
+    if (!haveFeed && !origin) return { primed: false };
     if (!seedCache) await loadBakedSeed(rootDir, distDir);
     /* This deploy's own witness and update, for the clean-bake takeover rule
        above: the deployed version.json names both (the takeover needs them,
@@ -197,10 +223,18 @@ export async function primeMirrorSeed(rootDir, distDir) {
       const hooksSrc = await fs.readFile(path.join(rootDir, "src", "lib", "hooks.ts"), "utf8");
       buildNotes = Number((hooksSrc.match(/BUILD_NOTES = (\d+)/) || [])[1]) || 0;
     } catch { /* unknown update — takeovers stay off */ }
-    const base = `${m[1]}/${m[2]}`;
+    const sources = [];
+    if (haveFeed) sources.push({ base: `${m[1]}/${m[2]}`, branch: m[3], via: "the pushed mirror" });
+    if (origin && (!haveFeed || origin.toLowerCase() !== `${m[1]}/${m[2]}@${m[3]}`.toLowerCase())) {
+      const cut = origin.indexOf("/");
+      const rest = origin.slice(cut + 1);
+      const at = rest.indexOf("@");
+      if (cut > 0 && at > 0) sources.push({ base: `${origin.slice(0, cut)}/${rest.slice(0, at)}`, branch: rest.slice(at + 1), via: "the source repo" });
+    }
+    for (const src of sources) {
     const urls = [
-      `https://raw.githubusercontent.com/${base}/${m[3]}/seed.json`,
-      `https://cdn.jsdelivr.net/gh/${base}@${m[3]}/seed.json`,
+      `https://raw.githubusercontent.com/${src.base}/${src.branch}/seed.json`,
+      `https://cdn.jsdelivr.net/gh/${src.base}@${src.branch}/seed.json`,
     ];
     for (const url of urls) {
       let data = null;
@@ -242,11 +276,13 @@ export async function primeMirrorSeed(rootDir, distDir) {
         const kept = usableSeed({ ...data, publishedDeploy: bake.publishedDeploy });
         if (kept) {
           seedCache = kept;
-          console.log(`seed fallback primed from the pushed mirror (rev ${kept.rev}) — wakes serve the first publish, not the deploy bake`);
+          console.log(`seed fallback primed from ${src.via} (rev ${kept.rev}) — wakes serve the first publish, not the deploy bake`);
           return { primed: true };
         }
       }
-      return { primed: false };
+      /* This address had nothing newer — the next address (or the origin
+         source) still gets its turn. */
+    }
     }
     return { primed: false };
   } catch {

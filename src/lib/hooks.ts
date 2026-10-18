@@ -108,7 +108,7 @@ export function useLocalState<T>(key: string, initial: T) {
    version.json, and in the browser console as window.__womBuild. Bump NOTES with
    every SPEC note so a stale deploy is spotted, not guessed (note 244). */
 export const BUILD_NOTES = 413;
-export const BUILD_DATE = "2026-10-18";
+export const BUILD_DATE = "2026-10-13";
 /* Unnumbered code identity (the stale fix ships with no new number): an opaque
    word naming the running code, compared by equality only — never ordered — so
    a stale cache can never invert it the way stale numbers did. An explicit
@@ -116,7 +116,7 @@ export const BUILD_DATE = "2026-10-18";
    word with EVERY behavior update: a changed word both retires stale bundles
    and stages a new deploy clean (a same word across rebuilds means continuity,
    so routine same-code rebuilds never wipe staged words). */
-export const CODE_ID = "catchup";
+export const CODE_ID = "cleanfresh";
 export function buildStamp() {
   return { notes: BUILD_NOTES, built: BUILD_DATE, code: CODE_ID };
 }
@@ -248,28 +248,8 @@ export function useTheme() {
 export function useNow(intervalMs = 1000) {
   const [now, setNow] = useState(() => new Date());
   useEffect(() => {
-    /* A hidden tab keeps no clock: intervals keep firing in background
-       tabs and re-render whole pages for nobody. Pause while hidden and
-       refresh the moment the tab is seen again. */
-    let id = 0;
-    const start = () => {
-      window.clearInterval(id);
-      id = window.setInterval(() => setNow(new Date()), intervalMs);
-    };
-    const onVis = () => {
-      if (document.visibilityState === "visible") {
-        setNow(new Date());
-        start();
-      } else {
-        window.clearInterval(id);
-      }
-    };
-    start();
-    document.addEventListener("visibilitychange", onVis);
-    return () => {
-      window.clearInterval(id);
-      document.removeEventListener("visibilitychange", onVis);
-    };
+    const id = window.setInterval(() => setNow(new Date()), intervalMs);
+    return () => window.clearInterval(id);
   }, [intervalMs]);
   return now;
 }

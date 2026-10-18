@@ -51,28 +51,12 @@ function dataUrlToBlob(dataUrl: string): Blob | null {
     if (!m) return null;
     const type = m[1] || "application/octet-stream";
     const b64 = m[3] || "";
-    /* Chunked decode: one giant atob string + charCodeAt loop on a
-       tens-of-MB video blocks the tab and can OOM — decode in slices. */
-    const slice = 32768;
-    const bytes = new Uint8Array(Math.ceil((b64.length * 3) / 4));
-    let ptr = 0;
-    for (let i = 0; i < b64.length; i += slice) {
-      const chunk = b64.slice(i, i + slice);
-      const bin = atob(chunk);
-      for (let j = 0; j < bin.length; j++) bytes[ptr++] = bin.charCodeAt(j);
-    }
-    return new Blob([bytes.slice(0, ptr)], { type });
+    const bin = atob(b64);
+    const bytes = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+    return new Blob([bytes], { type });
   } catch {
     return null;
-  }
-}
-
-/** Async variant — lets the browser stream the decode off the hot path. */
-export function dataUrlToBlobAsync(dataUrl: string): Promise<Blob | null> {
-  try {
-    return fetch(dataUrl).then((r) => (r.ok ? r.blob() : null)).catch(() => dataUrlToBlob(dataUrl));
-  } catch {
-    return Promise.resolve(dataUrlToBlob(dataUrl));
   }
 }
 
@@ -89,9 +73,6 @@ export async function cacheUploadBlob(name: string, blob: Blob): Promise<void> {
     const dataUrl = await blobToDataUrl(blob);
     if (!dataUrl.startsWith("data:")) return;
     MEM.set(clean, dataUrl);
-    /* Bound the offline copy: a phone video can be hundreds of MB and
-       would blow the IndexedDB quota and evict everything else. */
-    if (dataUrl.length > 48_000_000) return;
     try {
       const db = await idb();
       if (db) {

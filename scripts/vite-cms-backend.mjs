@@ -108,9 +108,6 @@ export function cmsBackend() {
           let by = typeof res.by === "string" ? res.by.slice(0, 60) : "";
           let at = typeof res.at === "number" ? res.at : 0;
           let publishedDeploy = typeof res.publishDeploy === "string" && /^[A-Za-z0-9_-]{1,80}$/.test(res.publishDeploy) ? res.publishDeploy : "";
-          /* Feed witness (note 302): the dev bake names the publishing code
-             word like bake-seed.mjs does, so feed followers lift headless. */
-          const code = typeof res.code === "string" && /^[A-Za-z0-9_-]{1,40}$/.test(res.code) ? res.code : "";
           if (!notes && !log.length && !by && !at) {
             try {
               const prev = JSON.parse(await readFile(path.join(outDir, "seed.json"), "utf8"));
@@ -120,7 +117,7 @@ export function cmsBackend() {
               if (typeof prev?.at === "number") at = prev.at;
             } catch {}
           }
-          await writeFile(path.join(outDir, "seed.json"), JSON.stringify({ rev: typeof res.rev === "number" ? res.rev : 0, notes, sections, log, by, at, ...(publishedDeploy ? { publishedDeploy } : {}), ...(code ? { code } : {}) }));
+          await writeFile(path.join(outDir, "seed.json"), JSON.stringify({ rev: typeof res.rev === "number" ? res.rev : 0, notes, sections, log, by, at, ...(publishedDeploy ? { publishedDeploy } : {}) }));
           console.log(`baked ${Object.keys(sections).length} published sections into seed.json`);
         }
       } catch (err) {

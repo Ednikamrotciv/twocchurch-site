@@ -47,7 +47,7 @@ function readLocation(): RouteState {
   return {
     path: target || "/",
     query: new URLSearchParams(search),
-    hash: window.location.hash || "",
+    hash: raw,
     editing,
     movedAdmin: parts.some((p, i) => i > 0 && p.toLowerCase() === "admin"),
   };
