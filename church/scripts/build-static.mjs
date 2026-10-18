@@ -87,15 +87,10 @@ try {
     if (!line) console.log("no live feed in publish-feed.txt — deployed copies update on rebuilds only");
     else console.warn(`publish-feed.txt ignored: "${line}" is not owner/repo@branch or a github.com repo address — deployed copies update on rebuilds only`);
   }
-  /* Feed signal on the entry page (note 416, fixed note 421): the deployed
-     copy reads it synchronously on first paint — like the wom-server meta
-     above — so the maintenance gate knows at once that words can move after
-     deploy even with no server behind the copy. Stamped ONLY when a feed is
-     actually configured (feed.json written above): an unconditional stamp
-     made every standalone copy look feed-backed, so fresh visitors waited on
-     a publish that had no path to ever arrive. Route copies below inherit
-     the shell. */
-  if (feed) {
+    /* Feed signal on the entry page (note 416): the deployed copy reads it
+       synchronously on first paint — like the wom-server meta above — so the
+       maintenance gate knows at once that words can move after deploy even
+       with no server behind the copy. Route copies below inherit the shell. */
     try {
       var shellPathFeed = path.join(OUT, "index.html");
       var shellFeed = await readFile(shellPathFeed, "utf8");
@@ -109,7 +104,6 @@ try {
     } catch (errFeed) {
       console.warn("feed meta skipped:", errFeed && errFeed.message ? errFeed.message : errFeed);
     }
-  }
 } catch (err) {
   console.warn("feed.json skipped:", err?.message || err);
 }

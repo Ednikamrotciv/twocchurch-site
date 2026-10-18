@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useMemo, useState } from "react";
 import { Link } from "../lib/router";
 import { tx } from "../lib/i18n";
 import { useNow, useToasts } from "../lib/hooks";
@@ -16,7 +16,9 @@ import { fireToast } from "../lib/hooks";
 import { mailto } from "../lib/store";
 
 export function Home() {
-  const now = useNow(1000);
+  /* Minute precision is plenty here (service slots are minute-based) —
+     ticking every second re-rendered the whole homepage for nothing. */
+  const now = useNow(30000);
   /* The office's Weekly services card, read on the church's own clock. */
   const info = nextService(SERVICES, now, churchTimezone());
   /* When that gathering happens, read on the visitor's own clock (note 85). */
@@ -24,18 +26,19 @@ export function Home() {
   const latest = sermonsNewestFirst();
   const featured = latest[0];
   const { all: testimonies, amen } = useTestimonies();
-  const upcoming = [...EVENTS].sort((a, b) => daysUntil(a) - daysUntil(b)).slice(0, 3);
+  /* Sorted on each (30s) tick, not on every render — and never every second. */
+  const upcoming = useMemo(() => [...EVENTS].sort((a, b) => daysUntil(a) - daysUntil(b)).slice(0, 3), [now]);
 
   return (
     <>
       {/* ---------------- hero ---------------- */}
       <section className="hero">
         <div className="hero__bg" aria-hidden="true">
-          <img className="hero__photo" src={img("hero")} alt="" />
+          <img className="hero__photo" src={img("hero")} alt="" fetchPriority="high" decoding="async" />
           {/* Phones get the office's own verse graphic instead of the banner. */}
-          <img className="hero__mobile" src={img("hero-mobile")} alt="" />
+          <img className="hero__mobile" src={img("hero-mobile")} alt="" loading="lazy" decoding="async" />
           <span className="hero__scrim" />
-          <img className="hero__faint" src={img("hero-faint")} alt="" />
+          <img className="hero__faint" src={img("hero-faint")} alt="" loading="lazy" decoding="async" />
           <span className="hero__glow" />
           <span className="hero__grain" />
         </div>

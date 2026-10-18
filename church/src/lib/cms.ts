@@ -2399,6 +2399,8 @@ function startLivePull() {
 export async function startCms() {
   if (starting) return;
   starting = true;
+  /* Reconnect the instant the network/tab returns (no waiting out the timer). */
+  startAutoRetry();
   /* Which shared store, if any: the local backend, or the office
      server this copy was pointed at (deploy config or admin console). */
   await initServerUrl().catch(() => {});
@@ -2695,6 +2697,31 @@ export async function retryNow() {
   }
   if (!socket && socketFactory()) connect();
   else notify();
+}
+
+/* Back online (or back to the tab) reconnects at once instead of waiting out
+   the retry timer: the backoff only paces attempts WHILE the network/server is
+   down. The socket open itself pulls the missed publish (syncFromServer runs
+   in the open handler), so this reconnect IS the catch-up. Throttled so the
+   online + visibility events firing together share one attempt; the local-only
+   path stays with watchForServer. */
+let lastAutoRetryAt = 0;
+let autoRetryListening = false;
+function autoRetryNow() {
+  if (socket && status === "online") return;
+  if (localOnly) return;
+  const now = Date.now();
+  if (now - lastAutoRetryAt < 3000) return;
+  lastAutoRetryAt = now;
+  retryNow().catch(() => {});
+}
+function startAutoRetry() {
+  if (autoRetryListening) return;
+  autoRetryListening = true;
+  window.addEventListener("online", autoRetryNow);
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "visible") autoRetryNow();
+  });
 }
 
 /* An open that never settles must still end (the raw-socket path already has one). */

@@ -139,11 +139,13 @@ export function resolvePath(input: string): Resolved {
   const direct = matchRoute(path);
   if (direct) return { element: direct.element, to: path };
 
-  /* Trim extra end segments (years/months never name a page). */
+  /* Trim trailing date/number segments ("/events/2026/05" is "/events"):
+     strip them first, then match once. */
   const parts = path.split("/").filter(Boolean);
-  for (let i = parts.length - 1; i > 0; i--) {
-    if (/^\d+$/.test(parts[i])) continue;
-    const candidate = "/" + parts.slice(0, i).join("/");
+  let end = parts.length;
+  while (end > 1 && /^\d+$/.test(parts[end - 1])) end--;
+  if (end < parts.length) {
+    const candidate = "/" + parts.slice(0, end).join("/");
     const hit = matchRoute(candidate);
     if (hit) return { element: hit.element, to: candidate };
   }

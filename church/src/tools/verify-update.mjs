@@ -524,7 +524,7 @@ export async function runAll(fs) {
      token and never wipe unsaved work. */
   const hooksJ8 = text["src/lib/hooks.ts"];
   const indexJ8 = text["index.html"];
-  ok("code word rotated", has(hooksJ8, 'CODE_ID = "cleanfresh"') && has(indexJ8, 'wom-code" content="cleanfresh"'), "the new word must retire the bundle that holds the 5 stuck rows");
+  ok("code word rotated", has(hooksJ8, 'CODE_ID = "catchup"') && has(indexJ8, 'wom-code" content="catchup"'), "the new word must retire the bundle that holds the cleanfresh blessing");
   ok("dev token names the code", has(cms, '"n" + BUILD_NOTES + "c" + (runningCode'), "an unnumbered update must still prove a fresh deploy in local dev");
   ok("fresh clear takes after-save", has(cms, "localStorage.removeItem(AFTER_SAVE_KEY)"), "a queued publish-after-save must not republish stale words after the clear");
   /* J9. restore+publish reaches every copy (office request: works on one
@@ -620,10 +620,10 @@ export async function runAll(fs) {
       return fn(new Uint8Array(8 * 1024 * 1024), self, { publish() {} }, console);
     };
     const anon13 = { id: "anon-att", net: ["x", 0, 0], subscribe() {}, topics: new Set() };
-    const rpcW = mkRpc("cleanfresh");
+    const rpcW = mkRpc("catchup");
     const both = (rpc) => [JSON.parse(rpc.getContent({ conn: anon13 })), JSON.parse(rpc.contentRev({ conn: anon13 }))];
     const [cW, rW] = both(rpcW);
-    ok("server attests its code", cW.ok === true && cW.code === "cleanfresh" && rW.ok === true && rW.code === "cleanfresh", "words=" + cW.code + " rev=" + rW.code);
+    ok("server attests its code", cW.ok === true && cW.code === "catchup" && rW.ok === true && rW.code === "catchup", "words=" + cW.code + " rev=" + rW.code);
     const [cE, rE] = both(mkRpc(""));
     ok("empty attestation proves nothing", cE.ok === true && cE.code === "" && rE.code === "", "an untold word must stay empty, never wrong");
   } catch (e) {

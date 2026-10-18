@@ -10,7 +10,7 @@ export function mountShaderBackground(): () => void {
     alpha: false,
     depth: false,
     stencil: false,
-    preserveDrawingBuffer: true,
+    preserveDrawingBuffer: false,
     powerPreference: "low-power",
   }) as WebGLRenderingContext | null;
   if (!gl) {
@@ -151,10 +151,17 @@ export function mountShaderBackground(): () => void {
   function frame(now: number) {
     if (dead) return;
     raf = requestAnimationFrame(frame);
-    if (now - last < 33) return;
+    /* ~20fps is plenty for a slow ambient wash (the fbm stack is the
+       most expensive pixel work on the page) — and a hidden tab draws
+       nothing at all. */
+    if (document.visibilityState === "hidden") {
+      last = now;
+      return;
+    }
+    if (now - last < 50) return;
     last = now;
     if (blend < 1) blend = Math.min(1, blend + 0.03);
-    elapsed += 0.033;
+    elapsed += 0.05;
     draw();
   }
 

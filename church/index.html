@@ -7,7 +7,7 @@
 <!-- The shipped code word (unnumbered stale fix): names the running code with
      no number, so the gate below holds for this fix even though the update
      number is unchanged. build-static.mjs stamps it from hooks.ts CODE_ID. -->
-<meta name="wom-code" content="cleanfresh" />
+<meta name="wom-code" content="catchup" />
 
 <meta name="theme-color" content="#08080a">
 <title>The World Overcomers' Ministries Inc. — Where Champions Are Raised in Christ</title>
@@ -92,7 +92,7 @@
         if (!r || r.hasChildNodes()) return;
         r.innerHTML =
           '<div style="min-height:100vh;min-height:100dvh;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:1rem;background:#07070a;color:#f5f0e6;font-family:Georgia,serif;text-align:center;padding:2rem;">' +
-          '<img src="/src/assets/logo-mark.png" alt="" aria-hidden="true" style="width:72px;height:72px;object-fit:contain;" onerror="this.style.display=\'none\'">' +
+          '<svg width="72" height="72" viewBox="0 0 72 72" aria-hidden="true" style="width:72px;height:72px;"><circle cx="36" cy="36" r="33" fill="none" stroke="#e8bd62" stroke-width="2.5"/><path d="M36 16v40M22 30h28" stroke="#e8bd62" stroke-width="3.5" stroke-linecap="round"/></svg>' +
           "<h1 style=\"margin:0;font-size:2rem;font-weight:600;\">We&rsquo;ll be right back</h1>" +
           '<p style="margin:0;max-width:34rem;line-height:1.6;opacity:0.85;">The site is being updated. Please check back shortly.</p>' +
           "</div>";
@@ -125,16 +125,6 @@
           paintMaint();
           return;
         }
-      } catch (e) {}
-      /* Pure static copies (note 421): no office server and no live feed can
-         ever move words after deploy, so there is no publish step to wait
-         for — the shipped words ARE the site. Holding them behind the stamps
-         below would trap every fresh visitor with no release. Server- and
-         feed-backed copies still wait below. */
-      try {
-        var hasServer = !!document.querySelector('meta[name="wom-server"]');
-        var hasFeed = !!document.querySelector('meta[name="wom-feed"]');
-        if (!hasServer && !hasFeed) return;
       } catch (e) {}
       var stored = 0;
       try {
@@ -194,7 +184,7 @@
             if (!root || root.hasChildNodes()) return;
             root.innerHTML =
               '<div style="min-height:100vh;min-height:100dvh;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:1rem;background:#07070a;color:#f5f0e6;font-family:Georgia,serif;text-align:center;padding:2rem;">' +
-              '<img src="/src/assets/logo-mark.png" alt="" aria-hidden="true" style="width:72px;height:72px;object-fit:contain;" onerror="this.style.display=\'none\'">' +
+              '<svg width="72" height="72" viewBox="0 0 72 72" aria-hidden="true" style="width:72px;height:72px;"><circle cx="36" cy="36" r="33" fill="none" stroke="#e8bd62" stroke-width="2.5"/><path d="M36 16v40M22 30h28" stroke="#e8bd62" stroke-width="3.5" stroke-linecap="round"/></svg>' +
               "<h1 style=\"margin:0;font-size:2rem;font-weight:600;\">We&rsquo;ll be right back</h1>" +
               '<p style="margin:0;max-width:34rem;line-height:1.6;opacity:0.85;">The site is being updated. Please check back shortly.</p>' +
               "</div>";

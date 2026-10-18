@@ -49,7 +49,7 @@ export const LIVE_STATUS_KEY = "wom.livestatus";
     unless a watcher asks urgent (the Watch page does: it checks at once). */
 const FRESH_MS = 45_000;
 /** Give the proxy this long before calling the check a failure. */
-const CHECK_TIMEOUT_MS = 15_000;
+const CHECK_TIMEOUT_MS = 8_000;
 /** Poll cadence (note 310): fast while a broadcast is expected or the Watch
     page is open — a YouTube start shows in seconds and the waiting clock
     vanishes with it — slower in the quiet week. Live and local share this
@@ -379,16 +379,13 @@ export function nextScreenShut(prevShut: ScreenShut, wasLiveTarget: string, gues
     Stop and published it — the live is off, whatever YouTube still says. A
     pause HOLDS (the session start is kept), so only an end counts: switch off,
     start cleared, office end stamped. Fresh copies ship `liveCut: 0`, so the
-    rule never fires on arrival. A stop older than a service day no longer
-    vetoes (note 421): stops are per-service, so last week's Stop must never
-    hold off this week's live — a fresh Stop still holds until Play. */
+    rule never fires on arrival. */
 export function officeStopActive(live: any): boolean {
   if (!live || typeof live !== "object") return false;
   if (!!(live as any).isLive) return false;
   if (String((live as any).liveEndedBy || "") !== "office") return false;
   if (!(Number((live as any).liveCut) > 0)) return false;
   if (Number((live as any).liveSince) !== 0) return false;
-  if (Date.now() - Number((live as any).liveCut) > 12 * 60 * 60 * 1000) return false;
   return true;
 }
 
@@ -426,20 +423,6 @@ export function unverifiedChannelAnswer(
   return { state: "off", videoId: "", title: "", channelId: "" };
 }
 
-/** The broadcast a live /live page redirected to (note 421), pure for the
-    verifier: a channel's /live answers the broadcast's own watch page while
-    on air — one updatedMetadataEndpoint id, no Live tab — and that id is the
-    broadcast by construction (the redirect proves whose video it is). "" when
-    the page is a plain channel page (Live tab present) or names no single id. */
-export function redirectedLiveVideoId(html: string): string {
-  const text = String(html || "");
-  if (text.indexOf('"title":"Live","selected":true') >= 0) return "";
-  const ids = new Set<string>();
-  for (const w of text.matchAll(/"updatedMetadataEndpoint":\{"videoId":"([\w-]{11})"/g)) ids.add(w[1]);
-  if (ids.size !== 1) return "";
-  return [...ids][0];
-}
-
 /** Answer YouTube for a fetched channel/watch page (note 322): when the page
     is readable but carries no live marker and the target is a channel, the
     Live tab's video is asked on its own watch page before anything is called
@@ -455,18 +438,6 @@ async function resolveYoutube(
   if (parsed.live && parsed.videoId) return { state: "live" as const, videoId: parsed.videoId, title: parsed.title, channelId: "" };
   if (!parsed.read) return { state: "unknown" as const, videoId: "", title: "", channelId: "" };
   if (target.kind !== "channel") return off;
-  /* Redirect shape (note 421): a live channel's /live answers the broadcast's
-     own watch page (no Live tab, one updatedMetadataEndpoint id, on-air
-     chrome already proven above). That id IS the broadcast — the redirect
-     proves ownership — so it plays with no watch-page round trip. Deployed
-     servers cannot read watch pages (they answer 502 while the channel page
-     reads 200), so without this the live fell back to the channel follow and
-     its "unavailable" frame. Anything ambiguous falls through to the verified
-     asking below. */
-  if (parsed.live) {
-    const redirected = redirectedLiveVideoId(html);
-    if (redirected) return { state: "live" as const, videoId: redirected, title: parsed.title, channelId: "" };
-  }
   /* Otherwise the page only SUGGESTS videos (note 324) — the Live tab's, then
      the most named — and each suggestion is asked on its own watch page. The
      first one that is on air is the broadcast; videos that answer `off` are
@@ -697,7 +668,11 @@ export async function checkLiveStream(opts: { facebook?: boolean } = {}): Promis
   /* The guest's own report, matched the same way (note 380): only an answer
      stamped for the guest address may stand for the guest. */
   const officeGuest = guest && officeRep && officeRep.target === guest.url && reportCarriesVideo(officeRep) ? officeRep : null;
-  const guestHtml = guest && !officeGuest ? await fetchPage(guest.url) : null;
+  /* Guest and main are independent doors — ask both at once instead of
+     serially, halving the worst-case wait. */
+  const guestHtmlPromise = guest && !officeGuest ? fetchPage(guest.url) : Promise.resolve(null);
+  const mainHtmlPromise = target && !officeHit ? fetchPage(target.url) : Promise.resolve(null);
+  const guestHtml = await guestHtmlPromise;
   const guestAns: { state: LiveState; videoId: string; title: string; channelId: string } = !guest
     ? { state: "unset", videoId: "", title: "", channelId: "" }
     : officeGuest
@@ -707,7 +682,7 @@ export async function checkLiveStream(opts: { facebook?: boolean } = {}): Promis
     : guestHtml === null
     ? { state: "unknown", videoId: "", title: "", channelId: "" }
     : await resolveYoutube(guest, guestHtml);
-  const html = target && !officeHit ? await fetchPage(target.url) : null;
+  const html = await mainHtmlPromise;
   const youtube: { state: LiveState; videoId: string; title: string; channelId: string } = !target
     ? { state: "unset", videoId: "", title: "", channelId: "" }
     : officeHit
@@ -814,6 +789,9 @@ let timer = 0;
 let polling = false;
 /** When the last answer was fetched (ms) — the freshness clock. */
 let lastCheckAt = snapshot.status.checkedAt;
+/** A failed check (offline) re-asks the instant the tab wakes instead of
+    waiting out the quiet timer in onWake. Set in run(), read in onWake. */
+let lastCheckFailed = false;
 /** The address the last answer was about, so a new one is checked at once. */
 let lastTarget = "";
 
@@ -1029,9 +1007,11 @@ async function run() {
      turns a live stream into an ended one. */
   if (next.state === "unknown" && snapshot.status.state === "live") {
     lastCheckAt = Date.now();
+    lastCheckFailed = true;
     schedule(delay());
     return;
   }
+  lastCheckFailed = next.state === "unknown";
   saveLiveStatus(next);
   publish({ status: next });
   /* This copy may be the office: a definitive answer goes to the server at
@@ -1047,7 +1027,8 @@ async function run() {
 
 function onWake() {
   if (document.visibilityState !== "visible") return;
-  if (Date.now() - lastCheckAt < 15_000) return;
+  /* A failed check (offline) never waits out the quiet timer. */
+  if (!lastCheckFailed && Date.now() - lastCheckAt < 15_000) return;
   schedule(0);
 }
 

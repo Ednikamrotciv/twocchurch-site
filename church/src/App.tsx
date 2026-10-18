@@ -136,7 +136,7 @@ export function App() {
 
   return (
     <>
-      <SiteApp key={version} />
+      <SiteApp />
       <LangAsk />
     </>
   );
