@@ -4,6 +4,12 @@
      is the only state. Production keys are untouched — this file never loads
      on the live site. */
   var SITE_VERSION = "__SITE_VERSION__";
+  /* Fresh boot id, stamped per `npm run dev` start (see vite-cms-backend.mjs):
+     the browser treats each dev boot like a new deploy — clean admin,
+     welcome slide only, maintenance until Publish — exactly like live. */
+  try {
+    window.__womDevBoot = "__DEV_BOOT__";
+  } catch (e) {}
   try {
     var vk = "__wom_site_version";
     if (window.localStorage && localStorage.getItem(vk) !== SITE_VERSION) {

@@ -11,6 +11,12 @@ Edits apply in the browser the moment you save (Vite HMR). Sign-in, Publish,
 uploads, recent services and the live badge all work in dev — it runs the same
 backend the production server runs, so what you see is what the office gets.
 
+Every `npm run dev` boot behaves exactly like a new deploy on live: the admin
+opens clean, fresh and new (welcome-home photo slide only, no unsaved changes),
+and visitors wait on the maintenance notice until you Publish — Publish then
+steps out to the visitors website. Reloads in the same run keep continuity
+(still live after Publish); restarting dev starts fresh again.
+
 If dev ever shows a stale or blank page after updating these files, run once:
 
 ```sh

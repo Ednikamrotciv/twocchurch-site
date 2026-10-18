@@ -23,6 +23,10 @@ export function cmsBackend() {
   const geoProxy = createGeoProxy();
   let cms = null;
   let siteVersion = "vite";
+  /* Fresh id per dev-server process: the browser treats each `npm run dev`
+     boot like a new deploy (clean admin + maintenance until Publish).
+     Stable across page reloads in the same run, new on every restart. */
+  const devBootId = "dev-" + Date.now().toString(36) + "-" + Math.random().toString(36).slice(2, 8);
   let outDir = path.join(ROOT, "dist");
   return {
     name: "wom-cms-backend",
@@ -185,7 +189,7 @@ export function cmsBackend() {
 
           if (pathname === "/scripts/local-shim.js" && req.method === "GET") {
             const shim = await readFile(path.join(ROOT, "scripts", "local-shim.js"), "utf8");
-            const body = shim.split("__SITE_VERSION__").join(siteVersion);
+            const body = shim.split("__SITE_VERSION__").join(siteVersion).split("__DEV_BOOT__").join(devBootId);
             res.writeHead(200, {
               "content-type": "text/javascript; charset=utf-8",
               "content-length": Buffer.byteLength(body),

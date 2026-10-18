@@ -79,6 +79,19 @@ try {
   currentDeployId = "";
   deployFromMeta = false;
 }
+/* Dev-boot lock (`npm run dev`): the dev server stamps a fresh boot id into
+   scripts/local-shim.js on every start (see vite-cms-backend.mjs) — stable
+   across page reloads in the same run, new on every restart. The browser
+   treats each boot exactly like a new deploy: clean admin, welcome slide
+   only, maintenance until Publish. Production never loads the shim, so this
+   is always empty there and changes nothing. */
+let devBootId = "";
+try {
+  const b = (window as any).__womDevBoot;
+  if (typeof b === "string" && /^dev-[A-Za-z0-9_-]{1,80}$/.test(b)) devBootId = b;
+} catch {
+  devBootId = "";
+}
 let publishedDeployId = "";
 try {
   const raw = localStorage.getItem(DEPLOY_KEY);
@@ -166,6 +179,16 @@ function markDeployPublished(): boolean {
      clean stage stages no longer. */
   blessRunningCode();
   cleanStageForNewCode = false;
+  /* Dev boot (`npm run dev`): an explicit publish releases this boot at once,
+     exactly like a stamped deploy — reloads in the same run stay live. */
+  if (devBootId) {
+    if (publishedDeployId === devBootId) return false;
+    publishedDeployId = devBootId;
+    try {
+      localStorage.setItem(DEPLOY_KEY, devBootId);
+    } catch {}
+    return true;
+  }
   if (!currentDeployId || !deployFromMeta) return false;
   if (publishedDeployId === currentDeployId) return false;
   publishedDeployId = currentDeployId;
@@ -178,6 +201,7 @@ function markDeployPublished(): boolean {
 function noteDeployWitness(v: unknown): boolean {
   try {
     if (typeof v === "string" && v && currentDeployId && deployFromMeta && v === currentDeployId) return markDeployPublished();
+    if (typeof v === "string" && v && devBootId && v === devBootId) return markDeployPublished();
   } catch {}
   return false;
 }
@@ -221,11 +245,23 @@ function deployProvesFreshDeploy(): boolean {
       if (!seen) return true;
       return seen !== currentDeployId;
     }
-    /* Local dev (no stamped deploy): the update number PLUS the code word is
-       the deploy token, so each update — numbered or not — clears unsaved
-       draft + pending once: the local copy opens fresh and clean instead of
-       carrying the last copy's unsaved list. Same-code rebuilds keep the
-       token, so routine rebuilds never wipe unsaved work. */
+    /* Dev boot (`npm run dev`): the boot id proves it — a different boot is a
+       new deploy, exactly like live. Same boot reloads keep continuity. */
+    if (devBootId) {
+      let seen = "";
+      try {
+        seen = localStorage.getItem(DEPLOY_SEEN_KEY) || "";
+      } catch {
+        return false;
+      }
+      if (!seen) return true;
+      return seen !== devBootId;
+    }
+    /* No boot id and no stamped deploy (shim missing — preview without the
+       dev server): the update number PLUS the code word is the deploy token,
+       so each update — numbered or not — clears unsaved draft + pending once.
+       Same-code rebuilds keep the token, so routine rebuilds never wipe
+       unsaved work. */
     try {
       const wantLocal = "n" + BUILD_NOTES + "c" + (runningCode || "");
       const seenLocal = localStorage.getItem(DEPLOY_SEEN_KEY) || "";
@@ -241,6 +277,7 @@ function deployProvesFreshDeploy(): boolean {
 function markDeploySeen(): void {
   try {
     if (deployFromMeta && currentDeployId) localStorage.setItem(DEPLOY_SEEN_KEY, currentDeployId);
+    else if (devBootId) localStorage.setItem(DEPLOY_SEEN_KEY, devBootId);
     else localStorage.setItem(DEPLOY_SEEN_KEY, "n" + BUILD_NOTES + "c" + (runningCode || ""));
   } catch {}
 }
@@ -251,6 +288,7 @@ if (typeof window !== "undefined") {
   (window as unknown as { __maintState?: () => object }).__maintState = () => ({
     publishedNotes,
     deployId: currentDeployId,
+    devBoot: devBootId,
     publishedDeploy: publishedDeployId,
     deployLocked: deployFromMeta,
     buildNotes: BUILD_NOTES,
@@ -317,7 +355,7 @@ function maintenancePreview(): boolean {
     if (q.get("preview") === "1") {
       try {
         sessionStorage.setItem(PREVIEW_KEY, "1");
-        sessionStorage.setItem(PREVIEW_NOTES_KEY, currentDeployId && deployFromMeta ? currentDeployId : "n" + BUILD_NOTES);
+        sessionStorage.setItem(PREVIEW_NOTES_KEY, currentDeployId && deployFromMeta ? currentDeployId : devBootId ? "b" + devBootId : "n" + BUILD_NOTES);
       } catch {}
       return true;
     }
@@ -326,7 +364,7 @@ function maintenancePreview(): boolean {
     try {
       const stamped = sessionStorage.getItem(PREVIEW_NOTES_KEY);
       if (stamped !== null) {
-        const want = currentDeployId && deployFromMeta ? currentDeployId : "n" + BUILD_NOTES;
+        const want = currentDeployId && deployFromMeta ? currentDeployId : devBootId ? "b" + devBootId : "n" + BUILD_NOTES;
         if (stamped !== want) return false;
       }
     } catch {
@@ -414,6 +452,13 @@ export function maintenanceShouldWait(): boolean {
     if (publishedDeployId === currentDeployId) return false;
     return true;
   }
+  /* Dev boot (`npm run dev`): every boot holds visitors on the maintenance
+     notice until a publish from that boot lands — exactly like a new deploy
+     on live. Reloads in the same boot stay live once published. */
+  if (devBootId) {
+    if (publishedDeployId === devBootId) return false;
+    return true;
+  }
   /* No stamped deploy (local dev): the number gate locks every new fix until
      the office publishes — a local Publish blesses the copy even with no
      server reachable (note 250), so this lock always has a release. Note 301:
@@ -453,6 +498,16 @@ export function useMaintenance(): boolean {
      deploy holds until a publish from its own deploy lands — always. */
   if (deployFromMeta && currentDeployId) {
     if (publishedDeployId === currentDeployId) return false;
+    try {
+      if (maintenancePreview()) return false;
+    } catch {}
+    return true;
+  }
+  /* Dev boot (`npm run dev`): every boot holds visitors on the maintenance
+     notice until a publish from that boot lands — exactly like a new deploy
+     on live. The office preview pass still bypasses. */
+  if (devBootId) {
+    if (publishedDeployId === devBootId) return false;
     try {
       if (maintenancePreview()) return false;
     } catch {}
@@ -3617,12 +3672,12 @@ const SLIDES_RESET_KEY = "wom.cms.slidesReset";
 export function resetSlidesForNewDeploy(): boolean {
   try {
     /* Per-deploy token (office request: every new deploy is fresh, clean and
-       new): stamped builds reset once per deploy ID, so old slides never
-       ride a rebuild — while the boot clean-stage (no dirty) means the
-       drawer usually already holds welcome-only and this is a quiet no-op,
-       so rebuilds never re-mark slides as unsaved. Local dev keeps the
-       code token (no stamped deploy there). */
-    const token = deployFromMeta && currentDeployId ? "d" + currentDeployId : runningCode ? "c" + runningCode : "n" + BUILD_NOTES;
+       new): stamped builds reset once per deploy ID, dev boots once per boot
+       id — so old slides never ride a rebuild — while the boot clean-stage
+       (no dirty) means the drawer usually already holds welcome-only and this
+       is a quiet no-op, so rebuilds never re-mark slides as unsaved. No boot
+       id and no stamped deploy (shim missing) keeps the code token. */
+    const token = deployFromMeta && currentDeployId ? "d" + currentDeployId : devBootId ? "b" + devBootId : runningCode ? "c" + runningCode : "n" + BUILD_NOTES;
     let done = "";
     try {
       done = localStorage.getItem(SLIDES_RESET_KEY) || "";
