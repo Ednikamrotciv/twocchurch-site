@@ -79,6 +79,20 @@ try {
   currentDeployId = "";
   deployFromMeta = false;
 }
+/* Dev-boot IDs (meta stamped per `npm run dev` boot, "dev-…") drive the
+   deploy lock, the clean stage and the seen clock like any build — but they
+   never name a served build. So for STAMPING (the durable publishDeploy on
+   the office record and the relay to live) a dev copy stamps the live deploy
+   like an unstamped copy: its own deploy would name a build live never
+   served, and live visitors would keep waiting (the relay blesses live's own
+   deploy, never ours). Hold, staging and seen below still use the dev ID. */
+function ownDeployIsDevBoot(): boolean {
+  try {
+    return deployFromMeta && !!currentDeployId && currentDeployId.indexOf("dev-") === 0;
+  } catch {
+    return false;
+  }
+}
 let publishedDeployId = "";
 try {
   const raw = localStorage.getItem(DEPLOY_KEY);
@@ -4651,7 +4665,10 @@ async function fetchLiveDeployId(base: string, ms = 6000): Promise<string> {
    Stamped copies (live/admin, deployed office) always use their own id. */
 async function deployStampForOfficePublish(): Promise<string> {
   try {
-    if (currentDeployId && deployFromMeta) return "";
+    /* Stamped real builds carry their own id (their own deploy wins in
+       sendPatch); dev-boot IDs and unstamped copies fetch live's instead, so
+       the office record and the relay both name the build visitors run. */
+    if (currentDeployId && deployFromMeta && !ownDeployIsDevBoot()) return "";
     const base = await relayLiveBase().catch(() => "");
     if (!base) return "";
     return await fetchLiveDeployId(base, 6000);
@@ -4909,11 +4926,13 @@ async function sendPatch(
   deployStamp?: string
 ): Promise<{ ok: boolean; error?: string; rev?: number; sent: string[]; failed?: string[]; relay?: "landed" | "missed" | "unneeded" }> {
   /* The durable stamp for this send: our own deploy when stamped, else the
-     live deploy the relay blesses (wake durability), else unstamped. */
+     live deploy the relay blesses (wake durability), else unstamped. Dev-boot
+     IDs never count as our own here (see ownDeployIsDevBoot) — the live relay
+     below blesses live's own deploy, never ours. */
   let durableDeploy = "";
   try {
     if (bless) {
-      if (currentDeployId && deployFromMeta) durableDeploy = currentDeployId;
+      if (currentDeployId && deployFromMeta && !ownDeployIsDevBoot()) durableDeploy = currentDeployId;
       else if (typeof deployStamp === "string" && /^[A-Za-z0-9_-]{1,80}$/.test(deployStamp)) durableDeploy = deployStamp;
     }
   } catch {
