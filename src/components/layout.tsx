@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import { tx } from "../lib/i18n";
 import { Link, navigate, useRoute } from "../lib/router";
 import { useHotkey, useMediaQuery, useScrollProgress, useTheme, useNow, useClickOutside, useBodyLock } from "../lib/hooks";
-import { exitMaintenancePreview } from "../lib/cms";
+import { exitMaintenancePreview, recheckMaintenance } from "../lib/cms";
 import { nextService, displayLive, countdownParts, to12h, DAY_SHORT, fmtDate, zoneYear, clockAt, churchTimezone, visitorPlace } from "../lib/store";
 import { SITE, SERVICES, NAV, FOOTER_LINKS, LOGO_MARK } from "../data/site";
 import { siteFile } from "../lib/livefeed";
@@ -551,6 +551,10 @@ export function MaintenanceSite() {
   /* Auto dark/light on the notice too — no switch button here, it just follows
      the site's own theme (stored choice + automatic switching). */
   useTheme();
+  /* A stuck visitor's way out (note 422): the fast lane above usually clears
+     the notice by itself seconds after the publish lands — this button is for
+     the tab whose shout never arrived, re-asking every lane at once. */
+  const [checking, setChecking] = useState(false);
   return (
     <div className="maint">
       <header className="maint__head">
@@ -564,6 +568,18 @@ export function MaintenanceSite() {
         <img className="maint__mark" src={siteFile(LOGO_MARK)} alt="" aria-hidden="true" />
         <h1>We&rsquo;ll be right back</h1>
         <p>The site is being updated. Please check back shortly.</p>
+        <button
+          type="button"
+          className="maint__retry"
+          disabled={checking}
+          onClick={() => {
+            setChecking(true);
+            recheckMaintenance();
+            window.setTimeout(() => setChecking(false), 5000);
+          }}
+        >
+          {checking ? tx("Checking…") : tx("Check again")}
+        </button>
       </main>
     </div>
   );

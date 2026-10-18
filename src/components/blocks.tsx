@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Link, navigate } from "../lib/router";
 import { motion, AnimatePresence, useReducedMotion } from "framer-motion";
 import { useLocalState, fireToast, useNow, useReveal } from "../lib/hooks";
@@ -226,6 +226,62 @@ export function AnnouncementBanner() {
 
 /* ------------------------------------------------------------------ video player */
 
+/* YouTube's own error net (note 421): oEmbed and the mirror only prove a video
+   EXISTS — an embedding-disabled, removed-after-verify, age-limited or
+   region-blocked video still answers them, then dies inside the frame with
+   the black "unavailable" screen. And a channel follow plays blind: when no
+   broadcast is actually running, the channel frame errors the same way. So
+   every playing YouTube frame is also watched through the IFrame Player API:
+   any player error swaps to the dead fallback below (poster, the reason, the
+   platform link, a retry) instead of sitting black. A frame the API never
+   reaches (offline, blocked script) plays exactly as before — the verify
+   layers in front of it still stand. */
+let ytApiPromise: Promise<{ Player: new (...args: unknown[]) => { destroy?: () => void } }> | null = null;
+function loadYoutubeApi(): Promise<{ Player: new (...args: unknown[]) => { destroy?: () => void } }> {
+  if (typeof window === "undefined" || typeof document === "undefined") return Promise.reject(new Error("no window"));
+  const w = window as unknown as { YT?: { Player?: new (...args: unknown[]) => { destroy?: () => void } } };
+  if (w.YT && w.YT.Player) return Promise.resolve(w.YT as { Player: new (...args: unknown[]) => { destroy?: () => void } });
+  if (ytApiPromise) return ytApiPromise;
+  let settled = false;
+  ytApiPromise = new Promise((resolve, reject) => {
+    const fail = (err: Error) => {
+      if (settled) return;
+      settled = true;
+      reject(err);
+    };
+    try {
+      const tag = document.createElement("script");
+      tag.src = "https://www.youtube.com/iframe_api";
+      tag.async = true;
+      tag.onerror = () => fail(new Error("api unreachable"));
+      const first = document.getElementsByTagName("script")[0];
+      (first?.parentNode || document.head).insertBefore(tag, first || null);
+      const timer = window.setTimeout(() => fail(new Error("api timed out")), 12000);
+      void timer;
+      const check = () => {
+        if (settled) return;
+        const y = (window as unknown as { YT?: { Player?: new (...args: unknown[]) => { destroy?: () => void } } }).YT;
+        if (y && y.Player) {
+          settled = true;
+          window.clearTimeout(timer);
+          resolve(y as { Player: new (...args: unknown[]) => { destroy?: () => void } });
+        } else {
+          window.setTimeout(check, 250);
+        }
+      };
+      check();
+    } catch (e) {
+      fail(e instanceof Error ? e : new Error("api failed"));
+    }
+  });
+  /* A failed load retries on the next player (note 421): a momentary offline
+     must not wedge every later frame. */
+  ytApiPromise.catch(() => {
+    ytApiPromise = null;
+  });
+  return ytApiPromise;
+}
+
 export function VideoPlayer({
   source,
   title,
@@ -278,6 +334,12 @@ export function VideoPlayer({
   const still = poster && !failed ? poster : posterFor(source);
   const platform: VideoPlatform = source?.platform === "facebook" ? "facebook" : source?.platform === "upload" ? "upload" : "youtube";
   const shell = "player" + (compact ? " player--compact" : "") + (playing ? " player--playing" : "");
+  /* The address the frame loads (note 421): the API flag rides here at the
+     player level, so the embed builders' outputs stay byte-identical (the
+     pre-ship verifier pins them). */
+  const apiSrc = !file && platform === "youtube" && src ? src + (src.indexOf("?") === -1 ? "?" : "&") + "enablejsapi=1" : src;
+  const frameRef = useRef<HTMLIFrameElement | null>(null);
+  const [frameKey, setFrameKey] = useState(0);
 
   /* A new source starts unjudged. */
   useEffect(() => {
@@ -471,6 +533,61 @@ export function VideoPlayer({
     return () => window.clearInterval(t);
   }, [playing, ytId, dead]);
 
+  /* The frame's own verdict (note 421): verdicts only prove a video exists,
+     so a playing YouTube frame is watched through the Player API too — any
+     player error (removed, embedding-disabled, age-limited, blocked, or a
+     channel follow with no broadcast running) swaps to the dead fallback
+     instead of the black "unavailable" screen. */
+  useEffect(() => {
+    if (!playing || dead || file || platform !== "youtube" || !src) return;
+    let alive = true;
+    let player: { destroy?: () => void } | null = null;
+    loadYoutubeApi()
+      .then((yt) => {
+        if (!alive) return;
+        const frame = frameRef.current;
+        if (!frame) return;
+        try {
+          player = new yt.Player(frame, {
+            events: {
+              onError: () => {
+                if (alive) setDead(true);
+              },
+            },
+          });
+        } catch {
+          /* plain frame stands */
+        }
+      })
+      .catch(() => {
+        /* offline or blocked script — the plain frame stands */
+      });
+    return () => {
+      alive = false;
+      try {
+        player?.destroy?.();
+      } catch {
+        /* already gone */
+      }
+    };
+  }, [playing, dead, file, platform, src, frameKey]);
+
+  /* A failed frame gets one more chance (note 421): a fresh frame is mounted
+     and the verdict layers plus the API net above judge it again — a passing
+     blip plays, a still-dead video falls straight back. */
+  const retryDead = () => {
+    setFrameKey((k) => k + 1);
+    setDead(false);
+    setChecking(false);
+    setNotLive(false);
+    if (!ytId && followId) {
+      checkChannelThenPlay();
+      return;
+    }
+    setPlaying(true);
+    onPlay?.();
+  };
+
   if (file) {
     /* A video the office uploaded plays in the browser itself. */
     return (
@@ -517,6 +634,9 @@ export function VideoPlayer({
               {tx("Watch on YouTube")}
             </Btn>
           )}
+          <Btn size="sm" variant="ghost" onClick={retryDead}>
+            {tx("Try again")}
+          </Btn>
         </div>
         {live && (
           <span className="player__live">
@@ -531,8 +651,10 @@ export function VideoPlayer({
       {playing ? (
         <>
           <iframe
+            key={frameKey}
+            ref={frameRef}
             className="player__frame"
-            src={src}
+            src={apiSrc}
             title={shown}
             referrerPolicy={EMBED_REFERRER_POLICY}
             allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; fullscreen"
