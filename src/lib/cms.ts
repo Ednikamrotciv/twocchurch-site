@@ -3378,6 +3378,28 @@ async function syncFromServer() {
       blessRunningCode();
     }
   } catch {}
+  /* Late-joining local copy (office request: a live/admin publish clears the
+     local notice with no local click): the server already holds a same-update
+     publish attested to this code — this copy simply first saw its deploy
+     after it stamped, so the strictly-newer rule above never fires. Bless the
+     code so the notice lifts. Stages nothing, moves/loses no words: same
+     update only (never across), never on seeded answers (those returned
+     above), never on an empty answer, never with unsaved work of its own
+     pending, never in a clean stage (a new code arrival still takes its
+     explicit Publish or Recover). */
+  try {
+    if (
+      !deployFromMeta &&
+      !cleanStageForNewCode &&
+      pendingSections().length === 0 &&
+      (res as any).seeded !== true &&
+      Object.keys(server).length > 0 &&
+      typeof res.notes === "number" && Math.floor(res.notes) === BUILD_NOTES &&
+      typeof (res as any).code === "string" && (res as any).code
+    ) {
+      noteCodeWitness((res as any).code, res.notes);
+    }
+  } catch {}
   /* Same-code attestation rides the same answer: a backend running this code
      with this code published lifts the number gate headless — a live publish
      clears the local notice with no tab open and no click needed. Gated on

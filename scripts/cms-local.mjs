@@ -390,17 +390,15 @@ function startLiveFollow({ rootDir, rpcCall, adoptToken }) {
     running = true;
     try {
       /* Clean-deploy mode (office request: every new deploy opens fresh):
-         while clean-deploy.txt is present an empty store must not adopt the
-         live site's retired words — within a minute of boot the old slides
-         would be back on the clean deploy. The office Recover + Publish (or
-         the first explicit publish, which consumes the flag) ends this. */
+         while clean-deploy.txt is present only a fallback bake is held — with
+         no real publish behind it, retired live words stay where they are
+         until Recover + Publish. A strictly newer live publish (same guards
+         below: never across updates, never ties) still adopts, so a
+         live/admin publish reaches local with no local click. */
+      let cleanFlag = false;
       try {
         await readFile(path.join(rootDir, "clean-deploy.txt"), "utf8");
-        if (!round.warnedClean) {
-          round.warnedClean = true;
-          console.log("live follow: clean deploy (clean-deploy.txt) — holding until Recover + Publish, retired live words stay where they are");
-        }
-        return;
+        cleanFlag = true;
       } catch {
         /* no flag — follow as usual */
       }
@@ -454,6 +452,17 @@ function startLiveFollow({ rootDir, rpcCall, adoptToken }) {
       }
       round.warnedNewer = false;
       if (verdict !== "adopt") return;
+      /* Flagged clean deploys still hold on a fallback bake (no real publish
+         behind it — retired words stay until Recover + Publish). Anything
+         else adopted above is a real, strictly newer live publish. */
+      if (cleanFlag && live && live.seeded === true) {
+        if (!round.warnedClean) {
+          round.warnedClean = true;
+          console.log("live follow: clean deploy (clean-deploy.txt) — holding on a fallback bake until Recover + Publish, retired live words stay where they are");
+        }
+        return;
+      }
+      round.warnedClean = false;
       const patch = adoptPatch(live.sections);
       const ids = Object.keys(patch);
       if (!ids.length) return;

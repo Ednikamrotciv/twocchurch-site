@@ -1233,6 +1233,8 @@ export async function runAll(fs) {
   const edAA = text["src/components/editor.tsx"];
   const applyAA = text["APPLY_UPDATE.txt"];
   ok("follow adopts live", has(localAA, "startLiveFollow") && has(followAA, "shouldAdoptLive") && has(followAA, "adoptPatch"), "a live/admin publish must reach local with no tab open");
+  ok("flag holds only fallback bakes", has(localAA, "only a fallback bake is held") && has(localAA, "live.seeded === true"), "a clean-deploy flag must not block a real live publish from reaching local");
+  ok("late local lifts on live truth", has(cmsAA, "Late-joining local copy") && has(cmsAA, "noteCodeWitness((res as any).code, res.notes)"), "a local copy opened after the live publish must still clear its notice with no local click");
   ok("adopt door locked", has(srvAA, "adoptLive") && has(srvAA, "self.__adoptToken"), "only this machine's own loop may adopt");
   ok("publish folds live", has(cmsAA, "async function foldLiveInto") && has(cmsAA, "await foldLiveInto(draft, sectionId)"), "every Publish carries live's newer words by itself");
   ok("auto-push rides out", has(pushAA, "notePublished") && has(localAA, "notePublished"), "a local publish must deploy itself within minutes");
