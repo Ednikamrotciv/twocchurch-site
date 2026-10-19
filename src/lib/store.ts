@@ -271,12 +271,43 @@ export function pad(n: number) {
   return n < 10 ? "0" + n : String(n);
 }
 
+/** A wall-clock "HH:MM" (already moved onto the reader's clock by clockHere /
+    clockAt) read with hardcoded AM/PM (note 422): the HOUR follows the
+    visitor's IP clock, but the format stays 12-hour AM/PM in every language —
+    French visitors read "6:30 PM", never "18:30". */
 export function to12h(time: string) {
   const [hRaw, mRaw] = time.split(":");
   const h = Number(hRaw);
+  const m = Number(mRaw || 0);
+  if (!Number.isFinite(h) || !Number.isFinite(m)) return time;
   const suffix = h >= 12 ? "PM" : "AM";
   const h12 = h % 12 === 0 ? 12 : h % 12;
-  return `${h12}:${mRaw} ${suffix}`;
+  return `${h12}:${pad(m)} ${suffix}`;
+}
+
+/** A month name for an event badge, in the visitor's own language (note 421):
+    "Feb" reads "févr." the moment the IP language is French. */
+export function fmtMonthShort(input: string | Date | number, tz = siteTimezone()) {
+  const d = input instanceof Date ? input : new Date(input);
+  if (isNaN(d.getTime())) return "";
+  try {
+    return new Intl.DateTimeFormat(siteLocale(), { month: "short", timeZone: zoneOr(tz) }).format(d);
+  } catch {
+    return MONTH_SHORT[d.getMonth()] || "";
+  }
+}
+
+/** Join platform names the way the visitor's language joins them (note 421):
+    "YouTube and Facebook" reads "YouTube et Facebook" in French. */
+export function fmtList(items: string[]) {
+  const list = items.filter((s) => String(s || "").trim());
+  if (!list.length) return "";
+  if (list.length === 1) return list[0];
+  try {
+    return new Intl.ListFormat(siteLocale(), { style: "long", type: "conjunction" }).format(list);
+  } catch {
+    return list.join(" and ");
+  }
 }
 
 /** A weekday + 24-hour "HH:MM" pair — a time as some clock reads it. */
@@ -335,7 +366,9 @@ export function fmtDate(input: string | Date | number, style: DateStyle = "mediu
   return d.toLocaleDateString(siteLocale(), { ...opts, timeZone: zoneOr(tz) });
 }
 
-/** A clock time as the church sees it — used where an instant is shown. */
+/** A clock time as the church sees it — used where an instant is shown.
+    The instant follows the visitor's IP clock (note 422), but the format
+    keeps hardcoded AM/PM like to12h: always 12-hour English "6:30 PM". */
 export function fmtTime(
   input: string | Date | number,
   options: Intl.DateTimeFormatOptions = { hour: "numeric", minute: "2-digit" },
@@ -343,7 +376,7 @@ export function fmtTime(
 ) {
   const d = input instanceof Date ? input : new Date(input);
   if (isNaN(d.getTime())) return "";
-  return d.toLocaleTimeString(siteLocale(), { ...options, timeZone: zoneOr(tz) });
+  return d.toLocaleTimeString("en", { ...options, hour12: true, timeZone: zoneOr(tz) });
 }
 
 export function relativeTime(input: string | Date | number) {

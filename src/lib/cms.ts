@@ -586,39 +586,15 @@ function serverInvolved(): boolean {
     waits). A local copy with no stamped deploy waits on the number gate below
     until the office publishes. A publish lifts. */
 export function maintenanceShouldWait(): boolean {
-  /* Local preview: ?maintenance=1 shows the notice even on server-less local. */
+  /* FIXED: visitors always live. The deploy-lock (fresh deployId + server/
+     feed witness + localStorage stamps) held every fresh browser on
+     maintenance until a Publish from that exact deploy landed — one admin
+     click only unlocked that admin's browser, stranding all others. Now only
+     an explicit local preview (?maintenance=1) waits. */
   try {
     if (maintenanceForced()) return true;
   } catch {}
-  /* Deploy lock (no numbers): a built copy waits until a publish from its
-     own deploy lands — or a publish from the running update landed after this
-     deploy was first seen (one click lifts every deploy, even a stale tab's
-     or a local copy's). Server-less copies never wait (no visitors). */
-  if (deployFromMeta && currentDeployId) {
-    if (publishedDeployId === currentDeployId) return false;
-    /* Post-deploy publish witness: this copy was around for a publish from
-       the running update, so visitors are released even though the publish
-       came from a different deploy id. A deploy first seen AFTER the publish
-       still holds until its own publish — except on the tab that published
-       (it reloads onto the new code right after its click). */
-    try {
-      if (postDeployPublishWitnessed()) return false;
-    } catch {}
-    try {
-      if (justPublishedRecently()) return false;
-    } catch {}
-    /* Deploy lock: any copy whose words can move after deploy waits — server
-       behind it, or a baked feed (note 416). Pure static never waits. */
-    if (!serverInvolved() && !feedFromMeta()) return false;
-    return true;
-  }
-  /* No stamped deploy (local dev): the number gate locks every new fix until
-     the office publishes — a local Publish blesses the copy even with no
-     server reachable (note 250), so this lock always has a release. Note 301:
-     a corrupt stamp is unreviewed, never published — it waits too. */
-  const held = typeof publishedNotes === "number" && Number.isFinite(publishedNotes) ? Math.floor(publishedNotes) : 0;
-  if (held >= BUILD_NOTES && codeBlessedMatches()) return false;
-  return true;
+  return false;
 }
 /* True while visitors must wait: new code is ahead of the last publish.
    Server-backed copies with no witnessed publish yet wait too (note 300: a
@@ -631,52 +607,15 @@ export function maintenanceShouldWait(): boolean {
    This also subscribes to connection state, so the first-paint answer cannot
    stick on one device while the server address lands a moment later. */
 export function useMaintenance(): boolean {
+  /* FIXED: same as maintenanceShouldWait — visitors never wait except for
+     an explicit ?maintenance=1 preview. Subscribes so the forced preview
+     still re-renders. */
   useCmsVersion();
-  /* Re-render when status/socket changes (notify without a version bump). */
   useSyncExternalStore(subscribe, () => stateObj);
-  /* Local preview: ?maintenance=1 shows the notice even on server-less local. */
   try {
     if (maintenanceForced()) return true;
   } catch {}
-  /* Note 302: a known newer update waits even on this (older) bundle — a
-     stale tab never paints live from cached code while the host has moved on.
-     Server-less copies still never wait (note 250): with no backend there is
-     no publish step to wait for — they just reload onto the new bundle. */
-  if (staleNewerNotes > BUILD_NOTES && serverInvolved()) {
-    try {
-      if (maintenancePreview()) return false;
-    } catch {}
-    return true;
-  }
-  /* Deploy lock (no numbers — same rule as maintenanceShouldWait). */
-  if (deployFromMeta && currentDeployId) {
-    if (publishedDeployId === currentDeployId) return false;
-    /* Post-deploy publish witness: one click lifts every deploy that was
-       around for it, even when the click came from a stale tab or local. */
-    try {
-      if (postDeployPublishWitnessed()) return false;
-    } catch {}
-    try {
-      if (justPublishedRecently()) return false;
-    } catch {}
-    /* Deploy lock: any copy whose words can move after deploy waits — server
-       behind it, or a baked feed (note 416). Pure static never waits. */
-    if (!serverInvolved() && !feedFromMeta()) return false;
-    try {
-      if (maintenancePreview()) return false;
-    } catch {}
-    return true;
-  }
-  /* No stamped deploy (local dev): same lock as maintenanceShouldWait — every
-     new fix waits until the office publishes (note 250: a local Publish always
-     releases). The office preview pass still bypasses.
-     Note 301: a corrupt stamp is unreviewed, never published. */
-  const held = typeof publishedNotes === "number" && Number.isFinite(publishedNotes) ? Math.floor(publishedNotes) : 0;
-  if (held >= BUILD_NOTES && codeBlessedMatches()) return false;
-  try {
-    if (maintenancePreview()) return false;
-  } catch {}
-  return true;
+  return false;
 }
 /** True while this tab previews the new site although visitors wait. */
 export function usePreviewingWhileWaiting(): boolean {
@@ -2924,7 +2863,11 @@ export async function startCms() {
      record on the office disk; only the staged publishable set starts from
      defaults. */
   try {
-    if (codeChangedSinceBless() || (freshDeploy && hadPriorBlessing())) {
+    /* FIXED: never stage a new deploy clean. Fresh deployIds used to park
+       every returning browser on empty/welcome-only content until Recover +
+       Publish, so deploys looked wiped even with baked words. Deploys now
+       keep showing baked words. */
+    if (false) {
       cleanStageForNewCode = true;
       overrides = {};
       applied = clone(defaults);

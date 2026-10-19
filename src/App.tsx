@@ -6,14 +6,13 @@ import { ErrorBoundary } from "./components/ErrorBoundary";
 import { startCms, useCmsVersion, useCmsReady, useMaintenance, usePreviewingWhileWaiting, useStaleBuild, checkStaleBuild } from "./lib/cms";
 import { mountShaderBackground } from "./lib/shaderbg";
 import { startVisitorClock, useVisitorClock, useVisitorClockRefresh } from "./lib/visitor";
-import { useI18nTick, ensureI18n, setProtectedValues, i18nAsk, chooseLang, dismissAsk } from "./lib/i18n";
+import { useI18nTick, ensureI18n, setProtectedValues, i18nAsk, i18nTickN, chooseLang, dismissAsk } from "./lib/i18n";
 import { allCopySources } from "./data/copy";
 import { startRates, useRates, useRatesRefresh } from "./lib/rates";
 import { useLiveStream } from "./lib/livestatus";
 import { nextService, onAir, churchTimezone } from "./lib/store";
 import { useNow } from "./lib/hooks";
 import { SERVICES } from "./data/site";
-import { BRANCHES } from "./data/branches";
 import { resolvePath } from "./lib/routes";
 import { ADMIN_RETURN_MS, readAdminReturn } from "./lib/adminReturn";
 import { ct } from "./data/copy";
@@ -35,18 +34,9 @@ export function App() {
      translations land (note 209). */
   useI18nTick();
   useEffect(() => {
-    /* Everything translates except identity: the church's name, every
-       address and every email stays exactly as the office typed it. */
-    setProtectedValues([
-      SITE.name,
-      SITE.short,
-      SITE.address,
-      SITE.email,
-      SITE.prayerEmail,
-      SITE.givingEmail,
-      SITE.mediaEmail,
-      ...BRANCHES.flatMap((b) => [b.name, b.address, b.email, b.phone]),
-    ]);
+    /* Everything follows the IP language except identity: only the church's
+       full legal name stays exactly as the office typed it (note 421). */
+    setProtectedValues([SITE.name]);
     if (clock?.country) void ensureI18n(clock.country, allCopySources());
   }, [clock?.country, version]);
   /* Today's rates, from the visitor's browser (note 98). */
@@ -104,10 +94,12 @@ export function App() {
   }, [clock?.currency]);
 
   // The browser tab's words follow the site's own wording (and the office can
-  // reword them under "Site-wide text" in the editor).
+  // reword them under "Site-wide text" in the editor) — in the visitor's own
+  // language too, so the tab title moves when translations land (note 421).
+  const langTick = i18nTickN();
   useEffect(() => {
     document.title = ct("site.tabTitle", { church: SITE.name });
-  }, [version, clock?.tz]);
+  }, [version, clock?.tz, langTick]);
 
   // #/admin (and everything under it) is the very same site, with the office's
   // tools on top. See src/pages/Admin.tsx.
@@ -132,7 +124,11 @@ export function App() {
      settles — otherwise the splash covers the very page asked for. */
   if (maintenance && !ready) return <MaintenanceSite />;
   if (!ready || !stale.settled) return <BootSplash />;
-  if (stale.waiting || maintenance) return <MaintenanceSite />;
+  /* FIXED: stale-build waiting never shows maintenance to visitors — the
+     reload in checkStaleBuild() still runs in the background, but visitors
+     keep reading the site instead of sitting on "We'll be right back" when
+     a reload is delayed or fails. Only an explicit ?maintenance=1 waits. */
+  if (maintenance) return <MaintenanceSite />;
 
   return (
     <>
@@ -142,8 +138,8 @@ export function App() {
   );
 }
 
-/* A non-English IP is asked: their own language or English. The whole site —
-   every line the translator carries — follows the answer when it lands. */
+/* The IP language already applies when this shows (note 421) — the notice is
+   an opt-out: confirm it, keep English instead, or hide it for this visit. */
 function LangAsk() {
   useI18nTick();
   const ask = i18nAsk();
@@ -151,18 +147,18 @@ function LangAsk() {
   return (
     <div className="langask" role="dialog" aria-live="polite" aria-label="Language choice">
       <p>
-        Read this site in <b>{ask.name}</b> or keep it in English?
+        {ct("site.lang.reading", { name: ask.name })}
       </p>
       <div className="langask__row">
         <button type="button" className="langask__go" onClick={() => chooseLang(ask.lang)}>
           {ask.name}
         </button>
         <button type="button" className="langask__keep" onClick={() => chooseLang("en")}>
-          Keep English
+          {ct("site.lang.keep")}
         </button>
       </div>
       <button type="button" className="langask__later" onClick={dismissAsk}>
-        Not now
+        {ct("site.lang.later")}
       </button>
     </div>
   );

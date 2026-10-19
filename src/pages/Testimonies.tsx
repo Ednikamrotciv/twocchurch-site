@@ -240,11 +240,11 @@ function ShareForm({ open, onClose, onSubmit }: { open: boolean; onClose: () => 
 
   const valid = () => {
     const e: Record<string, string> = {};
-    if (!draft.anonymous && !draft.name.trim()) e.name = "Tell us your name, or tick “share anonymously”.";
-    if (!draft.title.trim()) e.title = "Give your testimony a title.";
-    if (draft.body.trim().length < 40) e.body = "Please write at least a couple of sentences (40+ characters).";
-    if (draft.email && !/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(draft.email)) e.email = "That email doesn't look right.";
-    if (!draft.consent) e.consent = "Please confirm we may share your story.";
+    if (!draft.anonymous && !draft.name.trim()) e.name = ct("testimonies.valid.name");
+    if (!draft.title.trim()) e.title = ct("testimonies.valid.title");
+    if (draft.body.trim().length < 40) e.body = ct("testimonies.valid.body");
+    if (draft.email && !/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(draft.email)) e.email = ct("testimonies.valid.email");
+    if (!draft.consent) e.consent = ct("testimonies.valid.consent");
     setErrors(e);
     return Object.keys(e).length === 0;
   };

@@ -57,9 +57,10 @@ export const LANG_NAMES: Record<string, string> = {
 
 /* ------------------------------------------------------- the visitor's pick */
 
-/* A non-English IP is ASKED — English or their own language — and the whole
-   site follows the answer. The pick survives reloads; "not now" only hides
-   the question until the next visit. */
+/* A non-English IP is followed at once — the whole site moves onto their own
+   language by itself (note 421). A small notice offers Keep English instead,
+   and the pick survives reloads; "not now" only hides the notice until the
+   next visit, keeping the IP language meanwhile. */
 const CHOICE_KEY = "wom.i18n.choice";
 const ASK_LATER_KEY = "wom.i18n.asklater";
 
@@ -105,7 +106,7 @@ export function chooseLang(l: string): void {
   void runFor(l, lastEntries);
 }
 
-/** Hide the question until the next visit (the site stays English). */
+/** Hide the notice until the next visit (the IP language stays meanwhile). */
 export function dismissAsk(): void {
   try {
     sessionStorage.setItem(ASK_LATER_KEY, "1");
@@ -171,10 +172,11 @@ export function translatedText(id: string, source: string): string | null {
 
 /* ------------------------------------------------------------------ keepers */
 
-/* Values that always stay as the office typed them: the church's name, its
-   addresses and its emails are identity, not prose — translating them would
-   misdirect visitors (a translated street name no map can find). Set once the
-   site's own data is known (see App); every check below runs against them. */
+/* The one value that always stays as the office typed it: the church's full
+   legal name ("The World Overcomers' Ministries Inc.", note 421). It rides
+   masked (see tokenize) so the prose around it still converts and the name is
+   restored byte-identical — only this name is exempt, everything else follows
+   the visitor's IP language. Set once the site's own data is known (see App). */
 let keepers: string[] = [];
 
 export function setProtectedValues(values: (string | undefined | null)[]): void {
@@ -187,56 +189,34 @@ export function setProtectedValues(values: (string | undefined | null)[]): void 
     if (!seen.has(low)) {
       seen.add(low);
       keepers.push(t);
-      /* The mail domain on its own is identity too ("visit worldovercomers.org"). */
-      const at = t.indexOf("@");
-      if (at > 0 && /^[\w.+-]+@[\w-]+(\.[\w-]+)+$/.test(t)) {
-        const domain = t.slice(at + 1).toLowerCase();
-        if (!seen.has(domain)) {
-          seen.add(domain);
-          keepers.push(t.slice(at + 1));
-        }
-      }
     }
   }
-  /* New keepers can unseat old translations — drop any cached line holding one. */
-  if (lang !== "en") {
-    let changed = false;
-    for (const id of Object.keys(table)) {
-      const hit = table[id];
-      if (hit && isProtected(hit.s)) {
-        delete table[id];
-        changed = true;
-      }
-    }
-    if (changed) {
-      saveCache(lang);
-      bump();
-    }
-  }
+  /* Longest first, so a short keeper can never cut a longer one in half. */
+  keepers.sort((a, b) => b.length - a.length);
 }
 
-/** True when a line carries one of the office's kept values (name/addresses).
-    Emails and links ride masked (see tokenize), so they are stripped before
-    the check: a contact line still translates around its intact address, but a
-    kept name or street address holds the whole line in English (note 225). */
+/** True only when the whole line IS the kept name on its own (note 421) —
+    a lone name needs no request (translation would return it unchanged).
+    Anything longer rides masked (see tokenize) so the prose around the name
+    still converts while the name is restored byte-identical. */
 function isProtected(text: string): boolean {
-  const t = String(text || "");
+  const t = String(text || "").trim();
   if (!t) return false;
-  const bare = t.replace(URL_RE, " ").replace(EMAIL_RE, " ");
-  const low = bare.toLowerCase();
+  const low = t.toLowerCase();
   for (const k of keepers) {
-    if (k.length >= 3 && low.includes(k.toLowerCase())) return true;
+    if (k.length >= 3 && low === k.toLowerCase()) return true;
   }
   return false;
 }
 
-/** Worth sending: has letters, is not a link of its own, holds nothing kept.
-    Long texts travel in pieces (see splitPieces) instead of staying English. */
+/** Worth sending: has letters and is not a link of its own. Kept names ride
+    masked (see tokenize), so only a lone name is skipped — every longer line
+    converts around its intact name (note 421). Long texts travel in pieces
+    (see splitPieces) instead of staying English. */
 function worthTranslating(text: string): boolean {
   const t = String(text || "");
   if (t.length < 2 || t.length > 8000) return false;
   if (/^(https?:|mailto:|tel:|data:|blob:|#)/i.test(t.trim())) return false;
-  /* The church's name and addresses never convert — only prose does. */
   if (isProtected(t)) return false;
   return /[A-Za-zÀ-ÿĀ-ž]/.test(t);
 }
@@ -244,17 +224,28 @@ function worthTranslating(text: string): boolean {
 const EMAIL_RE = /[\w.+-]+@[\w-]+(\.[\w-]+)+/g;
 const URL_RE = /https?:\/\/[^\s<>"')]+/g;
 
-/** Hide {{placeholders}}, email addresses and links from translation under
-    hard tokens, restored after — the address survives while the prose around
-    it converts (note 225). Tokens hold no spaces or punctuation, so piece
-    splits can never cut one in half. */
+/** Escape a literal for a case-insensitive search pattern. */
+function escapeRe(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+/** Hide {{placeholders}}, the kept legal name, email addresses and links from
+    translation under hard tokens, restored after — the name and the address
+    survive byte-identical while the prose around them converts (note 421).
+    Tokens hold no spaces or punctuation, so piece splits can never cut one
+    in half. */
 function tokenize(text: string): { masked: string; vars: string[] } {
   const vars: string[] = [];
   const push = (m: string) => {
     vars.push(m);
     return `__WOM${vars.length - 1}__`;
   };
-  const masked = String(text).replace(/\{\{\w+\}\}/g, push).replace(URL_RE, push).replace(EMAIL_RE, push);
+  let masked = String(text).replace(/\{\{\w+\}\}/g, push).replace(URL_RE, push).replace(EMAIL_RE, push);
+  for (const k of keepers) {
+    if (k.length < 3) continue;
+    const re = new RegExp(escapeRe(k), "gi");
+    masked = masked.replace(re, push);
+  }
   return { masked, vars };
 }
 
@@ -362,8 +353,10 @@ async function translateLines(l: string, texts: string[]): Promise<(string | nul
  * Move the site onto a country's language. `entries` are the current
  * [id, resolved text] pairs; only missing or changed lines travel.
  *
- * Non-English visitors are asked first: a stored pick is honored silently,
- * otherwise the question pops up and the site stays English until they answer.
+ * The IP language applies by itself — like the IP clock and the IP currency
+ * already do (notes 85, 98): a stored pick is honored silently, otherwise the
+ * site moves onto the IP language at once and a small notice offers Keep
+ * English (persisted) or Not now (hides for this visit, note 421).
  */
 export async function ensureI18n(country: string, entries: [string, string][]): Promise<void> {
   lastEntries = entries;
@@ -381,15 +374,13 @@ export async function ensureI18n(country: string, entries: [string, string][]): 
     await runFor(l, entries);
     return;
   }
-  /* Someone new (or on a new IP language): ask, stay English meanwhile. */
-  lang = "en";
-  table = {};
-  runningFor = "";
+  /* No pick yet: follow the IP language at once and ask about it — the notice
+     is an opt-out (Keep English), never a gate holding the site in English. */
   if (!askLater()) {
     needAsk = true;
     askLang = l;
   }
-  bump();
+  await runFor(l, entries);
 }
 
 /** Drive the site onto one language (the shared body behind ask + answer). */

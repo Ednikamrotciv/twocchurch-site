@@ -42,22 +42,25 @@ export function Visit() {
 
   const steps = [ct("auto.visit.d85efa085b64df19"), ct("auto.visit.55896ce1df248298"), ct("auto.visit.0d9b4334d3a944e5"), ct("auto.visit.7db3c8d1b3489508")];
 
+  /* The handover text (download, email, copy) keeps the office's own words
+     (note 220): it is read by the English-speaking welcome team, while the
+     on-screen pass above already reads in the visitor's IP language. */
   const summaryText = useMemo(() => {
     if (!service || !when) return "";
     return [
-      ct("auto.visit.aa4ef2e732ed4466", { "name": SITE.name }),
+      `MY VISIT PLAN — ${SITE.name}`,
       `${branch.name}`,
       `${branch.address}`,
       "",
-      ct("auto.visit.687dbc3caf4ff5a5", { "name": service.name }),
+      `Service: ${service.name}`,
       `When: ${fmtDate(when, "long")} at ${to12h(clockAt(when).time)}`,
       `Worship: ${party.adults} adult${party.adults === 1 ? "" : "s"}${party.kids ? `, ${party.kids} child${party.kids === 1 ? "" : "ren"}` : ""}`,
-      party.accessibility !== "none" ? ct("auto.visit.cf547a49e71d27d0", { "accessibility": party.accessibility }) : "",
-      party.notes ? ct("auto.visit.1d172ae40174ca25", { "notes": party.notes }) : "",
-      you.name ? ct("auto.visit.1665ab0270cea3d3", { "name": you.name }) : "",
-      you.questions ? ct("auto.visit.af22859830db4ce9", { "questions": you.questions }) : "",
+      party.accessibility !== "none" ? `Accessibility: ${party.accessibility}` : "",
+      party.notes ? `Notes for the team: ${party.notes}` : "",
+      you.name ? `Name: ${you.name}` : "",
+      you.questions ? `Questions: ${you.questions}` : "",
       "",
-      ct("auto.visit.6d1a2414bec46635", { "phone": SITE.phone, "email": SITE.email }),
+      `Contact: ${SITE.phone} · ${SITE.email}`,
     ]
       .filter(Boolean)
       .join("\n");
@@ -72,8 +75,8 @@ export function Visit() {
 
   const finish = () => {
     const errs: Record<string, string> = {};
-    if (!you.name.trim()) errs.name = "We'd love to know your name.";
-    if (you.email && !/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(you.email)) errs.email = "That email doesn't look right.";
+    if (!you.name.trim()) errs.name = ct("visit.valid.name");
+    if (you.email && !/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(you.email)) errs.email = ct("visit.valid.email");
     setErrors(errs);
     if (Object.keys(errs).length) return;
     setPlan({
@@ -179,7 +182,7 @@ export function Visit() {
                       <button key={b.id} type="button" className={"branch-choose__item" + (branchId === b.id ? " is-active" : "")} onClick={() => { setBranchId(b.id); setServiceIdx(0); }}>
                         <span className="branch-choose__flag">{branchFlag(b)}</span>
                         <b>{b.city}</b>
-                        <em>{b.country} · {sundayServices.length || b.schedule.filter((s) => s.day === 0).length} {ct("auto.visit.38177e66cc15039f")}</em>
+                        <em>{tx(b.country)} · {sundayServices.length || b.schedule.filter((s) => s.day === 0).length} {ct("auto.visit.38177e66cc15039f")}</em>
                       </button>
                     ))}
                   </div>

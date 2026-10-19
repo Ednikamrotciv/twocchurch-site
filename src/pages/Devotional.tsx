@@ -90,7 +90,7 @@ export function Devotional() {
                     const isDone = plan.done.includes(d.day);
                     return (
                       <li key={d.day} className={isDone ? "is-done" : ""}>
-                        <Checkbox checked={isDone} onChange={() => plan.toggle(d.day)} label={<b>{d.day}</b>} />
+                        <Checkbox checked={isDone} onChange={() => plan.toggle(d.day)} label={<b>{tx(d.day)}</b>} />
                         <span className="reading-list__ref">{d.reference}</span>
                         <span className="reading-list__theme">{tx(d.theme)}</span>
                         <button

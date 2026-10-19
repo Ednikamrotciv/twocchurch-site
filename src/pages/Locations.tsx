@@ -224,7 +224,7 @@ export function Locations() {
             <h4>{ct("locations.lang.title")}</h4>
             <div className="tag-list">
               {selected.languages.map((l) => (
-                <span className="tag" key={l}><Icon name="globe" size={12} /> {l}</span>
+                <span className="tag" key={l}><Icon name="globe" size={12} /> {tx(l)}</span>
               ))}
             </div>
             <div className="btn-row">

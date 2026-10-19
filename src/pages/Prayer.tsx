@@ -282,9 +282,9 @@ function PrayerForm({ onSubmit, onPosted }: { onSubmit: (r: any) => void; onPost
   const submit = (e: React.FormEvent) => {
     e.preventDefault();
     const errs: Record<string, string> = {};
-    if (!form.anonymous && !form.name.trim()) errs.name = "Add your name, or tick anonymous.";
-    if (form.text.trim().length < 10) errs.text = "Please write a little more so we can pray specifically.";
-    if (form.email && !/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(form.email)) errs.email = "That email doesn't look right.";
+    if (!form.anonymous && !form.name.trim()) errs.name = ct("prayer.valid.name");
+    if (form.text.trim().length < 10) errs.text = ct("prayer.valid.text");
+    if (form.email && !/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(form.email)) errs.email = ct("prayer.valid.email");
     setErrors(errs);
     if (Object.keys(errs).length) {
       fireToast(ct("auto.prayer.ce49e6065df0aa07"), "error");
@@ -314,7 +314,7 @@ function PrayerForm({ onSubmit, onPosted }: { onSubmit: (r: any) => void; onPost
         <div className="prayer-verse">
           <Icon name="book" size={18} />
           <blockquote>
-            “{verse.text}”
+            “{tx(verse.text)}”
             <cite>{verse.ref}</cite>
           </blockquote>
         </div>

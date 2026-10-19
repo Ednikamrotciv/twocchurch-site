@@ -27,10 +27,10 @@ import {
   fmtDate,
   fmtTime,
   fmtDuration,
+  fmtMonthShort,
   parseDuration,
   to12h,
   DAY_NAMES,
-  MONTH_SHORT,
   addToCalendar,
   fmtMoney,
   moneyText,
@@ -653,7 +653,7 @@ export function SermonWatch({ sermon, className = "" }: { sermon: Sermon; classN
                 onClick={() => setChosen(o.platform)}
               >
                 <Icon name={o.platform === "facebook" ? "facebook" : o.platform === "upload" ? "play" : "youtube"} size={14} />
-                {platformLabel(o.platform)}
+                {tx(platformLabel(o.platform))}
               </button>
             ))}
           </div>
@@ -717,7 +717,7 @@ export function WatchCards() {
               {platform && href && (
                 <Btn size="sm" variant="ghost" href={href} iconRight="external">
                   {ct("auto.live.db942c55e9ec899c")}
-                  {platformLabel(platform)}
+                  {tx(platformLabel(platform))}
                 </Btn>
               )}
             </Card>
@@ -744,7 +744,7 @@ export function RecentServiceCard({ item }: { item: RecentService }) {
         compact
       />
       <div className="recent-card__body">
-        <h3>{item.title}</h3>
+        <h3>{tx(item.title)}</h3>
         {when && <em>{when}</em>}
         <a className="recent-card__open" href={ytWatch(item.videoId)} target="_blank" rel="noreferrer">
           {ct("live.recent.watch")} <Icon name="external" size={13} />
@@ -1072,7 +1072,7 @@ export function EventCard({ event, layout = "grid" }: { event: ChurchEvent; layo
         <img src={photoOr(event.image, "welcome")} alt="" loading="lazy" />
         <span className="event-card__date">
           <b>{day.day}</b>
-          <em>{MONTH_SHORT[day.month - 1].toUpperCase()}</em>
+          <em>{fmtMonthShort(date).toUpperCase()}</em>
         </span>
         <span className="event-card__cat">{tx(event.category)}</span>
       </div>
@@ -1081,7 +1081,7 @@ export function EventCard({ event, layout = "grid" }: { event: ChurchEvent; layo
           <Icon name="clock" size={14} /> {to12h(when.time)} · {days === 0 ? ct("auto.site.5416b8171f3bb8fe") : days === 1 ? ct("auto.site.35381cc514496da4") : ct("auto.site.5b3575374d6ff54e", { "days": days })}
         </span>
         <h3>{tx(event.title)}</h3>
-        <p className="muted">{tx(event.description)}</p>
+        <p className="muted">{tx(moneyText(event.description))}</p>
         <ul className="event-card__facts">
           <li><Icon name="pin" size={14} /> {event.location}</li>
           {branch && <li><Icon name="map" size={14} /> {branch.city}, {tx(branch.country)}</li>}
@@ -1116,7 +1116,7 @@ export function TestimonyCard({ testimony, onOpen, onAmen }: { testimony: Testim
       <span className="testimony-card__quote"><Icon name="quote" size={22} /></span>
       <Badge accent={catAccent(cat)}>{categoryLabel(cat)}</Badge>
       <h3>{tx(testimony.title)}</h3>
-      <p className="testimony-card__body">{tx(testimony.body.length > 210 && !onOpen ? testimony.body.slice(0, 205) + "…" : testimony.body)}</p>
+      <p className="testimony-card__body">{tx(moneyText(testimony.body.length > 210 && !onOpen ? testimony.body.slice(0, 205) + "…" : testimony.body))}</p>
       <div className="testimony-card__foot">
         <div className="testimony-card__who">
           {testimony.photo ? <img src={testimony.photo} alt="" className="testimony-card__photo" /> : <Monogram name={testimony.name} letters={testimony.monogram} size={38} />}
@@ -1440,7 +1440,7 @@ export function StatStrip() {
   return (
     <div className="stat-strip">
       {STATS.map((s) => (
-        <Stat key={s.label} value={s.value} label={s.label} suffix={s.suffix} />
+        <Stat key={s.label} value={s.value} label={tx(s.label)} suffix={s.suffix} />
       ))}
     </div>
   );

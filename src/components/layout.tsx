@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { tx } from "../lib/i18n";
+import { tx, i18nTickN } from "../lib/i18n";
 import { Link, navigate, useRoute } from "../lib/router";
 import { useHotkey, useMediaQuery, useScrollProgress, useTheme, useNow, useClickOutside, useBodyLock } from "../lib/hooks";
 import { exitMaintenancePreview } from "../lib/cms";
@@ -228,7 +228,9 @@ export function CommandPalette({ open, onClose }: { open: boolean; onClose: () =
   const [q, setQ] = useState("");
   const [active, setActive] = useState(0);
   const inputRef = React.useRef<HTMLInputElement>(null);
-  const index = useMemo(() => buildSearchIndex(), []);
+  /* Rebuilt when translations land, so results read in the IP language too. */
+  const langTick = i18nTickN();
+  const index = useMemo(() => buildSearchIndex(), [langTick]);
   useBodyLock(open);
 
   const results = useMemo(() => {
@@ -534,11 +536,11 @@ export function PreviewBanner() {
   return (
     <div className="previewbar" role="status">
       <span>
-        Preview — visitors see the maintenance notice.{" "}
-        <Link to="/admin">Open the admin console</Link>
+        {ct("site.preview.text")}{" "}
+        <Link to="/admin">{ct("site.preview.admin")}</Link>
       </span>
       <button type="button" className="previewbar__exit" onClick={() => exitMaintenancePreview()}>
-        Exit preview
+        {ct("site.preview.exit")}
       </button>
     </div>
   );
@@ -558,12 +560,12 @@ export function MaintenanceSite() {
           <img className="maint__logo" src={siteFile(LOGO_MARK)} alt={SITE.name} />
           <span className="maint__name">{SITE.name}</span>
         </span>
-        <span className="maint__pill">Maintenance</span>
+        <span className="maint__pill">{ct("site.maint.pill")}</span>
       </header>
       <main className="maint__main">
         <img className="maint__mark" src={siteFile(LOGO_MARK)} alt="" aria-hidden="true" />
-        <h1>We&rsquo;ll be right back</h1>
-        <p>The site is being updated. Please check back shortly.</p>
+        <h1>{ct("site.maint.title")}</h1>
+        <p>{ct("site.maint.text")}</p>
       </main>
     </div>
   );

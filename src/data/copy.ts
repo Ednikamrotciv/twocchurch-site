@@ -535,6 +535,13 @@ const HAND_PAGES: CopyPage[] = [
         value:
           "Your request was received and saved on this device. To reach our prayer team immediately, use one of the options below — it takes one tap.",
       },
+      { id: "prayer.valid.name", label: "Validation — missing name", value: "Add your name, or tick anonymous." },
+      {
+        id: "prayer.valid.text",
+        label: "Validation — request too short",
+        value: "Please write a little more so we can pray specifically.",
+      },
+      { id: "prayer.valid.email", label: "Validation — bad email", value: "That email doesn't look right." },
     ],
   },
 
@@ -608,6 +615,15 @@ const HAND_PAGES: CopyPage[] = [
         value: "Testimonies are stored on your device until you choose to email them to us. Nothing is published automatically.",
       },
       { id: "testimonies.modal.title", label: "Share modal — heading", value: "Share your testimony" },
+      { id: "testimonies.valid.name", label: "Validation — missing name", value: "Tell us your name, or tick “share anonymously”." },
+      { id: "testimonies.valid.title", label: "Validation — missing title", value: "Give your testimony a title." },
+      {
+        id: "testimonies.valid.body",
+        label: "Validation — testimony too short",
+        value: "Please write at least a couple of sentences (40+ characters).",
+      },
+      { id: "testimonies.valid.consent", label: "Validation — consent needed", value: "Please confirm we may share your story." },
+      { id: "testimonies.valid.email", label: "Validation — bad email", value: "That email doesn't look right." },
     ],
   },
 
@@ -662,6 +678,8 @@ const HAND_PAGES: CopyPage[] = [
       { id: "visit.faq.eyebrow", label: "First-timer questions — eyebrow", value: "Still wondering?" },
       { id: "visit.faq.title", label: "First-timer questions — headline", value: "First-timer questions" },
       { id: "visit.faq.action", label: "First-timer questions — button", value: "Ask us anything else" },
+      { id: "visit.valid.name", label: "Validation — missing name", value: "We'd love to know your name." },
+      { id: "visit.valid.email", label: "Validation — bad email", value: "That email doesn't look right." },
     ],
   },
 
@@ -719,6 +737,10 @@ const HAND_PAGES: CopyPage[] = [
       { id: "contact.faq.eyebrow", label: "FAQs — eyebrow", value: "Before you write" },
       { id: "contact.faq.title", label: "FAQs — headline", value: "Answers to the most common questions" },
       { id: "contact.faq.action", label: "FAQs — button", value: "Not answered? Plan your visit and ask us in person" },
+      { id: "contact.valid.name", label: "Validation — missing name", value: "Please tell us your name." },
+      { id: "contact.valid.email", label: "Validation — bad email", value: "We need a valid email to reply to you." },
+      { id: "contact.valid.message", label: "Validation — message too short", value: "Please add a little more detail." },
+      { id: "contact.valid.consent", label: "Validation — consent needed", value: "Please confirm we may store your message." },
     ],
   },
 
@@ -1023,6 +1045,25 @@ const HAND_PAGES: CopyPage[] = [
       { id: "site.toastDownloadBlocked", label: "Message — download blocked", value: "Your browser blocked that download." },
       { id: "site.toastClipboardFailed", locked: true, label: "Message — copy failed", value: "Couldn't access the clipboard — please copy manually." },
       { id: "site.toastStorageFull", locked: true, label: "Message — storage is full", value: "Your device's storage is full — that change could not be saved." },
+
+      /* The IP-language notice (note 421): the site already follows the IP
+         language when this shows — it is an opt-out, never a gate. */
+      { id: "site.lang.reading", label: "Language notice — message", value: "Reading in {{name}}" },
+      { id: "site.lang.keep", label: "Language notice — button", value: "Keep English" },
+      { id: "site.lang.later", label: "Language notice — button", value: "Not now" },
+
+      /* Maintenance + preview chrome (note 421): translated like everything
+         else — only the church's name stays as typed. */
+      { id: "site.maint.pill", label: "Maintenance notice — badge", value: "Maintenance" },
+      { id: "site.maint.title", label: "Maintenance notice — headline", value: "We’ll be right back" },
+      {
+        id: "site.maint.text",
+        label: "Maintenance notice — paragraph",
+        value: "The site is being updated. Please check back shortly.",
+      },
+      { id: "site.preview.text", label: "Preview banner — text", value: "Preview — visitors see the maintenance notice." },
+      { id: "site.preview.admin", label: "Preview banner — button", value: "Open the admin console" },
+      { id: "site.preview.exit", label: "Preview banner — button", value: "Exit preview" },
     ],
   },
 ];

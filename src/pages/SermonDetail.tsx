@@ -72,7 +72,7 @@ export function SermonDetail() {
                 <span><Icon name="calendar" size={15} /> {fmtDate(date, "long")}</span>
                 {minutes > 0 && <span><Icon name="clock" size={15} /> {fmtDuration(minutes)}</span>}
                 {sermon.scripture && <span><Icon name="book" size={15} /> {sermon.scripture}</span>}
-                {sermon.venue && <span><Icon name="pin" size={15} /> {sermon.venue}</span>}
+                {sermon.venue && <span><Icon name="pin" size={15} /> {tx(sermon.venue)}</span>}
                 {sermon.fromLive && (
                   <span className="sermon-detail-head__tag"><Icon name="live" size={15} /> {ct("live.past.badge")}</span>
                 )}
