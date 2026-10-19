@@ -21,6 +21,7 @@ import {
   PublishModal,
   StatusPill,
   ToolsPage,
+  runPublishAction,
   useCmsTick,
   uniqueId,
 } from "../components/editor";
@@ -162,6 +163,9 @@ export function Admin() {
   const [signInOpen, setSignInOpen] = useState(false);
   const [publishOpen, setPublishOpen] = useState(false);
   const [helpOpen, setHelpOpen] = useState(false);
+  const [publishing, setPublishing] = useState(false);
+  const [publishSaving, setPublishSaving] = useState(false);
+  const [publishSaveFailed, setPublishSaveFailed] = useState(false);
   /* A search hit for another page navigates first; the route effect must then
      leave the drawer where the office asked for it. */
   const keepView = useRef(false);
@@ -173,7 +177,39 @@ export function Admin() {
   /* The update window: visitors wait until the office restores + publishes —
      the two doors back, as plain buttons with no banner behind them. */
   const waiting = cms.maintenanceShouldWait();
-  
+
+
+  /* Linked publish: the bottom-bar Publish button and the dialog's Publish
+     now button both run performPublish, so both perform the same action —
+     one click finishes it (saving the website first on a fresh deploy, then
+     publishing), instead of only opening the dialog. */
+  const performPublish = async (noteInput = "", fromDialog = false): Promise<boolean> => {
+    if (publishing || publishSaving) return false;
+    setPublishSaveFailed(false);
+    setPublishing(true);
+    const done = await runPublishAction(noteInput, (phase) => {
+      if (phase === "saving") setPublishSaving(true);
+    });
+    setPublishing(false);
+    setPublishSaving(false);
+    if (done) {
+      setPublishOpen(false);
+      return true;
+    }
+    if (cms.websiteIsUnsaved()) {
+      if (!fromDialog) {
+        /* From the bar with nowhere to save from: open the dialog so the
+           office can save from the toolbar. From the dialog: show its hint. */
+        setPublishOpen(true);
+      } else {
+        setPublishSaveFailed(true);
+      }
+    }
+    return false;
+  };
+  const directPublish = () => {
+    void performPublish("", false);
+  };
 
   /* Auto-stop watcher lives here so it runs whatever drawer card is open (note 111). */
   useAutoStopLive(canEdit);
@@ -365,12 +401,13 @@ export function Admin() {
       <EditBar
         state={state}
         changed={changedIds.length}
+        busy={publishing || publishSaving}
         panelOpen={panelOpen}
         canEdit={canEdit}
         onAsk={askWhatToChange}
         onUnsaved={openUnsaved}
         onUndo={undoEdit}
-        onPublish={() => setPublishOpen(true)}
+        onPublish={directPublish}
         onTools={() => {
           setPanelOpen(true);
           setPanelMode("tools");
@@ -405,7 +442,15 @@ export function Admin() {
 
       <HelpModal open={helpOpen} onClose={() => setHelpOpen(false)} />
 
-      <PublishModal open={publishOpen} onClose={() => setPublishOpen(false)} state={state} />
+      <PublishModal
+        open={publishOpen}
+        onClose={() => setPublishOpen(false)}
+        state={state}
+        onPublish={(note) => performPublish(note, true)}
+        busy={publishing || publishSaving}
+        saving={publishSaving}
+        saveFailed={publishSaveFailed}
+      />
     </div>
   );
 }
@@ -415,6 +460,7 @@ export function Admin() {
 function EditBar({
   state,
   changed,
+  busy,
   panelOpen,
   canEdit,
   onAsk,
@@ -427,6 +473,7 @@ function EditBar({
 }: {
   state: ReturnType<typeof cms.useCms>;
   changed: number;
+  busy?: boolean;
   panelOpen: boolean;
   canEdit: boolean;
   onAsk: () => void;
@@ -525,8 +572,8 @@ function EditBar({
         )}
 
         {canEdit ? (
-          <Btn size="sm" icon="check" onClick={onPublish} title="Put your changes on the live site for everyone">
-            Publish
+          <Btn size="sm" icon="check" onClick={onPublish} disabled={busy} title="Put your changes on the live site for everyone">
+            {busy ? "Publishing…" : "Publish"}
           </Btn>
         ) : (
           <Btn size="sm" icon="lock" onClick={onSignIn}>
