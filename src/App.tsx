@@ -6,7 +6,7 @@ import { ErrorBoundary } from "./components/ErrorBoundary";
 import { startCms, useCmsVersion, useCmsReady, useMaintenance, usePreviewingWhileWaiting, useStaleBuild, checkStaleBuild } from "./lib/cms";
 import { mountShaderBackground } from "./lib/shaderbg";
 import { startVisitorClock, useVisitorClock, useVisitorClockRefresh } from "./lib/visitor";
-import { useI18nTick, ensureI18n, setProtectedValues, i18nAsk, i18nTickN, chooseLang, dismissAsk } from "./lib/i18n";
+import { useI18nTick, i18nTickN, ensureI18n, setProtectedValues, i18nAsk, chooseLang, dismissAsk } from "./lib/i18n";
 import { allCopySources } from "./data/copy";
 import { startRates, useRates, useRatesRefresh } from "./lib/rates";
 import { useLiveStream } from "./lib/livestatus";
@@ -34,8 +34,8 @@ export function App() {
      translations land (note 209). */
   useI18nTick();
   useEffect(() => {
-    /* Everything follows the IP language except identity: only the church's
-       full legal name stays exactly as the office typed it (note 421). */
+    /* Only the full legal name stays as typed — it rides masked as an inline
+       token, so prose around it still translates (note 421). */
     setProtectedValues([SITE.name]);
     if (clock?.country) void ensureI18n(clock.country, allCopySources());
   }, [clock?.country, version]);
@@ -124,11 +124,7 @@ export function App() {
      settles — otherwise the splash covers the very page asked for. */
   if (maintenance && !ready) return <MaintenanceSite />;
   if (!ready || !stale.settled) return <BootSplash />;
-  /* FIXED: stale-build waiting never shows maintenance to visitors — the
-     reload in checkStaleBuild() still runs in the background, but visitors
-     keep reading the site instead of sitting on "We'll be right back" when
-     a reload is delayed or fails. Only an explicit ?maintenance=1 waits. */
-  if (maintenance) return <MaintenanceSite />;
+  if (stale.waiting || maintenance) return <MaintenanceSite />;
 
   return (
     <>

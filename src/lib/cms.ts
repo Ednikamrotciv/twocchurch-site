@@ -102,12 +102,11 @@ try {
 }
 /* Publish clock (one publish lifts every deploy): the wall-clock moment of the
    last witnessed publish stamped from the running update (notes>=BUILD_NOTES).
-   Raise-only, persisted, shared across tabs via storage events. A deployed copy
-   whose deploy was first seen BEFORE this moment was around for the publish, so
-   its maintenance notice lifts even when the publish came from a different
-   deploy id (stale tab, local copy) — while a deploy first seen AFTER the
-   publish still holds until its own publish. This is what makes one Publish
-   click work in all browsers instead of only the one that was clicked. */
+   Raise-only, persisted, shared across tabs via storage events. A deploy that
+   was first seen BEFORE this moment was around for the publish; combined with
+   the shared-notes trigger (note 421) any same-update publish releases every
+   copy — the clock is an extra witness for cross-deploy arrivals, never a
+   trap: nothing here can hold a copy whose notes already prove release. */
 const PUBLISH_AT_KEY = "wom.cms.publishAt";
 /* Clock-skew tolerance: a server clock a few seconds behind the browser must
    not strand a publish that just landed. */
@@ -586,15 +585,46 @@ function serverInvolved(): boolean {
     waits). A local copy with no stamped deploy waits on the number gate below
     until the office publishes. A publish lifts. */
 export function maintenanceShouldWait(): boolean {
-  /* FIXED: visitors always live. The deploy-lock (fresh deployId + server/
-     feed witness + localStorage stamps) held every fresh browser on
-     maintenance until a Publish from that exact deploy landed — one admin
-     click only unlocked that admin's browser, stranding all others. Now only
-     an explicit local preview (?maintenance=1) waits. */
+  /* Update window (notes 249-302, trigger rebuilt note 421): visitors wait on
+     the notice while the running update is unreleased. The trigger is SHARED
+     evidence only — a witnessed publish from this update (explicit office
+     action here, server answer, live feed, baked seed, browser cache raises
+     publishedNotes; the publish clock and the code blessing are extra release
+     paths) — never per-browser stamps or deploy-ID comparisons, so one admin
+     Publish lifts every device and browser together, and no late arrival waits
+     behind another's click. */
+  /* Local preview: ?maintenance=1 shows the notice even on server-less local. */
   try {
     if (maintenanceForced()) return true;
   } catch {}
-  return false;
+  /* The office's own preview pass always sees the site. */
+  try {
+    if (maintenancePreview()) return false;
+  } catch {}
+  /* Boot owns the screen (BootSplash) until seed + stamp + first sync settle —
+     no hold either way before then, so a published site never flashes the
+     notice on launch and an unreleased one never flashes live. */
+  try {
+    if (!bootReady) return false;
+  } catch {}
+  /* Pure static (no server ever, no baked feed) never waits: nothing could
+     ever release such a copy, since its words move only via rebuild. */
+  try {
+    if (!serverInvolved() && !feedFromMeta()) return false;
+  } catch {}
+  /* Released from this update — witnessed anywhere. */
+  const held = typeof publishedNotes === "number" && Number.isFinite(publishedNotes) ? Math.floor(publishedNotes) : 0;
+  if (held >= BUILD_NOTES) return false;
+  /* A same-update publish that landed after this deploy was first seen
+     releases it, even across deploy ids (the publish clock). */
+  try {
+    if (postDeployPublishWitnessed()) return false;
+  } catch {}
+  /* An explicit office publish on this copy blessed the running code. */
+  try {
+    if (codeBlessedMatches()) return false;
+  } catch {}
+  return true;
 }
 /* True while visitors must wait: new code is ahead of the last publish.
    Server-backed copies with no witnessed publish yet wait too (note 300: a
@@ -607,15 +637,42 @@ export function maintenanceShouldWait(): boolean {
    This also subscribes to connection state, so the first-paint answer cannot
    stick on one device while the server address lands a moment later. */
 export function useMaintenance(): boolean {
-  /* FIXED: same as maintenanceShouldWait — visitors never wait except for
-     an explicit ?maintenance=1 preview. Subscribes so the forced preview
-     still re-renders. */
   useCmsVersion();
+  /* Re-render when status/socket changes (notify without a version bump). */
   useSyncExternalStore(subscribe, () => stateObj);
+  /* Local preview: ?maintenance=1 shows the notice even on server-less local. */
   try {
     if (maintenanceForced()) return true;
   } catch {}
-  return false;
+  /* Note 302: a known newer update waits even on this (older) bundle — a
+     stale tab never paints live from cached code while the host has moved on.
+     Server-less copies still never wait (note 250): with no backend there is
+     no publish step to wait for — they just reload onto the new bundle. */
+  if (staleNewerNotes > BUILD_NOTES && serverInvolved()) {
+    try {
+      if (maintenancePreview()) return false;
+    } catch {}
+    return true;
+  }
+  /* Same shared-evidence rule as maintenanceShouldWait (note 421). */
+  try {
+    if (maintenancePreview()) return false;
+  } catch {}
+  try {
+    if (!bootReady) return false;
+  } catch {}
+  try {
+    if (!serverInvolved() && !feedFromMeta()) return false;
+  } catch {}
+  const held = typeof publishedNotes === "number" && Number.isFinite(publishedNotes) ? Math.floor(publishedNotes) : 0;
+  if (held >= BUILD_NOTES) return false;
+  try {
+    if (postDeployPublishWitnessed()) return false;
+  } catch {}
+  try {
+    if (codeBlessedMatches()) return false;
+  } catch {}
+  return true;
 }
 /** True while this tab previews the new site although visitors wait. */
 export function usePreviewingWhileWaiting(): boolean {
@@ -2863,11 +2920,7 @@ export async function startCms() {
      record on the office disk; only the staged publishable set starts from
      defaults. */
   try {
-    /* FIXED: never stage a new deploy clean. Fresh deployIds used to park
-       every returning browser on empty/welcome-only content until Recover +
-       Publish, so deploys looked wiped even with baked words. Deploys now
-       keep showing baked words. */
-    if (false) {
+    if (codeChangedSinceBless() || (freshDeploy && hadPriorBlessing())) {
       cleanStageForNewCode = true;
       overrides = {};
       applied = clone(defaults);

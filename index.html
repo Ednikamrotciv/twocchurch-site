@@ -3,11 +3,11 @@
 <!-- The shipped update number: the pre-bundle gate below paints the maintenance
      notice before React boots whenever this copy has not published it yet.
      Bump with BUILD_NOTES (src/lib/hooks.ts) on every update. -->
-<meta name="wom-notes" content="423" />
+<meta name="wom-notes" content="421" />
 <!-- The shipped code word (unnumbered stale fix): names the running code with
      no number, so the gate below holds for this fix even though the update
      number is unchanged. build-static.mjs stamps it from hooks.ts CODE_ID. -->
-<meta name="wom-code" content="ip423" />
+<meta name="wom-code" content="ip421" />
 
 <meta name="theme-color" content="#08080a">
 <title>The World Overcomers' Ministries Inc. — Where Champions Are Raised in Christ</title>
@@ -74,16 +74,20 @@
   }, 20000);
 </script>
 <script>
-  /* Maintenance gate — FIXED (visitors always live).
-     Fresh visitors used to wait on "We'll be right back" until an office
-     Publish from that exact deploy landed (localStorage deploy/code stamps +
-     server witness). One admin click only unlocked that admin's own browser,
-     so every other phone/browser stayed stuck. Now the gate paints ONLY for
-     an explicit local preview (?maintenance=1 / ?showMaintenance=1, query or
-     after #). All deploy/code/version checks removed — visitors always boot
-     straight into the site. /admin was already bypassed and still is. */
+  /* Pre-bundle maintenance gate (notes 302, 421): the JS bundle may be stale or
+     still compiling when an update lands — this paints the maintenance notice
+     BEFORE React boots, so visitors never see live words from cached code and
+     never need a hard refresh. It decides from the same stamp the app uses
+     (stored publish notes vs the shipped wom-notes meta — proven unreleased
+     only, never fresh profiles), does nothing when published, and yields to
+     React the moment it mounts. Skipped for the
+     office preview pass (?preview=1), which the app itself bypasses. */
   (function () {
     try {
+      var q = new URLSearchParams(window.location.search || "");
+      /* Paint the maintenance notice into the still-empty root (shared by the
+         forced pass and the shipped-update lock below). Yields the moment
+         React mounts, so it never covers the live site. */
       var paintMaint = function () {
         var r = document.getElementById("root");
         if (!r || r.hasChildNodes()) return;
@@ -94,12 +98,22 @@
           '<p style="margin:0;max-width:34rem;line-height:1.6;opacity:0.85;">The site is being updated. Please check back shortly.</p>' +
           "</div>";
       };
-      var q;
-      try { q = new URLSearchParams(window.location.search || ""); }
-      catch (e) { q = { get: function () { return null; } }; }
-      var forced = false;
+      if (q.get("preview") === "1") return;
       try {
-        forced = q.get("maintenance") === "1" || q.get("showMaintenance") === "1";
+        if (window.sessionStorage && window.sessionStorage.getItem("wom.cms.preview") === "1") return;
+      } catch (e) {}
+      /* The office console is never gated (note 303): the maintenance notice
+         belongs to the visitors' site only — /admin must always boot straight
+         into the console, even mid-update. */
+      try {
+        var ap = window.location.pathname || "/";
+        if (ap === "/admin" || ap.indexOf("/admin/") === 0) return;
+      } catch (e) {}
+      /* Local preview (office request: notice missing in local): ?maintenance=1
+         paints the notice at once, even with no version.json / no server.
+         Hash-routed copies carry the pass after the # (e.g. /#/?maintenance=1). */
+      try {
+        var forced = q.get("maintenance") === "1" || q.get("showMaintenance") === "1";
         if (!forced) {
           var hh = String(window.location.hash || "");
           var qi = hh.indexOf("?");
@@ -108,8 +122,49 @@
             forced = hq.get("maintenance") === "1" || hq.get("showMaintenance") === "1";
           }
         }
+        if (forced) {
+          paintMaint();
+          return;
+        }
       } catch (e) {}
-      if (forced) paintMaint();
+      var stored = 0;
+      try {
+        var raw = window.localStorage ? window.localStorage.getItem("wom.cms.notes") : null;
+        var n = raw === null ? 0 : Number(JSON.parse(raw));
+        if (Number.isFinite(n) && n > 0) stored = Math.floor(n);
+      } catch (e) {}
+      /* Proven unreleased (note 421): this browser's last witnessed publish
+         trails the shipped update, so React will agree once it boots (same
+         shared stamp) — paint at once instead of a blank screen. Fresh
+         profiles (no stamp) skip the gate and let React decide with full
+         state, so a published site never flashes the notice. Releasable
+         copies only: dev (no stamped deploy, or a dev- boot stamp), or a
+         server/feed behind the copy. A stamped deploy with neither can never
+         be released, so it boots live. */
+      try {
+        var shipped = 0;
+        var mn = document.querySelector('meta[name="wom-notes"]');
+        var mc = mn ? mn.getAttribute("content") : "";
+        var mp = parseInt(String(mc || ""), 10);
+        if (isFinite(mp) && mp > 0) shipped = Math.floor(mp);
+        var stored = null;
+        try {
+          var raw = window.localStorage ? window.localStorage.getItem("wom.cms.notes") : null;
+          var nn = raw === null ? null : Number(JSON.parse(raw));
+          if (Number.isFinite(nn) && nn > 0) stored = Math.floor(nn);
+        } catch (e) {}
+        if (shipped > 0 && stored !== null && stored < shipped) {
+          var dm = document.querySelector('meta[name="wom-deploy"]');
+          var dc = dm ? dm.getAttribute("content") : "";
+          var releasable = !dc || String(dc).indexOf("dev-") === 0 ||
+            !!document.querySelector('meta[name="wom-server"]') ||
+            !!document.querySelector('meta[name="wom-feed"]');
+          if (releasable) {
+            paintMaint();
+            return;
+          }
+        }
+      } catch (e) {}
     } catch (e) {}
   })();
 </script>

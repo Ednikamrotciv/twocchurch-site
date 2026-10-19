@@ -48,11 +48,8 @@ try {
   const seedPath = path.join(OUT, "seed.json");
   const seed = JSON.parse(await readFile(seedPath, "utf8"));
   if (seed && typeof seed === "object") {
-    // FIXED: no maintenance hold on fresh visitors — visitors always live.
-    // Keep the deployId stamp (harmless; gates ignore it) but never hold.
-    const { hold: _hold, ...rest } = seed;
-    await writeFile(seedPath, JSON.stringify({ ...rest, hold: false, deployId: DEPLOY_ID }));
-    console.log("maintenance hold OFF (fixed): fresh visitors boot straight into the site");
+    await writeFile(seedPath, JSON.stringify({ ...seed, hold: true, deployId: DEPLOY_ID }));
+    console.log("maintenance hold on: fresh visitors wait until the office publishes (locked — every deploy holds)");
   }
 } catch (err) {
   console.warn("maintenance hold skipped:", err?.message || err);

@@ -20,9 +20,16 @@ export async function bakeSeed(rootDir, outPath) {
      (it is the office's own backup in git, never a visitor page), and an
      unwiped store on the same deploy keeps re-serving through the fallback
      exactly as before. */
-  /* FIXED: clean-deploy.txt is ignored — every deploy ships baked words so
-     visitors never see an empty/welcome-only site. Delete the file too. */
   let cleanDeploy = false;
+  try {
+    await readFile(path.join(rootDir, "clean-deploy.txt"), "utf8");
+    cleanDeploy = true;
+  } catch { /* no flag — words ride as usual */ }
+  if (cleanDeploy && target !== rootSeedPath) {
+    console.log("clean deploy requested (clean-deploy.txt) — shipping an empty bake: Recover + Publish, then REMOVE the file and rebuild to lock words in");
+    await writeFile(target, JSON.stringify({ rev: 0, notes: 0, sections: {}, log: [], by: "", at: 0 }));
+    return { kept: false, count: 0, clean: true };
+  }
   const readJson = async (p) => {
     try {
       return JSON.parse(await readFile(p, "utf8"));
