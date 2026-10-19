@@ -7146,3 +7146,7 @@ Time: to12h no longer prints hardcoded AM/PM — wall times format in the visito
 ## 422. Times keep hardcoded AM/PM, hours still follow the IP (the office asked)
 
 Note 421 moved times into the visitor's locale (French visitors read "18:30"). The office wants the AM/PM format back: to12h is hardcoded 12-hour again ("6:30 PM" in every language) and fmtTime always renders 12-hour English AM/PM too — but the HOUR itself still comes from the IP clock (clockHere/clockAt move every wall time onto siteTimezone() before formatting), so a Paris visitor and a Lagos visitor read different hours, both with AM/PM. Dates, month badges, lists and currency stay in the IP language — only clock-time formatting is fixed to AM/PM. Verified: to12h spot-checked (18:30→6:30 PM, 09:00→9:00 AM, 00:15→12:15 AM, 12:00→12:00 PM), store.ts transpiles clean, repacked.
+
+## 423. Broken script tag in index.html fixed (dev server could not start)
+
+`npm run dev` died with parse5 "missing-whitespace-between-attributes" at index.html:116 — the line read `<script type="module"<script type="module" src="/src/main.tsx"></script>` (a duplicated, unclosed tag; the corruption was already in the uploaded source, not from notes 421/422). Fixed to a single `<script type="module" src="/src/main.tsx"></script>`. No other occurrence in the tree. Stamps bumped (423/ip423) so the fixed copy retires stale bundles.
