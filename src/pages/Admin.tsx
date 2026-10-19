@@ -21,6 +21,7 @@ import {
   PublishModal,
   StatusPill,
   ToolsPage,
+  defaultNote,
   useCmsTick,
   uniqueId,
 } from "../components/editor";
@@ -162,6 +163,7 @@ export function Admin() {
   const [signInOpen, setSignInOpen] = useState(false);
   const [publishOpen, setPublishOpen] = useState(false);
   const [helpOpen, setHelpOpen] = useState(false);
+  const [publishing, setPublishing] = useState(false);
   /* A search hit for another page navigates first; the route effect must then
      leave the drawer where the office asked for it. */
   const keepView = useRef(false);
@@ -173,7 +175,44 @@ export function Admin() {
   /* The update window: visitors wait until the office restores + publishes —
      the two doors back, as plain buttons with no banner behind them. */
   const waiting = cms.maintenanceShouldWait();
-  
+
+
+  /* The bottom-bar Publish button runs the very same publish as the dialog's
+     Publish now — one click finishes it (saving the website first on a fresh
+     deploy, then publishing), instead of only opening the dialog. */
+  const directPublish = async () => {
+    if (publishing) return;
+    const changed = cms.pendingSections();
+    if (cms.websiteIsUnsaved()) {
+      cms.planPublishAfterSave(defaultNote(changed));
+      /* Allowed to save: the editor saves and reloads, and the stored plan
+         finishes the publish on the next load. Otherwise fall back to the
+         dialog so the office can save from the toolbar. */
+      if (cms.requestWebsiteSave()) return;
+      setPublishOpen(true);
+      return;
+    }
+    setPublishing(true);
+    const res = await cms.publish(defaultNote(changed));
+    setPublishing(false);
+    if (res.ok) {
+      fireToast(
+        res.local
+          ? "Saved on this device. The shared server was unreachable, so other visitors are not updated yet."
+          : res.live === false
+          ? (res.relayMsg || "Published here. The live site follows within a minute.")
+          : "Published. Every visitor sees the new content right away.",
+        res.local || res.live === false ? "info" : "success"
+      );
+    } else {
+      fireToast(
+        res.error === "unauthorized"
+          ? "Your session expired — unlock the console again, then publish."
+          : `Could not publish (${res.error}). Nothing on the site changed.`,
+        "error"
+      );
+    }
+  };
 
   /* Auto-stop watcher lives here so it runs whatever drawer card is open (note 111). */
   useAutoStopLive(canEdit);
@@ -365,12 +404,13 @@ export function Admin() {
       <EditBar
         state={state}
         changed={changedIds.length}
+        busy={publishing}
         panelOpen={panelOpen}
         canEdit={canEdit}
         onAsk={askWhatToChange}
         onUnsaved={openUnsaved}
         onUndo={undoEdit}
-        onPublish={() => setPublishOpen(true)}
+        onPublish={directPublish}
         onTools={() => {
           setPanelOpen(true);
           setPanelMode("tools");
@@ -415,6 +455,7 @@ export function Admin() {
 function EditBar({
   state,
   changed,
+  busy,
   panelOpen,
   canEdit,
   onAsk,
@@ -427,6 +468,7 @@ function EditBar({
 }: {
   state: ReturnType<typeof cms.useCms>;
   changed: number;
+  busy?: boolean;
   panelOpen: boolean;
   canEdit: boolean;
   onAsk: () => void;
@@ -525,8 +567,8 @@ function EditBar({
         )}
 
         {canEdit ? (
-          <Btn size="sm" icon="check" onClick={onPublish} title="Put your changes on the live site for everyone">
-            Publish
+          <Btn size="sm" icon="check" onClick={onPublish} disabled={busy} title="Put your changes on the live site for everyone">
+            {busy ? "Publishing…" : "Publish"}
           </Btn>
         ) : (
           <Btn size="sm" icon="lock" onClick={onSignIn}>
