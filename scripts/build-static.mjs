@@ -48,8 +48,31 @@ try {
   const seedPath = path.join(OUT, "seed.json");
   const seed = JSON.parse(await readFile(seedPath, "utf8"));
   if (seed && typeof seed === "object") {
-    await writeFile(seedPath, JSON.stringify({ ...seed, hold: true, deployId: DEPLOY_ID }));
+    /* First-publish witness for the new deploy (one click clears everywhere):
+       the bake above carries the office's last publish. When those words were
+       published from THIS update (notes at the code's own update number, with
+       real words), this deploy counts as their publisher too — every fresh
+       visitor's same-deploy witness then matches on first paint, so one
+       office Publish clears the maintenance notice on unlimited
+       browsers/devices with no second click. A bake from an older update (or
+       an empty/clean bake) keeps the hold: new code still waits for review.
+       Backend notes reach the update number only through an explicit office
+       publish/undo/flush, so the stamp can never leak ahead of review. */
+    let buildNotes = 0;
+    try {
+      const hooksSrc = await readFile(path.join(ROOT, "src", "lib", "hooks.ts"), "utf8");
+      buildNotes = Number((hooksSrc.match(/BUILD_NOTES = (\d+)/) || [])[1]) || 0;
+    } catch { /* no number — the hold below stands */ }
+    const seedOut = { ...seed, hold: true, deployId: DEPLOY_ID };
+    try {
+      const sections = seed && seed.sections && typeof seed.sections === "object" ? Object.keys(seed.sections).length : 0;
+      if (buildNotes > 0 && typeof seed.notes === "number" && Math.floor(seed.notes) >= buildNotes && typeof seed.rev === "number" && seed.rev > 0 && sections > 0) {
+        seedOut.publishedDeploy = DEPLOY_ID;
+      }
+    } catch { /* witness skipped — the hold stands */ }
+    await writeFile(seedPath, JSON.stringify(seedOut));
     console.log("maintenance hold on: fresh visitors wait until the office publishes (locked — every deploy holds)");
+    if (seedOut.publishedDeploy) console.log("first-publish witness stamped: this deploy carries the office publish — one click clears every visitor");
   }
 } catch (err) {
   console.warn("maintenance hold skipped:", err?.message || err);
