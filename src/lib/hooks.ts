@@ -116,7 +116,7 @@ export const BUILD_DATE = "2026-10-18";
    word with EVERY behavior update: a changed word both retires stale bundles
    and stages a new deploy clean (a same word across rebuilds means continuity,
    so routine same-code rebuilds never wipe staged words). */
-export const CODE_ID = "ip421";
+export const CODE_ID = "ip421b";
 export function buildStamp() {
   return { notes: BUILD_NOTES, built: BUILD_DATE, code: CODE_ID };
 }

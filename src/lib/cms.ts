@@ -717,6 +717,11 @@ function readStaleAttempts(): { notes: number; at: number; tries: number } | nul
     return null;
   }
 }
+/** True while a publish send is in flight: the stale-build check must not
+    reload under it (a reload then aborts the click with no message and can
+    strand a multi-batch publish half-landed). The check still records the
+    newer update and re-renders into waiting — only the reload itself waits. */
+let publishInFlight = 0;
 /** True while version.json names a newer update than this bundle (note 302):
     visitors wait on maintenance until the reload lands them on the new code. */
 export function isStaleWaiting(): boolean {
@@ -790,6 +795,10 @@ export function checkStaleBuild(): Promise<void> {
           sessionStorage.setItem(STALE_RELOAD_KEY, JSON.stringify({ notes: staleNewerNotes, at, tries }));
         } catch {}
       } catch {}
+      /* A publish send in flight keeps its click: the newer update is recorded
+         and the copy waits (above) — but the reload itself never fires under
+         a send, or the click aborts with no message. */
+      if (publishInFlight > 0) return;
       /* Warm the entry document past the HTTP cache, then reload onto it. */
       try {
         await fetch(window.location.href, { cache: "reload" } as RequestInit);
@@ -5638,6 +5647,15 @@ async function sendPatch(
 
 /** Put the draft live. `content` is only for the publish that waited on a save. */
 export async function publish(note: string, content?: Snapshot): Promise<PublishResult> {
+  publishInFlight += 1;
+  try {
+    return await publishBody(note, content);
+  } finally {
+    publishInFlight = Math.max(0, publishInFlight - 1);
+  }
+}
+
+async function publishBody(note: string, content?: Snapshot): Promise<PublishResult> {
   if (!content && draft) {
     dropLapsedSlides(true);
     migrateTestimonies();
