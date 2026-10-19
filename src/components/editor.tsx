@@ -2076,66 +2076,64 @@ export function FieldControl({
 
 /* ---------------------------------------------------------- publish modal */
 
-export function PublishModal({ open, onClose, state }: { open: boolean; onClose: () => void; state: ReturnType<typeof cms.useCms> }) {
-  const [note, setNote] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [saving, setSaving] = useState(false);
-  const [saveFailed, setSaveFailed] = useState(false);
-  const [livePw, setLivePw] = useState("");
-  const [livePwBusy, setLivePwBusy] = useState(false);
-  const [livePwMsg, setLivePwMsg] = useState("");
-  useCmsTick();
-
-  const changed = open ? cms.pendingSections() : [];
-  const unsaved = open && cms.websiteIsUnsaved();
-
-  /** Publish saves the site first while unsaved, then finishes from the stored plan. */
-  useEffect(() => {
-    if (!saving) return;
-    let tries = 0;
-    const timer = window.setInterval(async () => {
-      tries += 1;
-      if (!cms.websiteIsUnsaved()) {
-        window.clearInterval(timer);
-        const res = await cms.finishPlannedPublish();
-        setSaving(false);
-        if (res && res.ok) {
-          fireToast(
-            res.local
-              ? "The website is saved. The shared server was unreachable, so your changes are on this device until it is back."
-              : res.live === false
-              ? "Saved, and published here. The live site follows within a minute."
-              : "Saved, and published — every visitor sees the new content right away.",
-            res.local || res.live === false ? "info" : "success"
-          );
-          setNote("");
-          onClose();
-        } else {
-          setSaveFailed(true);
-        }
-      } else if (tries >= 20) {
-        window.clearInterval(timer);
-        setSaving(false);
-        setSaveFailed(true);
-      }
-    }, 700);
-    return () => window.clearInterval(timer);
-  }, [saving]);
-
-  const submit = async () => {
-    setSaveFailed(false);
+/* The ONE publish action both buttons share: the bottom-bar Publish button
+   and this dialog's Publish now button run this same function, so the two
+   always perform the same action (save-first on a fresh deploy, then
+   publish, with the same activity-log note and the same result toasts).
+   Returns true when the caller should clear + close, false when it should
+   stay open and show the save hint. Clicks are serialized by the callers'
+   shared busy flags (both buttons disable together), so this helper itself
+   never refuses a call. */
+export async function runPublishAction(
+  noteInput: string,
+  onPhase?: (phase: "saving" | "publishing") => void
+): Promise<boolean> {
+  try {
+    const changed = cms.pendingSections();
+    const note = noteInput || defaultNote(changed);
     if (cms.websiteIsUnsaved()) {
-      cms.planPublishAfterSave(note || defaultNote(changed));
+      cms.planPublishAfterSave(note);
       /* The editor checks that this browser is allowed to save the website;
          if it is, it saves and reloads this preview. */
       if (cms.requestWebsiteSave()) {
-        setSaving(true);
-        return;
+        onPhase?.("saving");
+        /* Poll as well for a same-tab save that lands without a reload; the
+           stored plan finishes on the next load either way. */
+        for (let i = 0; i < 20; i++) {
+          await new Promise((r) => setTimeout(r, 700));
+          if (!cms.websiteIsUnsaved()) {
+            const res = await cms.finishPlannedPublish().catch(() => null);
+            if (res && res.ok) {
+              fireToast(
+                res.local
+                  ? "The website is saved. The shared server was unreachable, so your changes are on this device until it is back."
+                  : res.live === false
+                  ? "Saved, and published here. The live site follows within a minute."
+                  : "Saved, and published — every visitor sees the new content right away.",
+                res.local || res.live === false ? "info" : "success"
+              );
+              return true;
+            }
+            if (res && !res.ok) {
+              fireToast(
+                res.error === "unauthorized"
+                  ? "Your session expired — unlock the console again, then publish."
+                  : `Could not publish (${res.error}). Nothing on the site changed.`,
+                "error"
+              );
+              return false;
+            }
+            /* The save landed and the reload path finished the plan. */
+            return true;
+          }
+        }
+        return false;
       }
+      /* No editor to save from — the caller falls back to the dialog hint. */
+      return false;
     }
-    setBusy(true);
-    const res = await cms.publish(note || defaultNote(changed));
-    setBusy(false);
+    onPhase?.("publishing");
+    const res = await cms.publish(note);
     if (res.ok) {
       /* The click reports what it actually reached (office request: a Publish
          saves to the visitors website from either admin): device-only, here
@@ -2144,19 +2142,89 @@ export function PublishModal({ open, onClose, state }: { open: boolean; onClose:
         res.local
           ? "Saved on this device. The shared server was unreachable, so other visitors are not updated yet."
           : res.live === false
-          ? (res.relayMsg || "Published here. The live site follows within a minute.")
+          ? res.relayMsg || "Published here. The live site follows within a minute."
           : "Published. Every visitor sees the new content right away.",
         res.local || res.live === false ? "info" : "success"
       );
-      setNote("");
-      onClose();
-    } else {
-      fireToast(
-        res.error === "unauthorized"
-          ? "Your session expired — unlock the console again, then publish."
-          : `Could not publish (${res.error}). Nothing on the site changed.`,
-        "error"
-      );
+      return true;
+    }
+    fireToast(
+      res.error === "unauthorized"
+        ? "Your session expired — unlock the console again, then publish."
+        : `Could not publish (${res.error}). Nothing on the site changed.`,
+      "error"
+    );
+    return false;
+  } catch (err) {
+    /* Never leave the caller hanging with no toast: a throw (e.g. a network
+       failure that rejects instead of returning {ok:false}) reports and
+       releases, so the buttons never stick on "Publishing…". */
+    console.error("publish failed", err);
+    fireToast("Could not publish (connection error). Nothing on the site changed.", "error");
+    return false;
+  }
+}
+
+export function PublishModal({
+  open,
+  onClose,
+  state,
+  onPublish,
+  busy: busyProp,
+  saving: savingProp,
+  saveFailed: saveFailedProp,
+}: {
+  open: boolean;
+  onClose: () => void;
+  state: ReturnType<typeof cms.useCms>;
+  /* Linked handler from the admin shell: when provided, Publish now runs the
+     SAME function as the bottom-bar Publish button. Otherwise the dialog
+     runs the shared action on its own. */
+  onPublish?: (note: string) => Promise<boolean>;
+  busy?: boolean;
+  saving?: boolean;
+  saveFailed?: boolean;
+}) {
+  const [note, setNote] = useState("");
+  const [busyLocal, setBusyLocal] = useState(false);
+  const [savingLocal, setSavingLocal] = useState(false);
+  const [saveFailedLocal, setSaveFailedLocal] = useState(false);
+  const [livePw, setLivePw] = useState("");
+  const [livePwBusy, setLivePwBusy] = useState(false);
+  const [livePwMsg, setLivePwMsg] = useState("");
+  useCmsTick();
+
+  const changed = open ? cms.pendingSections() : [];
+  const unsaved = open && cms.websiteIsUnsaved();
+
+  /* Linked busy state: when the shell drives this dialog, both buttons share
+     one spinner/hint so they read as one action. */
+  const busy = busyProp ?? busyLocal;
+  const saving = savingProp ?? savingLocal;
+  const saveFailed = saveFailedProp ?? saveFailedLocal;
+
+  const submit = async () => {
+    /* Linked path: Publish now runs the same function as Publish. */
+    if (onPublish) {
+      const done = await onPublish(note);
+      if (done) setNote("");
+      return;
+    }
+    setSaveFailedLocal(false);
+    setBusyLocal(true);
+    try {
+      const done = await runPublishAction(note, (phase) => {
+        if (phase === "saving") setSavingLocal(true);
+      });
+      if (done) {
+        setNote("");
+        onClose();
+      } else if (cms.websiteIsUnsaved()) {
+        setSaveFailedLocal(true);
+      }
+    } finally {
+      setBusyLocal(false);
+      setSavingLocal(false);
     }
   };
 
