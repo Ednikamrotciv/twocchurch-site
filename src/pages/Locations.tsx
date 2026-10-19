@@ -177,7 +177,7 @@ export function Locations() {
               <div className="branch-country__head">
                 <span className="branch-country__flag" aria-hidden="true">{g.flag}</span>
                 <div>
-                  <h3 className="branch-country__name">{tx(g.country)}</h3>
+                  <h3 className="branch-country__name">{g.country}</h3>
                   <p className="branch-country__meta">
                     {g.region} · {g.rows.length} {g.rows.length === 1 ? ct("auto.locations.b3a8fe54e6549bad") : ct("auto.locations.5ab0a53c9474c20d")}
                   </p>
@@ -224,7 +224,7 @@ export function Locations() {
             <h4>{ct("locations.lang.title")}</h4>
             <div className="tag-list">
               {selected.languages.map((l) => (
-                <span className="tag" key={l}><Icon name="globe" size={12} /> {tx(l)}</span>
+                <span className="tag" key={l}><Icon name="globe" size={12} /> {l}</span>
               ))}
             </div>
             <div className="btn-row">

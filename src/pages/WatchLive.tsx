@@ -7,7 +7,7 @@ import { ct } from "../data/copy";
 import { BRANCHES, DEFAULT_BRANCH_ID, HQ } from "../data/branches";
 import { sermonsNewestFirst, sermonSource, sermonThumb } from "../data/sermons";
 import { useLocalState, useNow, fireToast } from "../lib/hooks";
-import { KEYS, nextService, onAir, displayLive, to12h, DAY_NAMES, countdownParts, addToCalendar, mailto, clockHere, tidyCount, churchTimezone, visitorPlace, fmtDate, fmtList, downloadText, serviceNoteKey, type NextServiceInfo } from "../lib/store";
+import { KEYS, nextService, onAir, displayLive, to12h, DAY_NAMES, countdownParts, addToCalendar, mailto, clockHere, tidyCount, churchTimezone, visitorPlace, fmtDate, downloadText, serviceNoteKey, type NextServiceInfo } from "../lib/store";
 import { isFacebookVideoUrl, parseYoutubeId, platformLabel, watchUrl, youtubeThumb, type VideoPlatform, type VideoSource } from "../lib/embed";
 import { useLiveStream, liveTarget, guestTarget, isGuestTargetUrl, facebookTarget, useYoutubeVerdict, isStatusForTarget, designatedChannelIdForTarget, isDesignatedChannel, nextScreenShut, officeStopActive, type ScreenShut } from "../lib/livestatus";
 import { useLibrary } from "../lib/collections";
@@ -504,7 +504,7 @@ export function WatchLive() {
             {available.length > 0 && (
               <p className="live-panel__where">
                 <Icon name={platform === "facebook" ? "facebook" : "youtube"} size={15} />
-                {ct("live.where.text", { platforms: fmtList(available.map((p) => tx(platformLabel(p)))) })}
+                {ct("live.where.text", { platforms: tx(available.map((p) => platformLabel(p)).join(" and ")) })}
               </p>
             )}
           </div>

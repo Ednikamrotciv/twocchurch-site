@@ -6,7 +6,7 @@ import { ErrorBoundary } from "./components/ErrorBoundary";
 import { startCms, useCmsVersion, useCmsReady, useMaintenance, usePreviewingWhileWaiting, useStaleBuild, checkStaleBuild } from "./lib/cms";
 import { mountShaderBackground } from "./lib/shaderbg";
 import { startVisitorClock, useVisitorClock, useVisitorClockRefresh } from "./lib/visitor";
-import { useI18nTick, i18nTickN, ensureI18n, setProtectedValues, i18nAsk, chooseLang, dismissAsk } from "./lib/i18n";
+import { useI18nTick, ensureI18n, setProtectedValues, i18nAsk, chooseLang, dismissAsk } from "./lib/i18n";
 import { allCopySources } from "./data/copy";
 import { startRates, useRates, useRatesRefresh } from "./lib/rates";
 import { useLiveStream } from "./lib/livestatus";
@@ -17,6 +17,8 @@ import { resolvePath } from "./lib/routes";
 import { ADMIN_RETURN_MS, readAdminReturn } from "./lib/adminReturn";
 import { ct } from "./data/copy";
 import { SITE } from "./data/site";
+import { BRANCHES, HQ } from "./data/branches";
+import { EVENTS } from "./data/content";
 
 const Admin = React.lazy(() => import("./pages/Admin").then((m) => ({ default: m.Admin })));
 
@@ -34,9 +36,21 @@ export function App() {
      translations land (note 209). */
   useI18nTick();
   useEffect(() => {
-    /* Only the full legal name stays as typed — it rides masked as an inline
-       token, so prose around it still translates (note 421). */
-    setProtectedValues([SITE.name]);
+    /* Retained exactly as the office typed them: church name + every location
+       and country identity (HQ + branch city/country/address/name, event
+       locations). They ride masked so prose around them still converts while
+       the names themselves never change. Everything else — words, texts,
+       AM/PM times (values follow the IP zone), currency prose — follows IP. */
+    setProtectedValues([
+      SITE.name,
+      SITE.short,
+      HQ.city,
+      HQ.country,
+      HQ.address,
+      HQ.name,
+      ...BRANCHES.flatMap((b) => [b.city, b.country, b.address, b.name]),
+      ...EVENTS.map((e) => e.location),
+    ]);
     if (clock?.country) void ensureI18n(clock.country, allCopySources());
   }, [clock?.country, version]);
   /* Today's rates, from the visitor's browser (note 98). */
@@ -94,12 +108,10 @@ export function App() {
   }, [clock?.currency]);
 
   // The browser tab's words follow the site's own wording (and the office can
-  // reword them under "Site-wide text" in the editor) — in the visitor's own
-  // language too, so the tab title moves when translations land (note 421).
-  const langTick = i18nTickN();
+  // reword them under "Site-wide text" in the editor).
   useEffect(() => {
     document.title = ct("site.tabTitle", { church: SITE.name });
-  }, [version, clock?.tz, langTick]);
+  }, [version, clock?.tz]);
 
   // #/admin (and everything under it) is the very same site, with the office's
   // tools on top. See src/pages/Admin.tsx.
@@ -134,8 +146,8 @@ export function App() {
   );
 }
 
-/* The IP language already applies when this shows (note 421) — the notice is
-   an opt-out: confirm it, keep English instead, or hide it for this visit. */
+/* A non-English IP is asked: their own language or English. The whole site —
+   every line the translator carries — follows the answer when it lands. */
 function LangAsk() {
   useI18nTick();
   const ask = i18nAsk();
@@ -143,18 +155,18 @@ function LangAsk() {
   return (
     <div className="langask" role="dialog" aria-live="polite" aria-label="Language choice">
       <p>
-        {ct("site.lang.reading", { name: ask.name })}
+        Read this site in <b>{ask.name}</b> or keep it in English?
       </p>
       <div className="langask__row">
         <button type="button" className="langask__go" onClick={() => chooseLang(ask.lang)}>
           {ask.name}
         </button>
         <button type="button" className="langask__keep" onClick={() => chooseLang("en")}>
-          {ct("site.lang.keep")}
+          Keep English
         </button>
       </div>
       <button type="button" className="langask__later" onClick={dismissAsk}>
-        {ct("site.lang.later")}
+        Not now
       </button>
     </div>
   );

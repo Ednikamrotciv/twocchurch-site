@@ -2134,12 +2134,7 @@ export function PublishModal({ open, onClose, state }: { open: boolean; onClose:
       }
     }
     setBusy(true);
-    let res;
-    try {
-      res = await cms.publish(note || defaultNote(changed));
-    } catch (e: any) {
-      res = { ok: false as const, error: String((e && (e as any).message) || e || "error") };
-    }
+    const res = await cms.publish(note || defaultNote(changed));
     setBusy(false);
     if (res.ok) {
       /* The click reports what it actually reached (office request: a Publish

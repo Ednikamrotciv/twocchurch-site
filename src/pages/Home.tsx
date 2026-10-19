@@ -97,7 +97,7 @@ export function Home() {
           </Reveal>
         </div>
         <div className="hero__verse" aria-hidden="true">
-          <span>“{tx(SITE.verse.text)}” — {SITE.verse.ref}</span>
+          <span>“{tx(SITE.verse.text)}” — {tx(SITE.verse.ref)}</span>
         </div>
       </section>
 

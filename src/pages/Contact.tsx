@@ -50,10 +50,10 @@ export function Contact() {
   const submit = (e: React.FormEvent) => {
     e.preventDefault();
     const errs: Record<string, string> = {};
-    if (!form.name.trim()) errs.name = ct("contact.valid.name");
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(form.email)) errs.email = ct("contact.valid.email");
-    if (form.message.trim().length < 12) errs.message = ct("contact.valid.message");
-    if (!form.consent) errs.consent = ct("contact.valid.consent");
+    if (!form.name.trim()) errs.name = "Please tell us your name.";
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(form.email)) errs.email = "We need a valid email to reply to you.";
+    if (form.message.trim().length < 12) errs.message = "Please add a little more detail.";
+    if (!form.consent) errs.consent = "Please confirm we may store your message.";
     setErrors(errs);
     if (Object.keys(errs).length) {
       fireToast(ct("auto.contact.7175fadb9bee75fa"), "error");

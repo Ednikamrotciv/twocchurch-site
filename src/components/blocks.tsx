@@ -27,10 +27,10 @@ import {
   fmtDate,
   fmtTime,
   fmtDuration,
-  fmtMonthShort,
   parseDuration,
   to12h,
   DAY_NAMES,
+  fmtMonthShort,
   addToCalendar,
   fmtMoney,
   moneyText,
@@ -637,7 +637,7 @@ export function SermonWatch({ sermon, className = "" }: { sermon: Sermon; classN
       </div>
       <div className="vcard__body">
         <span className="vcard__meta">
-          <Icon name="calendar" size={13} /> {fmtDate(sermonDate(sermon), "short")} · {sermon.speaker}
+          <Icon name="calendar" size={13} /> {fmtDate(sermonDate(sermon), "short")} · {tx(sermon.speaker)}
           {sermon.durationText ? ` · ${tx(sermon.durationText)}` : ""}
         </span>
         <h3 className="vcard__title">
@@ -653,7 +653,7 @@ export function SermonWatch({ sermon, className = "" }: { sermon: Sermon; classN
                 onClick={() => setChosen(o.platform)}
               >
                 <Icon name={o.platform === "facebook" ? "facebook" : o.platform === "upload" ? "play" : "youtube"} size={14} />
-                {tx(platformLabel(o.platform))}
+                {platformLabel(o.platform)}
               </button>
             ))}
           </div>
@@ -717,7 +717,7 @@ export function WatchCards() {
               {platform && href && (
                 <Btn size="sm" variant="ghost" href={href} iconRight="external">
                   {ct("auto.live.db942c55e9ec899c")}
-                  {tx(platformLabel(platform))}
+                  {platformLabel(platform)}
                 </Btn>
               )}
             </Card>
@@ -781,7 +781,7 @@ export function SermonCard({ sermon, layout = "grid" }: { sermon: Sermon; layout
         <span className="sermon-card__play">
           <Icon name="play" size={var_play_size(layout)} />
         </span>
-        {sermon.durationText && <span className="duration-pill">{sermon.durationText}</span>}
+        {sermon.durationText && <span className="duration-pill">{tx(sermon.durationText)}</span>}
         {sermon.platform === "facebook" && (
           <span className="source-pill"><Icon name="facebook" size={11} /> {ct("auto.site.52ada120be326221")}</span>
         )}
@@ -794,14 +794,14 @@ export function SermonCard({ sermon, layout = "grid" }: { sermon: Sermon; layout
       </Link>
       <div className="sermon-card__body">
         <div className="sermon-card__meta">
-          {sermon.scripture && <Badge accent="gold">{sermon.scripture}</Badge>}
+          {sermon.scripture && <Badge accent="gold">{tx(sermon.scripture)}</Badge>}
           <span className="sermon-card__date">{fmtDate(date, "short")}</span>
         </div>
         <h3 className="sermon-card__title">
           <Link to={`/sermons/${sermon.id}`}>{tx(sermon.title)}</Link>
         </h3>
         <p className="sermon-card__sub">
-          {sermon.speaker}
+          {tx(sermon.speaker)}
         </p>
         {layout !== "row" && <p className="sermon-card__summary">{tx(sermon.summary)}</p>}
         <div className="sermon-card__foot">
@@ -994,7 +994,7 @@ export function BranchCard({
     <Card className={"branch-card" + (active ? " branch-card--active" : "")} pad={false}>
       <div className="branch-card__media">
         <img src={photoOr(branch.image, "building2")} alt="" loading="lazy" />
-        <span className="branch-card__flag">{branchFlag(branch)} {tx(branch.country)}</span>
+        <span className="branch-card__flag">{branchFlag(branch)} {branch.country}</span>
         {branch.isHq && <span className="hq-tag">{ct("auto.site.dfdd25368f930047")}</span>}
         {typeof distanceKm === "number" && <span className="distance-tag"><Icon name="pin" size={12} /> {fmtDistance(distanceKm)}</span>}
       </div>
@@ -1072,7 +1072,7 @@ export function EventCard({ event, layout = "grid" }: { event: ChurchEvent; layo
         <img src={photoOr(event.image, "welcome")} alt="" loading="lazy" />
         <span className="event-card__date">
           <b>{day.day}</b>
-          <em>{fmtMonthShort(date).toUpperCase()}</em>
+          <em>{fmtMonthShort(day.month).toUpperCase()}</em>
         </span>
         <span className="event-card__cat">{tx(event.category)}</span>
       </div>
@@ -1081,10 +1081,10 @@ export function EventCard({ event, layout = "grid" }: { event: ChurchEvent; layo
           <Icon name="clock" size={14} /> {to12h(when.time)} · {days === 0 ? ct("auto.site.5416b8171f3bb8fe") : days === 1 ? ct("auto.site.35381cc514496da4") : ct("auto.site.5b3575374d6ff54e", { "days": days })}
         </span>
         <h3>{tx(event.title)}</h3>
-        <p className="muted">{tx(moneyText(event.description))}</p>
+        <p className="muted">{tx(event.description)}</p>
         <ul className="event-card__facts">
           <li><Icon name="pin" size={14} /> {event.location}</li>
-          {branch && <li><Icon name="map" size={14} /> {branch.city}, {tx(branch.country)}</li>}
+          {branch && <li><Icon name="map" size={14} /> {branch.city}, {branch.country}</li>}
           <li><Icon name="ticket" size={14} /> {tx(moneyText(event.cost))}</li>
         </ul>
         <div className="event-card__actions">
@@ -1116,7 +1116,7 @@ export function TestimonyCard({ testimony, onOpen, onAmen }: { testimony: Testim
       <span className="testimony-card__quote"><Icon name="quote" size={22} /></span>
       <Badge accent={catAccent(cat)}>{categoryLabel(cat)}</Badge>
       <h3>{tx(testimony.title)}</h3>
-      <p className="testimony-card__body">{tx(moneyText(testimony.body.length > 210 && !onOpen ? testimony.body.slice(0, 205) + "…" : testimony.body))}</p>
+      <p className="testimony-card__body">{tx(testimony.body.length > 210 && !onOpen ? testimony.body.slice(0, 205) + "…" : testimony.body)}</p>
       <div className="testimony-card__foot">
         <div className="testimony-card__who">
           {testimony.photo ? <img src={testimony.photo} alt="" className="testimony-card__photo" /> : <Monogram name={testimony.name} letters={testimony.monogram} size={38} />}
@@ -1175,7 +1175,7 @@ export function MinistryCard({ ministry, onJoin }: { ministry: { id: string; nam
         <p className="muted">{tx(ministry.description)}</p>
         <ul className="ministry-card__facts">
           <li><Icon name="clock" size={14} /> {tx(ministry.meets)}</li>
-          <li><Icon name="user" size={14} /> {ministry.leader}</li>
+          <li><Icon name="user" size={14} /> {tx(ministry.leader)}</li>
         </ul>
         <Btn size="sm" variant="ghost" icon="send" onClick={onJoin}>
           {ct("auto.site.f99c90b3d7715592")}</Btn>
@@ -1335,7 +1335,7 @@ export function BranchPanel({
       {others && others.length > 0 && (
         <div className="branch-panel__side">
           <h4>
-            {withDistance ? ct("auto.site.98dcbc0075b397e9") : sameCountry ? <>{ct("auto.site.8401f4e754b56bce")}{tx(branch.country)}</> : ct("auto.site.511e8faecd3a0bd7")}
+            {withDistance ? ct("auto.site.98dcbc0075b397e9") : sameCountry ? <>{ct("auto.site.8401f4e754b56bce")}{branch.country}</> : ct("auto.site.511e8faecd3a0bd7")}
           </h4>
           <div className="branch-panel__list">
             {others.slice(0, 4).map((o) => {
@@ -1343,7 +1343,7 @@ export function BranchPanel({
                 typeof o.km === "number"
                   ? fmtDistance(o.km)
                   : o.branch.country !== branch.country
-                    ? tx(o.branch.country)
+                    ? o.branch.country
                     : "";
               return (
                 <button type="button" key={o.branch.id} className="nearby-row nearby-row--link" onClick={() => onSelect?.(o.branch)}>
@@ -1440,7 +1440,7 @@ export function StatStrip() {
   return (
     <div className="stat-strip">
       {STATS.map((s) => (
-        <Stat key={s.label} value={s.value} label={tx(s.label)} suffix={s.suffix} />
+        <Stat key={s.label} value={s.value} label={s.label} suffix={s.suffix} />
       ))}
     </div>
   );

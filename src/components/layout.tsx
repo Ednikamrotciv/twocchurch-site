@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { tx, i18nTickN } from "../lib/i18n";
+import { tx, useI18nTick, i18nTickN } from "../lib/i18n";
 import { Link, navigate, useRoute } from "../lib/router";
 import { useHotkey, useMediaQuery, useScrollProgress, useTheme, useNow, useClickOutside, useBodyLock } from "../lib/hooks";
 import { exitMaintenancePreview } from "../lib/cms";
@@ -30,7 +30,7 @@ export function buildSearchIndex(): SearchResult[] {
   SERMONS.forEach((s) =>
     out.push({
       title: tx(s.title),
-      sub: `${s.speaker} · ${s.durationText}`,
+      sub: `${tx(s.speaker)} · ${tx(s.durationText)}`,
       to: `/sermons/${s.id}`,
       group: ct("auto.site.87cbe2336529b73a"),
       image: sermonThumb(s),
@@ -228,9 +228,9 @@ export function CommandPalette({ open, onClose }: { open: boolean; onClose: () =
   const [q, setQ] = useState("");
   const [active, setActive] = useState(0);
   const inputRef = React.useRef<HTMLInputElement>(null);
-  /* Rebuilt when translations land, so results read in the IP language too. */
-  const langTick = i18nTickN();
-  const index = useMemo(() => buildSearchIndex(), [langTick]);
+  /* Search words follow the IP language too — rebuild when translations land. */
+  useI18nTick();
+  const index = useMemo(() => buildSearchIndex(), [i18nTickN()]);
   useBodyLock(open);
 
   const results = useMemo(() => {
@@ -536,11 +536,11 @@ export function PreviewBanner() {
   return (
     <div className="previewbar" role="status">
       <span>
-        {ct("site.preview.text")}{" "}
-        <Link to="/admin">{ct("site.preview.admin")}</Link>
+        Preview — visitors see the maintenance notice.{" "}
+        <Link to="/admin">Open the admin console</Link>
       </span>
       <button type="button" className="previewbar__exit" onClick={() => exitMaintenancePreview()}>
-        {ct("site.preview.exit")}
+        Exit preview
       </button>
     </div>
   );
@@ -553,6 +553,7 @@ export function MaintenanceSite() {
   /* Auto dark/light on the notice too — no switch button here, it just follows
      the site's own theme (stored choice + automatic switching). */
   useTheme();
+  useI18nTick();
   return (
     <div className="maint">
       <header className="maint__head">
@@ -560,12 +561,12 @@ export function MaintenanceSite() {
           <img className="maint__logo" src={siteFile(LOGO_MARK)} alt={SITE.name} />
           <span className="maint__name">{SITE.name}</span>
         </span>
-        <span className="maint__pill">{ct("site.maint.pill")}</span>
+        <span className="maint__pill">{tx("Maintenance")}</span>
       </header>
       <main className="maint__main">
         <img className="maint__mark" src={siteFile(LOGO_MARK)} alt="" aria-hidden="true" />
-        <h1>{ct("site.maint.title")}</h1>
-        <p>{ct("site.maint.text")}</p>
+        <h1>{tx("We\u2019ll be right back")}</h1>
+        <p>{tx("The site is being updated. Please check back shortly.")}</p>
       </main>
     </div>
   );

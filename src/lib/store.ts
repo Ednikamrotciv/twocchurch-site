@@ -271,43 +271,30 @@ export function pad(n: number) {
   return n < 10 ? "0" + n : String(n);
 }
 
-/** A wall-clock "HH:MM" (already moved onto the reader's clock by clockHere /
-    clockAt) read with hardcoded AM/PM (note 422): the HOUR follows the
-    visitor's IP clock, but the format stays 12-hour AM/PM in every language —
-    French visitors read "6:30 PM", never "18:30". */
 export function to12h(time: string) {
-  const [hRaw, mRaw] = time.split(":");
+  /* Clock values already follow the visitor IP zone via clockHere/siteTimezone
+     callers — only the format stays hardcoded 12h AM/PM per office (never a
+     locale 24h shape). */
+  const [hRaw, mRaw] = String(time || "").split(":");
   const h = Number(hRaw);
-  const m = Number(mRaw || 0);
-  if (!Number.isFinite(h) || !Number.isFinite(m)) return time;
+  const m = Number(mRaw);
+  if (!Number.isFinite(h) || !Number.isFinite(m)) return String(time || "");
   const suffix = h >= 12 ? "PM" : "AM";
   const h12 = h % 12 === 0 ? 12 : h % 12;
-  return `${h12}:${pad(m)} ${suffix}`;
+  return `${h12}:${String(m).padStart(2, "0")} ${suffix}`;
 }
 
-/** A month name for an event badge, in the visitor's own language (note 421):
-    "Feb" reads "févr." the moment the IP language is French. */
-export function fmtMonthShort(input: string | Date | number, tz = siteTimezone()) {
-  const d = input instanceof Date ? input : new Date(input);
-  if (isNaN(d.getTime())) return "";
+/** Short month name in the visitor's own language ("Jan" -> "janv." in French).
+    Used where a card prints its own calendar badge instead of fmtDate. */
+export function fmtMonthShort(month1to12: number): string {
+  const m = Math.max(1, Math.min(12, Math.floor(Number(month1to12) || 1)));
   try {
-    return new Intl.DateTimeFormat(siteLocale(), { month: "short", timeZone: zoneOr(tz) }).format(d);
+    const s = new Date(2026, m - 1, 15).toLocaleDateString(siteLocale(), { month: "short" });
+    if (s && /[A-Za-zÀ-ÿĀ-ž]/.test(s)) return s;
   } catch {
-    return MONTH_SHORT[d.getMonth()] || "";
+    /* fall through to the English table */
   }
-}
-
-/** Join platform names the way the visitor's language joins them (note 421):
-    "YouTube and Facebook" reads "YouTube et Facebook" in French. */
-export function fmtList(items: string[]) {
-  const list = items.filter((s) => String(s || "").trim());
-  if (!list.length) return "";
-  if (list.length === 1) return list[0];
-  try {
-    return new Intl.ListFormat(siteLocale(), { style: "long", type: "conjunction" }).format(list);
-  } catch {
-    return list.join(" and ");
-  }
+  return MONTH_SHORT[m - 1];
 }
 
 /** A weekday + 24-hour "HH:MM" pair — a time as some clock reads it. */
@@ -366,9 +353,7 @@ export function fmtDate(input: string | Date | number, style: DateStyle = "mediu
   return d.toLocaleDateString(siteLocale(), { ...opts, timeZone: zoneOr(tz) });
 }
 
-/** A clock time as the church sees it — used where an instant is shown.
-    The instant follows the visitor's IP clock (note 422), but the format
-    keeps hardcoded AM/PM like to12h: always 12-hour English "6:30 PM". */
+/** A clock time as the church sees it — used where an instant is shown. */
 export function fmtTime(
   input: string | Date | number,
   options: Intl.DateTimeFormatOptions = { hour: "numeric", minute: "2-digit" },
@@ -376,7 +361,8 @@ export function fmtTime(
 ) {
   const d = input instanceof Date ? input : new Date(input);
   if (isNaN(d.getTime())) return "";
-  return d.toLocaleTimeString("en", { ...options, hour12: true, timeZone: zoneOr(tz) });
+  /* Hardcoded AM/PM per office — the instant/timezone still follows the visitor IP (zoneOr(tz)), only the shape stays 12h. */
+  return d.toLocaleTimeString("en-US", { ...options, hour12: true, timeZone: zoneOr(tz) });
 }
 
 export function relativeTime(input: string | Date | number) {

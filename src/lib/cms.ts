@@ -102,11 +102,12 @@ try {
 }
 /* Publish clock (one publish lifts every deploy): the wall-clock moment of the
    last witnessed publish stamped from the running update (notes>=BUILD_NOTES).
-   Raise-only, persisted, shared across tabs via storage events. A deploy that
-   was first seen BEFORE this moment was around for the publish; combined with
-   the shared-notes trigger (note 421) any same-update publish releases every
-   copy — the clock is an extra witness for cross-deploy arrivals, never a
-   trap: nothing here can hold a copy whose notes already prove release. */
+   Raise-only, persisted, shared across tabs via storage events. A deployed copy
+   whose deploy was first seen BEFORE this moment was around for the publish, so
+   its maintenance notice lifts even when the publish came from a different
+   deploy id (stale tab, local copy) — while a deploy first seen AFTER the
+   publish still holds until its own publish. This is what makes one Publish
+   click work in all browsers instead of only the one that was clicked. */
 const PUBLISH_AT_KEY = "wom.cms.publishAt";
 /* Clock-skew tolerance: a server clock a few seconds behind the browser must
    not strand a publish that just landed. */
@@ -585,45 +586,38 @@ function serverInvolved(): boolean {
     waits). A local copy with no stamped deploy waits on the number gate below
     until the office publishes. A publish lifts. */
 export function maintenanceShouldWait(): boolean {
-  /* Update window (notes 249-302, trigger rebuilt note 421): visitors wait on
-     the notice while the running update is unreleased. The trigger is SHARED
-     evidence only — a witnessed publish from this update (explicit office
-     action here, server answer, live feed, baked seed, browser cache raises
-     publishedNotes; the publish clock and the code blessing are extra release
-     paths) — never per-browser stamps or deploy-ID comparisons, so one admin
-     Publish lifts every device and browser together, and no late arrival waits
-     behind another's click. */
   /* Local preview: ?maintenance=1 shows the notice even on server-less local. */
   try {
     if (maintenanceForced()) return true;
   } catch {}
-  /* The office's own preview pass always sees the site. */
-  try {
-    if (maintenancePreview()) return false;
-  } catch {}
-  /* Boot owns the screen (BootSplash) until seed + stamp + first sync settle —
-     no hold either way before then, so a published site never flashes the
-     notice on launch and an unreleased one never flashes live. */
-  try {
-    if (!bootReady) return false;
-  } catch {}
-  /* Pure static (no server ever, no baked feed) never waits: nothing could
-     ever release such a copy, since its words move only via rebuild. */
-  try {
+  /* Deploy lock (no numbers): a built copy waits until a publish from its
+     own deploy lands — or a publish from the running update landed after this
+     deploy was first seen (one click lifts every deploy, even a stale tab's
+     or a local copy's). Server-less copies never wait (no visitors). */
+  if (deployFromMeta && currentDeployId) {
+    if (publishedDeployId === currentDeployId) return false;
+    /* Post-deploy publish witness: this copy was around for a publish from
+       the running update, so visitors are released even though the publish
+       came from a different deploy id. A deploy first seen AFTER the publish
+       still holds until its own publish — except on the tab that published
+       (it reloads onto the new code right after its click). */
+    try {
+      if (postDeployPublishWitnessed()) return false;
+    } catch {}
+    try {
+      if (justPublishedRecently()) return false;
+    } catch {}
+    /* Deploy lock: any copy whose words can move after deploy waits — server
+       behind it, or a baked feed (note 416). Pure static never waits. */
     if (!serverInvolved() && !feedFromMeta()) return false;
-  } catch {}
-  /* Released from this update — witnessed anywhere. */
+    return true;
+  }
+  /* No stamped deploy (local dev): the number gate locks every new fix until
+     the office publishes — a local Publish blesses the copy even with no
+     server reachable (note 250), so this lock always has a release. Note 301:
+     a corrupt stamp is unreviewed, never published — it waits too. */
   const held = typeof publishedNotes === "number" && Number.isFinite(publishedNotes) ? Math.floor(publishedNotes) : 0;
-  if (held >= BUILD_NOTES) return false;
-  /* A same-update publish that landed after this deploy was first seen
-     releases it, even across deploy ids (the publish clock). */
-  try {
-    if (postDeployPublishWitnessed()) return false;
-  } catch {}
-  /* An explicit office publish on this copy blessed the running code. */
-  try {
-    if (codeBlessedMatches()) return false;
-  } catch {}
+  if (held >= BUILD_NOTES && codeBlessedMatches()) return false;
   return true;
 }
 /* True while visitors must wait: new code is ahead of the last publish.
@@ -654,23 +648,33 @@ export function useMaintenance(): boolean {
     } catch {}
     return true;
   }
-  /* Same shared-evidence rule as maintenanceShouldWait (note 421). */
+  /* Deploy lock (no numbers — same rule as maintenanceShouldWait). */
+  if (deployFromMeta && currentDeployId) {
+    if (publishedDeployId === currentDeployId) return false;
+    /* Post-deploy publish witness: one click lifts every deploy that was
+       around for it, even when the click came from a stale tab or local. */
+    try {
+      if (postDeployPublishWitnessed()) return false;
+    } catch {}
+    try {
+      if (justPublishedRecently()) return false;
+    } catch {}
+    /* Deploy lock: any copy whose words can move after deploy waits — server
+       behind it, or a baked feed (note 416). Pure static never waits. */
+    if (!serverInvolved() && !feedFromMeta()) return false;
+    try {
+      if (maintenancePreview()) return false;
+    } catch {}
+    return true;
+  }
+  /* No stamped deploy (local dev): same lock as maintenanceShouldWait — every
+     new fix waits until the office publishes (note 250: a local Publish always
+     releases). The office preview pass still bypasses.
+     Note 301: a corrupt stamp is unreviewed, never published. */
+  const held = typeof publishedNotes === "number" && Number.isFinite(publishedNotes) ? Math.floor(publishedNotes) : 0;
+  if (held >= BUILD_NOTES && codeBlessedMatches()) return false;
   try {
     if (maintenancePreview()) return false;
-  } catch {}
-  try {
-    if (!bootReady) return false;
-  } catch {}
-  try {
-    if (!serverInvolved() && !feedFromMeta()) return false;
-  } catch {}
-  const held = typeof publishedNotes === "number" && Number.isFinite(publishedNotes) ? Math.floor(publishedNotes) : 0;
-  if (held >= BUILD_NOTES) return false;
-  try {
-    if (postDeployPublishWitnessed()) return false;
-  } catch {}
-  try {
-    if (codeBlessedMatches()) return false;
   } catch {}
   return true;
 }
@@ -717,11 +721,6 @@ function readStaleAttempts(): { notes: number; at: number; tries: number } | nul
     return null;
   }
 }
-/** True while a publish send is in flight: the stale-build check must not
-    reload under it (a reload then aborts the click with no message and can
-    strand a multi-batch publish half-landed). The check still records the
-    newer update and re-renders into waiting — only the reload itself waits. */
-let publishInFlight = 0;
 /** True while version.json names a newer update than this bundle (note 302):
     visitors wait on maintenance until the reload lands them on the new code. */
 export function isStaleWaiting(): boolean {
@@ -795,10 +794,6 @@ export function checkStaleBuild(): Promise<void> {
           sessionStorage.setItem(STALE_RELOAD_KEY, JSON.stringify({ notes: staleNewerNotes, at, tries }));
         } catch {}
       } catch {}
-      /* A publish send in flight keeps its click: the newer update is recorded
-         and the copy waits (above) — but the reload itself never fires under
-         a send, or the click aborts with no message. */
-      if (publishInFlight > 0) return;
       /* Warm the entry document past the HTTP cache, then reload onto it. */
       try {
         await fetch(window.location.href, { cache: "reload" } as RequestInit);
@@ -1696,6 +1691,9 @@ export async function publishSection(sectionId: string, note: string): Promise<P
         scheduleRelayRetry({}, [], note.slice(0, 160), sectionStamp);
       } catch {}
       try {
+        if (!sectionStamp) scheduleDeployStampHeal();
+      } catch {}
+      try {
         checkStaleBuild().catch(() => {});
       } catch {}
       notify();
@@ -1742,6 +1740,9 @@ export async function publishSection(sectionId: string, note: string): Promise<P
     } catch {}
     try {
       scheduleRelayRetry({ [sectionId]: JSON.stringify(value) }, [sectionId], note.slice(0, 160), sectionStamp);
+    } catch {}
+    try {
+      if (!sectionStamp) scheduleDeployStampHeal();
     } catch {}
     try {
       checkStaleBuild().catch(() => {});
@@ -5478,6 +5479,50 @@ function buildRelaySections(snapshot: Snapshot | null, changed: string[]): Recor
     `awaitRelay` is for explicit Publish clicks only: the click waits
     (bounded) for the live relay's word leg and reports whether live visitors
     got it — background sends (live pull, offline flush) never wait. */
+/* Empty-stamp heal (one-publish-clears-all): an office publish from an
+   unstamped copy (local/dev) stamps the live deploy it relays to — but when
+   live is asleep at click time the stamp is empty ("") and fresh visitor
+   devices can never match it by deploy id, so only the clicking browser lifts
+   while every other browser keeps waiting. The heal retries the live deploy in
+   the background and, once known, sends a bless-only patch to the office
+   server so its publishDeploy names the build visitors run. Sleep-wakes then
+   serve its release, not just its words. New deploys still wipe (a different
+   deploy id never matches), the maintenance notice still holds until a publish,
+   and fresh-clean-new staging is untouched — this only fills an empty stamp
+   for the same update. */
+let deployHealTimer = 0;
+function scheduleDeployStampHeal(): void {
+  try {
+    if (deployHealTimer) return;
+    const tick = async () => {
+      try {
+        if (!socket || status !== "online" || !authed) return;
+        const liveDeploy = await deployStampForOfficePublish().catch(() => "");
+        if (!liveDeploy) return;
+        const res = await sendPatch({}, [], "Deploy stamp heal", true, false, liveDeploy).catch(() => null);
+        if (res && (res as any).ok) {
+          try {
+            if (deployHealTimer) window.clearInterval(deployHealTimer);
+          } catch {}
+          deployHealTimer = 0;
+        }
+      } catch {}
+    };
+    try {
+      deployHealTimer = window.setInterval(() => void tick(), 30_000);
+    } catch {
+      return;
+    }
+    window.setTimeout(() => void tick(), 5000);
+    try {
+      document.addEventListener("visibilitychange", () => {
+        if (document.visibilityState === "visible") void tick();
+      });
+      window.addEventListener("online", () => void tick());
+    } catch {}
+  } catch {}
+}
+
 async function sendPatch(
   sections: Record<string, string | null>,
   changed: string[],
@@ -5594,6 +5639,12 @@ async function sendPatch(
     try {
       markJustPublished();
     } catch {}
+    /* Empty-stamp heal: unstamped publishes with no live deploy yet (live
+       asleep at click time) leave no durable deploy for fresh devices to
+       match — heal it in the background once live answers. */
+    try {
+      if (!durableDeploy) scheduleDeployStampHeal();
+    } catch {}
   }
   /* Publish-at-once convergence: this copy just published, so pull every
      other lane at once instead of waiting for its next tick — live's
@@ -5647,15 +5698,6 @@ async function sendPatch(
 
 /** Put the draft live. `content` is only for the publish that waited on a save. */
 export async function publish(note: string, content?: Snapshot): Promise<PublishResult> {
-  publishInFlight += 1;
-  try {
-    return await publishBody(note, content);
-  } finally {
-    publishInFlight = Math.max(0, publishInFlight - 1);
-  }
-}
-
-async function publishBody(note: string, content?: Snapshot): Promise<PublishResult> {
   if (!content && draft) {
     dropLapsedSlides(true);
     migrateTestimonies();
@@ -5712,6 +5754,9 @@ async function publishBody(note: string, content?: Snapshot): Promise<PublishRes
       } catch {}
       try {
         scheduleRelayRetry({}, [], note.slice(0, 160), officeStamp);
+      } catch {}
+      try {
+        if (!officeStamp) scheduleDeployStampHeal();
       } catch {}
       try {
         checkStaleBuild().catch(() => {});
