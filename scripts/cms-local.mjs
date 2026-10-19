@@ -372,10 +372,13 @@ async function backfillUploadFiles(rootDir, names, baseUrls, where) {
   if (fetched) console.log(`upload backfill (${where}): ${fetched} file${fetched === 1 ? "" : "s"} from the last publish saved home`);
   return { fetched };
 }
-/* The office backend's minute loop (note 344): read the live site's
+/* The office backend's follow loop (note 344): read the live site's
    published words, adopt them when strictly newer. All decisions in
-   live-follow.mjs; this only moves bytes. Never throws out. */
-const FOLLOW_MS = 60 * 1000;let followStarted = false;
+   live-follow.mjs; this only moves bytes. The event stream below hears a
+   live publish in about a second; the tiny stamp round beside it lands one
+   within seconds even with the stream down; the half-minute full round is
+   the backstop for old hosts without the stamp answer. Never throws out. */
+const FOLLOW_MS = 30 * 1000;let followStarted = false;
 function startLiveFollow({ rootDir, rpcCall, adoptToken }) {
   if (followStarted) return;
   followStarted = true;
@@ -421,7 +424,7 @@ function startLiveFollow({ rootDir, rpcCall, adoptToken }) {
         });
         if (res.ok) live = await res.json().catch(() => null);
       } catch {
-        /* live unreachable (offline, asleep, sleeping DNS) — next minute */
+        /* live unreachable (offline, asleep, sleeping DNS) — next round */
       } finally {
         if (timer) clearTimeout(timer);
       }
@@ -509,12 +512,62 @@ function startLiveFollow({ rootDir, rpcCall, adoptToken }) {
       running = false;
     }
   };
-  setTimeout(() => round().catch(() => {}), 20000);
+  setTimeout(() => round().catch(() => {}), 5000);
+  /* Seconds-fast lane (office request: local follows live in seconds, not
+     minutes): the tiny public stamp is asked every few seconds and the full
+     guarded round above runs only when it moved — a live/admin publish lands
+     here within seconds even with the event stream down. Old hosts without
+     the stamp answer stay on the half-minute full round below. */
+  const STAMP_MS = 10 * 1000;
+  let stamping = false;
+  let lastStamp = "";
+  const stampRound = async () => {
+    if (stamping || running) return;
+    stamping = true;
+    try {
+      let fileText = "";
+      try {
+        fileText = await readFile(path.join(rootDir, "cms-server.txt"), "utf8");
+      } catch {
+        /* no setup file — the default address answers (note 344) */
+      }
+      const origin = pickLiveOrigin(fileText) || DEFAULT_LIVE_ORIGIN;
+      const ctrl = typeof AbortController !== "undefined" ? new AbortController() : null;
+      const timer = ctrl ? setTimeout(() => ctrl.abort(), 5000) : 0;
+      let stamp = null;
+      try {
+        const res = await fetch(origin + "/__cms/contentRev?conn=livefollow-stamp", {
+          method: "POST",
+          headers: { "content-type": "text/plain;charset=utf-8" },
+          body: "",
+          signal: ctrl ? ctrl.signal : undefined,
+        });
+        if (res.ok) stamp = await res.json().catch(() => null);
+      } catch {
+        /* live unreachable (offline, asleep, sleeping DNS) — next stamp */
+      } finally {
+        if (timer) clearTimeout(timer);
+      }
+      if (!stamp || stamp.ok !== true) return;
+      /* Every real publish moves the stamp (the server bumps its revision
+         and clock on each one), so an unchanged stamp means unchanged words
+         and the full round above stays asleep. */
+      const key = [stamp.rev, stamp.notes, stamp.at, stamp.publishDeploy].join("|");
+      if (key === lastStamp) return;
+      lastStamp = key;
+      round().catch(() => {});
+    } finally {
+      stamping = false;
+    }
+  };
+  setTimeout(() => stampRound().catch(() => {}), 3000);
+  setInterval(() => stampRound().catch(() => {}), STAMP_MS);
   setInterval(() => round().catch(() => {}), FOLLOW_MS);
   /* Instant lane (publish-at-once): hear the live box's publish shouts in
-     about a second over its event stream instead of on the next minute — the
-     same round runs above, so the same guards decide. The minute poll stays
-     as the backstop; a host without the stream simply retries its backoff. */
+     about a second over its event stream instead of on the next poll — the
+     same round runs above, so the same guards decide. The stamp lane and the
+     half-minute poll stay as the backstop; a host without the stream simply
+     retries its backoff. */
   try {
     openInstantPush({
       originFor: async () => {

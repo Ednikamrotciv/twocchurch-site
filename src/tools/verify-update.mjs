@@ -885,7 +885,7 @@ export async function runAll(fs) {
   const edQ = text["src/components/editor.tsx"];
   ok("pull entry exists", has(cms, "export async function pullFromLive()") && has(cms, "function startLivePull()") && has(cms, "async function foldLiveInto("), "the sync needs its auto entry, its poller and its publish-time fold");
   ok("puller runs with the office", has(cms, "startLivePull();") && has(cms, "initialSyncDone.then"), "live publishes must pull themselves home while an office tab is open");
-  ok("publish folds live in", has(cms, "await foldLiveInto(content || draft)") && has(cms, "await foldLiveInto(draft, sectionId)"), "every Publish (whole site and per-section) must fold live's newer words in first");
+  ok("publish folds live in", has(cms, "await foldLiveInto(content || draft, undefined, 6000)") && has(cms, "await foldLiveInto(draft, sectionId, 6000)"), "every Publish (whole site and per-section) must fold live's newer words in first");
   ok("no hand pull button", !has(edQ, "Pull from live now") && !has(edQ, "pullFromLive(") && has(edQ, "folds into this publish"), "the card is gone — Publish does it, and says so");
   ok("same-update reports only", has(liveQ, "reportMatchesBuild") && has(liveQ, "notes: BUILD_NOTES") && has(liveQ, "notes: number"), "an old bundle's wrong id must never steer this update");
   ok("server keeps the reporter update", has(srvQ, "rep.notes") && has(srvQ, "notes: notes"), "the store must carry notes without trusting them");
@@ -1235,8 +1235,15 @@ export async function runAll(fs) {
   ok("follow adopts live", has(localAA, "startLiveFollow") && has(followAA, "shouldAdoptLive") && has(followAA, "adoptPatch"), "a live/admin publish must reach local with no tab open");
   ok("flag holds only fallback bakes", has(localAA, "only a fallback bake is held") && has(localAA, "live.seeded === true"), "a clean-deploy flag must not block a real live publish from reaching local");
   ok("late local lifts on live truth", has(cmsAA, "Late-joining local copy") && has(cmsAA, "noteCodeWitness((res as any).code, res.notes)"), "a local copy opened after the live publish must still clear its notice with no local click");
+  ok("relay names its reason", has(cmsAA, "function relayStatus") && has(cmsAA, "Live login denied") && has(cmsAA, "retrying in the background"), "the office must see WHY live did not follow, not just that it missed");
+  ok("status shows the live leg", has(edAA, "cms.relayStatus()") && has(edAA, "Live site"), "the Status tab must carry the last relay report");
+  ok("relay asks the live password once", has(cmsAA, "submitLivePassword") && has(cmsAA, "relayNeedsPassword"), "a denied live box must get one typed password, not silence forever");
+  ok("relay retry survives reloads", has(cmsAA, "wom.cms.relayPending") && has(cmsAA, "resumeRelayRetry"), "a closed tab must not strand the live site on maintenance");
+  ok("status sends to live", has(edAA, "submitLivePassword") && has(edAA, "relayNeedsPassword"), "the Status tab must offer the password and the retry");
+  ok("fold never holds a click", has(cmsAA, "foldGen") && has(cmsAA, "boundedMs"), "a sleeping live box must not stall a publish on its read");
+  ok("joined tabs relay to live", has(cmsAA, "joinedBackendRoot") && has(cmsAA, "this tab publishes through"), "a live/admin tab joined to the office must still push the live box at once");
   ok("adopt door locked", has(srvAA, "adoptLive") && has(srvAA, "self.__adoptToken"), "only this machine's own loop may adopt");
-  ok("publish folds live", has(cmsAA, "async function foldLiveInto") && has(cmsAA, "await foldLiveInto(draft, sectionId)"), "every Publish carries live's newer words by itself");
+  ok("publish folds live", has(cmsAA, "async function foldLiveInto") && has(cmsAA, "await foldLiveInto(draft, sectionId, 6000)"), "every Publish carries live's newer words by itself");
   ok("auto-push rides out", has(pushAA, "notePublished") && has(localAA, "notePublished"), "a local publish must deploy itself within minutes");
   ok("handle-only answers", has(liveAA, "ownerAllowsCandidate") && has(liveAA, "isStatusForTarget") && has(liveAA, "inheritEnded"), "no foreign video, no stale address, no stray link");
   ok("walled follow plus dead net", has(liveAA, "unverifiedChannelAnswer") && has(liveAA, "verifyYoutubeId"), "chrome with no video plays the channel; dead ids never play blind");
@@ -2161,6 +2168,7 @@ const notes = Number((text["src/lib/hooks.ts"].match(/BUILD_NOTES = (\d+)/) || [
   const autoKKK = text["scripts/auto-push.mjs"];
   ok("stream framing is pure", has(pushKKK, "export function splitSse") && has(pushKKK, "export function openInstantPush"), "the push must stay runnable anywhere");
   ok("office hears live at once", has(localKKK, "openInstantPush") && has(localKKK, "officefollow"), "a live/admin publish must reach the office in about a second");
+  ok("follow stamp is seconds", has(localKKK, "STAMP_MS") && has(localKKK, "/__cms/contentRev"), "local must hear a live publish in seconds even with the stream down");
   ok("live box follows the mirror", has(localKKK, "startFeedFollow") && has(localKKK, "process.env.RENDER") && has(localKKK, "FEED_FOLLOW_MS"), "a local/admin publish must reach live without a rebuild");
   ok("feed adopt never churns", has(srvKKK, "adoptFeed: function (info, raw)") && has(srvKKK, "never bumps the revision"), "the stamp must stay the feed's own");
   ok("feed address is pure", has(specKKK, "export function parseFeedSpec") && has(specKKK, "export function feedSeedUrls") && has(specKKK, "export async function peekFeedSeed"), "the live box must resolve the mirror like the tabs do");

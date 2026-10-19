@@ -1663,7 +1663,7 @@ export async function publishSection(sectionId: string, note: string): Promise<P
      deploy, so the office record carries the build visitors run. Fetched
      alongside the fold; "" when stamped or unreachable. */
   const sectionStampP: Promise<string> = deployStampForOfficePublish().catch(() => "");
-  await foldLiveInto(draft, sectionId);
+  await foldLiveInto(draft, sectionId, 6000);
   let value = clone(draft[sectionId]);
   /* The transport arms the send (notes 390, 392, 394): without a clicked play,
      pause or stop newer than what is published, the on-air state stays out of
@@ -1780,7 +1780,7 @@ export async function publishSection(sectionId: string, note: string): Promise<P
   applyOverrides(overrides);
   writeCache();
   notify();
-  return { ok: true, live: result.relay !== "missed" };
+  return { ok: true, live: result.relay !== "missed", relayMsg: relayStatus().msg };
 }
 
 function stampSermonPublishTimes(list: any[]): void {
@@ -2092,12 +2092,69 @@ let livePullStarted = false;
 let livePullRunning = false;
 let lastLivePullAt = 0;
 let lastLivePullMsg = "";
+/* Last word-leg to the live box (office request: a Publish click must land
+   everywhere — the office must see WHY live did not follow): outcome plus
+   reason, stamped when recorded. Read by the Status tab and the publish
+   toast; the retry loop keeps it current while the tab stays open. */
+let lastRelayAt = 0;
+let lastRelayMsg = "";
+function noteRelay(msg: string): void {
+  try {
+    lastRelayAt = Date.now();
+    if (msg !== lastRelayMsg) {
+      lastRelayMsg = msg;
+      version += 1;
+      notify();
+    }
+  } catch {
+    /* status text must never break a publish */
+  }
+}
+/** What the last relay to the live site reported ("" = none yet). */
+export function relayStatus(): { at: number; msg: string } {
+  return { at: lastRelayAt, msg: lastRelayMsg };
+}
 
 /* Where "live" is for this copy: the office backend's own answer, else the
    site's own live address (note 344). Empty only on the live box itself —
    it IS live, so its tabs never pull. */
 export const DEFAULT_LIVE_ORIGIN = "https://twocchurch-site.onrender.com";
+/* The backend this tab publishes through when joined (a deployed copy —
+   live/admin included — pointed at the office server): "" while standalone.
+   A joined live/admin tab's durable publish lands on the OFFICE box, so the
+   live relay must ask the office door where live is — never this page's own
+   origin, which would answer empty (it IS live) and skip the relay while the
+   live box waits for a rebuild. */
+async function joinedBackendRoot(): Promise<string> {
+  try {
+    const remote = serverUrl();
+    if (remote && /^https?:\/\/[^/\s]+$/i.test(remote)) return remote.replace(/\/+$/, "");
+    return "";
+  } catch {
+    return "";
+  }
+}
 async function liveBaseUrl(): Promise<string> {
+  try {
+    const joined = await joinedBackendRoot();
+    if (joined) {
+      try {
+        const res = await fetch(joined + "/__live-url", { cache: "no-store" });
+        if (res.ok) {
+          const data = await res.json().catch(() => null);
+          const u = String((data && data.url) || "").trim().replace(/\/+$/, "");
+          if (/^https?:\/\/[^/\s]+$/i.test(u)) return u;
+          /* Our backend IS live: the durable publish already landed there —
+             nothing to reach. */
+          if (!u) return "";
+        }
+      } catch {
+        /* joined backend silent — fall through to this origin's door */
+      }
+    }
+  } catch {
+    /* standalone — the same-origin door below owns it */
+  }
   let backend = "";
   try {
     const res = await fetch("/__live-url", { cache: "no-store" });
@@ -2542,7 +2599,41 @@ export async function pullFromLive(): Promise<LivePullResult> {
    words only if live has something to contribute. `onlyId` restricts the fold
    to one section (the per-section publish). Never fails: anything unclear
    skips the fold and the publish goes ahead exactly as before. */
-async function foldLiveInto(target: Snapshot | null, onlyId?: string): Promise<{ snapshot: Snapshot | null; folded: string[] }> {
+/* Publish-fold generation: a bounded click that outruns its fold cancels the
+   late answer before it can stage anything for a publish that already went. */
+let foldGen = 0;
+async function foldLiveInto(target: Snapshot | null, onlyId?: string, boundedMs = 0): Promise<{ snapshot: Snapshot | null; folded: string[] }> {
+  /* Bounded clicks (office request: fast everywhere — a sleeping live box
+     used to hold every Publish on its 15-second read): the fold wins when
+     live answers within the bound; past it the click proceeds without the
+     fold (exactly as with a silent live box) and the late answer is
+     cancelled below before it can mark drafts, write uploads or toast for a
+     publish that already went. The minute loops and the next publish still
+     fold anything newer home. Never throws. */
+  if (boundedMs > 0) {
+    try {
+      foldGen += 1;
+    } catch {}
+    const gen = foldGen;
+    const fallback = { snapshot: target, folded: [] as string[] };
+    let won: { snapshot: Snapshot | null; folded: string[] } | null = null;
+    try {
+      won = await Promise.race([
+        foldLiveInto(target, onlyId).then((r) => (gen === foldGen ? r : fallback)),
+        new Promise<{ snapshot: Snapshot | null; folded: string[] }>((res) => window.setTimeout(() => res(fallback), boundedMs)),
+      ]);
+    } catch {
+      won = fallback;
+    }
+    if (!won || won === fallback) {
+      try {
+        foldGen += 1;
+      } catch {}
+      return { snapshot: target, folded: [] };
+    }
+    return won;
+  }
+  const gen = foldGen;
   const read = await readLivePublish();
   if (!read) return { snapshot: target, folded: [] };
   if (liveNewerThanHere(read.notes, read.at, read.seeded) !== "newer") return { snapshot: target, folded: [] };
@@ -2569,6 +2660,9 @@ async function foldLiveInto(target: Snapshot | null, onlyId?: string): Promise<{
     folded.push(def.id);
   }
   if (!folded.length) return { snapshot: target, folded: [] };
+  /* A cancelled late answer stages nothing: the publish it belonged to
+     already went without it. */
+  if (gen !== foldGen) return { snapshot: target, folded: [] };
   if (target === draft) {
     for (const id of folded) dirty[id] = true;
     persistDraft();
@@ -2582,6 +2676,8 @@ async function foldLiveInto(target: Snapshot | null, onlyId?: string): Promise<{
     persistDraft();
     notify();
   }
+  /* Cancelled late answer: no uploads, no toast — the publish already went. */
+  if (gen !== foldGen) return { snapshot: target, folded: [] };
   const files = await backfillUploadsFrom(read.base, snap);
   lastLivePullAt = Date.now();
   const names = folded.map((id) => sectionById(id)?.label || id);
@@ -3293,6 +3389,14 @@ async function syncFromServer() {
   const raw = await socket.rpc.getContent("");
   const res = JSON.parse(raw);
   if (!res?.ok) return;
+  /* A reload must not strand the live site: once per session, pick up any
+     carry an earlier session still owes the live box (it syncs itself, then
+     rebuilds from what this copy holds). */
+  if (!relayResumeTried) {
+    try {
+      resumeRelayRetry();
+    } catch {}
+  }
   /* A changed office password signs this tab's old session out by itself. */
   noteServerPwgen(res.pwgen);
   let server: Snapshot = {};
@@ -3582,6 +3686,11 @@ export async function login(
       recordPwgen((res as any).pwgen, myRole);
       notify();
       await flushPending();
+      /* A fresh unlock may be what the owed live carry waited for: the
+         session is back, so a carry saved by an earlier session can go. */
+      try {
+        resumeRelayRetry();
+      } catch {}
       return { ok: true, role: myRole, name: myName };
     }
     if (!silent) notify();
@@ -3611,6 +3720,9 @@ export async function login2fa(code: string, password: string): Promise<{ ok: bo
       recordPwgen((res as any).pwgen, "main");
       notify();
       await flushPending();
+      try {
+        resumeRelayRetry();
+      } catch {}
       return { ok: true };
     }
     return { ok: false, error: res?.err || "denied" };
@@ -4633,7 +4745,7 @@ export async function importBackup(text: string): Promise<ImportResult> {
 
 /* ----------------------------------------------------------------- publish */
 
-export type PublishResult = { ok: boolean; error?: string; local?: boolean; live?: boolean };
+export type PublishResult = { ok: boolean; error?: string; local?: boolean; live?: boolean; relayMsg?: string };
 
 /** Only the sections that differ from what is live are sent. */
 function buildPatch(target: Snapshot): { sections: Record<string, string | null>; changed: string[] } {
@@ -4771,7 +4883,13 @@ async function relayPublishWordsToLive(
   sections: Record<string, string | null>,
   changed: string[],
   note: string,
-  knownDeploy?: string
+  knownDeploy?: string,
+  /* Per-fetch deadline: clicks wait seconds, background retries wait out a
+     sleep-wake (Render naps take a while to answer). `bounded` caps an
+     awaited click end to end; background attempts carry their own per-fetch
+     bounds instead. Never throws. */
+  ms = 8000,
+  bounded = true
 ): Promise<"landed" | "missed" | "unneeded"> {
   const run = async (): Promise<"landed" | "missed" | "unneeded"> => {
     const base = await relayLiveBase();
@@ -4782,16 +4900,82 @@ async function relayPublishWordsToLive(
     } catch {
       pw = "";
     }
-    if (!pw) return "unneeded";
-    const conn = "relay-" + Math.random().toString(36).slice(2) + Date.now().toString(36);
+    /* The live box's own password, typed once on the Status tab (office
+       request: one click lands everywhere — a differing live password used
+       to deny this relay forever). Tried after the session; the session
+       stays first so this tab's own sign-in keeps working unchanged. */
+    let livePw = "";
     try {
-      const login = await relayFetch(base + "/__cms/login?conn=" + encodeURIComponent(conn), JSON.stringify({ password: pw, want: "main" }));
-      if (!login.ok) return "missed";
-      const data = await login.json().catch(() => null);
-      if (!data || data.ok !== true || (data as any).needCode) return "missed";
+      livePw = savedLivePassword(base);
     } catch {
+      livePw = "";
+    }
+    if (!pw && !livePw) {
+      noteRelay("Live site not reached — unlock the console and publish again.");
+      return "unneeded";
+    }
+    const conn = "relay-" + Math.random().toString(36).slice(2) + Date.now().toString(36);
+    /* Either password opens whichever account matches (the server tries the
+       office password first, then sub-admins) — a denied answer only means
+       NEITHER password tried here opens the live box. A rate answer is the
+       live box asking for quiet, not a wrong password. */
+    let authed = false;
+    let needCode = false;
+    let rateLimited = false;
+    let transportFailed = false;
+    let timedOut = false;
+    for (const candidate of [pw, livePw]) {
+      if (authed || !candidate) continue;
+      try {
+        const login = await relayFetch(base + "/__cms/login?conn=" + encodeURIComponent(conn), JSON.stringify({ password: candidate, want: "main" }), ms);
+        if (!login.ok) {
+          transportFailed = true;
+          break;
+        }
+        const data = await login.json().catch(() => null);
+        if (!data) {
+          /* Answered but unreadable (a proxy error page, not the box) — the
+             next attempt re-reads it; never the password's fault. */
+          transportFailed = true;
+          break;
+        }
+        if ((data as any).ok === true && !(data as any).needCode) {
+          authed = true;
+          break;
+        }
+        if ((data as any).needCode) needCode = true;
+        else if ((data as any).err === "rate") rateLimited = true;
+      } catch (e: any) {
+        transportFailed = true;
+        timedOut = !!e && (e as any).name === "AbortError";
+        break;
+      }
+    }
+    if (transportFailed) {
+      noteRelay(
+        timedOut
+          ? "Live site timed out (it may be waking) — retrying in the background."
+          : "Live site unreachable — retrying in the background."
+      );
       return "missed";
     }
+    if (!authed) {
+      if (needCode) {
+        noteRelay("Live site needs a two-factor code — the relay cannot sign in, the rebuild carries it.");
+        return "missed";
+      }
+      if (rateLimited) {
+        noteRelay("Live site is rate-limiting sign-ins — retrying in the background.");
+        return "missed";
+      }
+      /* Denied with every password tried: remember it needs the human, keep
+         the words owed (the caller schedules the retry), and say exactly
+         where the one-time fix lives. */
+      relayNeedsLivePw = true;
+      noteRelay("Live login denied — the live admin password differs from this console's. Type the live password once on the Status tab and it sends by itself.");
+      return "missed";
+    }
+    relayNeedsLivePw = false;
     /* The relay blesses LIVE's own deploy, never ours: our deploy id would
        name a build the live box never served, and its visitors would keep
        waiting. Unknown deploy still rides the words (old-deploys see them);
@@ -4800,7 +4984,7 @@ async function relayPublishWordsToLive(
        build. */
     let liveDeploy = typeof knownDeploy === "string" && /^[A-Za-z0-9_-]{1,80}$/.test(knownDeploy) ? knownDeploy : "";
     if (!liveDeploy) {
-      liveDeploy = await fetchLiveDeployId(base, 8000);
+      liveDeploy = await fetchLiveDeployId(base, ms);
     }
     const ids = (Array.isArray(changed) ? changed : []).filter((id) => /^[a-zA-Z][a-zA-Z0-9-]{0,31}$/.test(id));
     const batches: string[][] = [];
@@ -4833,20 +5017,41 @@ async function relayPublishWordsToLive(
             deploy: liveDeploy,
             first: b === 0,
             quiet: b < batches.length - 1,
-          })
+          }),
+          ms
         );
-        if (!res.ok) return "missed";
+        if (!res.ok) {
+          noteRelay("Live site unreachable while sending — retrying in the background.");
+          return "missed";
+        }
         const data = await res.json().catch(() => null);
-        if (!data || data.ok !== true) return "missed";
-      } catch {
+        if (!data || data.ok !== true) {
+          noteRelay("Live site refused the words — retrying in the background.");
+          return "missed";
+        }
+      } catch (e: any) {
+        noteRelay(
+          e && e.name === "AbortError"
+            ? "Live site timed out while sending — retrying in the background."
+            : "Live site unreachable while sending — retrying in the background."
+        );
         return "missed";
       }
     }
+    noteRelay(
+      liveDeploy
+        ? "Live site updated with your publish."
+        : "Live site has the words — its notice lifts on the rebuild."
+    );
     return "landed";
   };
   try {
-    /* Bounded end to end: the words usually land in a couple of seconds; past
-       the bound the loops are already carrying them, so report missed. */
+    /* Bounded end to end for awaited clicks: the words usually land in a
+       couple of seconds; past the bound the loops are already carrying them,
+       so report missed. Background retries run unbounded (each fetch keeps
+       its own deadline) so a sleep-wake landing still counts and still
+       announces instead of re-sending on the next tick. */
+    if (!bounded) return await run();
     return await Promise.race([
       run(),
       new Promise<"missed">((res) => window.setTimeout(() => res("missed"), 25000)),
@@ -4911,7 +5116,55 @@ function relayInBackground(sections: Record<string, string | null>, changed: str
    supersedes it. Explicit clicks only — background sends already ride the
    minute loops. Never throws. */
 let relayRetryTimer = 0;
+let relayAttemptRunning = false;
 let relayRetryPayload: { sections: Record<string, string | null>; changed: string[]; note: string; rev: number; deploy: string } | null = null;
+/* One background carry of the owed words to the live box: unbounded end to
+   end (each fetch keeps its own wake-aware deadline) so a sleep-wake landing
+   still counts. True when nothing is owed anymore. Never throws. */
+async function attemptRelayRetry(): Promise<boolean> {
+  /* One carry at a time: a wake-aware attempt can outlast the tick, and two
+     overlapping carries would log the same publish twice on the live box. */
+  if (relayAttemptRunning) return false;
+  relayAttemptRunning = true;
+  try {
+    const payload = relayRetryPayload;
+    if (!payload) {
+      return true;
+    }
+    /* Superseded: a newer publish took over — stop retrying the old one. */
+    try {
+      if (payload.rev !== rev) {
+        relayRetryPayload = null;
+        clearRelayPersist();
+        return true;
+      }
+    } catch {}
+    let outcome: string = "missed";
+    try {
+      outcome = await relayPublishWordsToLive(payload.sections, payload.changed, payload.note, payload.deploy, 20000, false);
+    } catch {
+      outcome = "missed";
+    }
+    if (outcome === "landed") {
+      try {
+        relayUploadsToLive(payload.sections);
+      } catch {}
+      relayRetryPayload = null;
+      clearRelayPersist();
+      /* A retry that lands after the click told the office "within a minute":
+         say so out loud so the office knows live visitors are updated. */
+      try {
+        fireToast("Live site updated with your publish.", "success");
+      } catch {}
+      return true;
+    }
+    return false;
+  } catch {
+    return false;
+  } finally {
+    relayAttemptRunning = false;
+  }
+}
 function scheduleRelayRetry(sections: Record<string, string | null>, changed: string[], note: string, knownDeploy?: string): void {
   try {
     relayRetryPayload = {
@@ -4921,39 +5174,15 @@ function scheduleRelayRetry(sections: Record<string, string | null>, changed: st
       rev,
       deploy: typeof knownDeploy === "string" && /^[A-Za-z0-9_-]{1,80}$/.test(knownDeploy) ? knownDeploy : "",
     };
+    /* A closed tab must not strand the live site: the owed words persist so
+       the next boot keeps carrying them (see resumeRelayRetry). */
+    persistRelayPending();
   } catch {
     return;
   }
   if (relayRetryTimer) return;
-  const attempt = async () => {
-    const payload = relayRetryPayload;
-    if (!payload) {
-      return true;
-    }
-    /* Superseded: a newer publish took over — stop retrying the old one. */
-    try {
-      if (payload.rev !== rev) {
-        relayRetryPayload = null;
-        return true;
-      }
-    } catch {}
-    let outcome: string = "missed";
-    try {
-      outcome = await relayPublishWordsToLive(payload.sections, payload.changed, payload.note, payload.deploy);
-    } catch {
-      outcome = "missed";
-    }
-    if (outcome === "landed") {
-      try {
-        relayUploadsToLive(payload.sections);
-      } catch {}
-      relayRetryPayload = null;
-      return true;
-    }
-    return false;
-  };
   const tick = () => {
-    attempt()
+    attemptRelayRetry()
       .then((done) => {
         if (done) {
           if (relayRetryTimer) {
@@ -4970,13 +5199,259 @@ function scheduleRelayRetry(sections: Record<string, string | null>, changed: st
   } catch {
     return;
   }
+  /* Added once: every schedule used to add them again. */
+  if (!retryListenersOn) {
+    retryListenersOn = true;
+    try {
+      document.addEventListener("visibilitychange", () => {
+        if (document.visibilityState === "visible") tick();
+      });
+    } catch {}
+    try {
+      window.addEventListener("online", () => tick());
+    } catch {}
+  }
+}
+let retryListenersOn = false;
+/* True while the last relay was denied and the live password is still owed. */
+let relayNeedsLivePw = false;
+/** Whether the Status tab should ask for the live box's own admin password. */
+export function relayNeedsPassword(): boolean {
+  return relayNeedsLivePw;
+}
+/** Whether words are still owed to the live box (looping, owed password, or
+    a pending carry saved by an earlier session). */
+export function relayPending(): boolean {
   try {
-    document.addEventListener("visibilitychange", () => {
-      if (document.visibilityState === "visible") tick();
-    });
+    if (relayNeedsLivePw || relayRetryPayload) return true;
+    return !!readRelayPending();
+  } catch {
+    return relayNeedsLivePw || !!relayRetryPayload;
+  }
+}
+/* The live box's own admin password, typed once on the Status tab: kept in
+   this browser only, posted only to the live origin itself over HTTPS, never
+   anywhere else. The session stays first — this is only the second key. */
+const LIVEPW_KEY = "wom.cms.livepw";
+function savedLivePassword(base: string): string {
+  try {
+    const raw = localStorage.getItem(LIVEPW_KEY);
+    if (!raw) return "";
+    const o = JSON.parse(raw);
+    if (!o || (o as any).base !== base || typeof (o as any).pw !== "string" || !(o as any).pw) return "";
+    return (o as any).pw;
+  } catch {
+    return "";
+  }
+}
+/** Forget the saved live password; the relay uses this console's session again. */
+export function clearLivePassword(): void {
+  try {
+    localStorage.removeItem(LIVEPW_KEY);
   } catch {}
   try {
-    window.addEventListener("online", () => tick());
+    if (relayNeedsLivePw) {
+      relayNeedsLivePw = false;
+      noteRelay("Live password cleared — the relay uses this console's session again.");
+    } else {
+      notify();
+    }
+  } catch {}
+}
+/** Carry the owed words to the live box right now (Status tab "Send now"). */
+export function retryLiveNow(): Promise<boolean> {
+  try {
+    if (!relayRetryPayload) restorePersistedPayload();
+    if (!relayRetryPayload) return Promise.resolve(false);
+    ensureRetryLoop();
+    return attemptRelayRetry().catch(() => false);
+  } catch {
+    return Promise.resolve(false);
+  }
+}
+function ensureRetryLoop(): void {
+  try {
+    if (relayRetryTimer || !relayRetryPayload) return;
+    relayRetryTimer = window.setInterval(() => {
+      attemptRelayRetry()
+        .then((done) => {
+          if (done && relayRetryTimer) {
+            window.clearInterval(relayRetryTimer);
+            relayRetryTimer = 0;
+          }
+        })
+        .catch(() => {});
+    }, 30_000);
+  } catch {}
+}
+/** Type the live box's own admin password once: saved in this browser only,
+    then the owed words send at once and future publishes relay by
+    themselves. Returns whether the live box took the words. Never throws. */
+export async function submitLivePassword(pw: string): Promise<{ ok: boolean; msg: string }> {
+  try {
+    const clean = String(pw || "");
+    if (!clean) return { ok: false, msg: "Type the live admin password first." };
+    const base = await relayLiveBase().catch(() => "");
+    if (!base) return { ok: false, msg: "No live address is configured for this copy." };
+    try {
+      localStorage.setItem(LIVEPW_KEY, JSON.stringify({ base, pw: clean }));
+    } catch {
+      return { ok: false, msg: "This browser refused to keep it — type it again after your next publish." };
+    }
+    relayNeedsLivePw = false;
+    if (!relayRetryPayload) restorePersistedPayload();
+    if (!relayRetryPayload) {
+      noteRelay("Live password saved — your next publish sends to the live site at once.");
+      return { ok: true, msg: "Live password saved — your next publish sends to the live site at once." };
+    }
+    ensureRetryLoop();
+    let done = false;
+    try {
+      done = await attemptRelayRetry();
+    } catch {
+      done = false;
+    }
+    if (done && !relayRetryPayload) {
+      return { ok: true, msg: "Live site updated with your publish." };
+    }
+    return { ok: false, msg: relayStatus().msg || "Still owed to the live site — retrying in the background." };
+  } catch {
+    return { ok: false, msg: "Could not send — retrying in the background." };
+  }
+}
+/* The owed words, durable across reloads (office request: one click lands
+   everywhere even when the tab closes or the live box sleeps through the
+   click). Oversize carries skip the bin and ride the loops; anything older
+   than a day belongs to the loops and the rebuild. Never throws. */
+const RELAY_PENDING_KEY = "wom.cms.relayPending";
+function persistRelayPending(): void {
+  try {
+    if (!relayRetryPayload) {
+      try {
+        localStorage.removeItem(RELAY_PENDING_KEY);
+      } catch {}
+      return;
+    }
+    const raw = JSON.stringify({ ...relayRetryPayload, at: Date.now() });
+    if (raw.length > 1200 * 1024) return;
+    try {
+      localStorage.setItem(RELAY_PENDING_KEY, raw);
+    } catch {
+      /* quota — memory only, the loops carry it */
+    }
+  } catch {}
+}
+function clearRelayPersist(): void {
+  try {
+    localStorage.removeItem(RELAY_PENDING_KEY);
+  } catch {}
+}
+function readRelayPending(): { sections: Record<string, string | null>; changed: string[]; note: string; rev: number; deploy: string; at: number } | null {
+  try {
+    const raw = localStorage.getItem(RELAY_PENDING_KEY);
+    if (!raw) return null;
+    const o = JSON.parse(raw);
+    if (!o || typeof o !== "object") return null;
+    if (!Array.isArray((o as any).changed) || typeof (o as any).sections !== "object" || !(o as any).sections) return null;
+    const changed = ((o as any).changed as unknown[]).filter((id): id is string => typeof id === "string" && /^[a-zA-Z][a-zA-Z0-9-]{0,31}$/.test(id));
+    const sections: Record<string, string | null> = {};
+    for (const id of changed) {
+      const v = ((o as any).sections as Record<string, unknown>)[id];
+      if (typeof v === "string" || v === null) sections[id] = v;
+    }
+    if (!Object.keys(sections).length) return null;
+    return {
+      sections,
+      changed,
+      note: typeof (o as any).note === "string" ? (o as any).note.slice(0, 160) : "",
+      rev: typeof (o as any).rev === "number" ? (o as any).rev : 0,
+      deploy: typeof (o as any).deploy === "string" ? (o as any).deploy : "",
+      at: typeof (o as any).at === "number" ? (o as any).at : 0,
+    };
+  } catch {
+    return null;
+  }
+}
+/* Rebuild the owed carry from the store this copy holds now, so a resumed
+   retry never pushes older words over a newer office publish. The saved
+   words only fill ids this copy no longer holds. False when nothing is
+   owed. Never throws. */
+function restorePersistedPayload(): boolean {
+  try {
+    if (relayRetryPayload) return true;
+    const saved = readRelayPending();
+    if (!saved) return false;
+    let sections: Record<string, string | null> = {};
+    try {
+      sections = buildRelaySections(overrides, saved.changed);
+    } catch {
+      sections = {};
+    }
+    if (!Object.keys(sections).length) {
+      for (const id of saved.changed) {
+        if (saved.sections[id] !== undefined) sections[id] = saved.sections[id];
+      }
+    }
+    if (!Object.keys(sections).length) {
+      clearRelayPersist();
+      return false;
+    }
+    relayRetryPayload = { sections, changed: [...saved.changed], note: saved.note, rev, deploy: saved.deploy };
+    persistRelayPending();
+    return true;
+  } catch {
+    return !!relayRetryPayload;
+  }
+}
+let relayResumeTried = false;
+/* Pick up the owed carry after a reload or a fresh unlock (the retry used to
+   die with the tab): the office words come first so the carry rebuilds from
+   what this copy holds now, and a live box that published newer while this
+   copy was shut keeps its words — the carry is dropped instead of
+   regressing it. Never throws. */
+export function resumeRelayRetry(): void {
+  try {
+    if (relayResumeTried || relayRetryPayload) return;
+    const saved = readRelayPending();
+    if (!saved) return;
+    if (!saved.changed.length && !Object.keys(saved.sections).length) {
+      clearRelayPersist();
+      return;
+    }
+    if (saved.at > 0 && Date.now() - saved.at > 24 * 60 * 60 * 1000) {
+      clearRelayPersist();
+      return;
+    }
+    relayResumeTried = true;
+    (async () => {
+      try {
+        await syncFromServer().catch(() => {});
+      } catch {}
+      try {
+        const base = await relayLiveBase().catch(() => "");
+        if (base) {
+          const live = await fetchLiveContent(base).catch(() => null);
+          const liveAt = live && typeof (live as any).at === "number" ? (live as any).at : 0;
+          let mine = 0;
+          try {
+            mine = Number(JSON.parse(localStorage.getItem(PUBLISH_AT_KEY) || "0")) || 0;
+          } catch {}
+          if (liveAt > 0 && mine > 0 && liveAt > mine) {
+            relayRetryPayload = null;
+            clearRelayPersist();
+            noteRelay("Live site published newer while this copy was shut — kept the live words.");
+            return;
+          }
+        }
+      } catch {}
+      if (!restorePersistedPayload()) return;
+      ensureRetryLoop();
+      try {
+        window.setTimeout(() => {
+          attemptRelayRetry().catch(() => {});
+        }, 8000);
+      } catch {}
+    })().catch(() => {});
   } catch {}
 }
 /* Local-only publishes have a snapshot + changed ids (not the wire sections):
@@ -5184,7 +5659,7 @@ export async function publish(note: string, content?: Snapshot): Promise<Publish
      alongside the fold so the click waits for no extra round trip; "" when
      stamped or unreachable (words still ride without the witness). */
   const officeStampP: Promise<string> = deployStampForOfficePublish().catch(() => "");
-  const fold = await foldLiveInto(content || draft);
+  const fold = await foldLiveInto(content || draft, undefined, 6000);
   /* The transport arms the send (notes 390, 392, 394): without a clicked play,
      pause or stop newer than what is published, the on-air state stays out of
      the patch — a natural end stamps nothing and needs no publish. */
@@ -5248,7 +5723,7 @@ export async function publish(note: string, content?: Snapshot): Promise<Publish
     setPublishedNotes(BUILD_NOTES);
     writeCache();
     notify();
-    return { ok: true, live: bless.relay !== "missed" };
+    return { ok: true, live: bless.relay !== "missed", relayMsg: relayStatus().msg };
   }
 
   /* One click publishes to visitors: the join gets a few seconds first
@@ -5339,7 +5814,7 @@ export async function publish(note: string, content?: Snapshot): Promise<Publish
     localStorage.removeItem(DRAFT_KEY);
   } catch {}
   notify();
-  return { ok: true, live: result.relay !== "missed" };
+  return { ok: true, live: result.relay !== "missed", relayMsg: relayStatus().msg };
 }
 
 export async function clearLog(): Promise<{ ok: boolean; error?: string }> {
@@ -5583,7 +6058,7 @@ export async function undoLastPublish(): Promise<PublishResult> {
   applyOverrides(overrides, false);
   writeCache();
   await syncFromServer().catch(() => {});
-  return { ok: true, live: result.relay !== "missed" };
+  return { ok: true, live: result.relay !== "missed", relayMsg: relayStatus().msg };
 }
 
 /** Drop every stored override, so the site shows exactly the shipped content. */
@@ -5613,7 +6088,7 @@ export async function clearAllOverrides(): Promise<PublishResult> {
   applyOverrides({}, false);
   writeCache();
   notify();
-  return { ok: true, live: result.relay !== "missed" };
+  return { ok: true, live: result.relay !== "missed", relayMsg: relayStatus().msg };
 }
 
 /* ----------------------------------------------------------------- helpers */

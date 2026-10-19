@@ -533,6 +533,99 @@ export function LoginGate({ onExit, onDone }: { onExit?: () => void; onDone?: ()
   );
 }
 
+/* ------------------------------------------------- live-site status row */
+
+/** The Status tab's "Live site" row: the last relay report, plus the
+    one-time live-password fix and a manual retry while words are owed. */
+function LiveSiteRow() {
+  const [pw, setPw] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState("");
+  let body = "Not yet reached this session — it updates on your next publish.";
+  try {
+    const relay = cms.relayStatus();
+    if (relay.msg) body = `${relay.msg}${relay.at ? ` (${cms.timeAgo(relay.at)})` : ""}`;
+  } catch {
+    /* the fallback above stands */
+  }
+  let needsPw = false;
+  try {
+    needsPw = cms.relayNeedsPassword();
+  } catch {
+    needsPw = false;
+  }
+  let pending = false;
+  try {
+    pending = !needsPw && cms.relayPending();
+  } catch {
+    pending = false;
+  }
+  const sendPw = async () => {
+    if (busy || !pw) return;
+    setBusy(true);
+    try {
+      const r = await cms.submitLivePassword(pw);
+      setMsg(r.msg);
+      if (r.ok) setPw("");
+      fireToast(r.msg, r.ok ? "success" : "error");
+    } catch {
+      setMsg("Could not send — retrying in the background.");
+    }
+    setBusy(false);
+  };
+  const sendNow = async () => {
+    if (busy) return;
+    setBusy(true);
+    try {
+      const done = await cms.retryLiveNow();
+      const m = done ? "Live site updated with your publish." : "Still owed to the live site — retrying in the background.";
+      setMsg(m);
+      fireToast(m, done ? "success" : "info");
+    } catch {
+      setMsg("Could not send — retrying in the background.");
+    }
+    setBusy(false);
+  };
+  return (
+    <span>
+      {body}
+      {needsPw ? (
+        <span style={{ display: "block", marginTop: "0.5rem" }}>
+          <label className="muted" htmlFor="livepw">
+            Live admin password (typed once, kept in this browser only):
+          </label>
+          <span style={{ display: "flex", gap: "0.5rem", marginTop: "0.25rem" }}>
+            <input
+              id="livepw"
+              type="password"
+              value={pw}
+              onChange={(e) => setPw(e.target.value)}
+              placeholder="••••••••••••"
+              autoComplete="off"
+              style={{ flex: "1 1 auto", minWidth: 0 }}
+            />
+            <button type="button" className="admin__linkbtn" disabled={busy || !pw} onClick={sendPw}>
+              {busy ? "Sending…" : "Save & send to live"}
+            </button>
+          </span>
+        </span>
+      ) : null}
+      {pending && !needsPw ? (
+        <span style={{ display: "block", marginTop: "0.5rem" }}>
+          <button type="button" className="admin__linkbtn" disabled={busy} onClick={sendNow}>
+            {busy ? "Sending…" : "Send now"}
+          </button>
+        </span>
+      ) : null}
+      {msg ? (
+        <span className="muted" style={{ display: "block", marginTop: "0.25rem" }}>
+          {msg}
+        </span>
+      ) : null}
+    </span>
+  );
+}
+
 /* ----------------------------------------------------------------- dashboard */
 
 export function Dashboard({
@@ -581,6 +674,12 @@ export function Dashboard({
             <div>
               <dt>Waiting to publish</dt>
               <dd>{changed.length ? `${changed.length} part${changed.length === 1 ? "" : "s"} of the site` : "nothing"}</dd>
+            </div>
+            <div>
+              <dt>Live site</dt>
+              <dd>
+                <LiveSiteRow />
+              </dd>
             </div>
           </dl>
           {changed.length > 0 && (
@@ -1982,6 +2081,9 @@ export function PublishModal({ open, onClose, state }: { open: boolean; onClose:
   const [busy, setBusy] = useState(false);
   const [saving, setSaving] = useState(false);
   const [saveFailed, setSaveFailed] = useState(false);
+  const [livePw, setLivePw] = useState("");
+  const [livePwBusy, setLivePwBusy] = useState(false);
+  const [livePwMsg, setLivePwMsg] = useState("");
   useCmsTick();
 
   const changed = open ? cms.pendingSections() : [];
@@ -2042,7 +2144,7 @@ export function PublishModal({ open, onClose, state }: { open: boolean; onClose:
         res.local
           ? "Saved on this device. The shared server was unreachable, so other visitors are not updated yet."
           : res.live === false
-          ? "Published here. The live site follows within a minute."
+          ? (res.relayMsg || "Published here. The live site follows within a minute.")
           : "Published. Every visitor sees the new content right away.",
         res.local || res.live === false ? "info" : "success"
       );
@@ -2142,6 +2244,58 @@ export function PublishModal({ open, onClose, state }: { open: boolean; onClose:
               You are not signed in to the shared server, so this publish will only apply to this browser.
             </Notice>
           )}
+
+          {(() => {
+            let needsLivePw = false;
+            try {
+              needsLivePw = cms.relayNeedsPassword();
+            } catch {
+              needsLivePw = false;
+            }
+            if (!needsLivePw) return null;
+            const sendLivePw = async () => {
+              if (livePwBusy || !livePw) return;
+              setLivePwBusy(true);
+              try {
+                const r = await cms.submitLivePassword(livePw);
+                setLivePwMsg(r.msg);
+                if (r.ok) {
+                  setLivePw("");
+                  setNote("");
+                  fireToast(r.msg, "success");
+                  onClose();
+                } else {
+                  fireToast(r.msg, "error");
+                }
+              } catch {
+                setLivePwMsg("Could not send — retrying in the background.");
+              }
+              setLivePwBusy(false);
+            };
+            return (
+              <>
+                <Notice tone="crimson">
+                  The live site denied this console's password, so the publish above is waiting there. Type the live
+                  admin password once — it sends by itself, and from then on your publishes relay without asking.
+                </Notice>
+                <Field label="Live admin password" hint="Typed once, kept in this browser only.">
+                  <Input
+                    type="password"
+                    value={livePw}
+                    onChange={(e) => setLivePw(e.target.value)}
+                    placeholder="••••••••••••"
+                    disabled={livePwBusy}
+                  />
+                </Field>
+                <div className="btn-row">
+                  <Btn icon="send" onClick={sendLivePw} disabled={livePwBusy || !livePw}>
+                    {livePwBusy ? "Sending…" : "Save & send to live"}
+                  </Btn>
+                </div>
+                {livePwMsg ? <p className="muted">{livePwMsg}</p> : null}
+              </>
+            );
+          })()}
         </>
       )}
     </Modal>
