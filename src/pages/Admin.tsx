@@ -21,7 +21,7 @@ import {
   PublishModal,
   StatusPill,
   ToolsPage,
-  runPublishAction,
+  defaultNote,
   useCmsTick,
   uniqueId,
 } from "../components/editor";
@@ -164,8 +164,6 @@ export function Admin() {
   const [publishOpen, setPublishOpen] = useState(false);
   const [helpOpen, setHelpOpen] = useState(false);
   const [publishing, setPublishing] = useState(false);
-  const [publishSaving, setPublishSaving] = useState(false);
-  const [publishSaveFailed, setPublishSaveFailed] = useState(false);
   /* A search hit for another page navigates first; the route effect must then
      leave the drawer where the office asked for it. */
   const keepView = useRef(false);
@@ -179,36 +177,41 @@ export function Admin() {
   const waiting = cms.maintenanceShouldWait();
 
 
-  /* Linked publish: the bottom-bar Publish button and the dialog's Publish
-     now button both run performPublish, so both perform the same action —
-     one click finishes it (saving the website first on a fresh deploy, then
-     publishing), instead of only opening the dialog. */
-  const performPublish = async (noteInput = "", fromDialog = false): Promise<boolean> => {
-    if (publishing || publishSaving) return false;
-    setPublishSaveFailed(false);
-    setPublishing(true);
-    const done = await runPublishAction(noteInput, (phase) => {
-      if (phase === "saving") setPublishSaving(true);
-    });
-    setPublishing(false);
-    setPublishSaving(false);
-    if (done) {
-      setPublishOpen(false);
-      return true;
-    }
+  /* The bottom-bar Publish button runs the very same publish as the dialog's
+     Publish now — one click finishes it (saving the website first on a fresh
+     deploy, then publishing), instead of only opening the dialog. */
+  const directPublish = async () => {
+    if (publishing) return;
+    const changed = cms.pendingSections();
     if (cms.websiteIsUnsaved()) {
-      if (!fromDialog) {
-        /* From the bar with nowhere to save from: open the dialog so the
-           office can save from the toolbar. From the dialog: show its hint. */
-        setPublishOpen(true);
-      } else {
-        setPublishSaveFailed(true);
-      }
+      cms.planPublishAfterSave(defaultNote(changed));
+      /* Allowed to save: the editor saves and reloads, and the stored plan
+         finishes the publish on the next load. Otherwise fall back to the
+         dialog so the office can save from the toolbar. */
+      if (cms.requestWebsiteSave()) return;
+      setPublishOpen(true);
+      return;
     }
-    return false;
-  };
-  const directPublish = () => {
-    void performPublish("", false);
+    setPublishing(true);
+    const res = await cms.publish(defaultNote(changed));
+    setPublishing(false);
+    if (res.ok) {
+      fireToast(
+        res.local
+          ? "Saved on this device. The shared server was unreachable, so other visitors are not updated yet."
+          : res.live === false
+          ? (res.relayMsg || "Published here. The live site follows within a minute.")
+          : "Published. Every visitor sees the new content right away.",
+        res.local || res.live === false ? "info" : "success"
+      );
+    } else {
+      fireToast(
+        res.error === "unauthorized"
+          ? "Your session expired — unlock the console again, then publish."
+          : `Could not publish (${res.error}). Nothing on the site changed.`,
+        "error"
+      );
+    }
   };
 
   /* Auto-stop watcher lives here so it runs whatever drawer card is open (note 111). */
@@ -401,7 +404,7 @@ export function Admin() {
       <EditBar
         state={state}
         changed={changedIds.length}
-        busy={publishing || publishSaving}
+        busy={publishing}
         panelOpen={panelOpen}
         canEdit={canEdit}
         onAsk={askWhatToChange}
@@ -442,15 +445,7 @@ export function Admin() {
 
       <HelpModal open={helpOpen} onClose={() => setHelpOpen(false)} />
 
-      <PublishModal
-        open={publishOpen}
-        onClose={() => setPublishOpen(false)}
-        state={state}
-        onPublish={(note) => performPublish(note, true)}
-        busy={publishing || publishSaving}
-        saving={publishSaving}
-        saveFailed={publishSaveFailed}
-      />
+      <PublishModal open={publishOpen} onClose={() => setPublishOpen(false)} state={state} />
     </div>
   );
 }
