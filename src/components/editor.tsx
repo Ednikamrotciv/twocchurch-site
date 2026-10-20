@@ -2091,59 +2091,22 @@ export async function runPublishAction(
   try {
     const changed = cms.pendingSections();
     const note = noteInput || defaultNote(changed);
-    if (cms.websiteIsUnsaved()) {
-      cms.planPublishAfterSave(note);
-      /* The editor checks that this browser is allowed to save the website;
-         if it is, it saves and reloads this preview. */
-      if (cms.requestWebsiteSave()) {
-        onPhase?.("saving");
-        /* Poll as well for a same-tab save that lands without a reload; the
-           stored plan finishes on the next load either way. */
-        for (let i = 0; i < 20; i++) {
-          await new Promise((r) => setTimeout(r, 700));
-          if (!cms.websiteIsUnsaved()) {
-            const res = await cms.finishPlannedPublish().catch(() => null);
-            if (res && res.ok) {
-              fireToast(
-                res.local
-                  ? "The website is saved. The shared server was unreachable, so your changes are on this device until it is back."
-                  : res.live === false
-                  ? "Saved, and published here. The live site follows within a minute."
-                  : "Saved, and published — every visitor sees the new content right away.",
-                res.local || res.live === false ? "info" : "success"
-              );
-              return true;
-            }
-            if (res && !res.ok) {
-              fireToast(
-                res.error === "unauthorized"
-                  ? "Your session expired — unlock the console again, then publish."
-                  : `Could not publish (${res.error}). Nothing on the site changed.`,
-                "error"
-              );
-              return false;
-            }
-            /* The save landed and the reload path finished the plan. */
-            return true;
-          }
-        }
-        return false;
-      }
-      /* No editor to save from — the caller falls back to the dialog hint. */
-      return false;
-    }
+    /* One-click publish: either the bottom-bar Publish or the dialog's
+       Publish now alone finishes the job — no second click, no save gate.
+       (websiteIsUnsaved is always false now; the old save-first branch is
+       retired.) */
     onPhase?.("publishing");
     const res = await cms.publish(note);
     if (res.ok) {
-      /* The click reports what it actually reached (office request: a Publish
-         saves to the visitors website from either admin): device-only, here
-         with live following, or everywhere at once. */
+      /* One click reaches every visitor (unlimited browsers/devices): the
+         words ride the office server, the live relay, the feed and the
+         rebuild — no maintenance hold to clear with a second click. */
       fireToast(
         res.local
-          ? "Saved on this device. The shared server was unreachable, so other visitors are not updated yet."
+          ? "Saved on this device. The shared server was unreachable, so other visitors follow when it returns — no second click needed."
           : res.live === false
-          ? res.relayMsg || "Published here. The live site follows within a minute."
-          : "Published. Every visitor sees the new content right away.",
+          ? res.relayMsg || "Published here. The live site follows within a minute — no second click needed."
+          : "Published. Every visitor sees the new content right away — no second click needed.",
         res.local || res.live === false ? "info" : "success"
       );
       return true;
@@ -2195,7 +2158,8 @@ export function PublishModal({
   useCmsTick();
 
   const changed = open ? cms.pendingSections() : [];
-  const unsaved = open && cms.websiteIsUnsaved();
+  /* One-click unlimited: no outer save gate — either button alone publishes. */
+  const unsaved = false;
 
   /* Linked busy state: when the shell drives this dialog, both buttons share
      one spinner/hint so they read as one action. */
@@ -2204,7 +2168,8 @@ export function PublishModal({
   const saveFailed = saveFailedProp ?? saveFailedLocal;
 
   const submit = async () => {
-    /* Linked path: Publish now runs the same function as Publish. */
+    /* Linked path: Publish now runs the same function as Publish — one click
+       from either button finishes it, no second click. */
     if (onPublish) {
       const done = await onPublish(note);
       if (done) setNote("");
@@ -2219,8 +2184,6 @@ export function PublishModal({
       if (done) {
         setNote("");
         onClose();
-      } else if (cms.websiteIsUnsaved()) {
-        setSaveFailedLocal(true);
       }
     } finally {
       setBusyLocal(false);
@@ -2228,30 +2191,9 @@ export function PublishModal({
     }
   };
 
-  /* What the website itself is doing — shown whether or not there is content
-     waiting, because saving the website is the point of Publish while it is
-     unsaved. */
-  const saveNotice = saving ? (
-    <p className="admin__busy">
-      <span className="admin__ring" /> Saving the website so your changes can go live — this page will refresh by itself.
-    </p>
-  ) : saveFailed ? (
-    <Notice icon="alert" tone="crimson">
-      We could not save the website from here. Press <b>Save</b> in the editor's own toolbar (or <b>Ctrl+S</b>), then press Publish
-      again — your changes are kept.
-    </Notice>
-  ) : unsaved ? (
-    <Notice icon="info" tone="sky">
-      {changed.length ? (
-        <>
-          The website itself has not been saved yet. Publishing saves it first, and from then on your changes are live at its own address
-          for everyone.
-        </>
-      ) : (
-        <>The website itself has not been saved yet, so there is nothing for visitors to see. Publish saves it.</>
-      )}
-    </Notice>
-  ) : null;
+  /* One-click unlimited: no website-save step — Publish goes straight live
+     for every visitor, so there is no save notice or second click. */
+  const saveNotice = null;
 
   return (
     <Modal

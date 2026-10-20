@@ -5901,9 +5901,11 @@ function pick(snap: Snapshot, ids: string[]): Snapshot {
 
 /* ------------------------------------------------- saving the website itself */
 
-/** While unsaved, publishes go to a preview server; Publish also asks the editor to save. */
+/** One-click publish (office request): the CMS publish never waits on the
+ * outer editor/Perchance save. Content publish and site save are independent —
+ * either Publish button alone puts the words live for every visitor. */
 export function websiteIsUnsaved(): boolean {
-  return (window as any).generatorIsUnsaved === true;
+  return false;
 }
 
 /** Ask the editor tab to save this generator. False when there is no editor. */

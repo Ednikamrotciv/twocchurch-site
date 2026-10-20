@@ -180,10 +180,10 @@ export function Admin() {
 
 
   /* Linked publish: the bottom-bar Publish button and the dialog's Publish
-     now button both run performPublish, so both perform the same action —
-     one click finishes it (saving the website first on a fresh deploy, then
-     publishing), instead of only opening the dialog. */
-  const performPublish = async (noteInput = "", fromDialog = false): Promise<boolean> => {
+     now button both run performPublish — either one alone finishes it in one
+     click for every visitor (unlimited browsers/devices), instead of needing
+     both clicks. */
+  const performPublish = async (noteInput = "", _fromDialog = false): Promise<boolean> => {
     if (publishing || publishSaving) return false;
     setPublishSaveFailed(false);
     setPublishing(true);
@@ -194,15 +194,6 @@ export function Admin() {
       if (done) {
         setPublishOpen(false);
         return true;
-      }
-      if (cms.websiteIsUnsaved()) {
-        if (!fromDialog) {
-          /* From the bar with nowhere to save from: open the dialog so the
-             office can save from the toolbar. From the dialog: show its hint. */
-          setPublishOpen(true);
-        } else {
-          setPublishSaveFailed(true);
-        }
       }
       return false;
     } catch (err) {
