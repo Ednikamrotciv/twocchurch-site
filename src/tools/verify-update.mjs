@@ -610,6 +610,7 @@ export async function runAll(fs) {
   ok("publish carries its code", has(cms, "code: bless ? runningCode"), "every publish must stamp the word it was blessed from, so answers attest on any backend");
   ok("server keeps the publish code", has(srvJ13, "validCodeWord(payload.code)") && has(srvJ13, "publishCode: PUBLISH_CODE"), "the publish word must persist like the deploy it names");
   ok("waiting copies hurry", has(cms, "10_000") && has(cms, "if (!maintenanceShouldWait()) return;"), "a copy on maintenance must re-ask the stamp every 10 seconds, not only on the 30s loop");
+  ok("host file attests too", has(cms, "hostFileAttestsSameCode()") && has(cms, "hostFileCode = vCode"), "a same-update publish must release a deploy when the host itself serves this build, even if the backend never learned the word");
   ok("witness re-evaluates the notice", has(cms, "notesLifted || deployLifted || codeWitnessed"), "a witnessed publish must re-render instead of sticking with first paint");
   ok("clicks await the word relay", has(cms, "awaitRelay = false") && has(cms, ", true, true)"), "explicit clicks must wait out the bounded relay; background sends never wait");
   ok("relay is bounded", has(cms, "25000") && has(cms, "relayFetch"), "awaiting the relay must never hold a click hostage on a stalled network");

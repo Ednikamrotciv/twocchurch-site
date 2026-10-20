@@ -107,7 +107,7 @@ export function useLocalState<T>(key: string, initial: T) {
 /* Which shipped code is running here — the office can read it in
    version.json, and in the browser console as window.__womBuild. Bump NOTES with
    every SPEC note so a stale deploy is spotted, not guessed (note 244). */
-export const BUILD_NOTES = 418;
+export const BUILD_NOTES = 419;
 export const BUILD_DATE = "2026-10-20";
 /* Unnumbered code identity (the stale fix ships with no new number): an opaque
    word naming the running code, compared by equality only — never ordered — so
@@ -116,7 +116,7 @@ export const BUILD_DATE = "2026-10-20";
    word with EVERY behavior update: a changed word both retires stale bundles
    and stages a new deploy clean (a same word across rebuilds means continuity,
    so routine same-code rebuilds never wipe staged words). */
-export const CODE_ID = "clean418";
+export const CODE_ID = "clean419";
 export function buildStamp() {
   return { notes: BUILD_NOTES, built: BUILD_DATE, code: CODE_ID };
 }
