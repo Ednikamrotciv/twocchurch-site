@@ -75,6 +75,11 @@ export async function bakeSeed(rootDir, outPath) {
   let notes = typeof res.notes === "number" && res.notes > 0 ? Math.floor(res.notes) : 0;
   /* Deploy lock: carry the publish deploy ID like the stamp above. */
   let publishedDeploy = typeof res.publishDeploy === "string" && /^[A-Za-z0-9_-]{1,80}$/.test(res.publishDeploy) ? res.publishDeploy : "";
+  /* Same-update attestation for brand-new arrivals (one click clears every
+     device): the word the publish was blessed from rides the bake, so a copy
+     that never reaches a server can still prove the publish came from its own
+     running code. Absent on older backends — which prove nothing, as before. */
+  let publishCode = typeof res.code === "string" && /^[A-Za-z0-9_-]{1,40}$/.test(res.code) ? res.code : "";
   if (!notes) {
     try {
       const prev = JSON.parse(await readFile(target, "utf8"));
@@ -85,6 +90,12 @@ export async function bakeSeed(rootDir, outPath) {
     try {
       const prev = JSON.parse(await readFile(target, "utf8"));
       if (typeof prev?.publishedDeploy === "string" && /^[A-Za-z0-9_-]{1,80}$/.test(prev.publishedDeploy)) publishedDeploy = prev.publishedDeploy;
+    } catch {}
+  }
+  if (!publishCode) {
+    try {
+      const prev = JSON.parse(await readFile(target, "utf8"));
+      if (typeof prev?.code === "string" && /^[A-Za-z0-9_-]{1,40}$/.test(prev.code)) publishCode = prev.code;
     } catch {}
   }
   /* The publish history rides the same bake (note 303): Render's free tier
@@ -106,7 +117,7 @@ export async function bakeSeed(rootDir, outPath) {
      so carry the newest list already on disk — the refresh below overwrites
      with fresher. Without this a re-bake silently drops the list. */
   const carried = pickRecent((await readJson(rootSeedPath))?.recent, (await readJson(target))?.recent);
-  await writeFile(target, JSON.stringify({ rev, notes, sections, log, by, at, ...(carried ? { recent: carried } : {}), ...(publishedDeploy ? { publishedDeploy } : {}) }));
+  await writeFile(target, JSON.stringify({ rev, notes, sections, log, by, at, ...(carried ? { recent: carried } : {}), ...(publishedDeploy ? { publishedDeploy } : {}), ...(publishCode ? { code: publishCode } : {}) }));
   console.log(`bake-seed: baked ${ids.length} sections into ${path.relative(rootDir, target)}`);
   /* The recent-services list ships in the same file, so every copy paints the
      same services as the preview (see bake-recent.mjs). Best effort — a missed

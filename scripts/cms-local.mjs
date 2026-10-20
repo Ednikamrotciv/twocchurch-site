@@ -229,7 +229,7 @@ export async function createCmsHost(rootDir, opts) {
      how a Vercel deploy got stuck mid-build. */
   if (opts && opts.follow) {
     try {
-      startLiveFollow({ rootDir, rpcCall: call, adoptToken });
+      startLiveFollow({ rootDir, rpcCall: call, adoptToken, codeWord });
     } catch (err) {
       console.warn("live follow skipped:", err?.message || err);
     }
@@ -240,7 +240,7 @@ export async function createCmsHost(rootDir, opts) {
        already owns this direction). Like all loops here, serving processes
        only (note 377) — never bakes or builds. */
     try {
-      startFeedFollow({ rootDir, rpcCall: call, adoptToken });
+      startFeedFollow({ rootDir, rpcCall: call, adoptToken, codeWord });
     } catch (err) {
       console.warn("feed follow skipped:", err?.message || err);
     }
@@ -379,7 +379,7 @@ async function backfillUploadFiles(rootDir, names, baseUrls, where) {
    within seconds even with the stream down; the half-minute full round is
    the backstop for old hosts without the stamp answer. Never throws out. */
 const FOLLOW_MS = 30 * 1000;let followStarted = false;
-function startLiveFollow({ rootDir, rpcCall, adoptToken }) {
+function startLiveFollow({ rootDir, rpcCall, adoptToken, codeWord }) {
   if (followStarted) return;
   followStarted = true;
   if (process.env.RENDER) return; // the live box IS live — never follows
@@ -489,7 +489,7 @@ function startLiveFollow({ rootDir, rpcCall, adoptToken }) {
       const res = await rpcCall(
         "adoptLive",
         "livefollow",
-        JSON.stringify({ token: adoptToken, sections: patch, notes: live.notes, by: typeof live.by === "string" ? live.by : "", deploy: typeof live.publishDeploy === "string" ? live.publishDeploy : "" })
+        JSON.stringify({ token: adoptToken, sections: patch, notes: live.notes, by: typeof live.by === "string" ? live.by : "", deploy: typeof live.publishDeploy === "string" ? live.publishDeploy : "", code: typeof codeWord === "string" ? codeWord : "" })
       );
       let out = null;
       try {
@@ -600,7 +600,7 @@ function startLiveFollow({ rootDir, rpcCall, adoptToken }) {
    office minute loop above already owns this direction. Never throws out. */
 const FEED_FOLLOW_MS = 30 * 1000;
 let feedFollowStarted = false;
-function startFeedFollow({ rootDir, rpcCall, adoptToken }) {
+function startFeedFollow({ rootDir, rpcCall, adoptToken, codeWord }) {
   if (feedFollowStarted) return;
   feedFollowStarted = true;
   if (!process.env.RENDER) return; // the live box only — it IS live
@@ -687,7 +687,7 @@ function startFeedFollow({ rootDir, rpcCall, adoptToken }) {
       const res = await rpcCall(
         "adoptFeed",
         "feedfollow",
-        JSON.stringify({ token: adoptToken, sections: patch, notes: seed.notes, at: seed.at, by: typeof seed.by === "string" ? seed.by : "", deploy: typeof seed.publishedDeploy === "string" ? seed.publishedDeploy : "" })
+        JSON.stringify({ token: adoptToken, sections: patch, notes: seed.notes, at: seed.at, by: typeof seed.by === "string" ? seed.by : "", deploy: typeof seed.publishedDeploy === "string" ? seed.publishedDeploy : "", code: typeof codeWord === "string" ? codeWord : "" })
       );
       let out = null;
       try {

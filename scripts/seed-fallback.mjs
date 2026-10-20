@@ -45,7 +45,12 @@ function usableSeed(obj) {
   const by = typeof obj.by === "string" ? obj.by.slice(0, 60) : "";
   const at = typeof obj.at === "number" ? obj.at : 0;
   const publishedDeploy = typeof obj.publishedDeploy === "string" && /^[A-Za-z0-9_-]{1,80}$/.test(obj.publishedDeploy) ? obj.publishedDeploy : "";
-  return { rev, notes, sections, log, by, at, publishedDeploy };
+  /* The word the publish was blessed from (one click clears every device):
+     a wiped box serves this bake with no memory of its own, so the bake
+     carries the attestation the waiting copies prove. Absent on older
+     bakes — which prove nothing, as before. */
+  const code = typeof obj.code === "string" && /^[A-Za-z0-9_-]{1,40}$/.test(obj.code) ? obj.code : "";
+  return { rev, notes, sections, log, by, at, publishedDeploy, code };
 }
 
 /* Pure decision: a live getContent answer plus a baked seed in, the answer to
@@ -77,6 +82,10 @@ export function fallbackGetContent(bodyText, seed) {
     out.log = good.log;
     out.by = good.by;
     out.at = good.at;
+    /* …and its attestation: the bake's word releases waiting copies that prove
+       it, exactly like a live answer would. Older bakes name no word — the
+       server's own answer stands, as before. */
+    if (good.code) out.code = good.code;
     out.seeded = true;
     return JSON.stringify(out);
   } catch {

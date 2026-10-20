@@ -1120,10 +1120,13 @@ self.rpc = {
     REV += 1;
     AT = Date.now();
     BY = typeof payload.by === "string" ? payload.by.slice(0, 60) : "";
+    /* Same stale-tab guard as publish: the words adopt, but only a
+       same-or-newer update may move the deploy and code. */
+    var notesAdvanceAdopt = notes >= NOTES;
     if (notes > NOTES) NOTES = notes;
-    if (typeof deploy === "string" && deploy && (ids.length || notes)) PUBLISH_DEPLOY = deploy;
+    if (notesAdvanceAdopt && typeof deploy === "string" && deploy && (ids.length || notes)) PUBLISH_DEPLOY = deploy;
     var acode = validCodeWord(payload.code);
-    if (acode && (ids.length || notes)) PUBLISH_CODE = acode;
+    if (notesAdvanceAdopt && acode && (ids.length || notes)) PUBLISH_CODE = acode;
     var changed = [];
     for (i = 0; i < ids.length && i < 24; i++) changed.push(ids[i]);
     var who = adminIds.get(info.conn.id);
@@ -1205,12 +1208,15 @@ self.rpc = {
       var err = setSection(ids[i], payload.sections[ids[i]]);
       if (err) return fail(err);
     }
+    /* Same stale-tab guard as publish: the words adopt, but only a
+       same-or-newer update may move the deploy and code. */
+    var notesAdvanceFeed = notes >= NOTES;
     if (notes > NOTES) NOTES = notes;
     if (at > 0) AT = at;
     BY = typeof payload.by === "string" ? payload.by.slice(0, 60) : "";
-    if (typeof deploy === "string" && deploy && (ids.length || notes)) PUBLISH_DEPLOY = deploy;
+    if (notesAdvanceFeed && typeof deploy === "string" && deploy && (ids.length || notes)) PUBLISH_DEPLOY = deploy;
     var fcode = validCodeWord(payload.code);
-    if (fcode && (ids.length || notes)) PUBLISH_CODE = fcode;
+    if (notesAdvanceFeed && fcode && (ids.length || notes)) PUBLISH_CODE = fcode;
     writeMeta();
     writeHeader();
     try {
@@ -1686,13 +1692,17 @@ self.rpc = {
     REV += 1;
     AT = Date.now();
     BY = typeof payload.by === "string" ? payload.by.slice(0, 60) : "";
+    /* The attestation never moves backwards (stale-tab guard): words from an
+       older update still write — the office clicked — but only a same-or-newer
+       update may move the deploy and code the waiting copies prove. */
+    var notesAdvance = notes >= NOTES;
     if (notes > NOTES) NOTES = notes;
-    if (typeof deploy === "string" && deploy && (ids.length || notes)) PUBLISH_DEPLOY = deploy;
+    if (notesAdvance && typeof deploy === "string" && deploy && (ids.length || notes)) PUBLISH_DEPLOY = deploy;
     /* The publish stamps the code it was blessed from (publish reaches
        everywhere): answers attest this word even when the host never told us
        its own — admin-only, format-checked, same trust as the words. */
     var pcode = validCodeWord(payload.code);
-    if (pcode && (ids.length || notes)) PUBLISH_CODE = pcode;
+    if (notesAdvance && pcode && (ids.length || notes)) PUBLISH_CODE = pcode;
     var changed = [];
     if (payload.changed && payload.changed.length) {
       for (i = 0; i < payload.changed.length && i < 24; i++) {

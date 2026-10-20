@@ -2001,6 +2001,34 @@ async function applySeedOnce() {
            shows until the office publishes. A baked publish from THIS deploy
            releases at once; anything else waits. No numbers. */
         noteDeployWitness((seed as any).publishedDeploy);
+        /* Same-update baked publish (one click clears brand-new arrivals):
+           the bake carries the office's last publish with real words, stamped
+           from this update AND this code — that IS the review, so this deploy
+           releases at first paint even when the bake was built for a different
+           deploy id (cross-built hosts, pre-stamp bakes, mirror seeds). Older
+           updates, other codes, empty words and unstamped bakes still hold.
+           Words were applied above; the clean-stage block below still stages
+           returning browsers clean. */
+        try {
+          const seedCode = (seed as any).code;
+          if (typeof (seed as any).notes === "number" && Math.floor((seed as any).notes) === BUILD_NOTES) {
+            noteCodeWitness(seedCode, (seed as any).notes);
+          }
+        } catch {}
+        try {
+          const seedSections = (seed as any).sections;
+          const seedWords = seedSections && typeof seedSections === "object" ? Object.keys(seedSections).length : 0;
+          const seedRev = typeof (seed as any).rev === "number" ? Math.floor((seed as any).rev) : 0;
+          const seedWord = typeof (seed as any).code === "string" ? (seed as any).code : "";
+          if (
+            typeof (seed as any).notes === "number" && Math.floor((seed as any).notes) === BUILD_NOTES &&
+            seedRev > 0 && seedWords > 0 &&
+            !!seedWord && !!runningCode && seedWord === runningCode
+          ) {
+            setPublishedNotes(BUILD_NOTES);
+            markDeployPublished();
+          }
+        } catch {}
         applyOverrides(seed.sections);
       }
     }
@@ -2047,6 +2075,13 @@ async function syncFromFeed() {
     rev = live.rev;
     if (typeof live.notes === "number") setPublishedNotes(live.notes);
     noteDeployWitness((live as any).publishedDeploy);
+    /* The mirror carries the publish word like the bake: a same-update feed
+       seed attested to this code blesses it, so server-less copies lift on the
+       mirrored publish with no rebuild and no tap. Older mirrors name no word
+       and prove nothing, as before. */
+    try {
+      noteCodeWitness((live as any).code, live.notes);
+    } catch {}
     /* Publish clock over the feed: a mirrored same-update publish newer than
        this deploy's first sighting releases it, even across deploy ids. */
     try {
@@ -3598,19 +3633,19 @@ function hostFileAttestsSameCode(): boolean {
      from this exact deploy — so a phone that first opened the new deploy
      after the publish kept waiting until somebody published again. A live
      server answer stamped from this same update AND this same code, carrying
-     real words (never seeded/empty), IS that review — release this deploy
-     with no second click. Never across updates (notes must equal this
-     bundle), never for a different code word, never with this copy's own
-     unsaved work pending (mid-edit desks still wait). Staging follows the
-     normal path below: the stamp moves first, so the words stage in this
-     same sync and visitors see the published site, not an empty shell. */
+     real words (never empty — a fallback bake stamped from this update names
+     a publish that really happened, so it releases too), IS that review —
+     release this deploy with no second click. Never across updates (notes must
+     equal this bundle), never for a different code word, never with this
+     copy's own unsaved work pending (mid-edit desks still wait). Staging
+     follows the normal path below: the stamp moves first, so the words stage
+     in this same sync and visitors see the published site, not an empty shell. */
   try {
     if (
       deployFromMeta && currentDeployId &&
       publishedDeployId !== currentDeployId &&
       typeof res.notes === "number" && Math.floor(res.notes) === BUILD_NOTES &&
       typeof (res as any).code === "string" && (res as any).code && ((res as any).code === runningCode || hostFileAttestsSameCode()) &&
-      (res as any).seeded !== true &&
       Object.keys(server).length > 0 &&
       pendingSections().length === 0
     ) {

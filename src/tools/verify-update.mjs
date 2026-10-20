@@ -141,6 +141,10 @@ export async function runAll(fs) {
     ok("fallback leaves failures alone", mod.fallbackGetContent(JSON.stringify({ ok: false }), seed) === JSON.stringify({ ok: false }));
     ok("fallback leaves garbage alone", mod.fallbackGetContent("not json", seed) === "not json");
     ok("fallback needs a real seed", mod.fallbackGetContent(liveEmpty, { rev: 0, notes: 0, sections: {} }) === liveEmpty && mod.fallbackGetContent(liveEmpty, null) === liveEmpty);
+    const seedW = { rev: 12, notes: 291, sections: { live: { b: 2 } }, code: "clean999" };
+    const rW = JSON.parse(mod.fallbackGetContent(liveEmpty, seedW));
+    ok("fallback carries the bake word", rW.seeded === true && rW.code === "clean999", "code=" + rW.code);
+    ok("wordless bakes attest nothing", r.code === undefined, "code=" + r.code);
     ok("fallback is getContent-only", (await mod.answerWithSeedFallback("publish", liveEmpty, "/", "/")) === liveEmpty);
   } catch (e) {
     ok("fallback suite", false, String((e && e.message) || e).slice(0, 200));
@@ -611,6 +615,12 @@ export async function runAll(fs) {
   ok("server keeps the publish code", has(srvJ13, "validCodeWord(payload.code)") && has(srvJ13, "publishCode: PUBLISH_CODE"), "the publish word must persist like the deploy it names");
   ok("waiting copies hurry", has(cms, "10_000") && has(cms, "if (!maintenanceShouldWait()) return;"), "a copy on maintenance must re-ask the stamp every 10 seconds, not only on the 30s loop");
   ok("host file attests too", has(cms, "hostFileAttestsSameCode()") && has(cms, "hostFileCode = vCode"), "a same-update publish must release a deploy when the host itself serves this build, even if the backend never learned the word");
+  ok("stale tabs never move the stamp", has(srvJ13, "notesAdvance") && has(srvJ13, "notesAdvanceAdopt") && has(srvJ13, "notesAdvanceFeed"), "words from an older update must still write, but only a same-or-newer update may move the deploy and code");
+  ok("adopts forward the word", has(hostJ13, "code: typeof codeWord"), "live and feed adoptions must stamp the running word like a publish");
+  ok("bake carries the word", has(text["scripts/bake-seed.mjs"], "publishCode") && has(text["scripts/seed-fallback.mjs"], "if (good.code) out.code = good.code"), "the seed and the sleep-wake fallback must attest the publish word for copies that never reach a server");
+  ok("seed releases same-code bakes", has(cms, "noteCodeWitness(seedCode, (seed as any).notes)") && has(cms, "seedRev > 0 && seedWords > 0"), "a bake stamped from this update and this code with real words is the review — brand-new arrivals lift at first paint");
+  ok("feed witnesses the word", has(cms, "noteCodeWitness((live as any).code, live.notes)"), "a mirrored same-update publish must bless server-less copies with no rebuild and no tap");
+  ok("fallback bakes release late joiners", has(cms, "a fallback bake stamped from this update names"), "a sleep-wake bake stamped from this update is a publish that really happened");
   ok("witness re-evaluates the notice", has(cms, "notesLifted || deployLifted || codeWitnessed"), "a witnessed publish must re-render instead of sticking with first paint");
   ok("clicks await the word relay", has(cms, "awaitRelay = false") && has(cms, ", true, true)"), "explicit clicks must wait out the bounded relay; background sends never wait");
   ok("relay is bounded", has(cms, "25000") && has(cms, "relayFetch"), "awaiting the relay must never hold a click hostage on a stalled network");
@@ -632,6 +642,32 @@ export async function runAll(fs) {
     ok("empty attestation proves nothing", cE.ok === true && cE.code === "" && rE.code === "", "an untold word must stay empty, never wrong");
   } catch (e) {
     ok("attestation suite", false, String((e && e.message) || e).slice(0, 200));
+  }
+  /* M2. stale publishes move words, never the attestation (note 421): a
+     publish from an older update still writes — the office clicked — but the
+     deploy and code waiting copies prove stay on the newer update. */
+  try {
+    const srvM2 = text["scripts/cms-server.js"];
+    const rpcM2 = loadVm(stubAuth(srvM2), new Uint8Array(8 * 1024 * 1024));
+    const connM2 = { id: "m2", net: ["local", 0, 0], subscribe() {}, topics: new Set() };
+    const pubM2 = (sections, extra) =>
+      JSON.parse(rpcM2.publish({ conn: connM2 }, JSON.stringify({ sections, by: "office", changed: Object.keys(sections), ...extra })));
+    const getM2 = () => JSON.parse(rpcM2.getContent({ conn: connM2 }, ""));
+    pubM2({ home: JSON.stringify({ title: "New" }) }, { notes: 500, deploy: "depA", code: "cleanA", first: true });
+    const g1 = getM2();
+    ok("current publish stamps", g1.notes === 500 && g1.publishDeploy === "depA" && g1.code === "cleanA", "notes=" + g1.notes + " deploy=" + g1.publishDeploy + " code=" + g1.code);
+    pubM2({ home: JSON.stringify({ title: "Stale tab" }) }, { notes: 499, deploy: "depOLD", code: "cleanOLD", first: true });
+    const g2 = getM2();
+    ok(
+      "stale publish moves words only",
+      JSON.parse(g2.sections).home.title === "Stale tab" && g2.notes === 500 && g2.publishDeploy === "depA" && g2.code === "cleanA",
+      "notes=" + g2.notes + " deploy=" + g2.publishDeploy + " code=" + g2.code
+    );
+    pubM2({}, { notes: 500, deploy: "depB", code: "cleanB" });
+    const g3 = getM2();
+    ok("same-update bless re-stamps", g3.publishDeploy === "depB" && g3.code === "cleanB", "deploy=" + g3.publishDeploy + " code=" + g3.code);
+  } catch (e) {
+    ok("stale-tab suite", false, String((e && e.message) || e).slice(0, 200));
   }
   /* J. live shows at once, clock vanishes with it (note 306): the Watch page
      checks immediately on open and stays on the short cadence even with no
