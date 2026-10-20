@@ -603,10 +603,13 @@ export async function runAll(fs) {
   const srvJ13 = text["scripts/cms-server.js"];
   const hostJ13 = text["scripts/cms-local.mjs"];
   ok("backend names its code", has(hostJ13, "self.__codeWord") && has(hostJ13, "CODE_ID"), "the host must hand its running word to the server code");
-  ok("answers attest the code", has(srvJ13, "code: typeof self.__codeWord"), "getContent and the rev stamp must carry the word headless copies can prove");
+  ok("answers attest the code", has(srvJ13, "code: publishCodeWord()") && has(srvJ13, "PUBLISH_CODE ||"), "getContent and the rev stamp must carry the word headless copies can prove");
   ok("witness needs the running word", has(cms, "function noteCodeWitness") && has(cms, "code !== runningCode"), "a missing or different word must prove nothing");
   ok("witness needs the publish", has(cms, "n < BUILD_NOTES"), "an unpublished word must never lift the notice");
   ok("sync takes the witness", has(cms, "noteCodeWitness((res as any).code, res.notes)"), "every server answer must try the witness, not just deploys");
+  ok("publish carries its code", has(cms, "code: bless ? runningCode"), "every publish must stamp the word it was blessed from, so answers attest on any backend");
+  ok("server keeps the publish code", has(srvJ13, "validCodeWord(payload.code)") && has(srvJ13, "publishCode: PUBLISH_CODE"), "the publish word must persist like the deploy it names");
+  ok("waiting copies hurry", has(cms, "10_000") && has(cms, "if (!maintenanceShouldWait()) return;"), "a copy on maintenance must re-ask the stamp every 10 seconds, not only on the 30s loop");
   ok("witness re-evaluates the notice", has(cms, "notesLifted || deployLifted || codeWitnessed"), "a witnessed publish must re-render instead of sticking with first paint");
   ok("clicks await the word relay", has(cms, "awaitRelay = false") && has(cms, ", true, true)"), "explicit clicks must wait out the bounded relay; background sends never wait");
   ok("relay is bounded", has(cms, "25000") && has(cms, "relayFetch"), "awaiting the relay must never hold a click hostage on a stalled network");
@@ -1658,7 +1661,7 @@ export async function runAll(fs) {
   ok("screen plays the guest", has(watchMM, "const screenAir = guestLive ? guestAir : airForTarget") && has(watchMM, "const guestLive = guestAir.state"), "guest-live plays; its end returns the main screen");
   ok("guest follow is one tap", has(watchMM, "guestLive ? isGuestTargetUrl(screenAir.target, guestUrl)"), "a walled guest follows its own channel, never autoplay");
   ok("tap opens the guest", has(blocksMM, "guestTarget()?.url") && has(blocksMM, "isGuestTargetUrl(st.target"), "a tap on a guest-live screen must play, not wait");
-  ok("guest never seeds recents", has(editorMM, "isGuestTargetUrl(aired.target") && has(autoMM, "isGuestTargetUrl(air.target"), "a guest ending files nothing");
+  ok("guest never seeds recents", has(editorMM, "isGuestTargetUrl(aired.target"), "a guest ending files nothing");
   ok("guest pastes clean", has(cmsMM, "cleanChannelInput(value.externalYoutubeChannel)"), "a doubled @ must never break the guest slot");
   ok("drawer carries the slot", has(schemaMM, 'path: "externalYoutubeChannel"') && has(liveDefMM, "externalYoutubeChannel"), "the office needs the field; the code needs the default");
   ok("bake carries the slot", has(seedMM, '"externalYoutubeChannel":""'), "fresh copies must read an empty guest, never undefined");
@@ -1862,7 +1865,7 @@ export async function runAll(fs) {
   ok("transport arms every click", has(edRR, "liveCommandAt: Date.now()") && has(edRR, "Pause the livestream") && has(edRR, "Play the livestream") && has(edRR, 'icon="stop"'), "play, pause and stop must all stamp the command");
   ok("guest helper gone", !has(schemaRR, "Leave empty otherwise") && has(schemaRR, 'path: "externalYoutubeChannel"'), "the field stays, the helper goes");
   ok("publish gates the command", has(cmsRR, "export function gateLiveCommand(") && has(cmsRR, "gateLiveSnapshot(fold.snapshot || applied)") && has(cmsRR, 'if (sectionId === "live") value = gateLiveCommand(value, publishedSection("live"))'), "full and per-section publishes must both hold unclicked state back");
-  ok("natural end needs no publish", has(autoRR, "no need to publish") && !has(autoRR, "liveCommandAt: Date.now()"), "a natural end must stamp nothing and ask for no publish");
+  ok("no automatic end", !has(autoRR, "setSectionValue") && !has(autoRR, "askForRecentServices") && !has(autoRR, "liveCommandAt: Date.now()") && !has(autoRR, "fireToast"), "when the stream ends by itself nothing is written, filed, stamped or toasted");
   ok("apply leads with the gate", has(applyRR, "PUBLISH ONLY SENDS A CLICKED COMMAND"), "the office must meet the click-to-send rule first");
   try {
     const ebRR2 = await import("https://esm.sh/esbuild-wasm@0.21.5?bundle");
@@ -1904,8 +1907,8 @@ export async function runAll(fs) {
   const cssSS = text["src/styles/pages.css"];
   const applySS2 = text["APPLY_UPDATE.txt"];
   ok("play and pause share one button", has(edSS2, "{onNow ? (") && has(edSS2, "Pause the livestream") && has(edSS2, "Play the livestream") && has(edSS2, 'icon="stop"'), "a single toggle plus the separate stop");
-  ok("pause holds, stop ends", has(edSS2, "const heldSession = since > 0;") && has(edSS2, "liveSince: 0, liveCut: at") && has(edSS2, "Paused — play picks the same session back up."), "a hold resumes, an end starts fresh");
-  ok("natural end stamps nothing", has(autoSS, "no need to publish") && !has(autoSS, "liveCommandAt: Date.now()"), "the buttons never gate a live end");
+  ok("pause holds, stop ends", has(edSS2, "const heldSession = since > 0;") && has(edSS2, "liveSince: 0, liveCut: at") && has(edSS2, "Pause holds the broadcast without ending it"), "a hold resumes, an end starts fresh");
+  ok("watcher writes nothing", !has(autoSS, "stopForStream") && !has(autoSS, "clearIdleGuest") && !has(autoSS, "setSectionValue"), "the watcher is inert — only Stop writes an end");
   ok("ended screen keeps no duplicate recents (note 413)", !has(watchSS2, "const endedThumbs") && !has(watchSS2, "live-ended__thumbs") && has(watchSS2, 'id="recent-services"'), "only #recent-services may list recents — the ended screen keeps its still and buttons");
   ok("apply leads with the buttons and the end", has(applySS2, "THE BUTTONS NEVER GATE A LIVE END") && has(applySS2, "PLAY/PAUSE IS ONE"), "the office must meet the two buttons and the self-armed end first");
 /* TT. the end needs no publish; play starts, pause holds, stop ends, each
@@ -1950,9 +1953,9 @@ export async function runAll(fs) {
   const autoWW = text["src/lib/autostop.ts"];
   const edWW2 = text["src/components/editor.tsx"];
   const applyWW2 = text["APPLY_UPDATE.txt"];
-  ok("drawer watches the main address", has(autoWW, "liveTarget") && has(autoWW, "useLiveStream(!!live.isLive || !!liveTarget(), true)"), "no Play press may slow the office report");
-  ok("main ending files itself unstamped", has(autoWW, "self-started") && has(autoWW, 'liveEndedBy: "channel"') && has(autoWW, "no need to publish"), "a self-started main ending must close the books with no publish");
-  ok("guest ending still files nothing", has(autoWW, "guestEnd") && has(autoWW, "if (air.platform !== \"youtube\" || !air.videoId || guestEnd) return false"), "the guest must never seed the main list");
+  ok("drawer watches nothing", !has(autoWW, "useLiveStream") && has(autoWW, "useAutoStopLive"), "the hook stays mounted but inert — the transport rows keep their own lights");
+  ok("main ending files nothing itself", !has(autoWW, 'liveEndedBy: "channel"') && !has(autoWW, "askForRecentServices"), "an ended broadcast files nothing until the office presses Stop");
+  ok("guest ending changes nothing", !has(autoWW, "clearIdleGuest") && !has(autoWW, "setSectionValue"), "a guest ending changes nothing by itself");
   ok("play is the manual override", has(edWW2, "Play is only the manual override") && has(edWW2, "liveCommandAt: Date.now()"), "the buttons keep working, the main needs no press");
   ok("apply leads with the self-start", has(applyWW2, "THE MAIN CHANNEL STARTS BY ITSELF"), "the office must meet the no-press rule first");
   /* XX. each field has its buttons, the guest empties itself, Delete answers
@@ -1969,7 +1972,7 @@ export async function runAll(fs) {
   ok("each field has its row", has(edXX, "transport-row") && has(edXX, "export function GuestTransportButtons()") && has(adminXX, 'f.path === "youtubeChannel" && <LiveTransportButtons />') && has(adminXX, 'f.path === "externalYoutubeChannel" && <GuestTransportButtons />'), "small buttons must sit under each field");
   ok("no labels, no clear button", !has(edXX, "transport-row__who") && !has(edXX, ">Main channel<") && !has(edXX, ">Guest channel<") && !has(edXX, "Clear the guest channel"), "the rows must not name themselves or carry a clear");
   ok("guest row guards and clears", has(edXX, "Type the guest channel first") && has(edXX, 'externalYoutubeChannel: ""') && has(edXX, "hadGuest"), "an empty guest names its field, every guest stop empties the slot");
-  ok("finished guest self-clears", has(autoXX, "clearIdleGuest") && has(autoXX, "The guest channel is empty again") && has(autoXX, "if (guestEnd) clearIdleGuest()") && has(autoXX, "if (airedGuest) clearIdleGuest()"), "a guest ending empties its slot with no publish");
+  ok("finished guest self-clears nothing", !has(autoXX, "clearIdleGuest"), "only the guest Stop button empties the slot");
   ok("delete answers first tap", has(cmsXX, "export function sectionHasPublishableRemovals(") && has(adminXX, "sectionHasPublishableRemovals(edit.sectionId)") && has(adminXX, "onClick={() => erase(edit)}"), "Delete must not look dead where it only drops the draft");
   ok("rows are styled compact", has(cssXX, ".transport-row"), "the two rows must fit the field area");
   ok("apply leads with the rows", has(applyXX, "EACH FIELD HAS ITS BUTTONS"), "the office must meet the per-field rows first");
@@ -2054,7 +2057,7 @@ export async function runAll(fs) {
   ok("detected main autoplays", has(watchAAA, "(mainDetected && !officeStopped)") && has(watchAAA, "const waitingForClick = !shutNow"), "a detected main must autoplay with no press; a published Stop still holds");
   ok("unpressed live waits, never ends", has(watchAAA, "!onAirNow && !waitingForClick ? ("), "something IS live — the clock, not the ended screen");
   ok("draft guest sweeps per update", has(cmsAAA, "function clearDraftGuestSlot()") && has(cmsAAA, "if (freshEyes) clearDraftGuestSlot();"), "no unsaved guest row rides in");
-  ok("drawer promises self-start", has(edAAA, "no press needed, Play is only a manual override") && has(edAAA, "The screen plays it once published."), "the drawer must promise the no-press rule");
+  ok("drawer promises self-start", has(edAAA, "no press needed, Play is only a manual override") && has(edAAA, "Play is only the manual override"), "the drawer must promise the no-press rule");
   ok("crash names its page", has(boundAAA, "componentStack") && has(boundAAA, "Page: ${this.state.route}"), "the next screenshot must name the page");
   ok("override is this update", has(srvAAA, "OVERRIDE_NO_414 = 414"), "first boot must re-run the clear");
   ok("apply leads with press and empty", has(applyAAA, "MAIN WAITS FOR THE PLAY PRESS") && has(applyAAA, "GUEST ARRIVES EMPTY"), "the office must meet the press rule first");

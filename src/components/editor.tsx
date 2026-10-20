@@ -856,7 +856,10 @@ export function LiveEndingPanel({ onOpen, children }: { onOpen: (id: string) => 
     leaves the site's on-air state alone, whatever the draft says. The buttons
     never gate a live end: when the broadcast ends the screen closes at once
     onto the main channel's previous-service thumbnails, published or not — a
-    natural end needs no publish (note 394). */
+    leaves the site's on-air state alone, whatever the draft says. When the
+    broadcast ends by itself, nothing is written and nothing is filed: the
+    office presses Stop, then Publish (the automatic stop was removed at the
+    office's request — see src/lib/autostop.ts). */
 export function LiveTransportButtons() {
   useCmsTick();
   const now = useNow(20000);
@@ -899,7 +902,6 @@ export function LiveTransportButtons() {
     if (heldSession) {
       write({ isLive: true, liveCut: 0, liveEndedBy: "office", liveCommandAt: Date.now() });
       recheckLiveNow();
-      fireToast("Back on air — Publish sends it.", "success");
       return;
     }
     write({ isLive: true, liveSince: Date.now(), liveCut: 0, liveEndedBy: "office", liveCommandAt: Date.now() });
@@ -909,12 +911,6 @@ export function LiveTransportButtons() {
     /* …and ask the on-air check at once (note 310): if the stream is already
        up on the channel the site flips to it in seconds, on live and local. */
     recheckLiveNow();
-    fireToast(
-      ready
-        ? "Manual override on — Publish sends it. The screen plays it once published."
-        : "Manual override on — Publish sends it. Paste the stream link or the channel to watch below.",
-      "success"
-    );
   };
   /* Pause holds the broadcast without ending it (note 392): the session start
      is kept — no `liveSince` key here — so play picks the same session back
@@ -922,7 +918,6 @@ export function LiveTransportButtons() {
   const pause = () => {
     write({ isLive: false, liveCut: Date.now(), liveEndedBy: "office", liveCommandAt: Date.now() });
     recheckLiveNow();
-    fireToast("Paused — play picks the same session back up. Publish sends it.", "info");
   };
   /* Stop ends the session straight (note 414): the live stops — the start is
      cleared, so the next play begins fresh — and the finished service files
@@ -939,12 +934,6 @@ export function LiveTransportButtons() {
     const aired = readLiveStatus();
     const airedGuest = isGuestTargetUrl(aired.target || "", guestTarget()?.url || "");
     askForRecentServices(!airedGuest && aired.videoId ? { videoId: aired.videoId, title: aired.title } : undefined);
-    fireToast(
-      airedGuest
-        ? "Stopped. The live is off and the guest channel is empty — Publish sends it."
-        : "Stopped. The live is off — Publish sends it and clears the guest channel.",
-      "info"
-    );
   };
 
   return (
@@ -1017,13 +1006,11 @@ export function GuestTransportButtons() {
     }
     write({ guestIsLive: true, guestCommandAt: Date.now() });
     recheckLiveNow();
-    fireToast("Guest override on — Publish sends it. The screen opens the guest while it is live.", "success");
   };
   /* Guest pause holds the override off without clearing the slot. */
   const pause = () => {
     write({ guestIsLive: false, guestCommandAt: Date.now() });
     recheckLiveNow();
-    fireToast("Guest paused — Publish sends it.", "info");
   };
   /* Guest stop ends the override AND empties the slot (main untouched, and a
      guest ending files nothing under Recent services). */
@@ -1032,8 +1019,6 @@ export function GuestTransportButtons() {
     const hadGuest = String((latest as any).externalYoutubeChannel || "").trim() !== "";
     write({ guestIsLive: false, guestCommandAt: Date.now(), ...(hadGuest ? { externalYoutubeChannel: "" } : {}) });
     recheckLiveNow();
-    fireToast("Stopped. The guest stream is off the site — Publish sends it.", "info");
-    if (hadGuest) fireToast("Guest channel is empty again — Publish sends it.", "info");
   };
 
   return (
@@ -1154,12 +1139,7 @@ export function RecentServicesPanel() {
     cms.setSectionValue("live", { ...latest, youtubeChannel: "@twocorg" });
     fireToast("Channel reset to @twocorg — Review and publish to put it live. The old list clears out as @twocorg's services arrive.", "success");
   };
-  const when = (it: any) =>
-    it.at
-      ? fmtDate(new Date(it.at), "long")
-      : it.seeded
-      ? "Just ended — YouTube is still publishing it"
-      : it.ago || "Recently";
+  const when = (it: any) => (it.at ? fmtDate(new Date(it.at), "long") : it.ago || "Recently");
 
   return (
     <Card className="admin__recent">

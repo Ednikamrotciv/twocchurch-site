@@ -377,6 +377,15 @@ var NOTES = 0;
 /* Deploy lock (no numbers): opaque ID of the copy the last publish/bless came from. */
 var PUBLISH_DEPLOY = "";
 function validDeployId(v) { return typeof v === "string" && /^[A-Za-z0-9_-]{1,80}$/.test(v) ? v : ""; }
+/* The code word a publish was blessed from (publish reaches everywhere): every
+   publish stamps the word of the copy that blessed it, so answers attest even
+   when the host never told us its own word. Admin-only, format-checked — the
+   same trust the published words already ride on. */
+var PUBLISH_CODE = "";
+function validCodeWord(v) { return typeof v === "string" && /^[A-Za-z0-9_-]{1,40}$/.test(v) ? v : ""; }
+/* The attested word, newest first: the last publish's own stamp beats the
+   host's word; a missing word still proves nothing, exactly as before. */
+function publishCodeWord() { return PUBLISH_CODE || (typeof self.__codeWord === "string" ? self.__codeWord : ""); }
 var LOG = [];
 /* The office's latest on-air answer (note 318, memory-only): the deployed
    server cannot read YouTube itself (bot-walled datacenter IPs get a login
@@ -533,7 +542,7 @@ function undoLeftSec(now) {
 }
 
 function writeMeta() {
-  var meta = JSON.stringify({ by: BY, log: LOG, logGen: LOG_GEN, subs: SUBS, invites: INVITES, totp: TOTP, mainOff: MAIN_OFF, mainHash: MAIN_HASH, pwgen: PWGEN, notes: NOTES, prev: PREV, chReady: CH_READY, mediaClean: MEDIA_CLEAN, overrideClean: OVERRIDE_CLEAN, welcomeLock: WELCOME_LOCK, publishDeploy: PUBLISH_DEPLOY });
+  var meta = JSON.stringify({ by: BY, log: LOG, logGen: LOG_GEN, subs: SUBS, invites: INVITES, totp: TOTP, mainOff: MAIN_OFF, mainHash: MAIN_HASH, pwgen: PWGEN, notes: NOTES, prev: PREV, chReady: CH_READY, mediaClean: MEDIA_CLEAN, overrideClean: OVERRIDE_CLEAN, welcomeLock: WELCOME_LOCK, publishDeploy: PUBLISH_DEPLOY, publishCode: PUBLISH_CODE });
   META_CHARS = meta.length;
   writeString(meta, BASE_CHARS + SECTION_CHARS);
   /* The header carries META_CHARS: without this, an admin-only change (an
@@ -666,6 +675,7 @@ function loadState() {
       BY = "";
             NOTES = 0; // note 301: a new history generation is unreviewed — visitors wait until the office publishes
     PUBLISH_DEPLOY = "";
+    PUBLISH_CODE = "";
       REV = 0;
       AT = 0;
       FRESH_GEN = true;
@@ -687,6 +697,7 @@ function loadState() {
     OVERRIDE_CLEAN = typeof parsed.overrideClean === "number" && parsed.overrideClean > 0 ? Math.floor(parsed.overrideClean) : 0;
     WELCOME_LOCK = parsed.welcomeLock === true;
     PUBLISH_DEPLOY = validDeployId(parsed.publishDeploy);
+    PUBLISH_CODE = validCodeWord(parsed.publishCode);
   } catch (e) {
     NOTES = 0;
     BY = "";
@@ -703,6 +714,7 @@ function loadState() {
     OVERRIDE_CLEAN = 0;
     WELCOME_LOCK = false;
     PUBLISH_DEPLOY = "";
+    PUBLISH_CODE = "";
   }
   SECTIONS = {};
   for (var i = 0; i < INDEX.length; i++) {
@@ -997,7 +1009,7 @@ self.rpc = {
          live AND local): the word this backend runs, so an unstamped copy
          can prove a witnessed publish came from its own running code.
          Empty when the host never told us — which proves nothing. */
-      code: typeof self.__codeWord === "string" ? self.__codeWord : "",
+      code: publishCodeWord(),
       sections: "{" + parts.join(",") + "}",
       log: LOG,
       admin: admins.has(info.conn.id),
@@ -1011,7 +1023,7 @@ self.rpc = {
      still lands within the half minute on every copy. Public read — it names
      no words, only whether the words moved. */
   contentRev: function (info) {
-    return ok({ rev: REV, notes: NOTES, publishDeploy: PUBLISH_DEPLOY, at: AT, code: typeof self.__codeWord === "string" ? self.__codeWord : "" });
+    return ok({ rev: REV, notes: NOTES, publishDeploy: PUBLISH_DEPLOY, at: AT, code: publishCodeWord() });
   },
 
   /* Office-reported on-air answer (note 318): reads are public (visitors ask
@@ -1110,6 +1122,8 @@ self.rpc = {
     BY = typeof payload.by === "string" ? payload.by.slice(0, 60) : "";
     if (notes > NOTES) NOTES = notes;
     if (typeof deploy === "string" && deploy && (ids.length || notes)) PUBLISH_DEPLOY = deploy;
+    var acode = validCodeWord(payload.code);
+    if (acode && (ids.length || notes)) PUBLISH_CODE = acode;
     var changed = [];
     for (i = 0; i < ids.length && i < 24; i++) changed.push(ids[i]);
     var who = adminIds.get(info.conn.id);
@@ -1195,6 +1209,8 @@ self.rpc = {
     if (at > 0) AT = at;
     BY = typeof payload.by === "string" ? payload.by.slice(0, 60) : "";
     if (typeof deploy === "string" && deploy && (ids.length || notes)) PUBLISH_DEPLOY = deploy;
+    var fcode = validCodeWord(payload.code);
+    if (fcode && (ids.length || notes)) PUBLISH_CODE = fcode;
     writeMeta();
     writeHeader();
     try {
@@ -1607,8 +1623,8 @@ self.rpc = {
     return ok({});
   },
 
-  /* Patch publish. raw = { by, note, notes, changed: [id], sections } (note 249:
-     notes carries the publishing code's update; empty sections still bless. */
+  /* Patch publish. raw = { by, note, notes, code, deploy, changed: [id], sections } (note 249:
+     notes carries the publishing code's update, code carries its word; empty sections still bless. */
   publish: function (info, raw) {
     if (!admins.has(info.conn.id)) return fail("unauthorized");
     var payload;
@@ -1672,6 +1688,11 @@ self.rpc = {
     BY = typeof payload.by === "string" ? payload.by.slice(0, 60) : "";
     if (notes > NOTES) NOTES = notes;
     if (typeof deploy === "string" && deploy && (ids.length || notes)) PUBLISH_DEPLOY = deploy;
+    /* The publish stamps the code it was blessed from (publish reaches
+       everywhere): answers attest this word even when the host never told us
+       its own — admin-only, format-checked, same trust as the words. */
+    var pcode = validCodeWord(payload.code);
+    if (pcode && (ids.length || notes)) PUBLISH_CODE = pcode;
     var changed = [];
     if (payload.changed && payload.changed.length) {
       for (i = 0; i < payload.changed.length && i < 24; i++) {

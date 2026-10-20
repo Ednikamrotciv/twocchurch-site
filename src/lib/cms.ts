@@ -2737,6 +2737,17 @@ function startContentWatch() {
   window.setInterval(() => {
     tick().catch(() => {});
   }, 30_000);
+  /* Waiting copies hurry (publish reaches everywhere): while this copy holds
+     on maintenance, re-ask the stamp every 10s instead of only on the loop
+     above — the moment the server learns the publish, the notice lifts with
+     no tap. Hidden tabs still skip; the 30s loop stays for every copy. */
+  window.setInterval(() => {
+    try {
+      if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
+      if (!maintenanceShouldWait()) return;
+      tick().catch(() => {});
+    } catch {}
+  }, 10_000);
   document.addEventListener("visibilitychange", () => {
     if (document.visibilityState === "visible") tick().catch(() => {});
   });
@@ -5624,6 +5635,10 @@ async function sendPatch(
       changed: ids,
       notes: bless ? BUILD_NOTES : 0,
       deploy: bless ? durableDeploy : "",
+      /* The code this copy runs (publish reaches everywhere): the server
+         stamps the word the publish was blessed from, so its answers attest
+         on any backend — even one whose host never told it its own word. */
+      code: bless ? runningCode : "",
       /* Only the first batch snapshots the superseded publish for the
          server-side ~15-minute undo (note 291) — later batches must not
          re-snapshot mid-publish. */
