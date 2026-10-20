@@ -28,6 +28,127 @@ const PENDING_KEY = "wom.cms.pending";
 const AFTER_SAVE_KEY = "wom.cms.publishAfterSave";
 /** A publish waiting for the website to be saved is forgotten after this long. */
 const AFTER_SAVE_MAX_AGE_MS = 15 * 60 * 1000;
+/* Durable publish intent (one click reaches everywhere, automatically): a
+   Publish click that cannot reach the office server (asleep, offline, join
+   timeout) still blesses this copy at once — and records this intent, so the
+   bless-only stamp is carried to the server the moment a signed-in office tab
+   syncs again, with no second click. Same update and same code only; anything
+   older is stale and dropped, and a new code arrival still takes its explicit
+   Publish or Recover (an old intent never ends a clean stage by itself). */
+const PUBLISH_INTENT_KEY = "wom.cms.publishIntent";
+const PUBLISH_INTENT_MAX_AGE_MS = 48 * 60 * 60 * 1000;
+type PublishIntent = { at: number; notes: number; code: string; deploy: string; note: string };
+let lastAutoRestampFor = "";
+let lastAutoRestampAt = 0;
+function readPublishIntent(): PublishIntent | null {
+  try {
+    const raw = localStorage.getItem(PUBLISH_INTENT_KEY);
+    if (!raw) return null;
+    const p = JSON.parse(raw) as PublishIntent;
+    if (!p || typeof p.at !== "number" || typeof p.notes !== "number") return null;
+    return p;
+  } catch { return null; }
+}
+function notePublishIntent(note: string): void {
+  try {
+    const intent: PublishIntent = { at: Date.now(), notes: BUILD_NOTES, code: runningCode || "", deploy: currentDeployId || "", note: String(note || "").slice(0, 160) };
+    localStorage.setItem(PUBLISH_INTENT_KEY, JSON.stringify(intent));
+  } catch {}
+}
+function clearPublishIntent(): void {
+  try { localStorage.removeItem(PUBLISH_INTENT_KEY); } catch {}
+}
+/** True once this browser holds an explicit publish of the running update. */
+function heldExplicitPublish(): boolean {
+  try {
+    if (typeof publishedNotes !== "number" || Math.floor(publishedNotes) < BUILD_NOTES) return false;
+    return codeBlessedMatches();
+  } catch { return false; }
+}
+/** True when the server already carries this intent's publish (or a newer update owns the future). */
+function publishIntentCovered(intent: PublishIntent, res: any): boolean {
+  try {
+    if (!intent) return true;
+    if (res && typeof res.notes === "number" && Math.floor(res.notes) > intent.notes) return true;
+    if (intent.deploy && publishedDeployId === intent.deploy) return true;
+    if (res && typeof res.notes === "number" && Math.floor(res.notes) === intent.notes && intent.deploy && String(res.publishDeploy || "") === intent.deploy) return true;
+    return false;
+  } catch { return false; }
+}
+/** Carry a device-only click to the office server: bless-only, automatic, silent. */
+async function tryFlushPublishIntent(res?: any): Promise<boolean> {
+  try {
+    const intent = readPublishIntent();
+    if (!intent) return false;
+    if (intent.notes !== BUILD_NOTES || !intent.code || intent.code !== runningCode) {
+      try { if (typeof intent.notes === "number" && intent.notes < BUILD_NOTES) clearPublishIntent(); } catch {}
+      return false;
+    }
+    if (Date.now() - intent.at > PUBLISH_INTENT_MAX_AGE_MS) { clearPublishIntent(); return false; }
+    if (cleanStageForNewCode) return false;
+    if (res && publishIntentCovered(intent, res)) { clearPublishIntent(); return true; }
+    if (!socket || status !== "online") return false;
+    if (!authed) {
+      try {
+        const saved = sessionPassword();
+        const loginRes = saved ? await login(saved, true) : null;
+        /* A half-open sign-in (two-factor second step, one-time invite code)
+           is not a session: keep the intent for the sign-in that finishes it
+           instead of spending it on a send the server would refuse. */
+        if (!loginRes?.ok || (loginRes as any).needCode || (loginRes as any).role === "invite") return false;
+      } catch { return false; }
+    }
+    const r = await sendPatch({}, [], intent.note || "Carried publish", true, false);
+    if (!r?.ok) return false;
+    clearPublishIntent();
+    setPublishedNotes(BUILD_NOTES);
+    writeCache();
+    notify();
+    return true;
+  } catch { return false; }
+}
+/** The server kept the words but lost the stamp (restart without a disk, history
+    reset): bless back the identical published set so waiting copies release. */
+async function maybeAutoRestamp(res: any, server: Snapshot): Promise<boolean> {
+  try {
+    if (!authed || cleanStageForNewCode) return false;
+    if (!heldExplicitPublish()) return false;
+    if (!res || (res as any).seeded === true) return false;
+    if (typeof res.notes !== "number" || Math.floor(res.notes) >= BUILD_NOTES) return false;
+    if (!Object.keys(server || {}).length || !Object.keys(overrides).length) return false;
+    if (!sameJSON(server, overrides)) return false;
+    const key = rev + ":" + String(res.rev ?? "?") + ":" + Math.floor(res.notes);
+    if (lastAutoRestampFor === key) return false;
+    if (lastAutoRestampAt > 0 && Date.now() - lastAutoRestampAt < 60000) return false;
+    const r = await sendPatch({}, [], "Carried publish", true, false);
+    if (!r?.ok) return false;
+    lastAutoRestampFor = key;
+    lastAutoRestampAt = Date.now();
+    markDeployPublished();
+    writeCache();
+    notify();
+    return true;
+  } catch { return false; }
+}
+/** After healing an emptied server, carry the stamp back too (words first, always). */
+async function autoRestampAfterHeal(): Promise<boolean> {
+  try {
+    if (!authed || cleanStageForNewCode) return false;
+    if (!heldExplicitPublish()) return false;
+    if (!Object.keys(overrides).length) return false;
+    const key = rev + ":heal";
+    if (lastAutoRestampFor === key) return false;
+    if (lastAutoRestampAt > 0 && Date.now() - lastAutoRestampAt < 60000) return false;
+    const r = await sendPatch({}, [], "Carried publish", true, false);
+    if (!r?.ok) return false;
+    lastAutoRestampFor = key;
+    lastAutoRestampAt = Date.now();
+    setPublishedNotes(BUILD_NOTES);
+    markDeployPublished();
+    writeCache();
+    return true;
+  } catch { return false; }
+}
 const NAME_KEY = "wom.cms.editor";
 const SESSION_KEY = "wom.cms.session";
 const REQUEST_TIMEOUT = 9000;
@@ -865,7 +986,7 @@ export function checkStaleBuild(): Promise<void> {
    the button carrying this says so before it arms. This is the explicit
    office delete (note 300) — the ONLY path that clears last-published. */
 export function resetLocalCopy(): void {
-  const keys = [CACHE_KEY, DRAFT_KEY, HISTORY_KEY, PENDING_KEY, NOTES_KEY, AFTER_SAVE_KEY, DEPLOY_KEY, DEPLOY_SEEN_KEY, CODE_BLESS_KEY, PUBLISH_AT_KEY, "wom.cms.slidesReset"];
+  const keys = [CACHE_KEY, DRAFT_KEY, HISTORY_KEY, PENDING_KEY, NOTES_KEY, AFTER_SAVE_KEY, DEPLOY_KEY, DEPLOY_SEEN_KEY, CODE_BLESS_KEY, PUBLISH_AT_KEY, PUBLISH_INTENT_KEY, "wom.cms.slidesReset"];
   for (const k of keys) {
     try {
       localStorage.removeItem(k);
@@ -1725,7 +1846,14 @@ export async function publishSection(sectionId: string, note: string): Promise<P
        the office sees success. The bless-only send below carries the same
        server stamp, converge and live relay as every other publish. */
     if (!(await joinBeforePublish())) {
+      setPublishedNotes(BUILD_NOTES);
+      blessRunningCode();
       markDeployPublished();
+      /* Device-only click still works everywhere: this intent carries the
+         bless to the office server on the next sync, with no second click. */
+      try {
+        notePublishIntent(note);
+      } catch {}
       try {
         notePublishAt(Date.now());
       } catch {}
@@ -1747,9 +1875,35 @@ export async function publishSection(sectionId: string, note: string): Promise<P
     if (!authed) {
       const saved = sessionPassword();
       const res = saved ? await login(saved, true) : { ok: false as const };
-      if (!res.ok) {
+      if (!res.ok || (res as any).needCode || (res as any).role === "invite") {
         if ((res as any).error === "denied") clearSession();
-        return { ok: false, error: "unauthorized" };
+        /* A lapsed sign-in still blesses everywhere (any admin, any state):
+           bless this copy at once and carry the stamp on the next sync —
+           the click is never lost to an expiry mid-dialog. */
+        setPublishedNotes(BUILD_NOTES);
+        blessRunningCode();
+        markDeployPublished();
+        try {
+          notePublishIntent(note);
+        } catch {}
+        try {
+          notePublishAt(Date.now());
+        } catch {}
+        try {
+          markJustPublished();
+        } catch {}
+        try {
+          scheduleRelayRetry({}, [], note.slice(0, 160), sectionStamp);
+        } catch {}
+        try {
+          if (!sectionStamp) scheduleDeployStampHeal();
+        } catch {}
+        try {
+          checkStaleBuild().catch(() => {});
+        } catch {}
+        writeCache();
+        notify();
+        return { ok: true, local: true };
       }
     }
     /* No words move, so no undo entry: the bless only lifts the notice. */
@@ -1759,7 +1913,7 @@ export async function publishSection(sectionId: string, note: string): Promise<P
     setPublishedNotes(BUILD_NOTES);
     writeCache();
     notify();
-    return { ok: true, live: blessOnly.relay !== "missed" };
+    return { ok: true, live: blessOnly.relay !== "missed", relayMsg: relayStatus().msg };
   }
   /* One click publishes to visitors (office request): a tap while the tab is
      momentarily offline (sleep wake, reconnect backoff, slow mobile network)
@@ -1777,6 +1931,11 @@ export async function publishSection(sectionId: string, note: string): Promise<P
     writeCache();
     pending = { ...(pending || {}), [sectionId]: value };
     markDeployPublished();
+    /* Device-only click still works everywhere: the words flush via pending
+       and this intent carries the bless itself on the next sync. */
+    try {
+      notePublishIntent(note);
+    } catch {}
     try {
       notePublishAt(Date.now());
     } catch {}
@@ -1805,18 +1964,90 @@ export async function publishSection(sectionId: string, note: string): Promise<P
   if (!authed) {
     const saved = sessionPassword();
     const res = saved ? await login(saved, true) : { ok: false as const };
-    if (!res.ok) {
+    if (!res.ok || (res as any).needCode || (res as any).role === "invite") {
       /* A changed/retired password ends the session here (note 297) but
          keeps every held word, queue entry and stamp — only an explicit
          office delete may clear last-published (note 300). */
       if ((res as any).error === "denied") clearSession();
-      return { ok: false, error: "unauthorized" };
+      /* A lapsed sign-in still publishes everywhere (any admin, any state):
+         the words land on this copy at once and ride the queue, the intent
+         and the relay retry to the server and live — the click is never lost
+         to an expiry mid-dialog. */
+      rememberHistory();
+      overrides = { ...overrides, [sectionId]: value };
+      applyOverrides(overrides);
+      setPublishedNotes(BUILD_NOTES);
+      writeCache();
+      pending = { ...(pending || {}), [sectionId]: value };
+      markDeployPublished();
+      try {
+        notePublishIntent(note);
+      } catch {}
+      try {
+        notePublishAt(Date.now());
+      } catch {}
+      try {
+        markJustPublished();
+      } catch {}
+      try {
+        scheduleRelayRetry({ [sectionId]: JSON.stringify(value) }, [sectionId], note.slice(0, 160), sectionStamp);
+      } catch {}
+      try {
+        if (!sectionStamp) scheduleDeployStampHeal();
+      } catch {}
+      try {
+        checkStaleBuild().catch(() => {});
+      } catch {}
+      writeJSON(PENDING_KEY, pending);
+      localOnly = true;
+      delete dirty[sectionId];
+      if (sectionId === "live" && draft) (draft as any)[sectionId] = clone(publishedSection(sectionId));
+      persistDraft();
+      notify();
+      return { ok: true, local: true };
     }
   }
   rememberHistory();
   const payload = JSON.stringify(value);
   const result = await sendPatch({ [sectionId]: payload }, [sectionId], note.slice(0, 160), true, true, sectionStamp);
-  if (!result.ok) return { ok: false, error: result.error };
+  if (!result.ok) {
+    /* The server dropped the send after the join (sleep, restart, expiry):
+       carry it like a device-only click instead of losing it. History is
+       already remembered above — queue without doubling it. */
+    if (!result.sent.length) {
+      overrides = { ...overrides, [sectionId]: value };
+      applyOverrides(overrides);
+      pending = { ...(pending || {}), [sectionId]: value };
+      writeJSON(PENDING_KEY, pending);
+    }
+    setPublishedNotes(BUILD_NOTES);
+    writeCache();
+    markDeployPublished();
+    try {
+      notePublishIntent(note);
+    } catch {}
+    try {
+      notePublishAt(Date.now());
+    } catch {}
+    try {
+      markJustPublished();
+    } catch {}
+    try {
+      scheduleRelayRetry({ [sectionId]: JSON.stringify(value) }, [sectionId], note.slice(0, 160), sectionStamp);
+    } catch {}
+    try {
+      if (!sectionStamp) scheduleDeployStampHeal();
+    } catch {}
+    try {
+      checkStaleBuild().catch(() => {});
+    } catch {}
+    localOnly = true;
+    delete dirty[sectionId];
+    if (sectionId === "live" && draft) (draft as any)[sectionId] = clone(publishedSection(sectionId));
+    persistDraft();
+    notify();
+    return { ok: true, local: true };
+  }
   rev = result.rev ?? rev + 1;
   updatedAt = Date.now();
   updatedBy = editorName();
@@ -2949,16 +3180,15 @@ export async function startCms() {
       try {
         localStorage.removeItem(DRAFT_KEY);
       } catch {}
-      try {
-        localStorage.removeItem(PENDING_KEY);
-      } catch {}
+      /* Pending is an unsent publish (the office already clicked), not unsaved
+         work: it survives the deploy wipe and flushes on reconnect, so one
+         click still reaches every browser even across a new deploy. */
       try {
         localStorage.removeItem(AFTER_SAVE_KEY);
       } catch {}
      draft = null;
      draftFromRev = 0;
      dirty = {};
-     pending = null;
       /* Unsaved-clean means every unsaved trace: the undo of the last publish,
          the one-step edit undos, and any waiting live preview are from the old
          deploy, so they go with the draft — the new deploy's unsaved list
@@ -3083,14 +3313,10 @@ export async function startCms() {
      desktop, wiped store, slow server — back into update-mode with no new
      update, and persist it. The gate now decides from evidence alone. */
   pending = readJSON<Snapshot | null>(PENDING_KEY, null);
-  /* The pending read above runs after the clearing: on a fresh deploy it stays
-     cleared — an offline queue from the old deploy never rides in as unsaved. */
-  if (freshDeploy && pending) {
-    pending = null;
-    try {
-      localStorage.removeItem(PENDING_KEY);
-    } catch {}
-  }
+  /* The pending read above runs after the clearing: pending is an unsent
+     publish the office already clicked — never unsaved work — so a fresh
+     deploy keeps it and it flushes on reconnect instead of dying with the
+     draft. */
   /* Boot numbers are final here (seed + stored stamp): bump once so the
      maintenance notice re-evaluates instead of sticking with first paint
      (note 278). One extra render, boot only. */
@@ -3315,7 +3541,19 @@ function startReturnJoin() {
   returnJoinStarted = true;
   const join = (fresh: boolean) => {
     try {
-      if (socket || !socketFactory() || localOnly) return;
+      if (socket || !socketFactory()) return;
+      /* A copy owed a carry still expedites the join: stranded words, a
+         publish intent or an owed live relay join at once on return instead
+         of waiting out the backoff. Pure standalone copies still no-op. */
+      if (localOnly) {
+        let owed = false;
+        try {
+          owed = !!readPublishIntent() || !!pending || !!relayRetryPayload || !!readRelayPending();
+        } catch {
+          owed = false;
+        }
+        if (!owed) return;
+      }
       if (status === "connecting") return;
       if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
       /* The network just returned: retry fast, not on the old backoff. A
@@ -3577,11 +3815,18 @@ async function syncFromServer() {
     if (pending) pending = { ...clone(pending), ...clone(overrides) };
     else if (!plannedPublish()) pending = clone(overrides);
     if (pending) writeJSON(PENDING_KEY, pending);
+    let healedWords = false;
     if (authed) {
       try {
-        await healEmptyServer();
+        healedWords = await healEmptyServer();
       } catch {}
     }
+    /* The server lost everything while this office tab still holds an explicit
+       publish: the words just healed back — carry the stamp back too,
+       automatically, so visitors release with no second click. */
+    try {
+      if (healedWords) await autoRestampAfterHeal();
+    } catch {}
     notify();
     return;
   }
@@ -3774,6 +4019,13 @@ function hostFileAttestsSameCode(): boolean {
        maintenance notice re-evaluates instead of sticking with first paint. */
     version += 1;
   }
+  /* One click works everywhere, automatically: carry a device-only publish to
+     the server, and carry a lost server stamp back from an explicit publish —
+     no second click, no tap on the stranded copy. */
+  try {
+    const flushed = await tryFlushPublishIntent(res);
+    if (!flushed) await maybeAutoRestamp(res, server);
+  } catch {}
   notify();
 }
 
@@ -5192,6 +5444,9 @@ async function relayPublishWordsToLive(
             changed: batches[b],
             notes: BUILD_NOTES,
             deploy: liveDeploy,
+            /* The live box attests this word like the office does, so live
+               visitors release on the relayed publish even before any rebuild. */
+            code: runningCode,
             first: b === 0,
             quiet: b < batches.length - 1,
           }),
@@ -5804,6 +6059,10 @@ async function sendPatch(
   }
   if (bless) {
     markDeployPublished();
+    /* The server carries the bless now — any recorded intent is covered. */
+    try {
+      clearPublishIntent();
+    } catch {}
     /* One click lifts every deploy (not just this tab): stamp the publish
        clock so copies on other deploy ids release via the post-deploy witness
        instead of waiting for their own click — and carry the click across this
@@ -5919,6 +6178,11 @@ export async function publish(note: string, content?: Snapshot): Promise<Publish
          The stamp is cached with the words (note 306), so a host sleep
          afterwards changes nothing. */
       markDeployPublished();
+      /* Device-only click still works everywhere: this intent carries the
+         bless to the office server on the next sync, with no second click. */
+      try {
+        notePublishIntent(note);
+      } catch {}
       /* Device-only click still lifts every tab of this browser at once, and
          keeps carrying the words to live in the background. */
       try {
@@ -5943,12 +6207,38 @@ export async function publish(note: string, content?: Snapshot): Promise<Publish
     if (!authed) {
       const saved = sessionPassword();
       const res = saved ? await login(saved, true) : ({ ok: false as const });
-      if (!res.ok) {
+      if (!res.ok || (res as any).needCode || (res as any).role === "invite") {
         /* A changed/retired password ends the session here (note 297) but
            keeps every held word, queue entry and stamp — only an explicit
            office delete may clear last-published (note 300). */
         if ((res as any).error === "denied") clearSession();
-        return { ok: false, error: "unauthorized" };
+        /* A lapsed sign-in still blesses everywhere (any admin, any state):
+           bless this copy at once and carry the stamp on the next sync —
+           the click is never lost to an expiry mid-dialog. */
+        setPublishedNotes(BUILD_NOTES);
+        blessRunningCode();
+        markDeployPublished();
+        try {
+          notePublishIntent(note);
+        } catch {}
+        try {
+          notePublishAt(Date.now());
+        } catch {}
+        try {
+          markJustPublished();
+        } catch {}
+        try {
+          scheduleRelayRetry({}, [], note.slice(0, 160), officeStamp);
+        } catch {}
+        try {
+          if (!officeStamp) scheduleDeployStampHeal();
+        } catch {}
+        try {
+          checkStaleBuild().catch(() => {});
+        } catch {}
+        writeCache();
+        notify();
+        return { ok: true, local: true };
       }
     }
     const bless = await sendPatch({}, [], note.slice(0, 160), true, true, officeStamp);
@@ -5974,6 +6264,11 @@ export async function publish(note: string, content?: Snapshot): Promise<Publish
     writeCache();
     pending = clone(overrides);
     markDeployPublished();
+    /* Device-only click still works everywhere: the words flush via pending
+       and this intent carries the bless itself on the next sync. */
+    try {
+      notePublishIntent(note);
+    } catch {}
     /* Device-only click still lifts every tab of this browser at once; the
        queued words flush to the office server on reconnect, and the live box
        is retried in the background meanwhile. */
@@ -6010,12 +6305,49 @@ export async function publish(note: string, content?: Snapshot): Promise<Publish
   if (!authed) {
     const saved = sessionPassword();
     const res = saved ? await login(saved, true) : { ok: false as const };
-    if (!res.ok) {
+    if (!res.ok || (res as any).needCode || (res as any).role === "invite") {
       /* A changed/retired password ends the session here (note 297) but
          keeps every held word, queue entry and stamp — only an explicit
          office delete may clear last-published (note 300). */
       if ((res as any).error === "denied") clearSession();
-      return { ok: false, error: "unauthorized" };
+      /* A lapsed sign-in still publishes everywhere (any admin, any state):
+         the words land on this copy at once and ride the queue, the intent
+         and the relay retry to the server and live — the click is never lost
+         to an expiry mid-dialog. */
+      rememberHistory();
+      overrides = { ...overrides, ...pick(snapshot, changed) };
+      applyOverrides(overrides);
+      setPublishedNotes(BUILD_NOTES);
+      writeCache();
+      pending = clone(overrides);
+      markDeployPublished();
+      try {
+        notePublishIntent(note);
+      } catch {}
+      try {
+        notePublishAt(Date.now());
+      } catch {}
+      try {
+        markJustPublished();
+      } catch {}
+      try {
+        scheduleRelayRetry(buildRelaySections(snapshot, changed), changed, note.slice(0, 160), officeStamp);
+      } catch {}
+      try {
+        checkStaleBuild().catch(() => {});
+      } catch {}
+      writeJSON(PENDING_KEY, pending);
+      localOnly = true;
+      draft = null;
+      dirty = {};
+      editUndos = [];
+      previewBase = null;
+      previewing = false;
+      try {
+        localStorage.removeItem(DRAFT_KEY);
+      } catch {}
+      notify();
+      return { ok: true, local: true };
     }
   }
 
@@ -6029,7 +6361,49 @@ export async function publish(note: string, content?: Snapshot): Promise<Publish
       writeCache();
       notify();
     }
-    return { ok: false, error: result.error };
+    /* The server dropped the rest of the send after the join (sleep,
+       restart, expiry): carry it like a device-only click instead of losing
+       it. History is already remembered above — queue without doubling it. */
+    let rest = changed.filter((id) => result.sent.indexOf(id) === -1);
+    try {
+      if (rest.length) {
+        overrides = { ...overrides, ...pick(snapshot, rest) };
+        applyOverrides(overrides);
+        pending = clone(overrides);
+        writeJSON(PENDING_KEY, pending);
+      }
+    } catch {
+      rest = changed;
+    }
+    setPublishedNotes(BUILD_NOTES);
+    writeCache();
+    markDeployPublished();
+    try {
+      notePublishIntent(note);
+    } catch {}
+    try {
+      notePublishAt(Date.now());
+    } catch {}
+    try {
+      markJustPublished();
+    } catch {}
+    try {
+      scheduleRelayRetry(buildRelaySections(snapshot, rest.length ? rest : changed), rest.length ? rest : changed, note.slice(0, 160), officeStamp);
+    } catch {}
+    try {
+      checkStaleBuild().catch(() => {});
+    } catch {}
+    localOnly = true;
+    draft = null;
+    dirty = {};
+    editUndos = [];
+    previewBase = null;
+    previewing = false;
+    try {
+      localStorage.removeItem(DRAFT_KEY);
+    } catch {}
+    notify();
+    return { ok: true, local: true };
   }
 
   rev = result.rev ?? rev + 1;
@@ -6187,6 +6561,9 @@ export async function flushPending(): Promise<boolean> {
      the running update like any other publish (note 300). */
   setPublishedNotes(BUILD_NOTES);
   blessRunningCode();
+  try {
+    clearPublishIntent();
+  } catch {}
   pending = null;
   try {
     localStorage.removeItem(PENDING_KEY);

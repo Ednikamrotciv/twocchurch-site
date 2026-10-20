@@ -997,13 +997,15 @@ function UnsavedView({
         pub.local
           ? "Queued."
           : pub.live === false
-          ? "Deleted."
+          ? pub.relayMsg || "Deleted."
           : "Deleted.",
         pub.local || pub.live === false ? "info" : "success"
       );
     } else {
       fireToast(
-        "Failed.",
+        (pub as any).error === "unauthorized"
+          ? "Expired."
+          : "Failed.",
         "error"
       );
     }

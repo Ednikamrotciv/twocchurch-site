@@ -1,4 +1,4 @@
-/* World Overcomers service worker — offline live site after publish (update 425).
+/* World Overcomers service worker — offline live site after publish (update 427).
  *
  * One Publish click must clear every browser/device, online OR offline. The
  * maintenance gates already fail open offline when cached published words
@@ -15,7 +15,7 @@
  * clean and new. Unsaved-change cleaning is untouched (cms.ts deploySeen).
  */
 
-var CACHE = "wom-425-clean425";
+var CACHE = "wom-427-clean427";
 var CORE = [
   "/",
   "/index.html",
