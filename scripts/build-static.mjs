@@ -44,6 +44,9 @@ try {
    maintenance hold on: fresh visitors wait until the office publishes (locked — every deploy holds). */
 const DEPLOY_ID =
   "dpl-" + Date.now().toString(36) + "-" + Math.random().toString(36).slice(2, 8);
+/* Baked release (note 424): set below when the bake holds this update's words
+   from this code — the deploy then carries its own publish in the page itself. */
+let bakedRelease = false;
 try {
   const seedPath = path.join(OUT, "seed.json");
   const seed = JSON.parse(await readFile(seedPath, "utf8"));
@@ -59,15 +62,25 @@ try {
        Backend notes reach the update number only through an explicit office
        publish/undo/flush, so the stamp can never leak ahead of review. */
     let buildNotes = 0;
+    let buildCode = "";
     try {
       const hooksSrc = await readFile(path.join(ROOT, "src", "lib", "hooks.ts"), "utf8");
       buildNotes = Number((hooksSrc.match(/BUILD_NOTES = (\d+)/) || [])[1]) || 0;
+      buildCode = (/export const CODE_ID = "([A-Za-z0-9_-]+)"/.exec(hooksSrc) || [])[1] || "";
     } catch { /* no number — the hold below stands */ }
     const seedOut = { ...seed, hold: true, deployId: DEPLOY_ID };
     try {
       const sections = seed && seed.sections && typeof seed.sections === "object" ? Object.keys(seed.sections).length : 0;
       if (buildNotes > 0 && typeof seed.notes === "number" && Math.floor(seed.notes) >= buildNotes && typeof seed.rev === "number" && seed.rev > 0 && sections > 0) {
         seedOut.publishedDeploy = DEPLOY_ID;
+      }
+      /* Baked release (note 424): this update's words from this code — update
+         number plus code word plus real words — so the deploy carries its own
+         publish. An older update, another code, empty words or an unstamped
+         bake never bake the release. */
+      const seedWord = typeof seed.code === "string" ? seed.code : "";
+      if (buildNotes > 0 && !!buildCode && typeof seed.notes === "number" && Math.floor(seed.notes) === buildNotes && typeof seed.rev === "number" && seed.rev > 0 && sections > 0 && seedWord === buildCode) {
+        bakedRelease = true;
       }
     } catch { /* witness skipped — the hold stands */ }
     await writeFile(seedPath, JSON.stringify(seedOut));
@@ -110,27 +123,21 @@ try {
     if (!line) console.log("no live feed in publish-feed.txt — deployed copies update on rebuilds only");
     else console.warn(`publish-feed.txt ignored: "${line}" is not owner/repo@branch or a github.com repo address — deployed copies update on rebuilds only`);
   }
-    /* Feed signal on the entry page (note 416 + one-click-everywhere fix): the
-       deployed copy reads it synchronously on first paint — like the wom-server
-       meta above — so the maintenance gate knows at once that words can move
-       after deploy even with no server behind the copy. Route copies below
-       inherit the shell. STAMP ONLY WHEN A FEED IS ACTUALLY CONFIGURED: an
-       always-stamped signal made standalone copies (no server, no feed) wait
-       on maintenance with nothing that could ever release them, so some
-       browsers/devices stayed stuck even after Publish. */
-    try {
+    /* Feed signal on the entry page (note 416, fixed note 424): the deployed
+       copy reads it synchronously on first paint — like the wom-server meta
+       above — so the maintenance gate knows at once that words can move after
+       deploy even with no server behind the copy. ONLY when a real feed is baked:
+       with no feed the copy is pure static and must never read as feed-backed.
+       Route copies below inherit the shell. */
+    if (feed) try {
       var shellPathFeed = path.join(OUT, "index.html");
       var shellFeed = await readFile(shellPathFeed, "utf8");
-      if (feed && shellFeed.indexOf('name="wom-feed"') < 0) {
+      if (shellFeed.indexOf('name="wom-feed"') < 0) {
         var tagFeed = '<meta name="wom-feed" content="1">';
         if (shellFeed.indexOf("</head>") >= 0) { shellFeed = shellFeed.replace("</head>", "  " + tagFeed + "\n</head>"); }
         else { shellFeed = tagFeed + "\n" + shellFeed; }
         await writeFile(shellPathFeed, shellFeed);
         console.log("feed meta stamped into dist/index.html");
-      } else if (!feed && shellFeed.indexOf('name="wom-feed"') >= 0) {
-        shellFeed = shellFeed.replace(/\s*<meta name="wom-feed"[^>]*>\s*/g, "\n");
-        await writeFile(shellPathFeed, shellFeed);
-        console.log("feed meta removed from dist/index.html (no live feed configured)");
       }
     } catch (errFeed) {
       console.warn("feed meta skipped:", errFeed && errFeed.message ? errFeed.message : errFeed);
@@ -217,52 +224,26 @@ try {
 } catch (err) {
   console.warn("deploy meta skipped:", err?.message || err);
 }
-
-/* One-click-everywhere baked release: when the seed baked above already
-   carries this update's publish (notes at the code's own update number, with
-   real words and the matching code word — the same evidence applySeedOnce
-   trusts at runtime), stamp it into the entry page as wom-published. The
-   pre-bundle gate and the app read it synchronously on first paint, so every
-   fresh browser/device — online or offline, with empty localStorage and no
-   server contact — opens the visitors site at once with no second click and
-   no per-browser stamp. Deploys built before the publish carry no such meta
-   and still lift online via the server/feed witness; rebuild once after
-   Publish and the release is baked everywhere including offline. Route copies
-   below are made from this shell, so they inherit it. */
-try {
-  const seedBaked = JSON.parse(await readFile(path.join(OUT, "seed.json"), "utf8"));
-  let buildNotesPub = 0;
-  let codeWordPub = "";
+/* Baked release on the entry page (note 424): a deploy built after the office
+   published carries the release in the page itself — fresh browsers/devices
+   open the visitors site at once, online or offline, with no server, feed,
+   storage or clock. Route copies below are made from this shell, so they
+   inherit it. A deploy built before the publish carries no such meta and
+   holds until the publish, as before. */
+if (bakedRelease) {
   try {
-    const hooksSrcPub = await readFile(path.join(ROOT, "src", "lib", "hooks.ts"), "utf8");
-    buildNotesPub = Number((hooksSrcPub.match(/BUILD_NOTES = (\d+)/) || [])[1]) || 0;
-    const cmPub = /export const CODE_ID = "([A-Za-z0-9_-]+)"/.exec(hooksSrcPub);
-    if (cmPub) codeWordPub = cmPub[1];
-  } catch { /* no number — no baked release */ }
-  const sectionsPub = seedBaked && seedBaked.sections && typeof seedBaked.sections === "object" ? Object.keys(seedBaked.sections).length : 0;
-  const bakedOk =
-    buildNotesPub > 0 && !!codeWordPub &&
-    seedBaked && typeof seedBaked.notes === "number" && Math.floor(seedBaked.notes) >= buildNotesPub &&
-    typeof seedBaked.rev === "number" && seedBaked.rev > 0 && sectionsPub > 0 &&
-    typeof seedBaked.code === "string" && seedBaked.code === codeWordPub &&
-    typeof seedBaked.publishedDeploy === "string" && seedBaked.publishedDeploy === DEPLOY_ID;
-  const shellPathPub = path.join(OUT, "index.html");
-  let shellPub = await readFile(shellPathPub, "utf8");
-  const pubRe = /<meta name="wom-published" content="[^"]*"\s*\/?>/;
-  if (bakedOk) {
-    const pubTag = '<meta name="wom-published" content="' + DEPLOY_ID + '" />';
-    if (pubRe.test(shellPub)) shellPub = shellPub.replace(pubRe, pubTag);
-    else if (shellPub.includes("</head>")) shellPub = shellPub.replace("</head>", "  " + pubTag + "\n</head>");
-    else shellPub = pubTag + "\n" + shellPub;
-    await writeFile(shellPathPub, shellPub);
-    console.log("baked release stamped into dist/index.html: one Publish now opens every visitor (online + offline)");
-  } else if (pubRe.test(shellPub)) {
-    shellPub = shellPub.replace(pubRe, "");
-    await writeFile(shellPathPub, shellPub);
-    console.log("baked release cleared from dist/index.html (this deploy holds until Publish)");
+    const shellPath = path.join(OUT, "index.html");
+    let shell = await readFile(shellPath, "utf8");
+    if (!shell.includes('name="wom-published"')) {
+      const tag = '<meta name="wom-published" content="1">';
+      if (shell.includes("</head>")) shell = shell.replace("</head>", "  " + tag + "\n</head>");
+      else shell = tag + "\n" + shell;
+      await writeFile(shellPath, shell);
+      console.log("baked release stamped into dist/index.html: this deploy carries its own publish — fresh and offline copies open live at once");
+    }
+  } catch (err) {
+    console.warn("published meta skipped:", err?.message || err);
   }
-} catch (err) {
-  console.warn("baked release skipped:", err?.message || err);
 }
 
 /* String-URL files the app points at (photos are plain "src/assets/…" strings,
@@ -320,16 +301,8 @@ try {
   const codeWord = codeMatch ? codeMatch[1] : "";
   const d = new Date();
   const p = (n) => String(n).padStart(2, "0");
-  /* One-click-everywhere: carry the baked release here too, so debuggers and
-     the pre-bundle async check can see it without reading seed.json. */
-  let publishedDeployVer = "";
-  try {
-    const seedVer = JSON.parse(await readFile(path.join(OUT, "seed.json"), "utf8"));
-    const c = typeof seedVer?.publishedDeploy === "string" ? seedVer.publishedDeploy : "";
-    if (/^[A-Za-z0-9_-]{1,80}$/.test(c) && c === DEPLOY_ID) publishedDeployVer = c;
-  } catch { /* no baked release — version ships without it */ }
-  await writeFile(path.join(OUT, "version.json"), JSON.stringify({ notes, code: codeWord, deployId: DEPLOY_ID, built: `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`, ...(publishedDeployVer ? { publishedDeploy: publishedDeployVer, published: true } : {}) }));
-  console.log(`build stamped: update ${notes}${codeWord ? " code " + codeWord : ""}${publishedDeployVer ? " (baked release: one Publish opens every visitor)" : ""}`);
+  await writeFile(path.join(OUT, "version.json"), JSON.stringify({ notes, code: codeWord, deployId: DEPLOY_ID, built: `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`, ...(bakedRelease ? { published: true } : {}) }));
+  console.log(`build stamped: update ${notes}${codeWord ? " code " + codeWord : ""}`);
 } catch (err) {
   console.warn("version.json skipped:", err?.message || err);
 }
@@ -391,20 +364,5 @@ try {
   console.log("cache headers written (_headers + .htaccess): entry files never cached");
 } catch (err) {
   console.warn("cache headers skipped:", err?.message || err);
-}
-/* Offline shell (one-click-everywhere): ship the service worker so return
-   visits open the visitors site even with no network. The worker is
-   network-first online (always fresh after Publish/rebuild) and cache-fallback
-   offline; it never caches the maintenance HTML as the site. Best-effort. */
-try {
-  const swSrc = await readFile(path.join(ROOT, "sw.js"), "utf8").catch(() => "");
-  if (swSrc) {
-    await writeFile(path.join(OUT, "sw.js"), swSrc);
-    console.log("service worker copied to dist/sw.js (offline return visits stay live)");
-  } else {
-    console.log("no sw.js at repo root — offline return visits use browser cache only");
-  }
-} catch (err) {
-  console.warn("service worker skipped:", err?.message || err);
 }
 console.log("dist/ ready to upload (the *contents* of dist/ go to the static host)");

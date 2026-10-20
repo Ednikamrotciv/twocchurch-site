@@ -116,7 +116,7 @@ export const AUTO_ENTRIES: Record<string, CopyEntry[]> = {
     { id: "auto.live.918e2504283bee65", label: "Stream platform", value: "Stream platform" },
     { id: "auto.live.bc108377bb47f9e6", label: "Live stream", value: "Live stream" },
     { id: "auto.live.46806425cfa4b23c", label: "Live has ended", value: "Live has ended", role: "sectionTitle" },
-    { id: "auto.live.cc22c36df87987a4", label: "Nothing is streaming right now. When the broadcast…", value: "Nothing is streaming right now. When the broadcast starts, this screen plays it by itself." },
+    { id: "auto.live.cc22c36df87987a4", label: "Nothing is streaming right now.", value: "Nothing is streaming right now." },
     { id: "auto.live.58511836749f04df", label: "Catch up with recent services", value: "Catch up with recent services", role: "button" },
     { id: "auto.live.5a337fb840693709", label: "See previous sermons", value: "See previous sermons", role: "button" },
     { id: "auto.live.2af95d5fd1e87dae", label: "… — last service", value: "{{title}} — last service" },

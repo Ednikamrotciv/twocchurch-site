@@ -219,7 +219,7 @@ const HAND_PAGES: CopyPage[] = [
         locked: true,
         label: "Live — notice under the player",
         value:
-          "All our live broadcasts appear here automatically — we are on air now, and this player switches over to the live stream by itself. Until it does, you are watching our most recent service.",
+          "We are on air now — you are watching our most recent service.",
       },
       { id: "live.side.title", label: "While you watch — heading", value: "While you watch" },
       { id: "live.side.1.title", label: "While you watch 1 — heading", value: "Give during service" },

@@ -80,7 +80,8 @@ continuity and never wipe staged words.
 Publish from the admin console on your own computer and you are done — with
 the live feed below, every copy catches up within minutes with no rebuild.
 Without the feed, rebuild and re-upload after publishing
-(`npm run build`, upload `dist/`).
+(`npm run build`, upload `dist/`) — the rebuild bakes the release into the
+page itself, so fresh and offline browsers open the live site at once.
 Live/admin is the general control: a publish clicked on live/admin records
 itself on the office copy too (while an office tab is open and signed in),
 even if the office never published on the running code — gates still take an

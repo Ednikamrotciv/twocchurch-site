@@ -70,28 +70,23 @@ function feedFromMeta(): boolean {
     return !!document.querySelector('meta[name="wom-feed"]');
   } catch { return false; }
 }
-/* One-click-everywhere baked release (build-static stamps wom-published with
-   the deploy id when the baked seed already carries this update's publish):
-   the same evidence applySeedOnce trusts at runtime, read synchronously on
-   first paint — so every fresh browser/device opens live at once, online or
-   offline, with empty localStorage and no server contact. */
-function bakedPublishedDeploy(): string {
+/* Baked release (note 424): deploys built after the office published carry the
+   release in the page itself (wom-published meta, stamped by build-static only
+   when the bake held this update's words from this code). It reads
+   synchronously on first paint — no server, no feed, no storage, no clock —
+   so fresh phones, offline visits and returning browsers open the live site
+   at once. */
+function bakedReleaseFromPage(): boolean {
   try {
-    if (typeof document === "undefined") return "";
-    const m = document.querySelector('meta[name="wom-published"]');
-    const c = m ? m.getAttribute("content") : "";
-    if (typeof c === "string" && /^[A-Za-z0-9_-]{1,80}$/.test(c)) return c;
-  } catch {}
-  return "";
+    if (typeof document === "undefined") return false;
+    return !!document.querySelector('meta[name="wom-published"]');
+  } catch { return false; }
 }
-/** True when this deploy was built after the Publish — visitors lift at once. */
-function bakedReleaseLifts(): boolean {
-  try {
-    if (!deployFromMeta || !currentDeployId) return false;
-    return bakedPublishedDeploy() === currentDeployId;
-  } catch {
-    return false;
-  }
+let bakedReleaseFromMeta = false;
+try {
+  bakedReleaseFromMeta = bakedReleaseFromPage();
+} catch {
+  bakedReleaseFromMeta = false;
 }
 let deployFromMeta = false;
 let currentDeployId = "";
@@ -454,14 +449,12 @@ if (typeof window !== "undefined") {
     publishedNotes,
     deployId: currentDeployId,
     publishedDeploy: publishedDeployId,
-    bakedPublished: bakedPublishedDeploy(),
-    bakedLifts: bakedReleaseLifts(),
-    offline: typeof navigator !== "undefined" ? navigator.onLine === false : false,
     publishAt: lastPublishAt,
     postDeployWitness: postDeployPublishWitnessed(),
     justPublished: justPublishedRecently(),
     deployFirstSeenAt,
     deployLocked: deployFromMeta,
+    bakedRelease: bakedReleaseFromMeta,
     buildNotes: BUILD_NOTES,
     code: runningCode,
     liveSiteNotes,
@@ -616,13 +609,10 @@ export function maintenanceShouldWait(): boolean {
   try {
     if (maintenanceForced()) return true;
   } catch {}
-  /* One-click-everywhere baked release: this deploy was built after the
-     Publish — every browser/device opens live at once, online or offline,
-     with no per-browser stamp and no server contact. Without the baked
-     release the deploy lock below still holds — maintenance stays active
-     until the office publishes. */
+  /* Baked release (note 424): this deploy was built after the publish — every
+     fresh browser/device opens the visitors site at once, online or offline. */
   try {
-    if (bakedReleaseLifts()) return false;
+    if (bakedReleaseFromMeta) return false;
   } catch {}
   /* Deploy lock (no numbers): a built copy waits until a publish from its
      own deploy lands — or a publish from the running update landed after this
@@ -682,16 +672,15 @@ export function useMaintenance(): boolean {
     } catch {}
     return true;
   }
+  /* Baked release (note 424): this deploy was built after the publish — every
+     fresh browser/device opens the visitors site at once, online or offline.
+     A known newer update above still waits and reloads onto it. */
+  try {
+    if (bakedReleaseFromMeta) return false;
+  } catch {}
   /* Deploy lock (no numbers — same rule as maintenanceShouldWait). */
   if (deployFromMeta && currentDeployId) {
     if (publishedDeployId === currentDeployId) return false;
-    /* One-click-everywhere baked release: built after the Publish — every
-       fresh browser/device lifts synchronously, online or offline. Without
-       it the witnesses below still hold — maintenance stays active until
-       the office publishes. */
-    try {
-      if (bakedReleaseLifts()) return false;
-    } catch {}
     /* Post-deploy publish witness: one click lifts every deploy that was
        around for it, even when the click came from a stale tab or local. */
     try {
@@ -3030,30 +3019,9 @@ export async function startCms() {
      profile (never blessed) still adopts the live words normally, so a new
      device joining the live site is never clobbered. Inbound words still
      record on the office disk; only the staged publishable set starts from
-     defaults. One-click-everywhere fix: office copies only — visitors must
-     never stage clean, or returning devices sit on an empty shell +
-     maintenance even after Publish. */
+     defaults. */
   try {
-    const officeForStaging = (() => {
-      try {
-        const p = (typeof location !== "undefined" && location.pathname) || "";
-        if (p === "/admin" || p.indexOf("/admin/") === 0) return true;
-        const h = (typeof location !== "undefined" && (location.hash as string)) || "";
-        if (typeof h === "string" && h.indexOf("#/admin") === 0) return true;
-        try {
-          if (sessionStorage.getItem(SESSION_KEY)) return true;
-        } catch {}
-        try {
-          if (localStorage.getItem(NAME_KEY)) return true;
-        } catch {}
-        try {
-          if (localStorage.getItem("wom.cms.server")) return true;
-        } catch {}
-        if (authed) return true;
-      } catch {}
-      return false;
-    })();
-    if ((codeChangedSinceBless() || (freshDeploy && hadPriorBlessing())) && officeForStaging) {
+    if (codeChangedSinceBless() || (freshDeploy && hadPriorBlessing())) {
       cleanStageForNewCode = true;
       overrides = {};
       applied = clone(defaults);
