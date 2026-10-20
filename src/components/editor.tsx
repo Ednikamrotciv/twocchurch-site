@@ -2096,13 +2096,16 @@ export async function runPublishAction(
     if (res.ok) {
       /* One click reaches every visitor (unlimited browsers/devices): the
          words ride the office server, the live relay, the feed and the
-         rebuild — no maintenance hold to clear with a second click. */
+         rebuild — no maintenance hold to clear with a second click. Online
+         visitors joined to the office server leave maintenance at once;
+         rebuild once after Publish and the release is baked into the deploy
+         itself, so every fresh browser/device opens live even offline. */
       fireToast(
         res.local
-          ? "Saved on this device. The shared server was unreachable, so other visitors follow when it returns — no second click needed."
+          ? "Saved on this device. The shared server was unreachable, so other visitors follow when it returns — no second click needed. Rebuild + re-upload once and every device opens live even offline."
           : res.live === false
-          ? res.relayMsg || "Published here. The live site follows within a minute — no second click needed."
-          : "Published. Every visitor sees the new content right away — no second click needed.",
+          ? res.relayMsg || "Published here. Online visitors leave maintenance at once; the live site follows within a minute — no second click needed. Rebuild + re-upload once and every device opens live even offline."
+          : "Published. Online visitors leave maintenance at once — no second click needed. Rebuild + re-upload once and every fresh browser/device opens live even offline.",
         res.local || res.live === false ? "info" : "success"
       );
       return true;

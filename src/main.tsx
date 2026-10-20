@@ -15,6 +15,15 @@ function mount() {
     return;
   }
   el.removeAttribute("data-loading");
+  /* Offline shell (one-click-everywhere): return visits open the visitors
+     site even with no network. Production only — dev serves from memory. */
+  try {
+    if ("serviceWorker" in navigator && import.meta.env.PROD) {
+      window.addEventListener("load", () => {
+        navigator.serviceWorker.register("/sw.js").catch(() => {});
+      });
+    }
+  } catch {}
   /* Motion respects the visitor's own setting: with reduced motion asked for,
      transforms and layout animations go quiet everywhere (SPEC note 147). */
   createRoot(el).render(

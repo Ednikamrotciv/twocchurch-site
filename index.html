@@ -74,13 +74,14 @@
   }, 20000);
 </script>
 <script>
-  /* Pre-bundle maintenance gate (note 302): the JS bundle may be stale or
-     still compiling when an update lands — this paints the maintenance notice
-     BEFORE React boots, so visitors never see live words from cached code and
-     never need a hard refresh. It decides from the same stamp the app uses
-     (localStorage wom.cms.notes vs the host's version.json), does nothing when
-     published, and yields to React the moment it mounts. Skipped for the
-     office preview pass (?preview=1), which the app itself bypasses. */
+  /* Pre-bundle maintenance gate (note 302 + one-click-everywhere fix): the JS
+     bundle may be stale or still compiling when an update lands — this paints
+     the maintenance notice BEFORE React boots, so visitors never see live
+     words from cached code and never need a hard refresh. It decides from the
+     same stamp the app uses (localStorage wom.cms.notes vs the host's
+     version.json), does nothing when published, and yields to React the moment
+     it mounts. Skipped for the office preview pass (?preview=1), which the app
+     itself bypasses. */
   (function () {
     try {
       var q = new URLSearchParams(window.location.search || "");
@@ -107,6 +108,24 @@
       try {
         var ap = window.location.pathname || "/";
         if (ap === "/admin" || ap.indexOf("/admin/") === 0) return;
+      } catch (e) {}
+      /* One-click-everywhere baked release: when the deploy itself was built
+         after the Publish (build-static stamps wom-published with the deploy
+         id), every fresh browser/device opens the visitors site at once —
+         online or offline, with empty localStorage and no server contact. */
+      try {
+        var pubMeta = document.querySelector('meta[name="wom-published"]');
+        var pubContent = pubMeta ? pubMeta.getAttribute("content") : "";
+        var depMeta = document.querySelector('meta[name="wom-deploy"]');
+        var depContent = depMeta ? depMeta.getAttribute("content") : "";
+        if (pubContent && (!depContent || pubContent === depContent)) return;
+      } catch (e) {}
+      /* Offline visitors see the site, never maintenance: an offline copy
+         cannot learn of a Publish it missed, so the notice would strand return
+         visits with no network. The service worker serves the last baked
+         release offline; React decides from the same baked evidence. */
+      try {
+        if (typeof navigator !== "undefined" && navigator.onLine === false) return;
       } catch (e) {}
       /* Local preview (office request: notice missing in local): ?maintenance=1
          paints the notice at once, even with no version.json / no server.
@@ -176,6 +195,18 @@
         })
         .then(function (data) {
           try {
+            /* Baked release wins over the async check too: a deploy built
+               after Publish opens live even though this browser's stored stamp
+               is still empty. Offline never paints here either. */
+            try {
+              var pm2 = document.querySelector('meta[name="wom-published"]');
+              var pc2 = pm2 ? pm2.getAttribute("content") : "";
+              var dm2 = document.querySelector('meta[name="wom-deploy"]');
+              var dc2 = dm2 ? dm2.getAttribute("content") : "";
+              if (pc2 && (!dc2 || pc2 === dc2)) return;
+              if (data && data.published && data.publishedDeploy && data.deployId && data.publishedDeploy === data.deployId) return;
+              if (typeof navigator !== "undefined" && navigator.onLine === false) return;
+            } catch (e2) {}
             var latest = Number(data && data.notes);
             if (!Number.isFinite(latest) || latest <= 0) return;
             window.__womStaleBoot = { latest: Math.floor(latest), stored: stored, waiting: stored < Math.floor(latest) };

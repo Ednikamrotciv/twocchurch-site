@@ -70,6 +70,29 @@ function feedFromMeta(): boolean {
     return !!document.querySelector('meta[name="wom-feed"]');
   } catch { return false; }
 }
+/* One-click-everywhere baked release (build-static stamps wom-published with
+   the deploy id when the baked seed already carries this update's publish):
+   the same evidence applySeedOnce trusts at runtime, read synchronously on
+   first paint — so every fresh browser/device opens live at once, online or
+   offline, with empty localStorage and no server contact. */
+function bakedPublishedDeploy(): string {
+  try {
+    if (typeof document === "undefined") return "";
+    const m = document.querySelector('meta[name="wom-published"]');
+    const c = m ? m.getAttribute("content") : "";
+    if (typeof c === "string" && /^[A-Za-z0-9_-]{1,80}$/.test(c)) return c;
+  } catch {}
+  return "";
+}
+/** True when this deploy was built after the Publish — visitors lift at once. */
+function bakedReleaseLifts(): boolean {
+  try {
+    if (!deployFromMeta || !currentDeployId) return false;
+    return bakedPublishedDeploy() === currentDeployId;
+  } catch {
+    return false;
+  }
+}
 let deployFromMeta = false;
 let currentDeployId = "";
 try {
@@ -431,6 +454,9 @@ if (typeof window !== "undefined") {
     publishedNotes,
     deployId: currentDeployId,
     publishedDeploy: publishedDeployId,
+    bakedPublished: bakedPublishedDeploy(),
+    bakedLifts: bakedReleaseLifts(),
+    offline: typeof navigator !== "undefined" ? navigator.onLine === false : false,
     publishAt: lastPublishAt,
     postDeployWitness: postDeployPublishWitnessed(),
     justPublished: justPublishedRecently(),
@@ -590,6 +616,18 @@ export function maintenanceShouldWait(): boolean {
   try {
     if (maintenanceForced()) return true;
   } catch {}
+  /* One-click-everywhere baked release: this deploy was built after the
+     Publish — every browser/device opens live at once, online or offline,
+     with no per-browser stamp and no server contact. */
+  try {
+    if (bakedReleaseLifts()) return false;
+  } catch {}
+  /* Offline visitors see the site, never maintenance: an offline copy cannot
+     learn of a Publish it missed, so the notice would strand return visits
+     with no network. */
+  try {
+    if (typeof navigator !== "undefined" && navigator.onLine === false) return false;
+  } catch {}
   /* Deploy lock (no numbers): a built copy waits until a publish from its
      own deploy lands — or a publish from the running update landed after this
      deploy was first seen (one click lifts every deploy, even a stale tab's
@@ -651,6 +689,17 @@ export function useMaintenance(): boolean {
   /* Deploy lock (no numbers — same rule as maintenanceShouldWait). */
   if (deployFromMeta && currentDeployId) {
     if (publishedDeployId === currentDeployId) return false;
+    /* One-click-everywhere baked release: built after the Publish — every
+       fresh browser/device lifts synchronously, online or offline. */
+    try {
+      if (bakedReleaseLifts()) return false;
+    } catch {}
+    /* Offline visitors see the site, never maintenance (same rule as the
+       pure check above): the notice would strand return visits with no
+       network, and the service worker serves the last baked release. */
+    try {
+      if (typeof navigator !== "undefined" && navigator.onLine === false) return false;
+    } catch {}
     /* Post-deploy publish witness: one click lifts every deploy that was
        around for it, even when the click came from a stale tab or local. */
     try {
@@ -2989,9 +3038,30 @@ export async function startCms() {
      profile (never blessed) still adopts the live words normally, so a new
      device joining the live site is never clobbered. Inbound words still
      record on the office disk; only the staged publishable set starts from
-     defaults. */
+     defaults. One-click-everywhere fix: office copies only — visitors must
+     never stage clean, or returning devices sit on an empty shell +
+     maintenance even after Publish. */
   try {
-    if (codeChangedSinceBless() || (freshDeploy && hadPriorBlessing())) {
+    const officeForStaging = (() => {
+      try {
+        const p = (typeof location !== "undefined" && location.pathname) || "";
+        if (p === "/admin" || p.indexOf("/admin/") === 0) return true;
+        const h = (typeof location !== "undefined" && (location.hash as string)) || "";
+        if (typeof h === "string" && h.indexOf("#/admin") === 0) return true;
+        try {
+          if (sessionStorage.getItem(SESSION_KEY)) return true;
+        } catch {}
+        try {
+          if (localStorage.getItem(NAME_KEY)) return true;
+        } catch {}
+        try {
+          if (localStorage.getItem("wom.cms.server")) return true;
+        } catch {}
+        if (authed) return true;
+      } catch {}
+      return false;
+    })();
+    if ((codeChangedSinceBless() || (freshDeploy && hadPriorBlessing())) && officeForStaging) {
       cleanStageForNewCode = true;
       overrides = {};
       applied = clone(defaults);
