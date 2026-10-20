@@ -3559,6 +3559,32 @@ async function syncFromServer() {
       markDeployPublished();
     }
   } catch {}
+  /* Late-join lift (first publish after a new deploy must clear devices that
+     opened it AFTER the click): the clock above only releases deploys that
+     were already seen, and the same-ID witness only matches a publish stamped
+     from this exact deploy — so a phone that first opened the new deploy
+     after the publish kept waiting until somebody published again. A live
+     server answer stamped from this same update AND this same code, carrying
+     real words (never seeded/empty), IS that review — release this deploy
+     with no second click. Never across updates (notes must equal this
+     bundle), never for a different code word, never with this copy's own
+     unsaved work pending (mid-edit desks still wait). Staging follows the
+     normal path below: the stamp moves first, so the words stage in this
+     same sync and visitors see the published site, not an empty shell. */
+  try {
+    if (
+      deployFromMeta && currentDeployId &&
+      publishedDeployId !== currentDeployId &&
+      typeof res.notes === "number" && Math.floor(res.notes) === BUILD_NOTES &&
+      typeof (res as any).code === "string" && (res as any).code && (res as any).code === runningCode &&
+      (res as any).seeded !== true &&
+      Object.keys(server).length > 0 &&
+      pendingSections().length === 0
+    ) {
+      setPublishedNotes(BUILD_NOTES);
+      markDeployPublished();
+    }
+  } catch {}
   rev = serverRev;
   updatedAt = res.at || 0;
   updatedBy = res.by || "";

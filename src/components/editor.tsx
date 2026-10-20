@@ -2095,6 +2095,22 @@ export async function runPublishAction(
        Publish now alone finishes the job — no second click, no save gate.
        (websiteIsUnsaved is always false now; the old save-first branch is
        retired.) */
+    /* Never publish with the wrong stamp: a stale tab on the previous deploy
+       would bless the OLD deploy id, leaving the new deploy's visitors
+       waiting until somebody publishes again. Reload onto the new code first
+       instead — the next click then stamps the deploy visitors run. */
+    try {
+      await cms.checkStaleBuild().catch(() => {});
+    } catch {}
+    try {
+      if (cms.isStaleWaiting()) {
+        fireToast("New deploy arrived — reloading onto it. Press Publish again once it loads.", "info");
+        try {
+          window.location.reload();
+        } catch {}
+        return false;
+      }
+    } catch {}
     onPhase?.("publishing");
     const res = await cms.publish(note);
     if (res.ok) {
