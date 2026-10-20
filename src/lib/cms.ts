@@ -618,15 +618,11 @@ export function maintenanceShouldWait(): boolean {
   } catch {}
   /* One-click-everywhere baked release: this deploy was built after the
      Publish — every browser/device opens live at once, online or offline,
-     with no per-browser stamp and no server contact. */
+     with no per-browser stamp and no server contact. Without the baked
+     release the deploy lock below still holds — maintenance stays active
+     until the office publishes. */
   try {
     if (bakedReleaseLifts()) return false;
-  } catch {}
-  /* Offline visitors see the site, never maintenance: an offline copy cannot
-     learn of a Publish it missed, so the notice would strand return visits
-     with no network. */
-  try {
-    if (typeof navigator !== "undefined" && navigator.onLine === false) return false;
   } catch {}
   /* Deploy lock (no numbers): a built copy waits until a publish from its
      own deploy lands — or a publish from the running update landed after this
@@ -690,15 +686,11 @@ export function useMaintenance(): boolean {
   if (deployFromMeta && currentDeployId) {
     if (publishedDeployId === currentDeployId) return false;
     /* One-click-everywhere baked release: built after the Publish — every
-       fresh browser/device lifts synchronously, online or offline. */
+       fresh browser/device lifts synchronously, online or offline. Without
+       it the witnesses below still hold — maintenance stays active until
+       the office publishes. */
     try {
       if (bakedReleaseLifts()) return false;
-    } catch {}
-    /* Offline visitors see the site, never maintenance (same rule as the
-       pure check above): the notice would strand return visits with no
-       network, and the service worker serves the last baked release. */
-    try {
-      if (typeof navigator !== "undefined" && navigator.onLine === false) return false;
     } catch {}
     /* Post-deploy publish witness: one click lifts every deploy that was
        around for it, even when the click came from a stale tab or local. */
