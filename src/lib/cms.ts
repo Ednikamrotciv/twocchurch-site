@@ -3678,18 +3678,18 @@ function hostFileAttestsSameCode(): boolean {
      real words (never empty — a fallback bake stamped from this update names
      a publish that really happened, so it releases too), IS that review —
      release this deploy with no second click. Never across updates (notes must
-     equal this bundle), never for a different code word, never with this
-     copy's own unsaved work pending (mid-edit desks still wait). Staging
-     follows the normal path below: the stamp moves first, so the words stage
-     in this same sync and visitors see the published site, not an empty shell. */
+     equal this bundle), never for a different code word. A local draft never
+     blocks the release (visitor pages always show the published words; the
+     draft is rebased underneath and the drawer keeps it). Staging follows the
+     normal path below: the stamp moves first, so the words stage in this
+     same sync and visitors see the published site, not an empty shell. */
   try {
     if (
       deployFromMeta && currentDeployId &&
       publishedDeployId !== currentDeployId &&
       typeof res.notes === "number" && Math.floor(res.notes) === BUILD_NOTES &&
       typeof (res as any).code === "string" && (res as any).code && ((res as any).code === runningCode || hostFileAttestsSameCode()) &&
-      Object.keys(server).length > 0 &&
-      pendingSections().length === 0
+      Object.keys(server).length > 0
     ) {
       setPublishedNotes(BUILD_NOTES);
       markDeployPublished();

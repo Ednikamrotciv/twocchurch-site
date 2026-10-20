@@ -43,7 +43,16 @@ publishing from the admin console releases them on the spot, with no rebuild.
 Delete the file when holding should stop — it never leaves your computer
 (git-ignored), so hosts rebuilding from git always ship clean.
 
-## Clean new deploys (option A)
+## Clean new deploys (option A — RETIRED: do not re-add the flag)
+
+Update 423 retires `clean-deploy.txt`: a present flag made every rebuild park
+the backend store aside and ship a wordless bake, so each redeploy re-stranded
+devices on maintenance until somebody published again. No update ships the
+file anymore; if your folder or repo still has it from an older zip, delete it
+once (`git rm --quiet -- clean-deploy.txt`, commit, push). A new code arrival
+still stages the office copy clean client-side until Recover or Publish.
+
+Original notes (kept for history):
 
 To open a NEW deploy fresh, new and clean — no retained words until you say
 so — the update ships an empty file named `clean-deploy.txt` beside
