@@ -44,9 +44,6 @@ try {
    maintenance hold on: fresh visitors wait until the office publishes (locked — every deploy holds). */
 const DEPLOY_ID =
   "dpl-" + Date.now().toString(36) + "-" + Math.random().toString(36).slice(2, 8);
-/* Baked release (note 424): set below when the bake holds this update's words
-   from this code — the deploy then carries its own publish in the page itself. */
-let bakedRelease = false;
 try {
   const seedPath = path.join(OUT, "seed.json");
   const seed = JSON.parse(await readFile(seedPath, "utf8"));
@@ -62,25 +59,15 @@ try {
        Backend notes reach the update number only through an explicit office
        publish/undo/flush, so the stamp can never leak ahead of review. */
     let buildNotes = 0;
-    let buildCode = "";
     try {
       const hooksSrc = await readFile(path.join(ROOT, "src", "lib", "hooks.ts"), "utf8");
       buildNotes = Number((hooksSrc.match(/BUILD_NOTES = (\d+)/) || [])[1]) || 0;
-      buildCode = (/export const CODE_ID = "([A-Za-z0-9_-]+)"/.exec(hooksSrc) || [])[1] || "";
     } catch { /* no number — the hold below stands */ }
     const seedOut = { ...seed, hold: true, deployId: DEPLOY_ID };
     try {
       const sections = seed && seed.sections && typeof seed.sections === "object" ? Object.keys(seed.sections).length : 0;
       if (buildNotes > 0 && typeof seed.notes === "number" && Math.floor(seed.notes) >= buildNotes && typeof seed.rev === "number" && seed.rev > 0 && sections > 0) {
         seedOut.publishedDeploy = DEPLOY_ID;
-      }
-      /* Baked release (note 424): this update's words from this code — update
-         number plus code word plus real words — so the deploy carries its own
-         publish. An older update, another code, empty words or an unstamped
-         bake never bake the release. */
-      const seedWord = typeof seed.code === "string" ? seed.code : "";
-      if (buildNotes > 0 && !!buildCode && typeof seed.notes === "number" && Math.floor(seed.notes) === buildNotes && typeof seed.rev === "number" && seed.rev > 0 && sections > 0 && seedWord === buildCode) {
-        bakedRelease = true;
       }
     } catch { /* witness skipped — the hold stands */ }
     await writeFile(seedPath, JSON.stringify(seedOut));
@@ -123,13 +110,11 @@ try {
     if (!line) console.log("no live feed in publish-feed.txt — deployed copies update on rebuilds only");
     else console.warn(`publish-feed.txt ignored: "${line}" is not owner/repo@branch or a github.com repo address — deployed copies update on rebuilds only`);
   }
-    /* Feed signal on the entry page (note 416, fixed note 424): the deployed
-       copy reads it synchronously on first paint — like the wom-server meta
-       above — so the maintenance gate knows at once that words can move after
-       deploy even with no server behind the copy. ONLY when a real feed is baked:
-       with no feed the copy is pure static and must never read as feed-backed.
-       Route copies below inherit the shell. */
-    if (feed) try {
+    /* Feed signal on the entry page (note 416): the deployed copy reads it
+       synchronously on first paint — like the wom-server meta above — so the
+       maintenance gate knows at once that words can move after deploy even
+       with no server behind the copy. Route copies below inherit the shell. */
+    try {
       var shellPathFeed = path.join(OUT, "index.html");
       var shellFeed = await readFile(shellPathFeed, "utf8");
       if (shellFeed.indexOf('name="wom-feed"') < 0) {
@@ -224,27 +209,6 @@ try {
 } catch (err) {
   console.warn("deploy meta skipped:", err?.message || err);
 }
-/* Baked release on the entry page (note 424): a deploy built after the office
-   published carries the release in the page itself — fresh browsers/devices
-   open the visitors site at once, online or offline, with no server, feed,
-   storage or clock. Route copies below are made from this shell, so they
-   inherit it. A deploy built before the publish carries no such meta and
-   holds until the publish, as before. */
-if (bakedRelease) {
-  try {
-    const shellPath = path.join(OUT, "index.html");
-    let shell = await readFile(shellPath, "utf8");
-    if (!shell.includes('name="wom-published"')) {
-      const tag = '<meta name="wom-published" content="1">';
-      if (shell.includes("</head>")) shell = shell.replace("</head>", "  " + tag + "\n</head>");
-      else shell = tag + "\n" + shell;
-      await writeFile(shellPath, shell);
-      console.log("baked release stamped into dist/index.html: this deploy carries its own publish — fresh and offline copies open live at once");
-    }
-  } catch (err) {
-    console.warn("published meta skipped:", err?.message || err);
-  }
-}
 
 /* String-URL files the app points at (photos are plain "src/assets/…" strings,
    never imports, so `vite build` skips them) plus the office's own uploads. */
@@ -301,7 +265,7 @@ try {
   const codeWord = codeMatch ? codeMatch[1] : "";
   const d = new Date();
   const p = (n) => String(n).padStart(2, "0");
-  await writeFile(path.join(OUT, "version.json"), JSON.stringify({ notes, code: codeWord, deployId: DEPLOY_ID, built: `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`, ...(bakedRelease ? { published: true } : {}) }));
+  await writeFile(path.join(OUT, "version.json"), JSON.stringify({ notes, code: codeWord, deployId: DEPLOY_ID, built: `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}` }));
   console.log(`build stamped: update ${notes}${codeWord ? " code " + codeWord : ""}`);
 } catch (err) {
   console.warn("version.json skipped:", err?.message || err);
@@ -336,6 +300,7 @@ try {
 try {
   const headers =
 `# note 302 — entry files always fresh, hashed assets cacheable.
+# sw.js too: a cached worker would pin old code behind the new deploy.
 /index.html
   Cache-Control: no-store, must-revalidate
 /*/index.html
@@ -350,12 +315,14 @@ try {
   Cache-Control: no-store, must-revalidate
 /feed.json
   Cache-Control: no-store, must-revalidate
+/sw.js
+  Cache-Control: no-store, must-revalidate
 `;
   await writeFile(path.join(OUT, "_headers"), headers);
   const htaccess =
 `<IfModule mod_headers.c>
   # note 302 — entry files always fresh (see _headers for Netlify/Cloudflare)
-  <FilesMatch "^(index\\.html|404\\.html|version\\.json|seed\\.json|server\\.json|feed\\.json)$">
+  <FilesMatch "^(index\\.html|404\\.html|version\\.json|seed\\.json|server\\.json|feed\\.json|sw\\.js)$">
     Header set Cache-Control "no-store, must-revalidate"
   </FilesMatch>
 </IfModule>

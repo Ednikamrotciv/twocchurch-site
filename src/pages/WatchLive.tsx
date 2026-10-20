@@ -641,14 +641,14 @@ function ServiceNotesModal({ info, onClose }: { info: NextServiceInfo | null; on
         placeholder={ct("live.side.2.text")}
       />
       <div className="notes-actions">
-        <Btn size="sm" variant="ghost" icon="bookmark" onClick={() => { lib.setServiceNote(key, text); fireToast(tx("Saved to your library"), "success"); }}>
+        <Btn size="sm" variant="ghost" icon="bookmark" onClick={() => { lib.setServiceNote(key, text); fireToast(ct("auto.sermon.a3b0fccb23cbabe2"), "success"); }}>
           {tx("Save to library")}</Btn>
         <span className="field__hint">
           {text.length} {ct("auto.sermon.475e8e013b769d00")}</span>
       </div>
       <div className="btn-row mt-3">
         <Btn size="sm" variant="ghost" icon="download" onClick={() => {
-          if (!text.trim()) { fireToast(tx("Write a note first"), "info"); return; }
+          if (!text.trim()) { fireToast(ct("auto.prayer.c867ed00a1a88b61"), "info"); return; }
           downloadText(file, text);
         }}>
           {tx("Download note")}</Btn>

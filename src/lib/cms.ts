@@ -70,24 +70,6 @@ function feedFromMeta(): boolean {
     return !!document.querySelector('meta[name="wom-feed"]');
   } catch { return false; }
 }
-/* Baked release (note 424): deploys built after the office published carry the
-   release in the page itself (wom-published meta, stamped by build-static only
-   when the bake held this update's words from this code). It reads
-   synchronously on first paint — no server, no feed, no storage, no clock —
-   so fresh phones, offline visits and returning browsers open the live site
-   at once. */
-function bakedReleaseFromPage(): boolean {
-  try {
-    if (typeof document === "undefined") return false;
-    return !!document.querySelector('meta[name="wom-published"]');
-  } catch { return false; }
-}
-let bakedReleaseFromMeta = false;
-try {
-  bakedReleaseFromMeta = bakedReleaseFromPage();
-} catch {
-  bakedReleaseFromMeta = false;
-}
 let deployFromMeta = false;
 let currentDeployId = "";
 try {
@@ -454,7 +436,6 @@ if (typeof window !== "undefined") {
     justPublished: justPublishedRecently(),
     deployFirstSeenAt,
     deployLocked: deployFromMeta,
-    bakedRelease: bakedReleaseFromMeta,
     buildNotes: BUILD_NOTES,
     code: runningCode,
     liveSiteNotes,
@@ -596,6 +577,33 @@ function serverInvolved(): boolean {
     return false;
   }
 }
+/** Offline fail-open (one click clears everywhere, online or offline): an
+    offline open can never reach version.json, the office server or the live
+    box, so a browser holding cached published words shows them — never the
+    maintenance notice. Fresh offline profiles with nothing cached keep
+    waiting (they never saw the publish). Online behavior is unchanged. */
+function offlineHasLiveWords(): boolean {
+  try {
+    if (typeof navigator !== "undefined" && navigator.onLine !== false) return false;
+  } catch {
+    return false;
+  }
+  try {
+    const raw = localStorage.getItem(CACHE_KEY);
+    if (raw) {
+      const c = JSON.parse(raw) as any;
+      const secs = (c && (c.overrides || c.sections)) || null;
+      if (secs && typeof secs === "object" && Object.keys(secs).length > 0) return true;
+    }
+  } catch {}
+  try {
+    if (typeof publishedNotes === "number" && publishedNotes > 0) return true;
+  } catch {}
+  try {
+    if (localStorage.getItem(CODE_BLESS_KEY)) return true;
+  } catch {}
+  return false;
+}
 /** Pure check without the preview bypass: would visitors wait on this copy?
     Used for the preview banner, so the office can see that visitors wait.
     The stamp is only ever witnessed evidence (note 300) — never manufactured
@@ -609,10 +617,9 @@ export function maintenanceShouldWait(): boolean {
   try {
     if (maintenanceForced()) return true;
   } catch {}
-  /* Baked release (note 424): this deploy was built after the publish — every
-     fresh browser/device opens the visitors site at once, online or offline. */
+  /* Offline fail-open: cached published words paint live offline. */
   try {
-    if (bakedReleaseFromMeta) return false;
+    if (offlineHasLiveWords()) return false;
   } catch {}
   /* Deploy lock (no numbers): a built copy waits until a publish from its
      own deploy lands — or a publish from the running update landed after this
@@ -662,6 +669,10 @@ export function useMaintenance(): boolean {
   try {
     if (maintenanceForced()) return true;
   } catch {}
+  /* Offline fail-open: cached published words paint live offline. */
+  try {
+    if (offlineHasLiveWords()) return false;
+  } catch {}
   /* Note 302: a known newer update waits even on this (older) bundle — a
      stale tab never paints live from cached code while the host has moved on.
      Server-less copies still never wait (note 250): with no backend there is
@@ -672,12 +683,6 @@ export function useMaintenance(): boolean {
     } catch {}
     return true;
   }
-  /* Baked release (note 424): this deploy was built after the publish — every
-     fresh browser/device opens the visitors site at once, online or offline.
-     A known newer update above still waits and reloads onto it. */
-  try {
-    if (bakedReleaseFromMeta) return false;
-  } catch {}
   /* Deploy lock (no numbers — same rule as maintenanceShouldWait). */
   if (deployFromMeta && currentDeployId) {
     if (publishedDeployId === currentDeployId) return false;
@@ -2586,7 +2591,7 @@ export async function pullFromLive(): Promise<LivePullResult> {
   }
   const verdict = liveNewerThanHere(read.notes, read.at, read.seeded);
   if (verdict === "newer-update") {
-    const msg = `Live is on update ${read.notes} — apply the new update on this copy first.`;
+    const msg = "Update" + read.notes + ".";
     lastLivePullAt = Date.now();
     lastLivePullMsg = msg;
     return { ok: false, error: "newer-update" };
@@ -2600,7 +2605,7 @@ export async function pullFromLive(): Promise<LivePullResult> {
     const { ids, patch } = diffAgainstLive(read.sections);
     if (!ids.length) {
       lastLivePullAt = Date.now();
-      lastLivePullMsg = "Live matches this copy — nothing to pull.";
+      lastLivePullMsg = "Synced.";
       /* No words to carry, but the stamp still counts (note 420): live holds
          a same-update publish with real words and this copy already speaks
          them — yet without adopting the stamp this copy keeps waiting until
@@ -2662,9 +2667,9 @@ export async function pullFromLive(): Promise<LivePullResult> {
     const imgBit = files.restored ? ` and ${files.restored} uploaded ${files.restored === 1 ? "file" : "files"} came home` : "";
     const missBit = files.failed.length ? ` (${files.failed.length} uploaded ${files.failed.length === 1 ? "file is" : "files are"} missing on live: ${files.failed.slice(0, 3).join(", ")}${files.failed.length > 3 ? "…" : ""})` : "";
     lastLivePullMsg = stageInbound
-      ? `Live publish saved here — ${ids.length} ${ids.length === 1 ? "section" : "sections"}${imgBit}${missBit}`
-      : `Live publish recorded in the office — ${ids.length} ${ids.length === 1 ? "section" : "sections"}${imgBit}${missBit} (staged clean until Recover)`;
-    fireToast(lastLivePullMsg + ".", "success");
+      ? `Saved.`
+      : `Recorded.`;
+    fireToast(lastLivePullMsg, "success");
     notify();
     return { ok: true, pulled: ids, filesRestored: files.restored, filesFailed: files.failed };
   } finally {
@@ -2767,7 +2772,7 @@ async function foldLiveInto(target: Snapshot | null, onlyId?: string, boundedMs 
   const missBit = files.failed.length
     ? ` ${files.failed.length} uploaded ${files.failed.length === 1 ? "file is" : "files are"} missing on live (${files.failed.slice(0, 3).join(", ")}${files.failed.length > 3 ? "…" : ""}).`
     : "";
-  lastLivePullMsg = `Live had newer ${tally(folded.length, "section", "sections")} — folded into this publish (${shown}).${imgBit}${missBit}`;
+  lastLivePullMsg = `Merged.`;
   fireToast(lastLivePullMsg, "success");
   return { snapshot: snap, folded };
 }
@@ -3027,7 +3032,7 @@ export async function startCms() {
       applied = clone(defaults);
       if (!cleanStageToastShown) {
         cleanStageToastShown = true;
-        try { fireToast("New deploy — staged clean until Recover.", "info"); } catch {}
+        try { fireToast("Clean.", "info"); } catch {}
       }
     }
   } catch { /* staging falls back to the normal path */ }
@@ -4480,7 +4485,7 @@ export function resetSlidesForNewDeploy(): boolean {
       } catch {}
     }
     mark();
-    fireToast("New deploy — announcement slides start over with the welcome card only.", "info");
+    fireToast("Reset.", "info");
     notify();
     return true;
   } catch {
@@ -5083,7 +5088,7 @@ async function relayPublishWordsToLive(
       livePw = "";
     }
     if (!pw && !livePw) {
-      noteRelay("Live site not reached — unlock the console and publish again.");
+      noteRelay("Unreachable.");
       return "unneeded";
     }
     const conn = "relay-" + Math.random().toString(36).slice(2) + Date.now().toString(36);
@@ -5126,25 +5131,25 @@ async function relayPublishWordsToLive(
     if (transportFailed) {
       noteRelay(
         timedOut
-          ? "Live site timed out (it may be waking) — retrying in the background."
-          : "Live site unreachable — retrying in the background."
+          ? "Waking."
+          : "Unreachable."
       );
       return "missed";
     }
     if (!authed) {
       if (needCode) {
-        noteRelay("Live site needs a two-factor code — the relay cannot sign in, the rebuild carries it.");
+        noteRelay("Code.");
         return "missed";
       }
       if (rateLimited) {
-        noteRelay("Live site is rate-limiting sign-ins — retrying in the background.");
+        noteRelay("Limited.");
         return "missed";
       }
       /* Denied with every password tried: remember it needs the human, keep
          the words owed (the caller schedules the retry), and say exactly
          where the one-time fix lives. */
       relayNeedsLivePw = true;
-      noteRelay("Live login denied — the live admin password differs from this console's. Type the live password once on the Status tab and it sends by itself.");
+      noteRelay("Denied.");
       return "missed";
     }
     relayNeedsLivePw = false;
@@ -5193,27 +5198,27 @@ async function relayPublishWordsToLive(
           ms
         );
         if (!res.ok) {
-          noteRelay("Live site unreachable while sending — retrying in the background.");
+          noteRelay("Unreachable.");
           return "missed";
         }
         const data = await res.json().catch(() => null);
         if (!data || data.ok !== true) {
-          noteRelay("Live site refused the words — retrying in the background.");
+          noteRelay("Refused.");
           return "missed";
         }
       } catch (e: any) {
         noteRelay(
           e && e.name === "AbortError"
-            ? "Live site timed out while sending — retrying in the background."
-            : "Live site unreachable while sending — retrying in the background."
+            ? "Timeout."
+            : "Unreachable."
         );
         return "missed";
       }
     }
     noteRelay(
       liveDeploy
-        ? "Live site updated with your publish."
-        : "Live site has the words — its notice lifts on the rebuild."
+        ? "Updated."
+        : "Received."
     );
     return "landed";
   };
@@ -5326,7 +5331,7 @@ async function attemptRelayRetry(): Promise<boolean> {
       /* A retry that lands after the click told the office "within a minute":
          say so out loud so the office knows live visitors are updated. */
       try {
-        fireToast("Live site updated with your publish.", "success");
+        fireToast("Updated.", "success");
       } catch {}
       return true;
     }
@@ -5424,7 +5429,7 @@ export function clearLivePassword(): void {
   try {
     if (relayNeedsLivePw) {
       relayNeedsLivePw = false;
-      noteRelay("Live password cleared — the relay uses this console's session again.");
+      noteRelay("Cleared.");
     } else {
       notify();
     }
@@ -5462,18 +5467,18 @@ function ensureRetryLoop(): void {
 export async function submitLivePassword(pw: string): Promise<{ ok: boolean; msg: string }> {
   try {
     const clean = String(pw || "");
-    if (!clean) return { ok: false, msg: "Type the live admin password first." };
+    if (!clean) return { ok: false, msg: "Password." };
     const base = await relayLiveBase().catch(() => "");
-    if (!base) return { ok: false, msg: "No live address is configured for this copy." };
+    if (!base) return { ok: false, msg: "Unset." };
     try {
       localStorage.setItem(LIVEPW_KEY, JSON.stringify({ base, pw: clean }));
     } catch {
-      return { ok: false, msg: "This browser refused to keep it — type it again after your next publish." };
+      return { ok: false, msg: "Refused." };
     }
     relayNeedsLivePw = false;
     if (!relayRetryPayload) restorePersistedPayload();
     if (!relayRetryPayload) {
-      noteRelay("Live password saved — your next publish sends to the live site at once.");
+      noteRelay("Saved.");
       return { ok: true, msg: "Live password saved — your next publish sends to the live site at once." };
     }
     ensureRetryLoop();
@@ -5486,9 +5491,9 @@ export async function submitLivePassword(pw: string): Promise<{ ok: boolean; msg
     if (done && !relayRetryPayload) {
       return { ok: true, msg: "Live site updated with your publish." };
     }
-    return { ok: false, msg: relayStatus().msg || "Still owed to the live site — retrying in the background." };
+    return { ok: false, msg: relayStatus().msg || "Retrying." };
   } catch {
-    return { ok: false, msg: "Could not send — retrying in the background." };
+    return { ok: false, msg: "Retrying." };
   }
 }
 /* The owed words, durable across reloads (office request: one click lands
@@ -5611,7 +5616,7 @@ export function resumeRelayRetry(): void {
           if (liveAt > 0 && mine > 0 && liveAt > mine) {
             relayRetryPayload = null;
             clearRelayPersist();
-            noteRelay("Live site published newer while this copy was shut — kept the live words.");
+            noteRelay("Kept.");
             return;
           }
         }
@@ -6132,14 +6137,14 @@ async function resumePlannedPublish() {
   if (res.ok) {
     fireToast(
       res.local
-        ? "The website is saved. The shared server was unreachable, so your changes are on this device until it is back."
-        : "The website is saved, and your changes are live for everyone.",
+        ? "Saved."
+        : "Published.",
       res.local ? "info" : "success"
     );
   } else if (res.error === "unauthorized") {
-    fireToast("The website is saved. Sign in to the editor again, then press Publish.", "info");
+    fireToast("Expired.", "info");
   } else {
-    fireToast(`The website is saved, but your changes did not go through (${res.error}). Press Publish again.`, "error");
+    fireToast("Failed.", "error");
   }
 }
 
@@ -6192,7 +6197,7 @@ export async function flushPending(): Promise<boolean> {
   /* One click publishes to visitors: a device-only publish that finally lands
      says so out loud — otherwise the office never knows the visitors caught
      up. Only on a real send (the empty-queue clear above stays quiet). */
-  fireToast("Connection is back — your queued changes are now live for every visitor.", "success");
+  fireToast("Online.", "success");
   notify();
   return true;
 }

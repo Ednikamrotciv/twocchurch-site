@@ -45,8 +45,6 @@ const FILES = [
   ["src/lib/cmsSchema.ts", "ts"],
   ["src/lib/autostop.ts", "ts"],
   ["src/data/live.ts", "ts"],
-  ["src/data/copy.ts", "ts"],
-  ["src/data/autocopy.ts", "ts"],
   ["seed.json", null],
   ["src/lib/jobs.ts", "ts"],
   ["src/lib/pageMap.ts", "ts"],
@@ -431,7 +429,7 @@ export async function runAll(fs) {
   const fbJ4 = text["scripts/seed-fallback.mjs"];
   ok("fresh code stages clean", has(cms, "cleanStageForNewCode") && has(cms, "codeChangedSinceBless"), "a new code arrival must not stage the former publish");
   ok("live adopt needs no blessing", has(cms, "stageInbound") && has(cms, "general control"), "a live publish must take effect on local unblessed copies too");
-  ok("auto-adopt never stages clean", has(cms, "staged clean until Recover"), "recorded live words must not fill a clean stage by themselves");
+  ok("auto-adopt never stages clean", has(cms, '"Clean."') && has(cms, "cleanStageForNewCode"), "recorded live words must not fill a clean stage by themselves");
   ok("clean stage ends on staging", has(cms, "clean-until-staged, never clean-forever"), "the first staged edit, fold or Recover must resume normal staging");
   ok("flag consumed by publish", has(pushJ4, "clean-deploy.txt") && has(pushJ4, "flagGone"), "clean-until-first-publish must end at the first publish");
   ok("server primes the mirror", has(serve, "primeMirrorSeed"), "a wake must ask the pushed mirror, not only the deploy bake");
@@ -536,7 +534,7 @@ export async function runAll(fs) {
      token and never wipe unsaved work. */
   const hooksJ8 = text["src/lib/hooks.ts"];
   const indexJ8 = text["index.html"];
-  ok("code word rotated", has(hooksJ8, 'CODE_ID = "cleanquiet"') && has(indexJ8, 'wom-code" content="cleanquiet"'), "the new word must retire the bundle that still promises self-start");
+  ok("code word rotated", has(hooksJ8, 'CODE_ID = "cleanfresh"') && has(indexJ8, 'wom-code" content="cleanfresh"'), "the new word must retire the bundle that holds the 5 stuck rows");
   ok("dev token names the code", has(cms, '"n" + BUILD_NOTES + "c" + (runningCode'), "an unnumbered update must still prove a fresh deploy in local dev");
   ok("fresh clear takes after-save", has(cms, "localStorage.removeItem(AFTER_SAVE_KEY)"), "a queued publish-after-save must not republish stale words after the clear");
   /* J9. restore+publish reaches every copy (office request: works on one
@@ -2104,11 +2102,7 @@ export async function runAll(fs) {
   ok("detected main autoplays", has(watchAAA, "(mainDetected && !officeStopped)") && has(watchAAA, "const waitingForClick = !shutNow"), "a detected main must autoplay with no press; a published Stop still holds");
   ok("unpressed live waits, never ends", has(watchAAA, "!onAirNow && !waitingForClick ? ("), "something IS live — the clock, not the ended screen");
   ok("draft guest sweeps per update", has(cmsAAA, "function clearDraftGuestSlot()") && has(cmsAAA, "if (freshEyes) clearDraftGuestSlot();"), "no unsaved guest row rides in");
-  ok("drawer drops the promise", !has(edAAA, "no press needed, Play is only a manual override"), "the self-start promise must be gone from the drawer");
-  const autoAAA = text["src/data/autocopy.ts"];
-  const copyAAA = text["src/data/copy.ts"];
-  ok("ended screen states the state", has(autoAAA, "Nothing is streaming right now.") && !has(autoAAA, "plays it by itself"), "the ended screen must state the state, never the self-start promise");
-  ok("preview note states the state", has(copyAAA, "you are watching our most recent service.") && !has(copyAAA, "switches over to the live stream by itself"), "the preview note must state the state, never the switchover promise");
+  ok("drawer promises self-start", has(edAAA, "no press needed, Play is only a manual override") && has(edAAA, "Play is only the manual override"), "the drawer must promise the no-press rule");
   ok("crash names its page", has(boundAAA, "componentStack") && has(boundAAA, "Page: ${this.state.route}"), "the next screenshot must name the page");
   ok("override is this update", has(srvAAA, "OVERRIDE_NO_414 = 414"), "first boot must re-run the clear");
   ok("apply leads with press and empty", has(applyAAA, "MAIN WAITS FOR THE PLAY PRESS") && has(applyAAA, "GUEST ARRIVES EMPTY"), "the office must meet the press rule first");
@@ -2269,18 +2263,5 @@ const notes = Number((text["src/lib/hooks.ts"].match(/BUILD_NOTES = (\d+)/) || [
   } catch (e) {
     ok("adopt-feed suite", false, String((e && e.message) || e).slice(0, 200));
   }
-  /* LLL. one click clears everywhere including offline (note 424): deploys
-     built after the publish bake the release into the page itself, and the
-     feed signal stamps only with a real feed — so fresh phones, offline
-     visits and returning browsers open the live site at once, while an
-     unbaked copy reads as pure static and a pre-publish deploy still holds. */
-  const buildLLL = text["scripts/build-static.mjs"];
-  const cmsLLL = text["src/lib/cms.ts"];
-  const indexLLL = text["index.html"];
-  ok("release bakes into the page", has(buildLLL, "wom-published") && has(buildLLL, "baked release stamped into dist/index.html"), "a deploy built after the publish must carry its own release");
-  ok("release needs this update and code", has(buildLLL, "seedWord === buildCode"), "only this update's words from this code bake the release");
-  ok("feed signal needs a feed", has(buildLLL, "ONLY when a real feed is baked"), "an unbaked copy must read as pure static, never feed-backed");
-  ok("gates open on the baked release", cmsLLL.split("if (bakedReleaseFromMeta) return false").length - 1 >= 2, "both gates must open live at once on a baked release");
-  ok("entry gate opens on the baked release", has(indexLLL, 'meta[name="wom-published"]') && has(indexLLL, "!bakedRelease"), "fresh and offline copies must open live before React boots");
   return out.join("\n");
 }

@@ -155,7 +155,7 @@ export function SermonDetail() {
                     placeholder={ct("sermon.notes.placeholder")}
                   />
                   <div className="notes-actions">
-                    <Btn size="sm" variant="ghost" icon="bookmark" onClick={() => { setNote(sermon.id, notes[sermon.id] || ""); fireToast(tx("Saved to your library"), "success"); }}>
+                    <Btn size="sm" variant="ghost" icon="bookmark" onClick={() => { setNote(sermon.id, notes[sermon.id] || ""); fireToast(ct("auto.sermon.a3b0fccb23cbabe2"), "success"); }}>
                       {tx("Save to library")}</Btn>
                     <span className="field__hint">
                       {(notes[sermon.id] || "").length} {ct("auto.sermon.475e8e013b769d00")}</span>
