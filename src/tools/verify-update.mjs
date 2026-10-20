@@ -621,6 +621,7 @@ export async function runAll(fs) {
   ok("seed releases same-code bakes", has(cms, "noteCodeWitness(seedCode, (seed as any).notes)") && has(cms, "seedRev > 0 && seedWords > 0"), "a bake stamped from this update and this code with real words is the review — brand-new arrivals lift at first paint");
   ok("feed witnesses the word", has(cms, "noteCodeWitness((live as any).code, live.notes)"), "a mirrored same-update publish must bless server-less copies with no rebuild and no tap");
   ok("fallback bakes release late joiners", has(cms, "a fallback bake stamped from this update names"), "a sleep-wake bake stamped from this update is a publish that really happened");
+  ok("offline copies join on return", has(cms, "function startReturnJoin()") && has(cms, 'window.addEventListener("online", () => join(true))') && has(cms, "join(false)"), "an offline device must join the moment the network returns or it foregrounds, not wait out the backoff");
   ok("witness re-evaluates the notice", has(cms, "notesLifted || deployLifted || codeWitnessed"), "a witnessed publish must re-render instead of sticking with first paint");
   ok("clicks await the word relay", has(cms, "awaitRelay = false") && has(cms, ", true, true)"), "explicit clicks must wait out the bounded relay; background sends never wait");
   ok("relay is bounded", has(cms, "25000") && has(cms, "relayFetch"), "awaiting the relay must never hold a click hostage on a stalled network");

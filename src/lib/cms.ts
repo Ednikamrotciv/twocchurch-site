@@ -2842,6 +2842,11 @@ export async function startCms() {
   try {
     startCrossTabSync();
   } catch {}
+  /* Offline and socketless copies join the moment they can (note 422): the
+     network's return or a foregrounding lands the publish at once. */
+  try {
+    startReturnJoin();
+  } catch {}
   /* Re-read raise-only stamps (another tab may have published while this one
      was closed): never manufactured, only witnessed. */
   try {
@@ -3261,6 +3266,43 @@ function connect() {
       console.warn("cms: server unavailable", err?.message || err);
       settleInitialSync();
     });
+}
+
+/* Offline devices land the publish the moment they can (note 422): the
+   reconnect backoff may be parked half a minute out, and the watch ticks skip
+   a socketless copy — so the network's return, or a foregrounding with no
+   socket, joins at once instead of waiting the timer out. Connected copies
+   and standalone copies (no address) no-op: the former already sync, the
+   latter have no server to join. A failed join just re-arms the backoff. */
+let returnJoinStarted = false;
+function startReturnJoin() {
+  if (returnJoinStarted) return;
+  returnJoinStarted = true;
+  const join = (fresh: boolean) => {
+    try {
+      if (socket || !socketFactory() || localOnly) return;
+      if (status === "connecting") return;
+      if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
+      /* The network just returned: retry fast, not on the old backoff. A
+         foregrounding only expedites one attempt and keeps the backoff. */
+      if (fresh) reconnectAttempt = 0;
+      if (reconnectTimer) {
+        window.clearTimeout(reconnectTimer);
+        reconnectTimer = 0;
+      }
+      connect();
+      /* A code update may have shipped while this copy was gone: re-check at
+         once so it reloads onto the new bundle instead of proving the old. */
+      try {
+        checkStaleBuild().catch(() => {});
+      } catch {}
+    } catch {}
+  };
+  window.addEventListener("online", () => join(true));
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "visible") join(false);
+  });
+  window.addEventListener("focus", () => join(false));
 }
 
 /* A standalone copy joins a server that appears after boot, quietly. */
