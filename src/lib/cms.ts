@@ -5631,6 +5631,12 @@ async function relayPublishWordsToLive(
             changed: batches[b],
             notes: BUILD_NOTES,
             deploy: liveDeploy,
+            /* The word this publish was blessed from (publish reaches
+               everywhere, note 430): the relay used to send words without it,
+               so the live box attested nothing — copies that opened after the
+               click held forever while earlier ones lifted on the clock. The
+               server stamps it like any publish (admin-only, format-checked). */
+            code: runningCode || "",
             first: b === 0,
             quiet: b < batches.length - 1,
           }),
