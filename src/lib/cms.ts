@@ -143,17 +143,21 @@ function notePublishAt(at: unknown): boolean {
    browser — it only names the stamp, never words. */
 let lastServerWitness: { notes: number; code: string; deploy: string; at: number; words: number } | null = null;
 let lastReleaseBy = "";
-/* Server-authoritative release (note 427): the freshest verdict from the
+/* Server-authoritative release (notes 427–428): the freshest verdict from the
    shared backend — the same answer every copy on this host reads. The notice
-   lifts on this alone (this update or newer, with real words); the per-device
-   stamps (deploy id, code word, first-seen clock) only ever ADD faster local
-   lifts, so two copies on the same host can never disagree. Refreshed by every
-   content answer and every stamp poll; the 10s waiting cadence keeps it fresh
-   while the notice shows. */
-let serverVerdict: { notes: number; words: number } | null = null;
+   lifts on it only with proof: this update (or newer) with real words PLUS an
+   attestation — the running code word (one Publish from any admin lifts every
+   copy together), this deploy's own stamp, or a same-update publish clock
+   newer than this deploy was first seen. The per-device stamps only ever ADD
+   faster local lifts, so two copies on the same host can never disagree. A
+   genuinely new code release (new word) holds even when the backend moved on
+   numbers alone; empty and unreviewed backends still wait exactly as before.
+   Refreshed by every content answer, every stamp poll and the feed mirror;
+   the 10s waiting cadence keeps it fresh while the notice shows. */
+let serverVerdict: { notes: number; words: number; at: number; deploy: string; code: string } | null = null;
 let serverVerdictAt = 0;
 const SERVER_VERDICT_FRESH_MS = 120 * 1000;
-function noteServerVerdict(notes: unknown, words: unknown): void {
+function noteServerVerdict(notes: unknown, words: unknown, at?: unknown, deploy?: unknown, code?: unknown): void {
   try {
     const n = Math.floor(Number(notes));
     if (!Number.isFinite(n) || n < 0) return;
@@ -162,15 +166,53 @@ function noteServerVerdict(notes: unknown, words: unknown): void {
     if (words === undefined || words === null) return;
     const w = Math.floor(Number(words));
     if (!Number.isFinite(w) || w < 0) return;
-    serverVerdict = { notes: n, words: w };
+    let a = 0;
+    try {
+      const an = Math.floor(Number(at));
+      if (Number.isFinite(an) && an > 0) a = an;
+    } catch {}
+    let d = "";
+    try {
+      if (typeof deploy === "string" && /^[A-Za-z0-9_-]{1,80}$/.test(deploy)) d = deploy;
+    } catch {}
+    let c = "";
+    try {
+      if (typeof code === "string" && /^[A-Za-z0-9_-]{1,40}$/.test(code)) c = code;
+    } catch {}
+    serverVerdict = { notes: n, words: w, at: a, deploy: d, code: c };
     serverVerdictAt = Date.now();
   } catch {}
 }
 function serverHoldsPublish(): boolean {
   try {
-    if (!serverVerdict) return false;
+    const v = serverVerdict;
+    if (!v) return false;
     if (Date.now() - serverVerdictAt > SERVER_VERDICT_FRESH_MS) return false;
-    return serverVerdict.words > 0 && serverVerdict.notes >= BUILD_NOTES;
+    /* Real words from this update or newer — numbers alone never lift. */
+    if (!(v.words > 0)) return false;
+    if (!(v.notes >= BUILD_NOTES)) return false;
+    /* Same code, same review: one Publish from any admin lifts every copy on
+       this host together — the late joiner, the rebuilt copy and the
+       publishing copy all read the same word and agree. A new word still
+       waits for its own publish even when the numbers moved. */
+    try {
+      if (!!v.code && !!runningCode && v.code === runningCode) return true;
+    } catch {}
+    /* The host serves this build (version.json attestation, same rule). */
+    try {
+      if (hostFileAttestsSameCode()) return true;
+    } catch {}
+    /* This deploy's own stamp (also witnessed beside this; kept so the
+       verdict alone suffices). */
+    try {
+      if (deployFromMeta && !!currentDeployId && !!v.deploy && v.deploy === currentDeployId) return true;
+    } catch {}
+    /* Fresh clock: a same-update publish that landed after this deploy was
+       first seen — the post-deploy witness in verdict form. */
+    try {
+      if (v.notes === BUILD_NOTES && v.at > 0 && deployFirstSeenAt > 0 && v.at + PUBLISH_AT_SKEW_MS > deployFirstSeenAt) return true;
+    } catch {}
+    return false;
   } catch {
     return false;
   }
@@ -442,6 +484,26 @@ function deployProvesFreshDeploy(): boolean {
   } catch {
     return false;
   }
+}
+/* Old-wake wipe (note 428): unregister retired service workers and drop HTTP
+   caches so a new deploy can never paint the previous shell. Best-effort,
+   never throws; storage is untouched. Fires on every fresh deploy, and on a
+   proven new update even when the deploy proof could not be read. */
+function wipeOldWakes(): void {
+  try {
+    if (typeof navigator !== "undefined" && navigator.serviceWorker && navigator.serviceWorker.getRegistrations) {
+      navigator.serviceWorker.getRegistrations().then((rs) => {
+        for (const r of rs) r.unregister().catch(() => {});
+      }).catch(() => {});
+    }
+  } catch {}
+  try {
+    if (typeof caches !== "undefined" && caches.keys) {
+      caches.keys().then((ks) => {
+        for (const k of ks) caches.delete(k).catch(() => {});
+      }).catch(() => {});
+    }
+  } catch {}
 }
 function markDeploySeen(): void {
   try {
@@ -2119,9 +2181,16 @@ async function applySeedOnce() {
           const seedSections = (seed as any).sections;
           const seedWords = seedSections && typeof seedSections === "object" ? Object.keys(seedSections).length : 0;
           const seedRev = typeof (seed as any).rev === "number" ? Math.floor((seed as any).rev) : 0;
+          /* Cross-deploy seed release needs the word, not just the number
+             (note 428): the bake stamps this deploy's own witness only for its
+             own code, so a same-number bake from older code can never lift a
+             new-code deploy at first paint — only a publish does. The
+             same-deploy stamp above already released (same build, same code by
+             construction). */
+          const seedCode = typeof (seed as any).code === "string" ? (seed as any).code : "";
           if (
             typeof (seed as any).notes === "number" && Math.floor((seed as any).notes) >= BUILD_NOTES &&
-            seedRev > 0 && seedWords > 0
+            seedRev > 0 && seedWords > 0 && !!seedCode && !!runningCode && seedCode === runningCode
           ) {
             setPublishedNotes(BUILD_NOTES);
             markDeployPublished();
@@ -2182,6 +2251,13 @@ async function syncFromFeed() {
        and prove nothing, as before. */
     try {
       noteCodeWitness((live as any).code, live.notes);
+    } catch {}
+    /* Mirror verdict (note 428): a server-less copy lifts on the mirrored
+       publish proof exactly like a server answer — the same attestation rule
+       decides, so the mirror can hurry one click but never release new code
+       by itself. */
+    try {
+      noteServerVerdict(live.notes, Object.keys(liveSections).length, (live as any).at, (live as any).publishedDeploy, (live as any).code);
     } catch {}
     /* Publish clock over the feed: a mirrored same-update publish newer than
        this deploy's first sighting releases it, even across deploy ids. */
@@ -2936,7 +3012,7 @@ async function pollPublishHttp(): Promise<void> {
           if (!r || (r as any).ok !== true) continue;
           let synced = false;
           try {
-            noteServerVerdict((r as any).notes, (r as any).words);
+            noteServerVerdict((r as any).notes, (r as any).words, (r as any).at, (r as any).publishDeploy, (r as any).code);
           } catch {}
           /* Any stamp movement while waiting pulls the full answer at once
              (note 427) — even a stamp-only publish the rev check cannot see. */
@@ -3013,7 +3089,7 @@ function startContentWatch() {
         const raw = await socket.rpc.contentRev("");
         const r = typeof raw === "string" ? JSON.parse(raw) : raw;
         try {
-          noteServerVerdict((r as any).notes, (r as any).words);
+          noteServerVerdict((r as any).notes, (r as any).words, (r as any).at, (r as any).publishDeploy, (r as any).code);
         } catch {}
         /* Note 427: any stamp movement while the notice shows pulls the full
            answer at once — a stamp-only publish moves no rev the chain below
@@ -3175,6 +3251,14 @@ export async function startCms() {
      words — the field and both guest keys — go once per update, dirty or
      not, so no unsaved guest row rides into the new update. */
   if (freshEyes) clearDraftGuestSlot();
+  /* A proven new update retires the carried click (note 428): the session flag
+     below carries a Publish across the stale-check reload onto the next deploy
+     — same update, same review. A new update is a new review, so a click from
+     before it must never lift the new code in this tab; the office publishes
+     again. Same-update reloads keep the carry (consumed below). */
+  try {
+    if (freshEyes) clearJustPublished();
+  } catch {}
   /* Every new deploy starts unsaved-clean (office request): draft + pending
      clear once per deploy ID, so the unsaved list opens fresh. Deploy IDs are
      fresh every build, so this runs on every deploy even when the update
@@ -3248,26 +3332,21 @@ export async function startCms() {
       try {
         relayRetryPayload = null;
       } catch {}
-      /* New deploy wipes old wakes: a retired service worker or HTTP cache must
-         never serve the previous deploy's shell (the classic "stuck on old
-         code" wake). Best-effort, never throws; storage (sign-in, stamps) is
-         untouched — only workers/caches go. */
+      /* New deploy wipes old wakes (note 428): a retired service worker or
+         HTTP cache must never serve the previous deploy's shell (the classic
+         "stuck on old code" wake). Best-effort, never throws; storage
+         (sign-in, stamps) is untouched — only workers/caches go. */
       try {
-        if (typeof navigator !== "undefined" && navigator.serviceWorker && navigator.serviceWorker.getRegistrations) {
-          navigator.serviceWorker.getRegistrations().then((rs) => {
-            for (const r of rs) r.unregister().catch(() => {});
-          }).catch(() => {});
-        }
-      } catch {}
-      try {
-        if (typeof caches !== "undefined" && caches.keys) {
-          caches.keys().then((ks) => {
-            for (const k of ks) caches.delete(k).catch(() => {});
-          }).catch(() => {});
-        }
+        wipeOldWakes();
       } catch {}
     } catch {}
   }
+  /* Proven new update without a readable deploy proof (note 428): the wipe
+     above keys on the deploy ID, which needs storage — when the store was
+     unreadable but the codegen proves newness, old wakes still go. */
+  try {
+    if (freshEyes && !freshDeploy) wipeOldWakes();
+  } catch {}
   try {
     markDeploySeen();
   } catch {}
@@ -3830,7 +3909,7 @@ async function syncFromServer() {
      words or empty, seeded or live — before any guard returns, so the notice
      below decides from the shared backend instead of this device's stamps. */
   try {
-    noteServerVerdict(res.notes, Object.keys(server).length);
+    noteServerVerdict(res.notes, Object.keys(server).length, (res as any).at, (res as any).publishDeploy, (res as any).code);
   } catch {}
   /* The server's ~15-minute undo window rides every content answer (note 291). */
   const undoLeft = typeof res.undoLeft === "number" ? Math.max(0, Math.floor(res.undoLeft)) : 0;

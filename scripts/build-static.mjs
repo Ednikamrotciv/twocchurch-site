@@ -59,15 +59,24 @@ try {
        Backend notes reach the update number only through an explicit office
        publish/undo/flush, so the stamp can never leak ahead of review. */
     let buildNotes = 0;
+    let buildCode = "";
     try {
       const hooksSrc = await readFile(path.join(ROOT, "src", "lib", "hooks.ts"), "utf8");
       buildNotes = Number((hooksSrc.match(/BUILD_NOTES = (\d+)/) || [])[1]) || 0;
+      buildCode = (hooksSrc.match(/CODE_ID = "([A-Za-z0-9_-]+)"/) || [])[1] || "";
     } catch { /* no number — the hold below stands */ }
     const seedOut = { ...seed, hold: true, deployId: DEPLOY_ID };
     try {
       const sections = seed && seed.sections && typeof seed.sections === "object" ? Object.keys(seed.sections).length : 0;
       if (buildNotes > 0 && typeof seed.notes === "number" && Math.floor(seed.notes) >= buildNotes && typeof seed.rev === "number" && seed.rev > 0 && sections > 0) {
-        seedOut.publishedDeploy = DEPLOY_ID;
+        /* Word-gated (note 428): the bake below names the publish it carries —
+           only the running code's own review releases this deploy at first
+           paint. A same-number bake from older code (or a codeless older bake,
+           which proves nothing) keeps the hold until Publish. */
+        const seedCode = typeof seed.code === "string" ? seed.code : "";
+        if (!!buildCode && !!seedCode && seedCode === buildCode) {
+          seedOut.publishedDeploy = DEPLOY_ID;
+        }
       }
     } catch { /* witness skipped — the hold stands */ }
     await writeFile(seedPath, JSON.stringify(seedOut));
