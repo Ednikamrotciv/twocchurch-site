@@ -220,9 +220,20 @@ function serverHoldsPublish(): boolean {
 function postDeployPublishWitnessed(): boolean {
   try {
     if (!(lastPublishAt > 0 && deployFirstSeenAt > 0)) return false;
-    const held = typeof publishedNotes === "number" && Number.isFinite(publishedNotes) ? Math.floor(publishedNotes) : 0;
-    if (!(held >= BUILD_NOTES)) return false;
+    if (!publishedNotesAtLeastBuild()) return false;
     return lastPublishAt + PUBLISH_AT_SKEW_MS > deployFirstSeenAt;
+  } catch {
+    return false;
+  }
+}
+/* Adopted-publish guard for the carried click (note 429): the session flag
+   below proves this tab clicked, but only a witnessed publish for the running
+   update proves there is anything to open — a bare flag with a wiped store
+   must never lift the notice by itself. */
+function publishedNotesAtLeastBuild(): boolean {
+  try {
+    const held = typeof publishedNotes === "number" && Number.isFinite(publishedNotes) ? Math.floor(publishedNotes) : 0;
+    return held >= BUILD_NOTES;
   } catch {
     return false;
   }
@@ -717,8 +728,12 @@ export function maintenanceShouldWait(): boolean {
     try {
       if (postDeployPublishWitnessed()) return false;
     } catch {}
+    /* The carried click (note 429): this tab published, then reloaded onto the
+       new code — releases, but only with a witnessed publish for the running
+       update behind it. A bare session flag with no adopted publish (a wiped
+       store, a retired click) never lifts the notice by itself. */
     try {
-      if (justPublishedRecently()) return false;
+      if (justPublishedRecently() && publishedNotesAtLeastBuild()) return false;
     } catch {}
     /* Deploy lock: any copy whose words can move after deploy waits — server
        behind it, or a baked feed (note 416). Pure static never waits. */
@@ -775,8 +790,12 @@ export function useMaintenance(): boolean {
     try {
       if (postDeployPublishWitnessed()) return false;
     } catch {}
+    /* The carried click (note 429): this tab published, then reloaded onto the
+       new code — releases, but only with a witnessed publish for the running
+       update behind it. A bare session flag with no adopted publish (a wiped
+       store, a retired click) never lifts the notice by itself. */
     try {
-      if (justPublishedRecently()) return false;
+      if (justPublishedRecently() && publishedNotesAtLeastBuild()) return false;
     } catch {}
     /* Deploy lock: any copy whose words can move after deploy waits — server
        behind it, or a baked feed (note 416). Pure static never waits. */
