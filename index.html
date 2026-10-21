@@ -166,6 +166,25 @@
           return;
         }
       } catch (e) {}
+      /* Deploy lock (first-publish-clears fix): every build stamps a fresh
+         opaque deploy id (meta wom-deploy, added at build time). Fresh
+         visitors wait until a publish from THAT deploy lands
+         (localStorage wom.cms.deployPublished). Same code + same number
+         still holds on a new deploy, so the maintenance notice stays
+         active; the first Publish sets it and lifts every device,
+         browser, local and live together. No deploy meta (dev) skips. */
+      try {
+        var dm = document.querySelector('meta[name="wom-deploy"]');
+        var deployId = dm ? dm.getAttribute("content") : "";
+        var pubDeploy = null;
+        try {
+          pubDeploy = window.localStorage ? window.localStorage.getItem("wom.cms.deployPublished") : null;
+        } catch (e2) {}
+        if (deployId && pubDeploy !== deployId) {
+          paintMaint();
+          return;
+        }
+      } catch (e) {}
       fetch("/version.json?t=" + Date.now(), {
         cache: "no-store",
         headers: { pragma: "no-cache", "cache-control": "no-cache" },
