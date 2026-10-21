@@ -137,6 +137,12 @@ function notePublishAt(at: unknown): boolean {
   }
 }
 /** True when a publish from the running update landed after this deploy was first seen. */
+/* Last live server answer, for the office console only: a stuck visitor's
+   `window.__maintState()` shows the exact notes, code word, deploy and clock
+   the notice is deciding on, plus which release fired last. Never leaves the
+   browser — it only names the stamp, never words. */
+let lastServerWitness: { notes: number; code: string; deploy: string; at: number; words: number } | null = null;
+let lastReleaseBy = "";
 function postDeployPublishWitnessed(): boolean {
   try {
     if (!(lastPublishAt > 0 && deployFirstSeenAt > 0)) return false;
@@ -438,6 +444,8 @@ if (typeof window !== "undefined") {
     deployLocked: deployFromMeta,
     buildNotes: BUILD_NOTES,
     code: runningCode,
+    serverWitness: lastServerWitness,
+    lastReleaseBy,
     liveSiteNotes,
     liveSiteBase,
     liveBakeNotes,
@@ -688,6 +696,37 @@ export function usePreviewingWhileWaiting(): boolean {
     return false;
   }
   return maintenanceShouldWait();
+}
+/* Why visitors wait, in plain office words (shown on the maintenance notice
+   itself, so the state is visible with no console): "live" (no wait),
+   "unreviewed" (nothing published yet — first publish opens the site),
+   "new-code" (a new update or code word the office has not published yet),
+   "waiting-proof" (the publish just landed — the site is opening by
+   itself). Never throws. */
+export function maintenanceWaitReason(): "live" | "unreviewed" | "new-code" | "waiting-proof" {
+  try {
+    if (!maintenanceShouldWait()) return "live";
+  } catch {
+    return "live";
+  }
+  try {
+    if (isStaleWaiting()) return "new-code";
+  } catch {}
+  try {
+    const held = typeof publishedNotes === "number" && Number.isFinite(publishedNotes) ? Math.floor(publishedNotes) : 0;
+    /* A witnessed stamp the running code cannot use: same number, older
+       word — a new update under review. */
+    if (held >= BUILD_NOTES) return "new-code";
+  } catch {}
+  try {
+    const w = lastServerWitness;
+    if (w && w.notes === BUILD_NOTES && w.code && w.code === runningCode && w.words > 0) return "waiting-proof";
+  } catch {}
+  try {
+    /* A returning browser on a new word: new code under review. */
+    if (codeChangedSinceBless()) return "new-code";
+  } catch {}
+  return "unreviewed";
 }
 /* A deployed host can serve a newer bundle than this tab runs (desktop cached
    the old JS while the phone fetched the new one): the two modes then decide
@@ -1644,13 +1683,13 @@ function gateLiveSnapshot(snap: Snapshot): Snapshot {
   return { ...(snap as any), live: gated };
 }
 
-/* One click publishes to visitors: the offline publish below waits a few
-   seconds for the join first (sleep wake, reconnect backoff, slow mobile
-   network), instead of stranding as device-only when the server is right
+/* One click publishes to visitors: the offline publish below waits for the
+   join first (sleep wake, reconnect backoff, slow mobile network, Render
+   nap), instead of stranding as device-only when the server is right
    there. Copies with no server anywhere (pure static, nothing configured)
    skip the wait — there is nothing to join. True when the server can be
    reached (or already is). Never throws. */
-const JOIN_BEFORE_PUBLISH_MS = 8000;
+const JOIN_BEFORE_PUBLISH_MS = 20000;
 async function joinBeforePublish(): Promise<boolean> {
   try {
     if (socket && status === "online") return true;
@@ -1666,6 +1705,8 @@ async function joinBeforePublish(): Promise<boolean> {
 }
 
 export async function publishSection(sectionId: string, note: string): Promise<PublishResult> {
+  /* Never stamp from a stale bundle: reload onto the new build instead. */
+  if (await stopIfStale()) return { ok: false, error: "stale-reload" };
   const def = sectionById(sectionId);
   if (!def || !draft) return { ok: false, error: "nothing-to-do" };
   /* Sign-in first (office request): nothing publishes signed out — not even
@@ -2587,6 +2628,9 @@ export async function pullFromLive(): Promise<LivePullResult> {
       return { ok: false, error: "unauthorized" };
     }
   }
+  /* Never adopt-and-stamp from a stale bundle: reload onto the new build
+     instead, so the stamp never moves backwards to an old word. */
+  if (await stopIfStale()) return { ok: false, error: "stale-reload" };
   const read = await readLivePublish();
   if (!read) {
     return { ok: false, error: "unreachable" };
@@ -3445,7 +3489,12 @@ function startReturnJoin() {
   returnJoinStarted = true;
   const join = (fresh: boolean) => {
     try {
-      if (socket || !socketFactory() || localOnly) return;
+      /* Any admin device controls every visitor (office request): a
+         device-only publish still owes its words to the shared backend, so
+         the return-join never skips a copy that went local — it joins and
+         flushes the queue instead of stranding per device. Connected copies
+         and standalone copies (no address) still no-op. */
+      if (socket || !socketFactory()) return;
       if (status === "connecting") return;
       if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
       /* The network just returned: retry fast, not on the old backoff. A
@@ -3717,8 +3766,21 @@ async function syncFromServer() {
   }
   /* The publish stamp alone can flip the maintenance notice (note 278): it
      must re-render even when the content itself is unchanged. Reaching here
-     means the answer is live (note 296) — the seeded + empty holds above
-     already returned. */
+      means the answer is live (note 296) — the seeded + empty holds above
+      already returned. */
+  /* Remember what the server attested for the office console (`__maintState`
+     below): notes, code word, deploy, clock and word count. */
+  try {
+    lastServerWitness = {
+      notes: typeof res.notes === "number" ? Math.floor(res.notes) : 0,
+      code: typeof (res as any).code === "string" ? (res as any).code : "",
+      deploy: typeof (res as any).publishDeploy === "string" ? (res as any).publishDeploy : "",
+      at: typeof res.at === "number" ? Math.floor(res.at) : 0,
+      words: Object.keys(server).length,
+    };
+  } catch {
+    lastServerWitness = null;
+  }
   const notesBefore = publishedNotes;
   if (typeof res.notes === "number") setPublishedNotes(res.notes);
   const notesLifted = publishedNotes > notesBefore;
@@ -3806,6 +3868,9 @@ async function syncFromServer() {
     Object.keys(server).length > 0
   ) {
     markDeployPublished();
+    try {
+      lastReleaseBy = "server-word-witness";
+    } catch {}
   }
   /* Skew-tolerant twin of the block above: the publish clock recorded a moment
      ago already encodes "a same-update publish landed after this deploy was
@@ -3980,6 +4045,22 @@ async function requireSignedIn(): Promise<boolean> {
     if ((res as any)?.ok) return true;
     if ((res as any)?.error === "denied") clearSession();
     return false;
+  } catch {
+    return false;
+  }
+}
+
+/* Fresh-code gate (office request: everything automatic — a tab behind the
+   newest build must never stamp old words with an old word). checkStaleBuild
+   reloads onto the new build when it may (capped retries, then it only
+   waits); when this tab is still behind afterwards the publish refuses, so
+   no stale click can ever attest old code. True when the caller must stop. */
+async function stopIfStale(): Promise<boolean> {
+  try {
+    await checkStaleBuild().catch(() => {});
+  } catch {}
+  try {
+    return isStaleWaiting();
   } catch {
     return false;
   }
@@ -6033,6 +6114,8 @@ async function sendPatch(
 
 /** Put the draft live. `content` is only for the publish that waited on a save. */
 export async function publish(note: string, content?: Snapshot): Promise<PublishResult> {
+  /* Never stamp from a stale bundle: reload onto the new build instead. */
+  if (await stopIfStale()) return { ok: false, error: "stale-reload" };
   /* Sign-in first (office request): nothing publishes signed out — not even
      a device-local publish. No state changes on refusal. */
   if (!(await requireSignedIn())) return { ok: false, error: "unauthorized" };
@@ -6289,6 +6372,9 @@ export async function finishPlannedPublish(): Promise<PublishResult | null> {
   /* Still unsaved (the save has not landed yet, or it was never allowed):
      keep the plan so the next reload can finish the job. */
   if (websiteIsUnsaved()) return null;
+  /* Never stamp from a stale bundle — and keep the plan: it rides the reload
+     in localStorage and finishes on the new build by itself. */
+  if (await stopIfStale()) return { ok: false, error: "stale-reload" };
   clearPlannedPublish();
   if (!(await requireSignedIn())) return { ok: false, error: "unauthorized" };
   return await publish(plan.note || "", plan.content);
@@ -6308,6 +6394,10 @@ async function resumePlannedPublish() {
     );
   } else if (res.error === "unauthorized") {
     fireToast("The website is saved. Sign in to the editor again, then press Publish.", "info");
+  } else if (res.error === "stale-reload") {
+    /* The tab is reloading onto the new build (or waiting on it): the plan
+       rides along in localStorage and finishes there by itself — stay quiet
+       instead of reporting a failure. */
   } else {
     fireToast(`The website is saved, but your changes did not go through (${res.error}). Press Publish again.`, "error");
   }
@@ -6372,6 +6462,8 @@ export async function flushPending(): Promise<boolean> {
     an undo from any signed-in device takes back the same publish — the local
     per-browser entry is only the fallback while it is still fresh. */
 export async function undoLastPublish(): Promise<PublishResult> {
+  /* Never stamp from a stale bundle: reload onto the new build instead. */
+  if (await stopIfStale()) return { ok: false, error: "stale-reload" };
   /* Sign-in first (office request): an undo publishes the other way. */
   if (!(await requireSignedIn())) return { ok: false, error: "unauthorized" };
   pruneHistory();
@@ -6466,6 +6558,8 @@ export async function undoLastPublish(): Promise<PublishResult> {
 
 /** Drop every stored override, so the site shows exactly the shipped content. */
 export async function clearAllOverrides(): Promise<PublishResult> {
+  /* Never stamp from a stale bundle: reload onto the new build instead. */
+  if (await stopIfStale()) return { ok: false, error: "stale-reload" };
   /* Sign-in first (office request): restoring the defaults publishes too. */
   if (!(await requireSignedIn())) return { ok: false, error: "unauthorized" };
   const ids = Object.keys(overrides);

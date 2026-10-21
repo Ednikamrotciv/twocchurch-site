@@ -1009,6 +1009,15 @@ function UnsavedView({
         pub.local || pub.live === false ? "info" : "success"
       );
     } else {
+      if (pub.error === "stale-reload") {
+        /* A newer build landed mid-click: say so and reload onto it — the
+           delete edit is staged in the draft and survives the reload. */
+        fireToast("New deploy arrived — reloading onto it. Press Delete again once it loads.", "info");
+        try {
+          window.location.reload();
+        } catch {}
+        return;
+      }
       fireToast(
         `Delete did not go through (${pub.error === "unauthorized" ? "sign in first" : pub.error}) — nothing left the site, and Undo takes back the cleanup.`,
         "error"

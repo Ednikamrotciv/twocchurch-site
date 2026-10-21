@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import { tx, useI18nTick, i18nTickN } from "../lib/i18n";
 import { Link, navigate, useRoute } from "../lib/router";
 import { useHotkey, useMediaQuery, useScrollProgress, useTheme, useNow, useClickOutside, useBodyLock } from "../lib/hooks";
-import { exitMaintenancePreview } from "../lib/cms";
+import { exitMaintenancePreview, useCmsVersion } from "../lib/cms";
 import { nextService, displayLive, countdownParts, to12h, DAY_SHORT, fmtDate, zoneYear, clockAt, churchTimezone, visitorPlace } from "../lib/store";
 import { SITE, SERVICES, NAV, FOOTER_LINKS, LOGO_MARK } from "../data/site";
 import { siteFile } from "../lib/livefeed";
@@ -554,6 +554,9 @@ export function MaintenanceSite() {
      the site's own theme (stored choice + automatic switching). */
   useTheme();
   useI18nTick();
+  /* Re-render as the wait resolves (the sync bumps the version when the
+     publish lands), so the notice lifts by itself with no tap. */
+  useCmsVersion();
   return (
     <div className="maint">
       <header className="maint__head">

@@ -2121,6 +2121,16 @@ export async function runPublishAction(
       );
       return true;
     }
+    if (res.error === "stale-reload") {
+      /* A newer build landed mid-click: the pre-click check already reloaded
+         when it may — this covers the race, so say so and reload instead of
+         failing quietly. One toast only (toasts show a single word). */
+      fireToast("New deploy arrived — reloading onto it. Press Publish again once it loads.", "info");
+      try {
+        window.location.reload();
+      } catch {}
+      return false;
+    }
     fireToast(
       res.error === "unauthorized"
         ? "Your session expired — unlock the console again, then publish."
@@ -2338,6 +2348,13 @@ export function ToolsPage() {
     setBusy(true);
     const res = await cms.undoLastPublish();
     setBusy(false);
+    if (!res.ok && res.error === "stale-reload") {
+      fireToast("New deploy arrived — reloading onto it. Undo again once it loads.", "info");
+      try {
+        window.location.reload();
+      } catch {}
+      return;
+    }
     if (!res.ok) {
       fireToast(`Could not roll back (${res.error}).`, "error");
     } else if (res.live === false) {
