@@ -1021,9 +1021,11 @@ self.rpc = {
   /* Freshness stamp (note 384): the tiny rev/notes/at answer every connected
      tab asks on the short cadence, so a publish whose socket shout was missed
      still lands within the half minute on every copy. Public read — it names
-     no words, only whether the words moved. */
+     no words, only whether the words moved. `words` counts the stored
+     sections (note 427: the server-authoritative notice), so a waiting copy
+     can lift on the stamp alone without pulling the whole content. */
   contentRev: function (info) {
-    return ok({ rev: REV, notes: NOTES, publishDeploy: PUBLISH_DEPLOY, at: AT, code: publishCodeWord() });
+    return ok({ rev: REV, notes: NOTES, publishDeploy: PUBLISH_DEPLOY, at: AT, code: publishCodeWord(), words: INDEX.length });
   },
 
   /* File-door guard (uploads, restores, deletes): true only for a signed-in

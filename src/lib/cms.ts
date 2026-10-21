@@ -143,6 +143,38 @@ function notePublishAt(at: unknown): boolean {
    browser — it only names the stamp, never words. */
 let lastServerWitness: { notes: number; code: string; deploy: string; at: number; words: number } | null = null;
 let lastReleaseBy = "";
+/* Server-authoritative release (note 427): the freshest verdict from the
+   shared backend — the same answer every copy on this host reads. The notice
+   lifts on this alone (this update or newer, with real words); the per-device
+   stamps (deploy id, code word, first-seen clock) only ever ADD faster local
+   lifts, so two copies on the same host can never disagree. Refreshed by every
+   content answer and every stamp poll; the 10s waiting cadence keeps it fresh
+   while the notice shows. */
+let serverVerdict: { notes: number; words: number } | null = null;
+let serverVerdictAt = 0;
+const SERVER_VERDICT_FRESH_MS = 120 * 1000;
+function noteServerVerdict(notes: unknown, words: unknown): void {
+  try {
+    const n = Math.floor(Number(notes));
+    if (!Number.isFinite(n) || n < 0) return;
+    /* A stamp with no word count (an older server door) proves nothing new —
+       keep the previous verdict; the next full sync learns the words. */
+    if (words === undefined || words === null) return;
+    const w = Math.floor(Number(words));
+    if (!Number.isFinite(w) || w < 0) return;
+    serverVerdict = { notes: n, words: w };
+    serverVerdictAt = Date.now();
+  } catch {}
+}
+function serverHoldsPublish(): boolean {
+  try {
+    if (!serverVerdict) return false;
+    if (Date.now() - serverVerdictAt > SERVER_VERDICT_FRESH_MS) return false;
+    return serverVerdict.words > 0 && serverVerdict.notes >= BUILD_NOTES;
+  } catch {
+    return false;
+  }
+}
 function postDeployPublishWitnessed(): boolean {
   try {
     if (!(lastPublishAt > 0 && deployFirstSeenAt > 0)) return false;
@@ -445,6 +477,7 @@ if (typeof window !== "undefined") {
     buildNotes: BUILD_NOTES,
     code: runningCode,
     serverWitness: lastServerWitness,
+    serverVerdict,
     lastReleaseBy,
     liveSiteNotes,
     liveSiteBase,
@@ -604,6 +637,16 @@ export function maintenanceShouldWait(): boolean {
      or a local copy's). Server-less copies never wait (no visitors). */
   if (deployFromMeta && currentDeployId) {
     if (publishedDeployId === currentDeployId) return false;
+    /* Server-authoritative release (note 427): one Publish from any admin —
+       this update (or newer) with real words on the shared backend — lifts
+       every copy on this host together. No deploy, code or clock matching, so
+       a late device, a rebuilt device and the publishing device itself read
+       the same answer and agree. Genuinely new code (server behind this
+       update) and empty/unreviewed answers still fall through to the holds
+       below. */
+    try {
+      if (serverHoldsPublish()) return false;
+    } catch {}
     /* Post-deploy publish witness: this copy was around for a publish from
        the running update, so visitors are released even though the publish
        came from a different deploy id. A deploy first seen AFTER the publish
@@ -659,6 +702,12 @@ export function useMaintenance(): boolean {
   /* Deploy lock (no numbers — same rule as maintenanceShouldWait). */
   if (deployFromMeta && currentDeployId) {
     if (publishedDeployId === currentDeployId) return false;
+    /* Server-authoritative release (note 427): one Publish from any admin
+       lifts every copy on this host together — same shared answer, no
+       per-device deploy, code or clock matching. */
+    try {
+      if (serverHoldsPublish()) return false;
+    } catch {}
     /* Post-deploy publish witness: one click lifts every deploy that was
        around for it, even when the click came from a stale tab or local. */
     try {
@@ -2054,10 +2103,10 @@ async function applySeedOnce() {
         noteDeployWitness((seed as any).publishedDeploy);
         /* Same-update baked publish (one click clears brand-new arrivals):
            the bake carries the office's last publish with real words, stamped
-           from this update AND this code — that IS the review, so this deploy
+           from this update or newer (note 427) — that IS the review, so this deploy
            releases at first paint even when the bake was built for a different
            deploy id (cross-built hosts, pre-stamp bakes, mirror seeds). Older
-           updates, other codes, empty words and unstamped bakes still hold.
+           updates, empty words and unstamped bakes still hold.
            Words were applied above; the clean-stage block below still stages
            returning browsers clean. */
         try {
@@ -2070,11 +2119,9 @@ async function applySeedOnce() {
           const seedSections = (seed as any).sections;
           const seedWords = seedSections && typeof seedSections === "object" ? Object.keys(seedSections).length : 0;
           const seedRev = typeof (seed as any).rev === "number" ? Math.floor((seed as any).rev) : 0;
-          const seedWord = typeof (seed as any).code === "string" ? (seed as any).code : "";
           if (
-            typeof (seed as any).notes === "number" && Math.floor((seed as any).notes) === BUILD_NOTES &&
-            seedRev > 0 && seedWords > 0 &&
-            !!seedWord && !!runningCode && seedWord === runningCode
+            typeof (seed as any).notes === "number" && Math.floor((seed as any).notes) >= BUILD_NOTES &&
+            seedRev > 0 && seedWords > 0
           ) {
             setPublishedNotes(BUILD_NOTES);
             markDeployPublished();
@@ -2833,6 +2880,18 @@ async function foldLiveInto(target: Snapshot | null, onlyId?: string, boundedMs 
    the pull below is the same guarded path the shout itself takes. */
 let contentWatchStarted = false;
 let contentWatchRunning = false;
+/* Last stamp tuple seen by the freshness watch (note 427): any movement on
+   the shared backend while the notice shows pulls the full answer at once. */
+let lastStampTuple = "";
+function stampTupleOf(r: any): string {
+  try {
+    return [(r as any).rev, (r as any).notes, (r as any).at, (r as any).publishDeploy, (r as any).code, (r as any).words]
+      .map((v) => String(v))
+      .join("|");
+  } catch {
+    return "";
+  }
+}
 /* One-click publish reaches every browser (office request): the socket shout
    misses sleeping/offline copies, so the stamp is also polled over plain HTTP
    — a public read, no session — which wakes a sleeping server like any HTTP
@@ -2852,6 +2911,14 @@ async function pollPublishHttp(): Promise<void> {
       if (live) urls.push(live + "/__cms/contentRev");
     } catch {}
     let lifted = false;
+    /* Server-authoritative verdict (note 427): while the notice shows, the
+       stamp poll names the shared backend's words too, and any stamp movement
+       pulls the full answer at once — one admin Publish lifts every copy on
+       this host within one fast poll, with no per-device click. */
+    let holding = false;
+    try {
+      holding = maintenanceShouldWait();
+    } catch {}
     for (const u of urls) {
       try {
         const ctrl = typeof AbortController !== "undefined" ? new AbortController() : null;
@@ -2867,6 +2934,22 @@ async function pollPublishHttp(): Promise<void> {
           if (!res.ok) continue;
           const r = await res.json().catch(() => null);
           if (!r || (r as any).ok !== true) continue;
+          let synced = false;
+          try {
+            noteServerVerdict((r as any).notes, (r as any).words);
+          } catch {}
+          /* Any stamp movement while waiting pulls the full answer at once
+             (note 427) — even a stamp-only publish the rev check cannot see. */
+          try {
+            const key = stampTupleOf(r);
+            if (key && key !== lastStampTuple) {
+              lastStampTuple = key;
+              if (holding) {
+                await syncFromServer().catch(() => {});
+                synced = true;
+              }
+            }
+          } catch {}
           const notes = Math.floor(Number((r as any).notes));
           const at = Number((r as any).at);
           const deploy = typeof (r as any).publishDeploy === "string" ? (r as any).publishDeploy : "";
@@ -2894,9 +2977,9 @@ async function pollPublishHttp(): Promise<void> {
             lifted = true;
           }
           if (r && typeof (r as any).rev === "number" && (r as any).rev !== rev) {
-            await syncFromServer().catch(() => {});
+            if (!synced) await syncFromServer().catch(() => {});
           } else if (r && typeof (r as any).notes === "number" && (r as any).notes > publishedNotes) {
-            await syncFromServer().catch(() => {});
+            if (!synced) await syncFromServer().catch(() => {});
           } else if (!socket || status !== "online") {
             /* Socketless copies still need the words, not just the stamp. */
             await syncFromFeed().catch(() => {});
@@ -2929,6 +3012,24 @@ function startContentWatch() {
       try {
         const raw = await socket.rpc.contentRev("");
         const r = typeof raw === "string" ? JSON.parse(raw) : raw;
+        try {
+          noteServerVerdict((r as any).notes, (r as any).words);
+        } catch {}
+        /* Note 427: any stamp movement while the notice shows pulls the full
+           answer at once — a stamp-only publish moves no rev the chain below
+           can see. */
+        try {
+          const key = stampTupleOf(r);
+          if (r && (r as any).ok === true && key && key !== lastStampTuple) {
+            lastStampTuple = key;
+            try {
+              if (maintenanceShouldWait()) {
+                await syncFromServer().catch(() => {});
+                return;
+              }
+            } catch {}
+          }
+        } catch {}
         if (r && r.ok && typeof r.rev === "number" && r.rev !== rev) await syncFromServer().catch(() => {});
         else if (r && r.ok && deployFromMeta && currentDeployId && typeof r.publishDeploy === "string" && r.publishDeploy === currentDeployId && publishedDeployId !== currentDeployId) await syncFromServer().catch(() => {});
         /* A publish the rev stamp cannot see (note 420): the feed-follow
@@ -3725,6 +3826,12 @@ async function syncFromServer() {
     return;
   }
   const serverRev = typeof res.rev === "number" ? res.rev : 0;
+  /* Server-authoritative verdict (note 427): recorded from EVERY live answer —
+     words or empty, seeded or live — before any guard returns, so the notice
+     below decides from the shared backend instead of this device's stamps. */
+  try {
+    noteServerVerdict(res.notes, Object.keys(server).length);
+  } catch {}
   /* The server's ~15-minute undo window rides every content answer (note 291). */
   const undoLeft = typeof res.undoLeft === "number" ? Math.max(0, Math.floor(res.undoLeft)) : 0;
   undoUntilAt = undoLeft > 0 ? Date.now() + undoLeft * 1000 : 0;
