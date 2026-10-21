@@ -429,7 +429,7 @@ export async function runAll(fs) {
   const fbJ4 = text["scripts/seed-fallback.mjs"];
   ok("fresh code stages clean", has(cms, "cleanStageForNewCode") && has(cms, "codeChangedSinceBless"), "a new code arrival must not stage the former publish");
   ok("live adopt needs no blessing", has(cms, "stageInbound") && has(cms, "general control"), "a live publish must take effect on local unblessed copies too");
-  ok("auto-adopt never stages clean", has(cms, '"Clean."') && has(cms, "cleanStageForNewCode"), "recorded live words must not fill a clean stage by themselves");
+  ok("auto-adopt never stages clean", has(cms, "staged clean until Recover"), "recorded live words must not fill a clean stage by themselves");
   ok("clean stage ends on staging", has(cms, "clean-until-staged, never clean-forever"), "the first staged edit, fold or Recover must resume normal staging");
   ok("flag consumed by publish", has(pushJ4, "clean-deploy.txt") && has(pushJ4, "flagGone"), "clean-until-first-publish must end at the first publish");
   ok("server primes the mirror", has(serve, "primeMirrorSeed"), "a wake must ask the pushed mirror, not only the deploy bake");

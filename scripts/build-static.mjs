@@ -48,31 +48,15 @@ try {
   const seedPath = path.join(OUT, "seed.json");
   const seed = JSON.parse(await readFile(seedPath, "utf8"));
   if (seed && typeof seed === "object") {
-    /* First-publish witness for the new deploy (one click clears everywhere):
-       the bake above carries the office's last publish. When those words were
-       published from THIS update (notes at the code's own update number, with
-       real words), this deploy counts as their publisher too — every fresh
-       visitor's same-deploy witness then matches on first paint, so one
-       office Publish clears the maintenance notice on unlimited
-       browsers/devices with no second click. A bake from an older update (or
-       an empty/clean bake) keeps the hold: new code still waits for review.
-       Backend notes reach the update number only through an explicit office
-       publish/undo/flush, so the stamp can never leak ahead of review. */
-    let buildNotes = 0;
-    try {
-      const hooksSrc = await readFile(path.join(ROOT, "src", "lib", "hooks.ts"), "utf8");
-      buildNotes = Number((hooksSrc.match(/BUILD_NOTES = (\d+)/) || [])[1]) || 0;
-    } catch { /* no number — the hold below stands */ }
+    /* Fresh-deploy hold (office request: every new deploy is new, empty,
+       fresh, clean and new — maintenance notice stays up until a NEW Publish).
+       No first-publish witness: even when the bake carries the office's last
+       publish from this update, the new deploy still holds. One Publish click
+       after the deploy lifts every device/browser via the build-time witness
+       (publish stamped after the build), not via a bake-time stamp. */
     const seedOut = { ...seed, hold: true, deployId: DEPLOY_ID };
-    try {
-      const sections = seed && seed.sections && typeof seed.sections === "object" ? Object.keys(seed.sections).length : 0;
-      if (buildNotes > 0 && typeof seed.notes === "number" && Math.floor(seed.notes) >= buildNotes && typeof seed.rev === "number" && seed.rev > 0 && sections > 0) {
-        seedOut.publishedDeploy = DEPLOY_ID;
-      }
-    } catch { /* witness skipped — the hold stands */ }
     await writeFile(seedPath, JSON.stringify(seedOut));
     console.log("maintenance hold on: fresh visitors wait until the office publishes (locked — every deploy holds)");
-    if (seedOut.publishedDeploy) console.log("first-publish witness stamped: this deploy carries the office publish — one click clears every visitor");
   }
 } catch (err) {
   console.warn("maintenance hold skipped:", err?.message || err);
@@ -300,7 +284,6 @@ try {
 try {
   const headers =
 `# note 302 — entry files always fresh, hashed assets cacheable.
-# sw.js too: a cached worker would pin old code behind the new deploy.
 /index.html
   Cache-Control: no-store, must-revalidate
 /*/index.html
@@ -315,14 +298,12 @@ try {
   Cache-Control: no-store, must-revalidate
 /feed.json
   Cache-Control: no-store, must-revalidate
-/sw.js
-  Cache-Control: no-store, must-revalidate
 `;
   await writeFile(path.join(OUT, "_headers"), headers);
   const htaccess =
 `<IfModule mod_headers.c>
   # note 302 — entry files always fresh (see _headers for Netlify/Cloudflare)
-  <FilesMatch "^(index\\.html|404\\.html|version\\.json|seed\\.json|server\\.json|feed\\.json|sw\\.js)$">
+  <FilesMatch "^(index\\.html|404\\.html|version\\.json|seed\\.json|server\\.json|feed\\.json)$">
     Header set Cache-Control "no-store, must-revalidate"
   </FilesMatch>
 </IfModule>

@@ -25,6 +25,9 @@ const CACHE_KEY = "wom.cms.cache";
 const DRAFT_KEY = "wom.cms.draft";
 const HISTORY_KEY = "wom.cms.history";
 const PENDING_KEY = "wom.cms.pending";
+const AFTER_SAVE_KEY = "wom.cms.publishAfterSave";
+/** A publish waiting for the website to be saved is forgotten after this long. */
+const AFTER_SAVE_MAX_AGE_MS = 15 * 60 * 1000;
 const NAME_KEY = "wom.cms.editor";
 const SESSION_KEY = "wom.cms.session";
 const REQUEST_TIMEOUT = 9000;
@@ -97,18 +100,21 @@ try {
 } catch {
   publishedDeployId = "";
 }
-/* Publish clock (one publish lifts every deploy): the wall-clock moment of the
-   last witnessed publish stamped from the running update (notes>=BUILD_NOTES).
-   Raise-only, persisted, shared across tabs via storage events. A deployed copy
-   whose deploy was first seen BEFORE this moment was around for the publish, so
-   its maintenance notice lifts even when the publish came from a different
-   deploy id (stale tab, local copy) — while a deploy first seen AFTER the
-   publish still holds until its own publish. This is what makes one Publish
-   click work in all browsers instead of only the one that was clicked. */
+/* Publish clock (one publish lifts every deploy, every device, every browser):
+   the wall-clock moment of the last witnessed publish stamped from the running
+   update (notes>=BUILD_NOTES). Raise-only, persisted, shared across tabs via
+   storage events and across devices via the server/feed/seed. Compared against
+   the deploy BUILD time (not first-seen), so late joiners lift too — only a
+   deploy built AFTER the publish still holds. This is what makes one Publish
+   click work everywhere instead of only the tab that was clicked. */
 const PUBLISH_AT_KEY = "wom.cms.publishAt";
 /* Clock-skew tolerance: a server clock a few seconds behind the browser must
    not strand a publish that just landed. */
 const PUBLISH_AT_SKEW_MS = 15000;
+/* Build-time skew (one-click everywhere): the build machine clock (deploy ID)
+   and the server clock (publish stamp) may differ by minutes — a publish that
+   landed just after the deploy must still lift it. Five minutes, one way. */
+const BUILD_SKEW_MS = 5 * 60 * 1000;
 let lastPublishAt = 0;
 try {
   const raw = localStorage.getItem(PUBLISH_AT_KEY);
@@ -133,13 +139,25 @@ function notePublishAt(at: unknown): boolean {
     return false;
   }
 }
-/** True when a publish from the running update landed after this deploy was first seen. */
+/** True when a same-update publish landed after this deploy was built.
+    Build-time (not first-seen) so one Publish click lifts every device,
+    browser and tab — including late joiners that first opened the deploy
+    AFTER the click. A new deploy built AFTER the publish still holds until
+    its own publish. New empty deploys wipe old wakes but keep this clock:
+    old publish times predate the new build and never lift it. */
 function postDeployPublishWitnessed(): boolean {
   try {
-    if (!(lastPublishAt > 0 && deployFirstSeenAt > 0)) return false;
+    if (!(lastPublishAt > 0)) return false;
     const held = typeof publishedNotes === "number" && Number.isFinite(publishedNotes) ? Math.floor(publishedNotes) : 0;
     if (!(held >= BUILD_NOTES)) return false;
-    return lastPublishAt + PUBLISH_AT_SKEW_MS > deployFirstSeenAt;
+    const built = deployBuildTime();
+    // Unstamped deploys (local dev) keep the number gate below; stamped
+    // deploys with an unparseable build fall back to the first-seen clock.
+    if (!(built > 0)) {
+      if (!(deployFirstSeenAt > 0)) return false;
+      return lastPublishAt + PUBLISH_AT_SKEW_MS > deployFirstSeenAt;
+    }
+    return lastPublishAt + BUILD_SKEW_MS > built;
   } catch {
     return false;
   }
@@ -233,18 +251,6 @@ function startCrossTabSync(): void {
           notify();
         } catch {}
       };
-    }
-  } catch {}
-}
-/* Ask the service worker for its update (one publish clears every device): a
-   deployed copy whose worker pins old entry files would otherwise keep proving
-   the old deploy after the host moved on. Best-effort, never throws. */
-function triggerServiceWorkerUpdate(): void {
-  try {
-    if (typeof navigator !== "undefined" && "serviceWorker" in navigator) {
-      navigator.serviceWorker.getRegistration().then((reg) => {
-        try { if (reg) reg.update().catch(() => {}); } catch {}
-      }).catch(() => {});
     }
   } catch {}
 }
@@ -384,6 +390,45 @@ try {
 } catch {
   /* storage may be blocked — startCms re-reads later */
 }
+/* Deploy build time (one-click-clears-all): the opaque deploy ID encodes
+   its build moment (dpl-<base36 Date.now()>-<rand>, dev-<base36>-<rand>).
+   A server publish stamped AFTER this moment belongs to this deploy,
+   whatever deploy id it names — so one Publish click clears every device,
+   browser and tab, including late joiners that first opened the deploy after
+   the click. A publish stamped BEFORE this moment predates the deploy and
+   still holds until a new publish. Equality is never ordered across deploys,
+   only publish-time vs build-time. Returns 0 when unparseable (local dev
+   with no stamped deploy keeps its number gate). */
+function deployBuildTime(): number {
+  try {
+    if (!currentDeployId) return 0;
+    const parts = String(currentDeployId).split("-");
+    if (parts.length < 2) return 0;
+    const t = parseInt(parts[1], 36);
+    if (!Number.isFinite(t) || t <= 0) return 0;
+    // Sanity: build stamps from 2024-2032 only; anything else is not a time.
+    if (t < 1700000000000 - 86400000 * 90 && t < 1000000000000) return 0;
+    if (t > Date.now() + 86400000 * 2) return 0;
+    return Math.floor(t);
+  } catch {
+    return 0;
+  }
+}
+/** True when a same-update publish stamped after this deploy was built. */
+function publishIsForThisDeploy(at: unknown, notes: unknown): boolean {
+  try {
+    const n = Math.floor(Number(notes));
+    if (!Number.isFinite(n) || n < BUILD_NOTES) return false;
+    const t = Math.floor(Number(at));
+    if (!Number.isFinite(t) || t <= 0) return false;
+    const built = deployBuildTime();
+    if (!(built > 0)) return false;
+    return t + BUILD_SKEW_MS > built;
+  } catch {
+    return false;
+  }
+}
+
 function deployProvesFreshDeploy(): boolean {
   try {
     /* Built deploy: the stamped ID proves it — a different ID is a new deploy. */
@@ -586,33 +631,6 @@ function serverInvolved(): boolean {
     return false;
   }
 }
-/** Offline fail-open (one click clears everywhere, online or offline): an
-    offline open can never reach version.json, the office server or the live
-    box, so a browser holding cached published words shows them — never the
-    maintenance notice. Fresh offline profiles with nothing cached keep
-    waiting (they never saw the publish). Online behavior is unchanged. */
-function offlineHasLiveWords(): boolean {
-  try {
-    if (typeof navigator !== "undefined" && navigator.onLine !== false) return false;
-  } catch {
-    return false;
-  }
-  try {
-    const raw = localStorage.getItem(CACHE_KEY);
-    if (raw) {
-      const c = JSON.parse(raw) as any;
-      const secs = (c && (c.overrides || c.sections)) || null;
-      if (secs && typeof secs === "object" && Object.keys(secs).length > 0) return true;
-    }
-  } catch {}
-  try {
-    if (typeof publishedNotes === "number" && publishedNotes > 0) return true;
-  } catch {}
-  try {
-    if (localStorage.getItem(CODE_BLESS_KEY)) return true;
-  } catch {}
-  return false;
-}
 /** Pure check without the preview bypass: would visitors wait on this copy?
     Used for the preview banner, so the office can see that visitors wait.
     The stamp is only ever witnessed evidence (note 300) — never manufactured
@@ -625,10 +643,6 @@ export function maintenanceShouldWait(): boolean {
   /* Local preview: ?maintenance=1 shows the notice even on server-less local. */
   try {
     if (maintenanceForced()) return true;
-  } catch {}
-  /* Offline fail-open: cached published words paint live offline. */
-  try {
-    if (offlineHasLiveWords()) return false;
   } catch {}
   /* Deploy lock (no numbers): a built copy waits until a publish from its
      own deploy lands — or a publish from the running update landed after this
@@ -677,10 +691,6 @@ export function useMaintenance(): boolean {
   /* Local preview: ?maintenance=1 shows the notice even on server-less local. */
   try {
     if (maintenanceForced()) return true;
-  } catch {}
-  /* Offline fail-open: cached published words paint live offline. */
-  try {
-    if (offlineHasLiveWords()) return false;
   } catch {}
   /* Note 302: a known newer update waits even on this (older) bundle — a
      stale tab never paints live from cached code while the host has moved on.
@@ -789,7 +799,6 @@ export function checkStaleBuild(): Promise<void> {
   if (staleCheckRunning) return staleCheckRunning;
   staleCheckRunning = (async () => {
     try {
-      try { triggerServiceWorkerUpdate(); } catch {}
       /* Cache-buster + no-store headers: an intermediate cache must never
          answer this with the previous update's number. */
       const sep = siteFile("version.json").includes("?") ? "&" : "?";
@@ -875,7 +884,7 @@ export function checkStaleBuild(): Promise<void> {
    the button carrying this says so before it arms. This is the explicit
    office delete (note 300) — the ONLY path that clears last-published. */
 export function resetLocalCopy(): void {
-  const keys = [CACHE_KEY, DRAFT_KEY, HISTORY_KEY, PENDING_KEY, NOTES_KEY, DEPLOY_KEY, DEPLOY_SEEN_KEY, CODE_BLESS_KEY, PUBLISH_AT_KEY, "wom.cms.slidesReset"];
+  const keys = [CACHE_KEY, DRAFT_KEY, HISTORY_KEY, PENDING_KEY, NOTES_KEY, AFTER_SAVE_KEY, DEPLOY_KEY, DEPLOY_SEEN_KEY, CODE_BLESS_KEY, PUBLISH_AT_KEY, "wom.cms.slidesReset"];
   for (const k of keys) {
     try {
       localStorage.removeItem(k);
@@ -2061,6 +2070,9 @@ async function applySeedOnce() {
           }
         } catch {}
         try {
+          // New deploys hold until a NEW publish (office request: fresh, clean
+          // and new — old wakes never lift a new build). Only a bake stamped
+          // AFTER this deploy was built releases it at first paint.
           const seedSections = (seed as any).sections;
           const seedWords = seedSections && typeof seedSections === "object" ? Object.keys(seedSections).length : 0;
           const seedRev = typeof (seed as any).rev === "number" ? Math.floor((seed as any).rev) : 0;
@@ -2068,7 +2080,8 @@ async function applySeedOnce() {
           if (
             typeof (seed as any).notes === "number" && Math.floor((seed as any).notes) === BUILD_NOTES &&
             seedRev > 0 && seedWords > 0 &&
-            !!seedWord && !!runningCode && seedWord === runningCode
+            !!seedWord && !!runningCode && seedWord === runningCode &&
+            publishIsForThisDeploy((seed as any).at, (seed as any).notes)
           ) {
             setPublishedNotes(BUILD_NOTES);
             markDeployPublished();
@@ -2158,8 +2171,17 @@ function startFeed() {
   feedStarted = true;
   syncFromFeed().catch(() => {});
   /* Publish-at-once: server-less copies read the mirror every minute, so a
-     publish rides out without a rebuild and without a tap. */
-  window.setInterval(() => syncFromFeed().catch(() => {}), 30 * 1000);
+     publish rides out without a rebuild and without a tap. While waiting on
+     maintenance, hurry to every 10s so one Publish click reaches feed-backed
+     browsers/devices at once (same hurry as the server watch). */
+  window.setInterval(() => syncFromFeed().catch(() => {}), 60 * 1000);
+  window.setInterval(() => {
+    try {
+      if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
+      if (!maintenanceShouldWait()) return;
+      syncFromFeed().catch(() => {});
+    } catch {}
+  }, 10 * 1000);
   document.addEventListener("visibilitychange", () => {
     if (document.visibilityState === "visible") syncFromFeed().catch(() => {});
   });
@@ -2601,7 +2623,7 @@ export async function pullFromLive(): Promise<LivePullResult> {
   }
   const verdict = liveNewerThanHere(read.notes, read.at, read.seeded);
   if (verdict === "newer-update") {
-    const msg = "Update" + read.notes + ".";
+    const msg = `Live is on update ${read.notes} — apply the new update on this copy first.`;
     lastLivePullAt = Date.now();
     lastLivePullMsg = msg;
     return { ok: false, error: "newer-update" };
@@ -2615,7 +2637,7 @@ export async function pullFromLive(): Promise<LivePullResult> {
     const { ids, patch } = diffAgainstLive(read.sections);
     if (!ids.length) {
       lastLivePullAt = Date.now();
-      lastLivePullMsg = "Synced.";
+      lastLivePullMsg = "Live matches this copy — nothing to pull.";
       /* No words to carry, but the stamp still counts (note 420): live holds
          a same-update publish with real words and this copy already speaks
          them — yet without adopting the stamp this copy keeps waiting until
@@ -2627,7 +2649,7 @@ export async function pullFromLive(): Promise<LivePullResult> {
          publish must not clear the notice by itself — same rule as the sync
          twin), and never across updates — nothing here stages, moves or
          loses words. */
-      if (!cleanStageForNewCode && pendingSections().length === 0 && read.notes === BUILD_NOTES && read.sections && Object.keys(read.sections).length > 0 && read.at > 0 && deployFirstSeenAt > 0 && read.at > deployFirstSeenAt) {
+      if (!cleanStageForNewCode && pendingSections().length === 0 && read.notes === BUILD_NOTES && read.sections && Object.keys(read.sections).length > 0 && publishIsForThisDeploy(read.at, read.notes)) {
         setPublishedNotes(BUILD_NOTES);
         blessRunningCode();
         writeCache();
@@ -2677,9 +2699,9 @@ export async function pullFromLive(): Promise<LivePullResult> {
     const imgBit = files.restored ? ` and ${files.restored} uploaded ${files.restored === 1 ? "file" : "files"} came home` : "";
     const missBit = files.failed.length ? ` (${files.failed.length} uploaded ${files.failed.length === 1 ? "file is" : "files are"} missing on live: ${files.failed.slice(0, 3).join(", ")}${files.failed.length > 3 ? "…" : ""})` : "";
     lastLivePullMsg = stageInbound
-      ? `Saved.`
-      : `Recorded.`;
-    fireToast(lastLivePullMsg, "success");
+      ? `Live publish saved here — ${ids.length} ${ids.length === 1 ? "section" : "sections"}${imgBit}${missBit}`
+      : `Live publish recorded in the office — ${ids.length} ${ids.length === 1 ? "section" : "sections"}${imgBit}${missBit} (staged clean until Recover)`;
+    fireToast(lastLivePullMsg + ".", "success");
     notify();
     return { ok: true, pulled: ids, filesRestored: files.restored, filesFailed: files.failed };
   } finally {
@@ -2782,7 +2804,7 @@ async function foldLiveInto(target: Snapshot | null, onlyId?: string, boundedMs 
   const missBit = files.failed.length
     ? ` ${files.failed.length} uploaded ${files.failed.length === 1 ? "file is" : "files are"} missing on live (${files.failed.slice(0, 3).join(", ")}${files.failed.length > 3 ? "…" : ""}).`
     : "";
-  lastLivePullMsg = `Merged.`;
+  lastLivePullMsg = `Live had newer ${tally(folded.length, "section", "sections")} — folded into this publish (${shown}).${imgBit}${missBit}`;
   fireToast(lastLivePullMsg, "success");
   return { snapshot: snap, folded };
 }
@@ -2815,7 +2837,7 @@ function startContentWatch() {
            that lane leaves `rev` standing while the stamp moves. A newer
            publish clock on the running update — or a publish stamp this copy
            has not witnessed — pulls the same guarded sync the shout takes. */
-        else if (r && r.ok && typeof r.at === "number" && r.at > 0 && deployFirstSeenAt > 0 && r.at > deployFirstSeenAt && typeof r.notes === "number" && Math.floor(r.notes) === BUILD_NOTES && publishedDeployId !== currentDeployId) await syncFromServer().catch(() => {});
+        else if (r && r.ok && typeof r.at === "number" && r.at > 0 && typeof r.notes === "number" && Math.floor(r.notes) === BUILD_NOTES && publishedDeployId !== currentDeployId && publishIsForThisDeploy(r.at, r.notes)) await syncFromServer().catch(() => {});
         else if (r && r.ok && typeof r.notes === "number" && r.notes > publishedNotes) await syncFromServer().catch(() => {});
       } finally {
         contentWatchRunning = false;
@@ -2954,13 +2976,42 @@ export async function startCms() {
   } catch {
     freshDeploy = false;
   }
+  // New deploy wipes old wakes + unsaved clean (office request: new deploy is
+  // new, empty, fresh, clean and new — old relay carries, old queues and old
+  // unsaved never ride in). Maintenance hold is untouched here — only a new
+  // Publish lifts it.
   if (freshDeploy) {
     try {
+      // Old wakes: a relay retry owed to the live box from the previous deploy
+      // must not push old words over the new build.
+      try {
+        localStorage.removeItem("wom.cms.relayPending");
+      } catch {}
+      try {
+        localStorage.removeItem("wom.cms.slidesReset");
+      } catch {}
+      try {
+        // @ts-ignore — cleared before its declaration initializes on first boot
+        relayRetryPayload = null;
+      } catch {}
+      try {
+        // @ts-ignore — cleared before its declaration initializes on first boot
+        if (typeof relayRetryTimer !== "undefined" && relayRetryTimer) { window.clearInterval(relayRetryTimer); }
+      } catch {}
+      try {
+        // @ts-ignore — cleared before its declaration initializes on first boot
+        relayRetryTimer = 0;
+      } catch {}
+      // Live password kept across deploys — a new deploy must not force the
+      // office to retype it; the relay still needs it to reach live.
       try {
         localStorage.removeItem(DRAFT_KEY);
       } catch {}
       try {
         localStorage.removeItem(PENDING_KEY);
+      } catch {}
+      try {
+        localStorage.removeItem(AFTER_SAVE_KEY);
       } catch {}
      draft = null;
      draftFromRev = 0;
@@ -3039,7 +3090,7 @@ export async function startCms() {
       applied = clone(defaults);
       if (!cleanStageToastShown) {
         cleanStageToastShown = true;
-        try { fireToast("Clean.", "info"); } catch {}
+        try { fireToast("New deploy — staged clean until Recover.", "info"); } catch {}
       }
     }
   } catch { /* staging falls back to the normal path */ }
@@ -3289,6 +3340,9 @@ function connect() {
       try {
         await syncFromServer();
       } catch {}
+      // If the editor saved the website for us mid-publish, finish that publish
+      // now — this is the permanent server, so the content belongs here.
+      await resumePlannedPublish();
       settleInitialSync();
     })
     .catch((err: any) => {
@@ -3564,7 +3618,7 @@ async function syncFromServer() {
      Deliberate restores are never marked seeded, so they still apply. */
   if ((res as any).seeded === true && Object.keys(overrides).length && serverRev < rev) {
     if (pending) pending = { ...clone(pending), ...clone(overrides) };
-    else pending = clone(overrides);
+    else if (!plannedPublish()) pending = clone(overrides);
     if (pending) writeJSON(PENDING_KEY, pending);
     if (authed) {
       try {
@@ -3579,7 +3633,7 @@ async function syncFromServer() {
      moves maintenance. */
   if (!Object.keys(server).length && Object.keys(overrides).length) {
     if (pending) pending = { ...clone(pending), ...clone(overrides) };
-    else pending = clone(overrides);
+    else if (!plannedPublish()) pending = clone(overrides);
     if (pending) writeJSON(PENDING_KEY, pending);
     if (authed) {
       try {
@@ -3616,7 +3670,13 @@ async function syncFromServer() {
      still holds until its own click. */
   let serverPublishIsNew = false;
   try {
-    serverPublishIsNew = typeof res.at === "number" && res.at > 0 && deployFirstSeenAt > 0 && res.at > deployFirstSeenAt;
+    // Build-time (one-click everywhere): a same-update publish stamped after
+    // this deploy was built belongs to it, even for late joiners.
+    serverPublishIsNew = publishIsForThisDeploy((res as any).at, (res as any).notes);
+    // Fallback for unstamped dev copies with no parseable build time.
+    if (!serverPublishIsNew && !deployFromMeta) {
+      serverPublishIsNew = typeof res.at === "number" && res.at > 0 && deployFirstSeenAt > 0 && res.at > deployFirstSeenAt;
+    }
   } catch {
     serverPublishIsNew = false;
   }
@@ -3675,7 +3735,7 @@ async function syncFromServer() {
     codeWitnessed &&
     typeof res.notes === "number" && Math.floor(res.notes) === BUILD_NOTES &&
     Object.keys(server).length > 0 &&
-    serverAt > 0 && deployFirstSeenAt > 0 && serverAt > deployFirstSeenAt
+    publishIsForThisDeploy(serverAt, res.notes)
   ) {
     markDeployPublished();
   }
@@ -3723,12 +3783,17 @@ function hostFileAttestsSameCode(): boolean {
      normal path below: the stamp moves first, so the words stage in this
      same sync and visitors see the published site, not an empty shell. */
   try {
+    // Late-join lift (one click clears devices that opened the deploy AFTER
+    // the click): a same-update server publish with real words and matching
+    // code releases this deploy — but only when stamped after this deploy
+    // was built, so a new deploy still holds until its own publish.
     if (
       deployFromMeta && currentDeployId &&
       publishedDeployId !== currentDeployId &&
       typeof res.notes === "number" && Math.floor(res.notes) === BUILD_NOTES &&
       typeof (res as any).code === "string" && (res as any).code && ((res as any).code === runningCode || hostFileAttestsSameCode()) &&
-      Object.keys(server).length > 0
+      Object.keys(server).length > 0 &&
+      publishIsForThisDeploy((res as any).at, res.notes)
     ) {
       setPublishedNotes(BUILD_NOTES);
       markDeployPublished();
@@ -3750,7 +3815,7 @@ function hostFileAttestsSameCode(): boolean {
        means this tab holds nothing, so the defaults stand.) */
     if (!Object.keys(server).length && Object.keys(overrides).length) {
       if (pending) pending = { ...clone(pending), ...clone(overrides) };
-      else pending = clone(overrides);
+      else if (!plannedPublish()) pending = clone(overrides);
       if (pending) writeJSON(PENDING_KEY, pending);
       if (authed) {
         try {
@@ -3761,7 +3826,7 @@ function hostFileAttestsSameCode(): boolean {
       return;
     }
     /* First contact with a fresh permanent server: carry over what was published. */
-    if (!Object.keys(server).length && Object.keys(overrides).length && !pending) {
+    if (!Object.keys(server).length && Object.keys(overrides).length && !pending && !plannedPublish()) {
       pending = clone(overrides);
       writeJSON(PENDING_KEY, pending);
     }
@@ -4164,11 +4229,11 @@ export async function totpOffNow(): Promise<{ ok: boolean; error?: string }> {
   sync: () => syncFromServer(),
   apply: (snap: Snapshot) => applySnapshot(snap),
   set: (id: string, value: any) => setSectionValue(id, value),
-  unsaved: () => false,
+  unsaved: () => websiteIsUnsaved(),
   pending: () => pendingEdits(),
   revert: (id: string) => revertSection(id),
-  planned: () => null,
-  finishPlanned: () => Promise.resolve(null),
+  planned: () => plannedPublish(),
+  finishPlanned: () => finishPlannedPublish(),
 };
 
 /* ------------------------------------------------------------------- draft */
@@ -4489,7 +4554,7 @@ export function resetSlidesForNewDeploy(): boolean {
       } catch {}
     }
     mark();
-    fireToast("Reset.", "info");
+    fireToast("New deploy — announcement slides start over with the welcome card only.", "info");
     notify();
     return true;
   } catch {
@@ -5092,7 +5157,7 @@ async function relayPublishWordsToLive(
       livePw = "";
     }
     if (!pw && !livePw) {
-      noteRelay("Unreachable.");
+      noteRelay("Live site not reached — unlock the console and publish again.");
       return "unneeded";
     }
     const conn = "relay-" + Math.random().toString(36).slice(2) + Date.now().toString(36);
@@ -5135,25 +5200,25 @@ async function relayPublishWordsToLive(
     if (transportFailed) {
       noteRelay(
         timedOut
-          ? "Waking."
-          : "Unreachable."
+          ? "Live site timed out (it may be waking) — retrying in the background."
+          : "Live site unreachable — retrying in the background."
       );
       return "missed";
     }
     if (!authed) {
       if (needCode) {
-        noteRelay("Code.");
+        noteRelay("Live site needs a two-factor code — the relay cannot sign in, the rebuild carries it.");
         return "missed";
       }
       if (rateLimited) {
-        noteRelay("Limited.");
+        noteRelay("Live site is rate-limiting sign-ins — retrying in the background.");
         return "missed";
       }
       /* Denied with every password tried: remember it needs the human, keep
          the words owed (the caller schedules the retry), and say exactly
          where the one-time fix lives. */
       relayNeedsLivePw = true;
-      noteRelay("Denied.");
+      noteRelay("Live login denied — the live admin password differs from this console's. Type the live password once on the Status tab and it sends by itself.");
       return "missed";
     }
     relayNeedsLivePw = false;
@@ -5202,27 +5267,27 @@ async function relayPublishWordsToLive(
           ms
         );
         if (!res.ok) {
-          noteRelay("Unreachable.");
+          noteRelay("Live site unreachable while sending — retrying in the background.");
           return "missed";
         }
         const data = await res.json().catch(() => null);
         if (!data || data.ok !== true) {
-          noteRelay("Refused.");
+          noteRelay("Live site refused the words — retrying in the background.");
           return "missed";
         }
       } catch (e: any) {
         noteRelay(
           e && e.name === "AbortError"
-            ? "Timeout."
-            : "Unreachable."
+            ? "Live site timed out while sending — retrying in the background."
+            : "Live site unreachable while sending — retrying in the background."
         );
         return "missed";
       }
     }
     noteRelay(
       liveDeploy
-        ? "Updated."
-        : "Received."
+        ? "Live site updated with your publish."
+        : "Live site has the words — its notice lifts on the rebuild."
     );
     return "landed";
   };
@@ -5335,7 +5400,7 @@ async function attemptRelayRetry(): Promise<boolean> {
       /* A retry that lands after the click told the office "within a minute":
          say so out loud so the office knows live visitors are updated. */
       try {
-        fireToast("Updated.", "success");
+        fireToast("Live site updated with your publish.", "success");
       } catch {}
       return true;
     }
@@ -5433,7 +5498,7 @@ export function clearLivePassword(): void {
   try {
     if (relayNeedsLivePw) {
       relayNeedsLivePw = false;
-      noteRelay("Cleared.");
+      noteRelay("Live password cleared — the relay uses this console's session again.");
     } else {
       notify();
     }
@@ -5471,18 +5536,18 @@ function ensureRetryLoop(): void {
 export async function submitLivePassword(pw: string): Promise<{ ok: boolean; msg: string }> {
   try {
     const clean = String(pw || "");
-    if (!clean) return { ok: false, msg: "Password." };
+    if (!clean) return { ok: false, msg: "Type the live admin password first." };
     const base = await relayLiveBase().catch(() => "");
-    if (!base) return { ok: false, msg: "Unset." };
+    if (!base) return { ok: false, msg: "No live address is configured for this copy." };
     try {
       localStorage.setItem(LIVEPW_KEY, JSON.stringify({ base, pw: clean }));
     } catch {
-      return { ok: false, msg: "Refused." };
+      return { ok: false, msg: "This browser refused to keep it — type it again after your next publish." };
     }
     relayNeedsLivePw = false;
     if (!relayRetryPayload) restorePersistedPayload();
     if (!relayRetryPayload) {
-      noteRelay("Saved.");
+      noteRelay("Live password saved — your next publish sends to the live site at once.");
       return { ok: true, msg: "Live password saved — your next publish sends to the live site at once." };
     }
     ensureRetryLoop();
@@ -5495,9 +5560,9 @@ export async function submitLivePassword(pw: string): Promise<{ ok: boolean; msg
     if (done && !relayRetryPayload) {
       return { ok: true, msg: "Live site updated with your publish." };
     }
-    return { ok: false, msg: relayStatus().msg || "Retrying." };
+    return { ok: false, msg: relayStatus().msg || "Still owed to the live site — retrying in the background." };
   } catch {
-    return { ok: false, msg: "Retrying." };
+    return { ok: false, msg: "Could not send — retrying in the background." };
   }
 }
 /* The owed words, durable across reloads (office request: one click lands
@@ -5620,7 +5685,7 @@ export function resumeRelayRetry(): void {
           if (liveAt > 0 && mine > 0 && liveAt > mine) {
             relayRetryPayload = null;
             clearRelayPersist();
-            noteRelay("Kept.");
+            noteRelay("Live site published newer while this copy was shut — kept the live words.");
             return;
           }
         }
@@ -6078,30 +6143,78 @@ function pick(snap: Snapshot, ids: string[]): Snapshot {
   return out;
 }
 
-/* ------------------------------------------------- standalone: no website-save step */
+/* ------------------------------------------------- saving the website itself */
 
-/* Standalone builds have no host-editor save step: Publish writes straight to
-   the shared content server (and the live relay + feed mirror), so one click
-   releases every visitor. The helpers below stay exported so older callers keep
-   compiling, but they are inert: no save is ever awaited or planned. */
+/** One-click publish (office request): the CMS publish never waits on the
+ * outer editor/Perchance save. Content publish and site save are independent —
+ * either Publish button alone puts the words live for every visitor. */
 export function websiteIsUnsaved(): boolean {
   return false;
 }
 
+/** Ask the editor tab to save this generator. False when there is no editor. */
 export function requestWebsiteSave(): boolean {
-  return false;
+  try {
+    if (window.parent === window) return false;
+    window.parent.postMessage({ type: "saveKeyboardShortcut" }, "*");
+    return true;
+  } catch {
+    return false;
+  }
 }
 
-export function planPublishAfterSave(_note: string): void {}
+/** Hold a publish until the site is saved; the content travels with the plan. */
+export function planPublishAfterSave(note: string) {
+  writeJSON(AFTER_SAVE_KEY, {
+    note: String(note || "").slice(0, 300),
+    at: Date.now(),
+    content: clone(draft || applied),
+  });
+}
 
 export function plannedPublish(): { note: string; at: number; content?: Snapshot } | null {
-  return null;
+  return readJSON<{ note: string; at: number; content?: Snapshot } | null>(AFTER_SAVE_KEY, null);
 }
 
-export function clearPlannedPublish(): void {}
+export function clearPlannedPublish() {
+  try {
+    localStorage.removeItem(AFTER_SAVE_KEY);
+  } catch {}
+}
 
-export function finishPlannedPublish(): Promise<PublishResult | null> {
-  return Promise.resolve(null);
+/** Finish a publish that waited on a save; no-op unless a fresh plan exists. */
+export async function finishPlannedPublish(): Promise<PublishResult | null> {
+  const plan = plannedPublish();
+  if (!plan) return null;
+  if (Date.now() - (plan.at || 0) > AFTER_SAVE_MAX_AGE_MS) {
+    clearPlannedPublish();
+    return null;
+  }
+  /* Still unsaved (the save has not landed yet, or it was never allowed):
+     keep the plan so the next reload can finish the job. */
+  if (websiteIsUnsaved()) return null;
+  clearPlannedPublish();
+  if (!authed) return { ok: false, error: "unauthorized" };
+  return await publish(plan.note || "", plan.content);
+}
+
+/** After the editor saved the website: send the content that was waiting. */
+async function resumePlannedPublish() {
+  if (!plannedPublish()) return;
+  const res = await finishPlannedPublish().catch(() => null);
+  if (!res) return;
+  if (res.ok) {
+    fireToast(
+      res.local
+        ? "The website is saved. The shared server was unreachable, so your changes are on this device until it is back."
+        : "The website is saved, and your changes are live for everyone.",
+      res.local ? "info" : "success"
+    );
+  } else if (res.error === "unauthorized") {
+    fireToast("The website is saved. Sign in to the editor again, then press Publish.", "info");
+  } else {
+    fireToast(`The website is saved, but your changes did not go through (${res.error}). Press Publish again.`, "error");
+  }
 }
 
 /** Send overrides that were published while the server was unreachable. */
@@ -6153,7 +6266,7 @@ export async function flushPending(): Promise<boolean> {
   /* One click publishes to visitors: a device-only publish that finally lands
      says so out loud — otherwise the office never knows the visitors caught
      up. Only on a real send (the empty-queue clear above stays quiet). */
-  fireToast("Online.", "success");
+  fireToast("Connection is back — your queued changes are now live for every visitor.", "success");
   notify();
   return true;
 }

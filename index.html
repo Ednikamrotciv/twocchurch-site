@@ -3,11 +3,11 @@
 <!-- The shipped update number: the pre-bundle gate below paints the maintenance
      notice before React boots whenever this copy has not published it yet.
      Bump with BUILD_NOTES (src/lib/hooks.ts) on every update. -->
-<meta name="wom-notes" content="425" />
+<meta name="wom-notes" content="422" />
 <!-- The shipped code word (unnumbered stale fix): names the running code with
      no number, so the gate below holds for this fix even though the update
      number is unchanged. build-static.mjs stamps it from hooks.ts CODE_ID. -->
-<meta name="wom-code" content="publish426" />
+<meta name="wom-code" content="clean422" />
 
 <meta name="theme-color" content="#08080a">
 <title>The World Overcomers' Ministries Inc. — Where Champions Are Raised in Christ</title>
@@ -95,7 +95,6 @@
           '<img src="/src/assets/logo-mark.png" alt="" aria-hidden="true" style="width:72px;height:72px;object-fit:contain;" onerror="this.style.display=\'none\'">' +
           "<h1 style=\"margin:0;font-size:2rem;font-weight:600;\">We&rsquo;ll be right back</h1>" +
           '<p style="margin:0;max-width:34rem;line-height:1.6;opacity:0.85;">The site is being updated. Please check back shortly.</p>' +
-'<p style="margin:0.5rem 0 0;opacity:0.75;font-size:0.9rem;">Update published? <button type="button" onclick="try{if(navigator.serviceWorker&&navigator.serviceWorker.getRegistration)navigator.serviceWorker.getRegistration().then(function(r){try{if(r)r.update()}catch(e){}})}catch(e){}window.location.reload()" style="margin-left:0.4rem;padding:0.35rem 0.9rem;border:1px solid #8a7a55;border-radius:999px;background:transparent;color:#f5f0e6;font:inherit;cursor:pointer;">Reload now</button></p>' +
           "</div>";
       };
       if (q.get("preview") === "1") return;
@@ -132,38 +131,6 @@
         var raw = window.localStorage ? window.localStorage.getItem("wom.cms.notes") : null;
         var n = raw === null ? 0 : Number(JSON.parse(raw));
         if (Number.isFinite(n) && n > 0) stored = Math.floor(n);
-      } catch (e) {}
-      /* Offline fail-open (one click clears everywhere, online or offline):
-         an offline open can never fetch version.json or reach the office/live
-         server, so a browser holding cached published words must paint them —
-         not the maintenance notice. Fresh offline profiles with nothing cached
-         keep waiting below (correct: they never saw the publish). Online
-         behavior is unchanged: the shipped/code locks below still hold until
-         a publish lands. */
-      try {
-        var __offline = (typeof navigator !== "undefined" && navigator.onLine === false);
-        if (__offline) {
-          var __hasWords = false;
-          try {
-            var __craw = window.localStorage ? window.localStorage.getItem("wom.cms.cache") : null;
-            if (__craw) {
-              var __c = JSON.parse(__craw);
-              var __secs = (__c && (__c.overrides || __c.sections)) || null;
-              if (__secs && typeof __secs === "object" && Object.keys(__secs).length > 0) __hasWords = true;
-            }
-          } catch (e3) {}
-          if (!__hasWords) {
-            try {
-              if (stored > 0) __hasWords = true;
-            } catch (e4) {}
-          }
-          if (!__hasWords) {
-            try {
-              if (window.localStorage && window.localStorage.getItem("wom.cms.codeBlessed")) __hasWords = true;
-            } catch (e5) {}
-          }
-          if (__hasWords) return;
-        }
       } catch (e) {}
       /* Shipped-update lock (office request: white blank instead of the
          notice): the wom-notes meta above names the running update, so the
@@ -220,7 +187,6 @@
               '<img src="/src/assets/logo-mark.png" alt="" aria-hidden="true" style="width:72px;height:72px;object-fit:contain;" onerror="this.style.display=\'none\'">' +
               "<h1 style=\"margin:0;font-size:2rem;font-weight:600;\">We&rsquo;ll be right back</h1>" +
               '<p style="margin:0;max-width:34rem;line-height:1.6;opacity:0.85;">The site is being updated. Please check back shortly.</p>' +
-'<p style="margin:0.5rem 0 0;opacity:0.75;font-size:0.9rem;">Update published? <button type="button" onclick="try{if(navigator.serviceWorker&&navigator.serviceWorker.getRegistration)navigator.serviceWorker.getRegistration().then(function(r){try{if(r)r.update()}catch(e){}})}catch(e){}window.location.reload()" style="margin-left:0.4rem;padding:0.35rem 0.9rem;border:1px solid #8a7a55;border-radius:999px;background:transparent;color:#f5f0e6;font:inherit;cursor:pointer;">Reload now</button></p>' +
               "</div>";
           } catch (e) {}
         })

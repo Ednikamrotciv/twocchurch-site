@@ -107,8 +107,8 @@ export function useLocalState<T>(key: string, initial: T) {
 /* Which shipped code is running here — the office can read it in
    version.json, and in the browser console as window.__womBuild. Bump NOTES with
    every SPEC note so a stale deploy is spotted, not guessed (note 244). */
-export const BUILD_NOTES = 425;
-export const BUILD_DATE = "2026-10-22";
+export const BUILD_NOTES = 422;
+export const BUILD_DATE = "2026-10-20";
 /* Unnumbered code identity (the stale fix ships with no new number): an opaque
    word naming the running code, compared by equality only — never ordered — so
    a stale cache can never invert it the way stale numbers did. An explicit
@@ -116,7 +116,7 @@ export const BUILD_DATE = "2026-10-22";
    word with EVERY behavior update: a changed word both retires stale bundles
    and stages a new deploy clean (a same word across rebuilds means continuity,
    so routine same-code rebuilds never wipe staged words). */
-export const CODE_ID = "publish426";
+export const CODE_ID = "clean422";
 export function buildStamp() {
   return { notes: BUILD_NOTES, built: BUILD_DATE, code: CODE_ID };
 }
@@ -132,12 +132,25 @@ let toastId = 1;
 const toastListeners = new Set<(t: ToastItem[]) => void>();
 let toasts: ToastItem[] = [];
 
+/* One-word toasts (office request: every notice is one word at most).
+   Central enforcement so every caller — publish, sign-in, uploads, visitor
+   saves — stays one word without touching 100+ call sites. First token only,
+   edge punctuation stripped, empty falls back to Done. */
+export function oneWordToast(message: string): string {
+  try {
+    const raw = String(message ?? "").trim();
+    if (!raw) return "Done";
+    const first = raw.split(/\s+/)[0] || "";
+    const clean = first.replace(/^[^\p{L}\p{N}]+|[^\p{L}\p{N}]+$/gu, "");
+    return clean || "Done";
+  } catch {
+    return "Done";
+  }
+}
+
 export function fireToast(message: string, kind: ToastKind = "info") {
-  /* Toasts are one word (office request): every popup reads at a glance on
-     any phone. Shortened at every call site; this truncation is the backstop
-     so a future or dynamic message can never run long. */
-  const short = String(message ?? "").split(/\s+/).filter(Boolean).slice(0, 1).join(" ");
-  const item = { id: toastId++, message: short, kind };
+  const one = oneWordToast(message);
+  const item = { id: toastId++, message: one, kind };
   toasts = [...toasts, item];
   toastListeners.forEach((fn) => fn(toasts));
   window.setTimeout(() => {

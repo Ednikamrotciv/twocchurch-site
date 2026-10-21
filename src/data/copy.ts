@@ -1017,12 +1017,12 @@ const HAND_PAGES: CopyPage[] = [
       /* Little messages that pop up from the shared helpers (src/lib/store.ts,
          src/lib/hooks.ts) when something is copied, downloaded or cannot be
          saved. {{name}} is filled in by the page. */
-      { id: "site.toastCopied", label: "Message — copied to clipboard", value: "Copied." },
-      { id: "site.toastLinkCopied", label: "Message — link copied", value: "Copied." },
-      { id: "site.toastDownloaded", label: "Message — file downloaded", value: "Downloaded." },
-      { id: "site.toastDownloadBlocked", label: "Message — download blocked", value: "Blocked." },
-      { id: "site.toastClipboardFailed", locked: true, label: "Message — copy failed", value: "Manual." },
-      { id: "site.toastStorageFull", locked: true, label: "Message — storage is full", value: "Full." },
+      { id: "site.toastCopied", label: "Message — copied to clipboard", value: "Copied to clipboard" },
+      { id: "site.toastLinkCopied", label: "Message — link copied", value: "Link copied" },
+      { id: "site.toastDownloaded", label: "Message — file downloaded", value: "Downloaded {{name}}" },
+      { id: "site.toastDownloadBlocked", label: "Message — download blocked", value: "Your browser blocked that download." },
+      { id: "site.toastClipboardFailed", locked: true, label: "Message — copy failed", value: "Couldn't access the clipboard — please copy manually." },
+      { id: "site.toastStorageFull", locked: true, label: "Message — storage is full", value: "Your device's storage is full — that change could not be saved." },
     ],
   },
 ];

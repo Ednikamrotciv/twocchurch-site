@@ -289,7 +289,7 @@ export function Admin() {
   useEffect(() => {
     if (!returnRec) return;
     clearAdminReturn();
-    fireToast("Welcome.", "info");
+    fireToast("Welcome back — everything is just as you left it.", "info");
   }, []);
 
   const exitToSite = () => {
@@ -345,8 +345,8 @@ export function Admin() {
 
   const undoEdit = () => {
     const res = cms.undoEdit();
-    if (res.ok) fireToast("Undone.", "info");
-    else fireToast("None.", "info");
+    if (res.ok) fireToast(`Took back your change to ${res.label}.`, "info");
+    else fireToast("There is nothing to take back.", "info");
   };
 
   const askWhatToChange = () => {
@@ -562,7 +562,7 @@ function EditBar({
               }
               cms.discardDraft();
               setConfirmDiscard(false);
-              fireToast("Discarded.", "info");
+              fireToast("Draft thrown away — the live site is untouched.", "info");
             }}
             title="Throw away every unsaved change"
           >
@@ -964,7 +964,7 @@ function UnsavedView({
   /* Delete takes it off the site for real; Put back only drops the unsaved edit. */
   const putBack = (edit: cms.PendingEdit) => {
     const res = cms.revertSection(edit.sectionId);
-    if (res.ok) fireToast("Restored.", "info");
+    if (res.ok) fireToast(`Put back — ${edit.label} is the way the live site has it.`, "info");
   };
 
   /* Delete removes it for real: additions that never went live are dropped,
@@ -976,11 +976,11 @@ function UnsavedView({
     const surgery = cms.dropAddedAndRevertedEdits(edit.sectionId);
     if (!surgery.ok) {
       const res = (cms as any).forceClearSection ? (cms as any).forceClearSection(edit.sectionId) : cms.revertSection(edit.sectionId);
-      if (res && res.ok) fireToast("Restored.", "info");
+      if (res && res.ok) fireToast(`Deleted — ${edit.label} is the way the live site has it.`, "info");
       else {
         const retry = cms.revertSection(edit.sectionId);
         fireToast(
-          "Restored.",
+          retry.ok ? `Deleted — ${edit.label} is the way the live site has it.` : `Deleted — ${edit.label} is already as the live site has it.`,
           "info"
         );
       }
@@ -988,22 +988,22 @@ function UnsavedView({
     }
     if (!surgery.removed) {
       cms.revertSection(edit.sectionId);
-      fireToast("Deleted.", "info");
+      fireToast("Deleted — it never went live, so the site is exactly as it was.", "info");
       return;
     }
     const pub = await cms.publishSection(edit.sectionId, `Deleted from ${edit.label}`);
     if (pub.ok) {
       fireToast(
         pub.local
-          ? "Queued."
+          ? "Deleted on this device — it leaves the site everywhere once the connection returns."
           : pub.live === false
-          ? "Deleted."
-          : "Deleted.",
+          ? "Deleted here — the live site follows within a minute."
+          : "Deleted — gone from the site everywhere.",
         pub.local || pub.live === false ? "info" : "success"
       );
     } else {
       fireToast(
-        "Failed.",
+        `Delete did not go through (${pub.error === "unauthorized" ? "sign in first" : pub.error}) — nothing left the site, and Undo takes back the cleanup.`,
         "error"
       );
     }
@@ -1233,7 +1233,7 @@ function PrayerPairBlock({
             className="pblock__reset"
             onClick={() => {
               cms.resetSection(def.id);
-              fireToast("Restored.", "info");
+              fireToast(`${def.label} is back to the original content (in your draft).`, "info");
             }}
           >
             Put this back to the original
@@ -1367,7 +1367,7 @@ function SectionBlock({
               className="pblock__reset"
               onClick={() => {
                 cms.resetSection(def.id);
-                fireToast("Restored.", "info");
+                fireToast(`${def.label} is back to the original content (in your draft).`, "info");
               }}
             >
               Put this back to the original
@@ -1459,7 +1459,7 @@ function ListBlock({
     const item = def.makeNewFor ? def.makeNewFor(list) : def.makeNew ? def.makeNew() : {};
     patch((next) => next.push(item));
     setOpenItem(list.length);
-    fireToast("Added.", "success");
+    fireToast("Added — fill in the details, then publish.", "success");
   };
 
   /* *Add a country* makes that country's first branch (note 81). */
@@ -1468,14 +1468,14 @@ function ListBlock({
     if (!spec?.makeCountry) return;
     const name = newCountry.trim();
     if (!name) {
-      fireToast("Name.", "error");
+      fireToast("Type the country's name first.", "error");
       return;
     }
     patch((next) => next.push(spec.makeCountry!(name)));
     setOpenItem(list.length);
     setNewCountry("");
     setAddForm(null);
-    fireToast(spec.countryToast || "Added.", "success");
+    fireToast(spec.countryToast || "Added — fill in the details, then publish.", "success");
   };
 
   /* Deleting a branch deletes everything gathered under it, so nothing orphans. */
@@ -1514,8 +1514,8 @@ function ListBlock({
     setOpenItem(null);
     fireToast(
       extra.length
-        ? "Removed."
-        : "Removed.",
+        ? `Removed, with its ${extra.length} sub-branch${extra.length === 1 ? "" : "es"} — publish to make it live.`
+        : "Removed — publish to make it live.",
       "info"
     );
   };

@@ -181,7 +181,7 @@ export function LoginGate({ onExit, onDone }: { onExit?: () => void; onDone?: ()
     }
     if (res.ok) {
       setPassword("");
-      fireToast("Welcome.", "info");
+      fireToast("Welcome back — you are signed in.", "info");
       onDone?.();
       return;
     }
@@ -208,7 +208,7 @@ export function LoginGate({ onExit, onDone }: { onExit?: () => void; onDone?: ()
       setNeedCode(false);
       setNeedQ("");
       setUseAnswer(false);
-      fireToast("Welcome.", "info");
+      fireToast("Welcome back — you are signed in.", "info");
       onDone?.();
       return;
     }
@@ -248,7 +248,7 @@ export function LoginGate({ onExit, onDone }: { onExit?: () => void; onDone?: ()
     if (res.ok) {
       setPassword("");
       setCode("");
-      fireToast("Welcome.", "info");
+      fireToast("Welcome back — you are signed in.", "info");
       onDone?.();
       return;
     }
@@ -282,7 +282,7 @@ export function LoginGate({ onExit, onDone }: { onExit?: () => void; onDone?: ()
       setConfirmPw("");
       setInviteName("");
       setInviteMode(false);
-      fireToast("Welcome.", "info");
+      fireToast(`Welcome, ${res.name || "sub-admin"} — you are signed in.`, "info");
       onDone?.();
       return;
     }
@@ -329,7 +329,7 @@ export function LoginGate({ onExit, onDone }: { onExit?: () => void; onDone?: ()
       }
       setSubPw("");
       setSubMode(false);
-      fireToast("Welcome.", "info");
+      fireToast(`Welcome back, ${res.role === "sub" ? res.name || "sub-admin" : "main admin"} — you are signed in.`, "info");
       onDone?.();
       return;
     }
@@ -338,6 +338,8 @@ export function LoginGate({ onExit, onDone }: { onExit?: () => void; onDone?: ()
         ? "The content server is not reachable from this page yet. Wait a moment and try again."
         : res.error === "rate"
         ? "Too many attempts from this connection. Please wait ten minutes and try again."
+        : cms.websiteIsUnsaved()
+        ? "That password was not recognised. This website is not saved yet, so a reload forgets sub-admins — save the website first, then create the invite code again."
         : "That password was not recognised."
     );
     setSubPw("");
@@ -565,7 +567,7 @@ function LiveSiteRow() {
       const r = await cms.submitLivePassword(pw);
       setMsg(r.msg);
       if (r.ok) setPw("");
-      fireToast(r.ok ? "Saved." : r.msg, r.ok ? "success" : "error");
+      fireToast(r.msg, r.ok ? "success" : "error");
     } catch {
       setMsg("Could not send — retrying in the background.");
     }
@@ -576,7 +578,7 @@ function LiveSiteRow() {
     setBusy(true);
     try {
       const done = await cms.retryLiveNow();
-      const m = done ? "Updated." : "Retrying.";
+      const m = done ? "Live site updated with your publish." : "Still owed to the live site — retrying in the background.";
       setMsg(m);
       fireToast(m, done ? "success" : "info");
     } catch {
@@ -809,7 +811,7 @@ function ClearLogButton() {
         setBusy(true);
         const res = await cms.clearLog();
         setBusy(false);
-        fireToast(res.ok ? "Cleared." : "Failed.", res.ok ? "success" : "error");
+        fireToast(res.ok ? "Publish history cleared. Recording starts fresh from your next publish." : `Could not clear history: ${res.error || "error"}`, res.ok ? "success" : "error");
       }}>
         {armed ? "Click again to confirm" : "Clear history"}
       </Btn>
@@ -999,7 +1001,7 @@ export function GuestTransportButtons() {
   const play = () => {
     const latest = cms.getDraft().live || {};
     if (!String((latest as any).externalYoutubeChannel || "").trim()) {
-      fireToast("Guest.", "info");
+      fireToast("Type the guest channel first — there is no guest to override.", "info");
       return;
     }
     write({ guestIsLive: true, guestCommandAt: Date.now() });
@@ -1125,7 +1127,7 @@ export function RecentServicesPanel() {
   };
   const takeOff = (id: string) => {
     writeHidden([...hiddenIds, id]);
-    fireToast("Removed.", "info");
+    fireToast("Taken off the site. Publish to make it hold for everyone.", "info");
   };
   const putBack = (id: string) => writeHidden(hiddenIds.filter((x) => x !== id));
 
@@ -1135,7 +1137,7 @@ export function RecentServicesPanel() {
   const resetChannel = () => {
     const latest = cms.getDraft().live || {};
     cms.setSectionValue("live", { ...latest, youtubeChannel: "@twocorg" });
-    fireToast("Reset.", "success");
+    fireToast("Channel reset to @twocorg — Review and publish to put it live. The old list clears out as @twocorg's services arrive.", "success");
   };
   const when = (it: any) => (it.at ? fmtDate(new Date(it.at), "long") : it.ago || "Recently");
 
@@ -1408,9 +1410,9 @@ function DeleteUpload({ url, what, onGone }: { url: string; what: string; onGone
     try {
       await deleteHostFile(name);
       onGone();
-      fireToast("Deleted.", "success");
+      fireToast(`${what} deleted from the office — publish to take it off the site.`, "success");
     } catch (err) {
-      fireToast("Failed.", "error");
+      fireToast(err instanceof Error ? err.message : "It could not be deleted.", "error");
     }
     setBusy(false);
   };
@@ -1447,7 +1449,7 @@ export function PhotoUpload({ onDone, frame }: { onDone: (url: string) => void; 
       } catch {}
       onDone(url);
       fireToast(
-        "Ready.",
+        forSlide ? "Picture fitted to the slide — publish to put it on the site." : "Photo ready — publish to put it on the site.",
         "success"
       );
     } catch (err) {
@@ -1495,7 +1497,7 @@ export function VideoUpload({ onDone }: { onDone: (url: string) => void }) {
         if (kept) cacheUploadBlob(kept, file).catch(() => {});
       } catch {}
       onDone(url);
-      fireToast("Ready.", "success");
+      fireToast("Video ready — publish to put it on the site.", "success");
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -1637,7 +1639,7 @@ function ImageField({
         if (kept) cacheUploadBlob(kept, framed).catch(() => {});
       } catch {}
       onChange(fittedUrl);
-      fireToast("Set.", "success");
+      fireToast("Picture set into the slide — publish to put it on the site.", "success");
     } catch (err) {
       setFitError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -2070,23 +2072,17 @@ export async function runPublishAction(
     const changed = cms.pendingSections();
     const note = noteInput || defaultNote(changed);
     /* One-click publish: either the bottom-bar Publish or the dialog's
-       Publish now alone finishes the job — no second click, no save gate
-       (standalone: no website-save step — Publish goes straight live). */
-    /* Never publish with the wrong stamp: a stale tab on the previous deploy
-       would bless the OLD deploy id, leaving the new deploy's visitors
-       waiting until somebody publishes again. Reload onto the new code first
-       instead — the next click then stamps the deploy visitors run. */
+       Publish now alone finishes the job — no second click, no save gate.
+       (websiteIsUnsaved is always false now; the old save-first branch is
+       retired.) */
+    /* One-click from any deploy (office request: one Publish click works
+       everywhere, no second click): even a stale tab publishes straight
+       through — the publish stamps the live deploy it relays to (officeStamp)
+       and the build-time witness lifts every deploy built before its clock,
+       so no reload-then-click-again is ever needed. Still kick the stale
+       check so this tab converges onto the new code right after. */
     try {
       await cms.checkStaleBuild().catch(() => {});
-    } catch {}
-    try {
-      if (cms.isStaleWaiting()) {
-        fireToast("Reloading.", "info");
-        try {
-          window.location.reload();
-        } catch {}
-        return false;
-      }
     } catch {}
     onPhase?.("publishing");
     const res = await cms.publish(note);
@@ -2096,18 +2092,18 @@ export async function runPublishAction(
          rebuild — no maintenance hold to clear with a second click. */
       fireToast(
         res.local
-          ? "Saved."
+          ? "Saved on this device. The shared server was unreachable, so other visitors follow when it returns — no second click needed."
           : res.live === false
-          ? res.relayMsg || "Published."
-          : "Published.",
+          ? res.relayMsg || "Published here. The live site follows within a minute — no second click needed."
+          : "Published. Every visitor sees the new content right away — no second click needed.",
         res.local || res.live === false ? "info" : "success"
       );
       return true;
     }
     fireToast(
       res.error === "unauthorized"
-        ? "Expired."
-        : "Failed.",
+        ? "Your session expired — unlock the console again, then publish."
+        : `Could not publish (${res.error}). Nothing on the site changed.`,
       "error"
     );
     return false;
@@ -2116,7 +2112,7 @@ export async function runPublishAction(
        failure that rejects instead of returning {ok:false}) reports and
        releases, so the buttons never stick on "Publishing…". */
     console.error("publish failed", err);
-    fireToast("Failed.", "error");
+    fireToast("Could not publish (connection error). Nothing on the site changed.", "error");
     return false;
   }
 }
@@ -2199,7 +2195,13 @@ export function PublishModal({
             Cancel
           </Btn>
           <Btn icon="send" onClick={submit} disabled={busy || saving}>
-            {busy ? "Publishing…" : "Publish now"}
+            {saving
+              ? "Saving the website…"
+              : busy
+              ? "Publishing…"
+              : !changed.length && unsaved
+              ? "Save the website"
+              : "Publish now"}
           </Btn>
         </>
       }
@@ -2259,7 +2261,7 @@ export function PublishModal({
                 if (r.ok) {
                   setLivePw("");
                   setNote("");
-                  fireToast("Saved.", "success");
+                  fireToast(r.msg, "success");
                   onClose();
                 } else {
                   fireToast(r.msg, "error");
@@ -2316,11 +2318,11 @@ export function ToolsPage() {
     const res = await cms.undoLastPublish();
     setBusy(false);
     if (!res.ok) {
-      fireToast("Failed.", "error");
+      fireToast(`Could not roll back (${res.error}).`, "error");
     } else if (res.live === false) {
-      fireToast("Undone.", "info");
+      fireToast("Rolled back here. The live site follows within a minute.", "info");
     } else {
-      fireToast("Undone.", "success");
+      fireToast("Rolled back to the previous revision.", "success");
     }
   };
   /* The ~15-minute server undo window counts down live while it is open. */
@@ -2361,16 +2363,16 @@ export function ToolsPage() {
         if (Array.isArray(missing) && missing.length) {
           const names = missing.map((m: any) => String(m)).slice(0, 3).join(", ");
           fireToast(
-            "Partial.",
+            `Backup downloaded, but ${missing.length} uploaded ${missing.length === 1 ? "file is" : "files are"} missing from it (${names}${missing.length > 3 ? "…" : ""}) — those will be blank after a restore. Publish first (or re-upload them), then back up again.`,
             "error"
           );
         }
       } catch {
         /* the file still downloaded — the count is only a nicety */
       }
-      fireToast("Downloaded.", "success");
+      fireToast(`Backup downloaded — the latest published content${extra}.`, "success");
     } catch {
-      fireToast("Failed.", "error");
+      fireToast("Could not build the backup.", "error");
     }
     setBusy(false);
   };
@@ -2383,7 +2385,7 @@ export function ToolsPage() {
     try {
       const res = await cms.importBackup(await file.text());
       if (!res.ok) {
-        fireToast("Failed.", "error");
+        fireToast(`Could not restore (${res.error}).`, "error");
       } else {
         const n = res.restored?.length || 0;
         const left = res.skipped?.length || 0;
@@ -2399,10 +2401,15 @@ export function ToolsPage() {
         const guestBit = res.guestCleared
           ? ` Guest channel in the backup was ${res.guestCleared} — cleared, since every update arrives with an empty guest slot (paste it back in the Live stream console if that event is still on).`
           : "";
-        fireToast("Restored.", "success");
+        fireToast(
+          left
+            ? `Brought back ${n} ${n === 1 ? "section" : "sections"} — review, then Publish. ${left} ${left === 1 ? "section" : "sections"} from the backup no longer exist in this update and ${left === 1 ? "was" : "were"} left out.${imgBit}${missBit}${chanBit}${guestBit}`
+            : `Brought back ${n} ${n === 1 ? "section" : "sections"} — review, then Publish to put it live.${imgBit}${missBit}${chanBit}${guestBit}`,
+          "success"
+        );
       }
     } catch {
-      fireToast("Unreadable.", "error");
+      fireToast("Could not read that file.", "error");
     }
     setBusy(false);
     if (restoreRef.current) restoreRef.current.value = "";
@@ -2440,7 +2447,7 @@ export function ToolsPage() {
             icon="lock"
             onClick={() => {
               cms.logout();
-              fireToast("Bye.", "info");
+              fireToast("Signed out — sign in again to keep editing.", "info");
             }}
           >
             Sign out
@@ -2576,7 +2583,7 @@ function Authenticator() {
       setChA("");
       setProof("");
       setStatus({ enabled: false, hasQ: false, q: "" });
-      fireToast("Off.", "info");
+      fireToast("Two-factor is off — the password alone signs in again.", "info");
       refresh();
     } else {
       setError(
@@ -2601,7 +2608,7 @@ function Authenticator() {
       setVerify("");
       setQuestion("");
       setAnswer("");
-      fireToast("On.", "info");
+      fireToast("Two-factor is on — the security question is saved.", "info");
       refresh();
       return;
     }
@@ -2628,7 +2635,7 @@ function Authenticator() {
       setChQ("");
       setChA("");
       setProof("");
-      fireToast("Updated.", "info");
+      fireToast("Security question updated.", "info");
       refresh();
       return;
     }
@@ -2884,7 +2891,7 @@ function ChangePassword() {
     setBusy(false);
     if (res.ok) {
       close();
-      fireToast("Changed.", "info");
+      fireToast("Password changed — use the new one from now on.", "info");
       return;
     }
     if (res.error === "need-2fa") setTwo({ on: false, q: "" });
@@ -2997,9 +3004,9 @@ export function MainSigninState() {
           setBusy(false);
           if (res.ok) {
             setOff(false);
-            fireToast("On.", "success");
+            fireToast("Main password sign-in is back on.", "success");
           } else {
-            fireToast("Failed.", "error");
+            fireToast("Could not switch it back on — please try again.", "error");
           }
         }}
       >
@@ -3021,8 +3028,18 @@ function SubAdmins() {
   const [name, setName] = useState("");
   const [busy, setBusy] = useState(false);
   const [freshCode, setFreshCode] = useState<{ name: string; code: string } | null>(null);
-  /* Standalone: invites live on the shared content server — no save step. */
-  const [saving] = useState(false);
+  /* While the website is unsaved the preview server forgets invites on
+     reload — so opening this card saves it automatically, once per visit.
+     After the save + reload everything here works on every tab and device. */
+  const [saving, setSaving] = useState(false);
+  useEffect(() => {
+    if (!cms.websiteIsUnsaved()) return;
+    try {
+      if (sessionStorage.getItem("wom.cms.autosave-once")) return;
+      sessionStorage.setItem("wom.cms.autosave-once", "1");
+    } catch {}
+    if (cms.requestWebsiteSave()) setSaving(true);
+  }, []);
 
   const refresh = async () => {
     const roster = await cms.listAdmins();
@@ -3069,26 +3086,26 @@ function SubAdmins() {
   const removeSub = async (sub: string) => {
     const res = await cms.deleteSub(sub);
     if (res.ok) {
-      fireToast("Removed.", "info");
+      fireToast(`${sub} can no longer sign in.`, "info");
       refresh();
     } else {
-      fireToast("Failed.", "error");
+      fireToast("Could not delete that sub-admin — please try again.", "error");
     }
   };
 
   const revoke = async (sub: string) => {
     const res = await cms.revokeInvite(sub);
     if (res.ok) refresh();
-    else fireToast("Failed.", "error");
+    else fireToast("Could not revoke that invite — please try again.", "error");
   };
 
   const copyCode = async () => {
     if (!freshCode) return;
     try {
       await navigator.clipboard.writeText(cms.formatInviteCode(freshCode.code));
-      fireToast("Copied.", "success");
+      fireToast(`Copied — share it with ${freshCode.name}.`, "success");
     } catch {
-      fireToast("Long-press.", "error");
+      fireToast("Copying failed — long-press the code to copy it by hand.", "error");
     }
   };
 
@@ -3098,7 +3115,12 @@ function SubAdmins() {
         <Icon name="people" size={16} /> Sub-admins
       </h4>
       <p>Invite others to sign in and edit just like you. An invite code works once and expires after 7 days.</p>
-      {saving && null}
+      {saving && (
+        <Notice tone="gold">
+          <b>Saving the website…</b> Invites need it saved once — the page reloads, then everything here works
+          everywhere. If it stays unsaved, press Save in the editor yourself.
+        </Notice>
+      )}
       {error && <p className="muted">{error}</p>}
       {(subs.length > 0 || invites.length > 0) && (
         <ul className="admin__roster">
