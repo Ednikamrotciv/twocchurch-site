@@ -179,10 +179,12 @@ export function Admin() {
   const waiting = cms.maintenanceShouldWait();
 
 
-  /* Linked publish: the bottom-bar Publish button and the dialog's Publish
-     now button both run performPublish — either one alone finishes it in one
-     click for every visitor (unlimited browsers/devices), instead of needing
-     both clicks. */
+  /* Attached publish rule, retained (note 431): the bottom-bar Publish button
+     and the dialog's Publish now button share the one publish pipeline —
+     either one alone finishes it in one click for every visitor (unlimited
+     browsers/devices) through runPublishAction → cms.publish, so Publish and
+     Publish now do the same thing. No-change Publish still blesses this
+     deploy through the same bless-only sendPatch every publish rides. */
   const performPublish = async (noteInput = "", _fromDialog = false): Promise<boolean> => {
     if (publishing || publishSaving) return false;
     /* Sign-in first (office request): nothing publishes signed out — open

@@ -2256,5 +2256,20 @@ const notes = Number((text["src/lib/hooks.ts"].match(/BUILD_NOTES = (\d+)/) || [
   } catch (e) {
     ok("adopt-feed suite", false, String((e && e.message) || e).slice(0, 200));
   }
+  /* LLL. attached publish rule + first publish clears every new deploy (note 431):
+     Publish and Publish now share the one pipeline, the notice holds on every
+     fresh deploy id until the first Publish, and each new deploy wipes old
+     wakes and opens unsaved-clean. */
+  const adminLLL = text["src/pages/Admin.tsx"];
+  const edLLL = text["src/components/editor.tsx"];
+  const cmsLLL = text["src/lib/cms.ts"];
+  const buildLLL = text["scripts/build-static.mjs"];
+  const srvLLL = text["scripts/cms-server.js"];
+  ok("one publish pipeline", has(edLLL, "export async function runPublishAction(") && has(adminLLL, "runPublishAction(noteInput") && has(adminLLL, "onPublish={(note) => performPublish(note, true)}"), "Publish and Publish now must share runPublishAction → cms.publish");
+  ok("no-change publish still blesses", has(cmsLLL, "a no-change Publish still blesses THIS deploy"), "the first click must clear even with nothing changed");
+  ok("empty bless stamps the deploy", has(srvLLL, 'if (!ids.length && !notes) return fail("empty")') && has(srvLLL, "PUBLISH_DEPLOY = deploy"), "a notes-only publish must move the stamp");
+  ok("every build holds fresh", has(buildLLL, "const DEPLOY_ID =") && has(buildLLL, "hold: true, deployId"), "each deploy must ship a fresh id on hold");
+  ok("new deploy wipes old wakes", has(cmsLLL, "function wipeOldWakes(): void") && has(cmsLLL, "New deploy wipes old wakes"), "a retired shell must never serve the previous deploy");
+  ok("new deploy opens unsaved-clean", has(cmsLLL, "Every new deploy starts unsaved-clean") && has(cmsLLL, 'localStorage.removeItem(PENDING_KEY)'), "draft + pending clear once per deploy");
   return out.join("\n");
 }

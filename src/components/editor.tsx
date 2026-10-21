@@ -2070,10 +2070,10 @@ export function FieldControl({
 
 /* ---------------------------------------------------------- publish modal */
 
-/* The ONE publish action both buttons share: the bottom-bar Publish button
-   and this dialog's Publish now button run this same function, so the two
-   always perform the same action (save-first on a fresh deploy, then
-   publish, with the same activity-log note and the same result toasts).
+/* The ONE publish action both buttons share (attached publish rule, note 431):
+   the bottom-bar Publish button and this dialog's Publish now button run this
+   same function, so Publish and Publish now do the same thing — one
+   cms.publish pipeline, same activity-log note, same result toasts.
    Returns true when the caller should clear + close, false when it should
    stay open and show the save hint. Clicks are serialized by the callers'
    shared busy flags (both buttons disable together), so this helper itself
