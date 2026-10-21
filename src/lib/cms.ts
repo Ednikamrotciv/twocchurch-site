@@ -2135,15 +2135,44 @@ export function setPhotoValue(slotKey: string, value: string) {
 /* ------------------------------------------------------------------ socket */
 
 function socketFactory(): (() => any) | null {
-  /* Local runs: the dev/production server injects its own same-origin socket
-     (scripts/local-shim.js) — sign-in, publishing, uploads, live updates. */
+  /* Shared production backend always wins (note 435): every visitor reads the
+     baked/shared backend, so every publish must land there — never on a
+     same-machine disk that only this browser can see. The old order preferred
+     the same-origin shim first, so an office PC (localhost:5173) published to
+     its own disk while visitors on the live host read another disk: the click
+     cleared only the browser it was tapped in. Now the configured remote (baked
+     server.json meta or typed override) is used whenever it names a different
+     origin; on the shared host itself both doors point at the same store, so
+     the same-origin door is kept for speed. With no remote configured the
+     same-origin door is still the store (pure local dev, pure static hosts). */
+  const remote = serverUrl();
+  if (remote) {
+    try {
+      const origin = typeof window !== "undefined" && (window as any).location ? (window as any).location.origin : "";
+      if (origin && origin !== remote) return () => createRemoteSocket(remote);
+    } catch {}
+    try {
+      const w = window as any;
+      if (typeof w.createServerSocket === "function") return () => w.createServerSocket();
+    } catch {}
+    return () => createRemoteSocket(remote);
+  }
   const w = window as any;
   if (typeof w.createServerSocket === "function") return () => w.createServerSocket();
-  /* A deployed copy pointed at the office server (baked in at deploy time or
-     typed into the admin console): the same shared store, over plain HTTPS. */
-  const remote = serverUrl();
-  if (remote) return () => createRemoteSocket(remote);
   return null;
+}
+
+/* Where this copy's words live (note 435): the shared backend when one is
+   configured (serverUrl), else this origin. Every backend file read/write
+   (uploads, restores, heals) must use this base — a relative fetch on an
+   office PC would hit the office disk while the words live on the shared
+   production disk, stranding photos and breaking the single-source promise. */
+function officeDiskBase(): string {
+  try {
+    const remote = serverUrl();
+    if (remote && /^https?:\/\/[^/\s]+$/i.test(remote)) return remote;
+  } catch {}
+  return "";
 }
 
 /* The baked snapshot, painted once — the instant words behind every first
@@ -2420,9 +2449,18 @@ async function liveBaseUrl(): Promise<string> {
           const data = await res.json().catch(() => null);
           const u = String((data && data.url) || "").trim().replace(/\/+$/, "");
           if (/^https?:\/\/[^/\s]+$/i.test(u)) return u;
-          /* Our backend IS live: the durable publish already landed there —
-             nothing to reach. */
-          if (!u) return "";
+          /* The joined backend says it IS live (note 435): when this page is
+             served from that same backend the durable publish already landed
+             there — nothing to reach. But an office PC (localhost) joined to
+             the live host is NOT live itself — its local disk is not the
+             shared store — so live IS the joined backend and the relay must
+             carry the words there, or the publish clears only this browser. */
+          if (!u) {
+            try {
+              if (typeof window !== "undefined" && (window as any).location && (window as any).location.origin === joined) return "";
+            } catch {}
+            return joined;
+          }
         }
       } catch {
         /* joined backend silent — fall through to this origin's door */
@@ -2605,7 +2643,8 @@ async function backfillUploadsFrom(fromBase: string, content: Snapshot = overrid
   for (const name of localUploadNames(content)) {
     let here = false;
     try {
-      const res = await fetch("/data/uploads/" + name, { cache: "no-store" });
+      const diskBase = officeDiskBase();
+      const res = await fetch(diskBase + "/data/uploads/" + name, { cache: "no-store" });
       here = res.ok;
     } catch {
       here = false;
@@ -2616,7 +2655,8 @@ async function backfillUploadsFrom(fromBase: string, content: Snapshot = overrid
       if (!res.ok) throw 0;
       const blob = await res.blob();
       if (!blob.size || blob.size > BACKUP_FILE_MAX_BYTES) throw 0;
-      const put = await fetch("/__restore-file?conn=" + encodeURIComponent(officeFileConn()) + "&name=" + encodeURIComponent(name), {
+      const diskBase2 = officeDiskBase();
+      const put = await fetch(diskBase2 + "/__restore-file?conn=" + encodeURIComponent(officeFileConn()) + "&name=" + encodeURIComponent(name), {
         method: "POST",
         headers: { "content-type": blob.type || guessUploadType(name) },
         body: blob,
@@ -2643,7 +2683,8 @@ async function uploadNameMissing(name: string): Promise<boolean> {
      missing" and let the cached copy paint; the next online heal restores. */
   try {
     if (typeof navigator !== "undefined" && (navigator as any).onLine === false) return false;
-    const res = await fetch("/data/uploads/" + name, { cache: "no-store" });
+    const diskBase = officeDiskBase();
+    const res = await fetch(diskBase + "/data/uploads/" + name, { cache: "no-store" });
     if (!res.ok) return true;
     const type = String(res.headers.get("content-type") || "").toLowerCase();
     if (type.includes("text/html")) return true;
@@ -2696,7 +2737,8 @@ export async function healMissingUploads(): Promise<{ restored: number; checked:
           }
         }
         if (!blob || !(blob as any).size) continue;
-        const put = await fetch("/__restore-file?conn=" + encodeURIComponent(officeFileConn()) + "&name=" + encodeURIComponent(name), {
+        const diskBaseHeal = officeDiskBase();
+        const put = await fetch(diskBaseHeal + "/__restore-file?conn=" + encodeURIComponent(officeFileConn()) + "&name=" + encodeURIComponent(name), {
           method: "POST",
           headers: { "content-type": (blob as any).type || guessUploadType(name) },
           body: blob,
@@ -5731,7 +5773,8 @@ function relayUploadsToLive(sections: Record<string, string | null>): void {
       const names = localUploadNames(sections).slice(0, 30);
       for (const name of names) {
         try {
-          const got = await fetch("/data/uploads/" + name, { cache: "no-store" });
+          const diskBaseRelay = officeDiskBase();
+          const got = await fetch(diskBaseRelay + "/data/uploads/" + name, { cache: "no-store" });
           if (!got.ok) continue;
           const blob = await got.blob();
           if (!blob || !blob.size || blob.size > 90 * 1024 * 1024) continue;

@@ -2306,5 +2306,22 @@ const notes = Number((text["src/lib/hooks.ts"].match(/BUILD_NOTES = (\d+)/) || [
   ok("waking backends are kept", has(remoteOOO, "if (alive || !fast) return false;"), "a slow answer must never abandon the configured backend");
   ok("boot adopts same-origin", has(cmsOOO, "await adoptSameOrigin()"), "fresh copies must join the host backend before first connect");
   ok("failures count toward re-home", has(cmsOOO, "function noteConnectFailure()") && has(cmsOOO, "backendFailures = 0;"), "repeated failures must trigger exactly one re-home check");
+  /* PPP. one Publish lands on shared production (note 435): the office PC no
+     longer publishes to its own disk while visitors read shared — the shared
+     backend wins, file doors use it, and an office PC relays to it. */
+  const cmsPPP = text["src/lib/cms.ts"];
+  ok("shared backend wins", has(cmsPPP, "Shared production backend always wins (note 435)") && has(cmsPPP, "if (origin && origin !== remote) return () => createRemoteSocket(remote)"), "an office PC must publish to the store every visitor reads");
+  ok("file doors use shared base", has(cmsPPP, "function officeDiskBase()") && has(cmsPPP, "officeDiskBase();"), "uploads/restores must land where the words live");
+  ok("office PC relays to shared", has(cmsPPP, "so live IS the joined backend"), "a local publish must still reach the shared backend");
+  ok("deploy hold still locked", has(cmsPPP, "if (publishedDeployId === currentDeployId) return false;"), "a new deploy must still wait until Publish");
+  ok("sign-in survives deploy", has(cmsPPP, "function clearSession()") && !has(cmsPPP, "resetLocalCopy(): void {\n    clearSession"), "a deploy must never end the admin session");
+  /* QQQ. local works too (note 436): shared first, same-machine fallback —
+     uploads/deletes try shared then local on transport failure only. */
+  const edQQQ = text["src/components/editor.tsx"];
+  ok("uploads try shared first", has(edQQQ, "let base = serverUrl();") && has(edQQQ, "Local still works (note 435)"), "uploads must target shared before falling back");
+  ok("uploads fall back local", has(edQQQ, "if (!base || !isLocalHost()) throw e;"), "a sleeping shared backend must not strand office files");
+  ok("deletes fall back local", has(edQQQ, "Local still works (note 435): transport failures fall back"), "deletes must survive a sleeping shared backend");
+  ok("local-only publish kept", has(cmsPPP, "return { ok: true, local: true };"), "an unreachable shared backend must still lift this device with a queue");
+  ok("flush lands queued words", has(cmsPPP, "export async function flushPending()"), "queued words must ride to shared on reconnect");
   return out.join("\n");
 }
