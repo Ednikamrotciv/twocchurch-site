@@ -34,6 +34,7 @@ const FILES = [
   ["scripts/seed-fallback.mjs", "js"],
   ["src/lib/cms.ts", "ts"],
   ["src/lib/livestatus.ts", "ts"],
+  ["src/lib/remoteserver.ts", "ts"],
   ["src/lib/embed.ts", "ts"],
   ["src/lib/recentstreams.ts", "ts"],
   ["src/pages/WatchLive.tsx", "tsx"],
@@ -2295,5 +2296,15 @@ const notes = Number((text["src/lib/hooks.ts"].match(/BUILD_NOTES = (\d+)/) || [
   ok("unsaved opens clean and new", has(cmsNNN, "localStorage.removeItem(DRAFT_KEY);") && has(cmsNNN, "localStorage.removeItem(PENDING_KEY);"), "draft + pending clear once per deploy");
   ok("new deploy ships new and empty", has(buildNNN, "const DEPLOY_ID =") && has(text["clean-deploy.txt"], "ships no words"), "each deploy must look new with a fresh id and clean words");
   ok("apply leads with hold-then-clear", has(applyNNN, "APPLY THIS UPDATE (428)"), "the checklist must open with the hold-then-clear rule");
+  /* OOO. stranded visitors join the host backend (note 434): a dead baked
+     address never strands remote copies — same-origin joins at boot and in
+     every re-resolve, and repeated connect failures re-home once per boot. */
+  const remoteOOO = text["src/lib/remoteserver.ts"];
+  const cmsOOO = text["src/lib/cms.ts"];
+  ok("same-origin probe exists", has(remoteOOO, "function sameOriginRoot()") && has(remoteOOO, "export async function adoptSameOrigin("), "the host backend must be joinable with no baked address");
+  ok("failure re-home exists", has(remoteOOO, "export async function maybeRehomeAfterFailure(") && has(remoteOOO, "rehomedThisBoot"), "a dead baked address must retire at most once per boot");
+  ok("waking backends are kept", has(remoteOOO, "if (alive || !fast) return false;"), "a slow answer must never abandon the configured backend");
+  ok("boot adopts same-origin", has(cmsOOO, "await adoptSameOrigin()"), "fresh copies must join the host backend before first connect");
+  ok("failures count toward re-home", has(cmsOOO, "function noteConnectFailure()") && has(cmsOOO, "backendFailures = 0;"), "repeated failures must trigger exactly one re-home check");
   return out.join("\n");
 }

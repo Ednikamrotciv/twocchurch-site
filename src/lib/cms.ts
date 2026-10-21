@@ -9,7 +9,7 @@ import { SLIDES, purgeExpiredSlides } from "../data/slides";
 import { purgeExpiredAnnouncements } from "../data/announcements";
 import { fmtDate } from "./store";
 import { fireToast } from "./hooks";
-import { createRemoteSocket, initServerUrl, refreshServerUrl, serverOverride, serverUrl, setServerOverride } from "./remoteserver";
+import { createRemoteSocket, initServerUrl, refreshServerUrl, serverOverride, serverUrl, setServerOverride, adoptSameOrigin, maybeRehomeAfterFailure } from "./remoteserver";
 import { applyBakedRecent, clearRecentCaches } from "./recentstreams";
 import { bakedFeedSpec, feedIsNewer, peekSeed, siteFile, type FeedSeed, type FeedSpec } from "./livefeed";
 import { BUILD_NOTES, CODE_ID } from "./hooks";
@@ -1089,6 +1089,11 @@ export function officeFileConn(): string {
 }
 let reconnectTimer = 0;
 let reconnectAttempt = 0;
+/* Consecutive connect failures (note 434): after several in a row the baked
+   address is re-validated once per boot — a fast refusal means it is dead
+   and a serving same-origin backend takes over, while a slow answer means
+   the backend is merely waking and is kept. */
+let backendFailures = 0;
 let starting = false;
 let localOnly = false;
 
@@ -3226,6 +3231,12 @@ export async function startCms() {
   /* Which shared store, if any: the local backend, or the office
      server this copy was pointed at (deploy config or admin console). */
   await initServerUrl().catch(() => {});
+  /* Same-origin backend (note 434): join the host's own backend when it
+     serves one, so a dead baked address never strands remote visitors on
+     the notice — one publish then reaches every copy. */
+  try {
+    if (await adoptSameOrigin().catch(() => false)) notify();
+  } catch {}
 
   /* Read the stored draft first: applying the cache below writes a draft, which would bury it. */
   const storedDraft = readJSON<{ rev: number; content: Snapshot; dirty?: Record<string, true> } | null>(DRAFT_KEY, null);
@@ -3606,6 +3617,7 @@ function connect() {
     status = "offline";
     connNote = String((err as any)?.message || err || "could not open the server").slice(0, 120);
     notify();
+    noteConnectFailure();
     scheduleReconnect();
     settleInitialSync();
     return;
@@ -3631,6 +3643,7 @@ function connect() {
         return;
       }
       reconnectAttempt = 0;
+      backendFailures = 0;
       status = "online";
       connNote = "";
       notify();
@@ -3670,6 +3683,7 @@ function connect() {
       status = "offline";
       connNote = String(err?.message || err || "unreachable").slice(0, 120);
       notify();
+      noteConnectFailure();
       scheduleReconnect();
       console.warn("cms: server unavailable", err?.message || err);
       settleInitialSync();
@@ -3891,6 +3905,26 @@ function onClose(event: any) {
   notify();
   startFeed();
   scheduleReconnect();
+}
+
+/* A failed connect counts toward the re-home check (note 434): after several
+   failures in a row the dead baked address is swapped once per boot for a
+   serving same-origin backend, then this copy joins at once. Never throws. */
+function noteConnectFailure(): void {
+  try {
+    backendFailures += 1;
+    if (backendFailures !== 3) return;
+    void maybeRehomeAfterFailure()
+      .then((moved) => {
+        if (!moved) return;
+        backendFailures = 0;
+        notify();
+        try {
+          connect();
+        } catch {}
+      })
+      .catch(() => {});
+  } catch {}
 }
 
 function scheduleReconnect() {

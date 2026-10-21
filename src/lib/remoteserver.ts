@@ -78,7 +78,19 @@ export async function refreshServerUrl(): Promise<string> {
     if (!cached) {
       const local = rememberedLocalOffice();
       if (local) cached = local;
-      else cached = (await probeLocalOffice().catch(() => "")) || "";
+      else {
+        /* Same-origin backend first (note 434): the host serving this page is
+           awake by definition, and it may serve /__cms even when no address
+           was ever baked in. Pure static hosts answer no JSON here, so the
+           probe stays negative there and nothing changes. */
+        try {
+          const origin = sameOriginRoot();
+          if (origin && (await probeCandidate(origin, 2200).catch(() => false))) cached = origin;
+          else cached = (await probeLocalOffice().catch(() => "")) || "";
+        } catch {
+          cached = (await probeLocalOffice().catch(() => "")) || "";
+        }
+      }
     }
     return cached;
   } catch {
@@ -92,6 +104,75 @@ export async function refreshServerUrl(): Promise<string> {
 export function serverUrl(): string {
   if (!cached) cached = serverMeta();
   return cached || serverOverride();
+}
+
+/* ------------------------------------------------- same-origin backend */
+
+/* A host that serves the site through scripts/serve.mjs answers /__cms on
+   its own origin (note 434) — the page is already talking to that machine,
+   so it is awake by definition. This is the fallback that keeps visitor
+   copies joined when the baked office address is dead (typo'd, retired) or
+   was never baked in: one publish then still reaches every visitor instead
+   of stranding remote phones and desktops on the notice. Pure static hosts
+   answer no JSON here, so the probe stays negative there and nothing
+   changes. A slow answer (a waking host) counts as unknown, never as dead —
+   the baked address is only retired on a fast, definitive refusal, so a
+   sleeping backend is woken and kept, never abandoned. */
+function sameOriginRoot(): string {
+  try {
+    if (typeof window === "undefined" || !window.location) return "";
+    const o = window.location.origin;
+    if (!/^https?:\/\/[^/\s]+$/i.test(o)) return "";
+    return o;
+  } catch { return ""; }
+}
+
+/** One-shot join: leave a configured address alone, else join a same-origin
+    backend when this host serves one. Never throws. */
+export async function adoptSameOrigin(timeoutMs = 2200): Promise<boolean> {
+  try {
+    if (serverOverride()) return false;
+    await initServerUrl();
+    if (cached) return false;
+    const origin = sameOriginRoot();
+    if (!origin) return false;
+    if (await probeCandidate(origin, timeoutMs).catch(() => false)) {
+      cached = origin;
+      return true;
+    }
+    return false;
+  } catch { return false; }
+}
+
+/** After repeated connect failures, re-home once per boot: a baked address
+    that refuses fast is dead (typo'd/retired) — join the same-origin backend
+    when this host serves one. A slow answer is a waking backend, so it is
+    kept. Never throws; true when the cached address changed. */
+let rehomedThisBoot = false;
+export async function maybeRehomeAfterFailure(): Promise<boolean> {
+  try {
+    if (rehomedThisBoot) return false;
+    if (serverOverride()) return false;
+    await initServerUrl();
+    const baked = cached;
+    if (!baked) {
+      const ok = await adoptSameOrigin().catch(() => false);
+      if (ok) rehomedThisBoot = true;
+      return ok;
+    }
+    const start = Date.now();
+    const alive = await probeCandidate(baked, 4000).catch(() => false);
+    const fast = Date.now() - start < 1500;
+    if (alive || !fast) return false;
+    const origin = sameOriginRoot();
+    if (!origin || origin === baked) return false;
+    if (await probeCandidate(origin, 2500).catch(() => false)) {
+      cached = origin;
+      rehomedThisBoot = true;
+      return true;
+    }
+    return false;
+  } catch { return false; }
 }
 
 /* ------------------------------------------------------------------ same PC */
