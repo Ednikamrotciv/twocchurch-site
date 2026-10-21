@@ -75,7 +75,34 @@ New code also stages clean on its own: the office copy opens on defaults
 edit, or Publish — staging anything ends it. Same-code rebuilds keep
 continuity and never wipe staged words.
 
-## The update routine
+## One publish reaches every device (read this first)
+
+  One admin Publish click clears the maintenance notice on **all** browsers and devices —
+  but only when the copies share something to hear it through. A publish rides four
+  lanes, in order: the office server (instant), the live relay (seconds), the live feed
+  mirror (about a minute), and the rebuild bake (`version.json`/`seed.json`, minutes).
+  Visitors re-ask all four continuously (stale check + content watch + feed poll, plus a
+  service worker that can no longer pin old entry files), and the maintenance screen now
+  carries its own **Reload now** button as the last resort — so a copy that misses every
+  lane still escapes with one tap instead of sitting stuck.
+
+  That means exactly one setup rule: **configure at least one shared lane, or Publish can
+  only bless the office copy.** In practice:
+
+  - With the office server and/or the live feed configured (the normal setup below), one
+    Publish lifts every online visitor within about a minute, and the rebuild locks it in.
+  - With neither configured (pure static), each copy stands alone: it never holds visitors
+    on maintenance (there would be no lane to release them), and the office copy goes live
+    only after `npm run build` + re-upload. If visitors ever wait with no lane, the fix is
+    to add the lane (feed and/or server), not to click Publish again.
+
+  New deploys always hold visitors on the maintenance notice until that Publish lands;
+  the deploy also wipes old service-worker caches, clears unsaved drafts/pending/history,
+  and re-opens the drawer on admin home — every new deploy is fresh, clean and new.
+  (There is no host-editor save step anywhere: the old Perchance save coupling was
+  removed, so Publish never waits on, plans around, or asks for a website save.)
+
+  ## The update routine
 
 Publish from the admin console on your own computer and you are done — with
 the live feed below, every copy catches up within minutes with no rebuild.

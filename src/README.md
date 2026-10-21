@@ -1210,6 +1210,8 @@ way in; its *Tools* button opens the same modal):
   counts down while the window is open, and afterwards it clears off by
   itself. Undo works from any signed-in device (this browser's own memory of
   the previous publish is only the fallback while it is still fresh).
+  There is no website-save step: Publish goes straight to the shared server, so one click
+  releases every visitor (no host-editor coupling remains).
 - **End this session** — signs the admin out: the drawer locks behind the office password again, in
   every mode (SPEC note 138).
 - **Announcements** are a live-feature section: notices dated within the last 21 days and flagged
@@ -1219,8 +1221,7 @@ way in; its *Tools* button opens the same modal):
   SPEC notes 104, 124, 191).
 - A diagnostic handle is exposed for the browser console: `window.__churchCms.socket()`,
   `.state()`, `.overrides()`, `.applied()`, `.sync()`, `.unsaved()`, `.draft()`, `.set(id, value)`,
-  `.pending()` (what has not been published, the drawer list's own data), `.revert(id)`,
-  `.planned()`, `.finishPlanned()`.
+  `.pending()` (what has not been published, the drawer list's own data), `.revert(id)`.
 
 ### Copies without the office server
 

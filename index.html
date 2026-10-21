@@ -3,11 +3,11 @@
 <!-- The shipped update number: the pre-bundle gate below paints the maintenance
      notice before React boots whenever this copy has not published it yet.
      Bump with BUILD_NOTES (src/lib/hooks.ts) on every update. -->
-<meta name="wom-notes" content="427" />
+<meta name="wom-notes" content="425" />
 <!-- The shipped code word (unnumbered stale fix): names the running code with
      no number, so the gate below holds for this fix even though the update
      number is unchanged. build-static.mjs stamps it from hooks.ts CODE_ID. -->
-<meta name="wom-code" content="clean427" />
+<meta name="wom-code" content="publish426" />
 
 <meta name="theme-color" content="#08080a">
 <title>The World Overcomers' Ministries Inc. — Where Champions Are Raised in Christ</title>
@@ -95,6 +95,7 @@
           '<img src="/src/assets/logo-mark.png" alt="" aria-hidden="true" style="width:72px;height:72px;object-fit:contain;" onerror="this.style.display=\'none\'">' +
           "<h1 style=\"margin:0;font-size:2rem;font-weight:600;\">We&rsquo;ll be right back</h1>" +
           '<p style="margin:0;max-width:34rem;line-height:1.6;opacity:0.85;">The site is being updated. Please check back shortly.</p>' +
+'<p style="margin:0.5rem 0 0;opacity:0.75;font-size:0.9rem;">Update published? <button type="button" onclick="try{if(navigator.serviceWorker&&navigator.serviceWorker.getRegistration)navigator.serviceWorker.getRegistration().then(function(r){try{if(r)r.update()}catch(e){}})}catch(e){}window.location.reload()" style="margin-left:0.4rem;padding:0.35rem 0.9rem;border:1px solid #8a7a55;border-radius:999px;background:transparent;color:#f5f0e6;font:inherit;cursor:pointer;">Reload now</button></p>' +
           "</div>";
       };
       if (q.get("preview") === "1") return;
@@ -219,6 +220,7 @@
               '<img src="/src/assets/logo-mark.png" alt="" aria-hidden="true" style="width:72px;height:72px;object-fit:contain;" onerror="this.style.display=\'none\'">' +
               "<h1 style=\"margin:0;font-size:2rem;font-weight:600;\">We&rsquo;ll be right back</h1>" +
               '<p style="margin:0;max-width:34rem;line-height:1.6;opacity:0.85;">The site is being updated. Please check back shortly.</p>' +
+'<p style="margin:0.5rem 0 0;opacity:0.75;font-size:0.9rem;">Update published? <button type="button" onclick="try{if(navigator.serviceWorker&&navigator.serviceWorker.getRegistration)navigator.serviceWorker.getRegistration().then(function(r){try{if(r)r.update()}catch(e){}})}catch(e){}window.location.reload()" style="margin-left:0.4rem;padding:0.35rem 0.9rem;border:1px solid #8a7a55;border-radius:999px;background:transparent;color:#f5f0e6;font:inherit;cursor:pointer;">Reload now</button></p>' +
               "</div>";
           } catch (e) {}
         })

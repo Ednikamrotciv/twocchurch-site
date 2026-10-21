@@ -1,4 +1,4 @@
-/* World Overcomers service worker — offline live site after publish (update 427).
+/* World Overcomers service worker — offline live site after publish (update 425/426).
  *
  * One Publish click must clear every browser/device, online OR offline. The
  * maintenance gates already fail open offline when cached published words
@@ -15,7 +15,8 @@
  * clean and new. Unsaved-change cleaning is untouched (cms.ts deploySeen).
  */
 
-var CACHE = "wom-427-clean427";
+var CACHE_BASE = "wom-425-publish426";
+var CACHE = CACHE_BASE;
 var CORE = [
   "/",
   "/index.html",
@@ -25,6 +26,28 @@ var CORE = [
   "/feed.json",
   "/404.html",
 ];
+
+/* A new deploy wipes old wakes: when version.json names a deploy this worker
+   has not filed yet, rotate to a per-deploy cache and delete the old ones, so
+   a same-update rebuild can never pin the previous copy. */
+function rotateForDeploy(deploy) {
+  try {
+    if (typeof deploy !== "string" || !/^[A-Za-z0-9_-]{1,80}$/.test(deploy)) return;
+    var want = CACHE_BASE + "-" + deploy;
+    if (want === CACHE) return;
+    CACHE = want;
+    caches.open(CACHE).catch(function () {});
+    caches.keys().then(function (keys) {
+      keys.forEach(function (key) {
+        if (key !== CACHE) caches.delete(key).catch(function () {});
+      });
+    }).catch(function () {});
+  } catch (e) {}
+}
+
+self.addEventListener("message", function (event) {
+  if (event && event.data === "SKIP_WAITING") self.skipWaiting();
+});
 
 self.addEventListener("install", function (event) {
   event.waitUntil(
@@ -111,6 +134,13 @@ self.addEventListener("fetch", function (event) {
               caches.open(CACHE).then(function (cache) {
                 cache.put(req, copy).catch(function () {});
               }).catch(function () {});
+              try {
+                if (new URL(req.url).pathname === "/version.json") {
+                  res.clone().json().then(function (d) {
+                    if (d && d.deployId) rotateForDeploy(d.deployId);
+                  }).catch(function () {});
+                }
+              } catch (e2) {}
             }
           } catch (e) {}
           return res;

@@ -129,11 +129,10 @@
   pulls a *second* copy of react-dom into the bundle — `app.js` went 669 KB → 805 KB — so don't.)
 
 - **The workspace can lose files if the browser evicts this tab's local storage** (happens in
-  incognito/private windows, or under storage pressure): the platform rebuilds `src/` and files can
-  come back empty or missing. Two defences: (1) **save the generator in the editor** — the saved
-  copy lives on the server and is never affected; (2) if a file does go missing, its bytes can often
-  still be fetched from the preview (`await fetch("src/lib/x.ts", {cache:"force-cache"})`) and
-  written back.
+  incognito/private windows, or under storage pressure): files can come back empty or missing.
+  Two defences: (1) keep the repo pushed to git and take regular Tools backups
+  (`npm run backup`); (2) if a file does go missing, restore it from git or from the
+  newest backup in `data-backups/`.
 - **Photos** live in `src/data/photos.ts` (the *Photos & covers* group in the drawer). Add a picture to
   `src/assets/img/`, add a slot to `PHOTO_SLOTS` with its friendly name and where it appears, and it
   turns up in the drawer; `img("name")` resolves it. Uploaded photos are only ever referenced by
@@ -361,9 +360,10 @@
   the office's job list + site-wide search in `src/lib/jobs.ts`,
   schema in `src/lib/cmsSchema.ts`, content server in `index.html`, client in `src/lib/cms.ts`).
   The admin password's SHA-256 is `ADMIN_HASH` in `index.html`; rotate it with the recipe in
-  `README.md`. Published content is stored per-generator on the server side, so **renaming the
-  generator makes the published content start over** (the shipped content in `src/data/` is the
-  fallback). The office no longer signs its edits — the *Signing your edits* field left the Status
+  `README.md`. Published content lives on the office server disk (`data/cms-state.bin`, mirrored into git by
+  auto-push) with the shipped content in `src/data/` as the fallback, so **moving the
+  office server or changing the site origin starts publishing over** — keep the
+  `cms-server.txt` address stable and take a Tools backup before moving hosts. The office no longer signs its edits — the *Signing your edits* field left the Status
   tab at the church's request (SPEC note 54), so `cms.setEditorName()` has no caller and publishes
   record an empty `by`; the log renders that without a dangling "by". The setter is still exported,
   so putting the field back is one block.
@@ -530,10 +530,11 @@
   card keeps the tab the office is standing in — `openJob()` sets `PanelMode` `"edit"`, `openHit()`
   keeps the current mode when it is `"edit"` and uses `"list"` otherwise (SPEC note 59) — so only the
   Status tab's own `openSection()` jumps deliberately switch to the raw *Update* list.
-- **Publish flow helpers** (`requestWebsiteSave` / `planPublishAfterSave` / `resumePlannedPublish`
-  in `src/lib/cms.ts`, the save-first branch of `PublishModal` in `src/components/editor.tsx`).
-  These are inert in standalone runs (`window.generatorIsUnsaved` is never set, and the page is
-  not iframed in an editor) — they only ever trigger inside a host editor. Leave them alone.
+- **Publish flow (standalone, no host editor):** `Publish` writes straight to the shared content
+  server (plus the live relay and the feed mirror) — there is no website-save step, no
+  `planPublishAfterSave` queue and no save-first branch in `PublishModal`. The old
+  host-editor helpers were removed in update 426 (`websiteIsUnsaved()` always false,
+  `requestWebsiteSave()` a no-op); do not re-add a save gate in front of Publish.
 - The admin's publish path keeps the per-section blob model: send only changed sections, store
   UTF-16 blobs, and never add a whole-site per-character loop to a handler.
 
@@ -574,5 +575,5 @@
 - Never edit `src/bundle.js` / `src/bundle.css` directly — they are build output.
 - `localStorage` keys are prefixed `wom.`; the “Clear my data” button in My Library removes them
   (plus `wom.amenMap`, `wom.prayedMap`, `wom.memorised`, `wom.reminders`).
-- Renaming the generator changes the origin, which orphans visitors' saved data — pick the name
-  before sharing widely.
+- Moving the site to a new domain/origin orphans visitors' saved data (localStorage is
+  per-origin) — pick the address before sharing widely.

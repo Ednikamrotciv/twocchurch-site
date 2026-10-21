@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import { tx, useI18nTick, i18nTickN } from "../lib/i18n";
 import { Link, navigate, useRoute } from "../lib/router";
 import { useHotkey, useMediaQuery, useScrollProgress, useTheme, useNow, useClickOutside, useBodyLock } from "../lib/hooks";
-import { exitMaintenancePreview } from "../lib/cms";
+import { checkStaleBuild, exitMaintenancePreview } from "../lib/cms";
 import { nextService, displayLive, countdownParts, to12h, DAY_SHORT, fmtDate, zoneYear, clockAt, churchTimezone, visitorPlace } from "../lib/store";
 import { SITE, SERVICES, NAV, FOOTER_LINKS, LOGO_MARK } from "../data/site";
 import { siteFile } from "../lib/livefeed";
@@ -554,6 +554,43 @@ export function MaintenanceSite() {
      the site's own theme (stored choice + automatic switching). */
   useTheme();
   useI18nTick();
+  /* A stuck device must never sit here forever: re-ask the host every 15s (a
+     publish that lands lifts the notice with no tap), and offer a manual
+     Reload that also nudges the service worker off old entry files. */
+  const [checking, setChecking] = useState(false);
+  useEffect(() => {
+    let alive = true;
+    const poll = async () => {
+      try { await checkStaleBuild(); } catch {}
+      try {
+        if ("serviceWorker" in navigator) {
+          const reg = await navigator.serviceWorker.getRegistration();
+          if (reg) await reg.update().catch(() => {});
+        }
+      } catch {}
+      if (!alive) return;
+    };
+    const id = window.setInterval(poll, 15000);
+    const onVis = () => { if (document.visibilityState === "visible") void poll(); };
+    document.addEventListener("visibilitychange", onVis);
+    window.addEventListener("online", onVis);
+    return () => {
+      alive = false;
+      window.clearInterval(id);
+      document.removeEventListener("visibilitychange", onVis);
+      window.removeEventListener("online", onVis);
+    };
+  }, []);
+  const reloadNow = async () => {
+    setChecking(true);
+    try {
+      if ("serviceWorker" in navigator) {
+        const reg = await navigator.serviceWorker.getRegistration();
+        if (reg) await reg.update().catch(() => {});
+      }
+    } catch {}
+    window.location.reload();
+  };
   return (
     <div className="maint">
       <header className="maint__head">
@@ -567,6 +604,13 @@ export function MaintenanceSite() {
         <img className="maint__mark" src={siteFile(LOGO_MARK)} alt="" aria-hidden="true" />
         <h1>{tx("We\u2019ll be right back")}</h1>
         <p>{tx("The site is being updated. Please check back shortly.")}</p>
+        <p className="muted">{tx("New update published? It lands here by itself — or reload now.")}</p>
+        <div className="btn-row" style={{ justifyContent: "center" }}>
+          <button type="button" className="btn" onClick={reloadNow} disabled={checking}>
+            {checking ? tx("Reloading…") : tx("Reload now")}
+          </button>
+          <Link className="btn btn--ghost" to="/admin">{tx("Office sign-in")}</Link>
+        </div>
       </main>
     </div>
   );

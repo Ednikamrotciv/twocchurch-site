@@ -338,8 +338,6 @@ export function LoginGate({ onExit, onDone }: { onExit?: () => void; onDone?: ()
         ? "The content server is not reachable from this page yet. Wait a moment and try again."
         : res.error === "rate"
         ? "Too many attempts from this connection. Please wait ten minutes and try again."
-        : cms.websiteIsUnsaved()
-        ? "That password was not recognised. This website is not saved yet, so a reload forgets sub-admins — save the website first, then create the invite code again."
         : "That password was not recognised."
     );
     setSubPw("");
@@ -2072,9 +2070,8 @@ export async function runPublishAction(
     const changed = cms.pendingSections();
     const note = noteInput || defaultNote(changed);
     /* One-click publish: either the bottom-bar Publish or the dialog's
-       Publish now alone finishes the job — no second click, no save gate.
-       (websiteIsUnsaved is always false now; the old save-first branch is
-       retired.) */
+       Publish now alone finishes the job — no second click, no save gate
+       (standalone: no website-save step — Publish goes straight live). */
     /* Never publish with the wrong stamp: a stale tab on the previous deploy
        would bless the OLD deploy id, leaving the new deploy's visitors
        waiting until somebody publishes again. Reload onto the new code first
@@ -2202,13 +2199,7 @@ export function PublishModal({
             Cancel
           </Btn>
           <Btn icon="send" onClick={submit} disabled={busy || saving}>
-            {saving
-              ? "Saving the website…"
-              : busy
-              ? "Publishing…"
-              : !changed.length && unsaved
-              ? "Save the website"
-              : "Publish now"}
+            {busy ? "Publishing…" : "Publish now"}
           </Btn>
         </>
       }
@@ -3030,18 +3021,8 @@ function SubAdmins() {
   const [name, setName] = useState("");
   const [busy, setBusy] = useState(false);
   const [freshCode, setFreshCode] = useState<{ name: string; code: string } | null>(null);
-  /* While the website is unsaved the preview server forgets invites on
-     reload — so opening this card saves it automatically, once per visit.
-     After the save + reload everything here works on every tab and device. */
-  const [saving, setSaving] = useState(false);
-  useEffect(() => {
-    if (!cms.websiteIsUnsaved()) return;
-    try {
-      if (sessionStorage.getItem("wom.cms.autosave-once")) return;
-      sessionStorage.setItem("wom.cms.autosave-once", "1");
-    } catch {}
-    if (cms.requestWebsiteSave()) setSaving(true);
-  }, []);
+  /* Standalone: invites live on the shared content server — no save step. */
+  const [saving] = useState(false);
 
   const refresh = async () => {
     const roster = await cms.listAdmins();
@@ -3117,12 +3098,7 @@ function SubAdmins() {
         <Icon name="people" size={16} /> Sub-admins
       </h4>
       <p>Invite others to sign in and edit just like you. An invite code works once and expires after 7 days.</p>
-      {saving && (
-        <Notice tone="gold">
-          <b>Saving the website…</b> Invites need it saved once — the page reloads, then everything here works
-          everywhere. If it stays unsaved, press Save in the editor yourself.
-        </Notice>
-      )}
+      {saving && null}
       {error && <p className="muted">{error}</p>}
       {(subs.length > 0 || invites.length > 0) && (
         <ul className="admin__roster">
