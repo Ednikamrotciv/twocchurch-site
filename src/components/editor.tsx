@@ -1369,11 +1369,19 @@ async function localHostFile(blob: Blob, filename: string): Promise<string> {
   const base = serverUrl();
   if (!base && !isLocalHost())
     throw new Error("Uploads need the office server connection — connect it in the admin console, or paste a link instead.");
-  const res = await fetch(`${base}/__upload?name=${encodeURIComponent(filename)}`, {
+  /* HIGH fix: file writes prove the office conn, so strangers cannot store
+     files on the server. Wait briefly for the join when it is still opening. */
+  if (!cms.officeFileConn()) {
+    try {
+      await cms.ensureOnline(8000);
+    } catch {}
+  }
+  const res = await fetch(`${base}/__upload?conn=${encodeURIComponent(cms.officeFileConn())}&name=${encodeURIComponent(filename)}`, {
     method: "POST",
     headers: { "content-type": blob.type || "application/octet-stream" },
     body: blob,
   });
+  if (res.status === 403) throw new Error("Sign in to the admin console first, then upload again.");
   if (!res.ok) throw new Error("The file could not be saved. Try a smaller file, or paste a link instead.");
   const data = await res.json().catch(() => null);
   if (!data || typeof data.url !== "string" || !data.url)
@@ -1394,7 +1402,13 @@ function hostedUploadName(url: string): string {
 async function deleteHostFile(name: string): Promise<void> {
   const base = serverUrl();
   if (!base && !isLocalHost()) throw new Error("The office server connection is needed to delete it — connect it in the admin console.");
-  const res = await fetch(`${base}/__delete-file?name=${encodeURIComponent(name)}`, { method: "POST" });
+  if (!cms.officeFileConn()) {
+    try {
+      await cms.ensureOnline(8000);
+    } catch {}
+  }
+  const res = await fetch(`${base}/__delete-file?conn=${encodeURIComponent(cms.officeFileConn())}&name=${encodeURIComponent(name)}`, { method: "POST" });
+  if (res.status === 403) throw new Error("Sign in to the admin console first, then delete again.");
   if (res.status === 404) throw new Error("It is already gone from the office server.");
   if (!res.ok) throw new Error("It could not be deleted on the server.");
 }
@@ -2075,14 +2089,21 @@ export async function runPublishAction(
        Publish now alone finishes the job — no second click, no save gate.
        (websiteIsUnsaved is always false now; the old save-first branch is
        retired.) */
-    /* One-click from any deploy (office request: one Publish click works
-       everywhere, no second click): even a stale tab publishes straight
-       through — the publish stamps the live deploy it relays to (officeStamp)
-       and the build-time witness lifts every deploy built before its clock,
-       so no reload-then-click-again is ever needed. Still kick the stale
-       check so this tab converges onto the new code right after. */
+    /* Never publish with the wrong stamp: a stale tab on the previous deploy
+       would bless the OLD deploy id, leaving the new deploy's visitors
+       waiting until somebody publishes again. Reload onto the new code first
+       instead — the next click then stamps the deploy visitors run. */
     try {
       await cms.checkStaleBuild().catch(() => {});
+    } catch {}
+    try {
+      if (cms.isStaleWaiting()) {
+        fireToast("New deploy arrived — reloading onto it. Press Publish again once it loads.", "info");
+        try {
+          window.location.reload();
+        } catch {}
+        return false;
+      }
     } catch {}
     onPhase?.("publishing");
     const res = await cms.publish(note);

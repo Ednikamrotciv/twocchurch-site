@@ -101,6 +101,25 @@ const cms = await (async () => {
 })();
 const geoProxy = createGeoProxy();
 
+/* HIGH fix — file-door guard: /__upload, /__restore-file and /__delete-file
+   take effect only for a signed-in admin connection (the same conn id the
+   tab's socket logged in with, sent as ?conn=). Anonymous browsers could
+   otherwise store unlimited files on the office disk and serve them from
+   this trusted origin (stored XSS via SVG/HTML, disk exhaustion, malware
+   hosting). Public read — checkAdmin names no words, only whether this conn
+   may write. */
+async function isAdminConn(id) {
+  try {
+    if (!id) return false;
+    const r = await cms.call("checkAdmin", id, "");
+    if (!r || r.status !== 200) return false;
+    const data = JSON.parse(r.body);
+    return !!(data && data.ok === true && data.admin === true);
+  } catch {
+    return false;
+  }
+}
+
 /* Wake serves the first publish (office request): after a publish the office
    mirrors the seed, so a waking box primes its fallback from the pushed
    mirror — pushed words serve within seconds instead of waiting out the
@@ -160,10 +179,11 @@ function sendSse(res, text) {
    revalidates each load (an edit is picked up at once: the mtime in the tag
    changes), but an unchanged file answers 304 with no body. */
 const COMPRESSIBLE = /^(text\/|application\/(javascript|json)|image\/svg)/;
-function sendBody(req, res, body, mime, tag) {
+function sendBody(req, res, body, mime, tag, extra) {
   const etag = '"' + tag + '"';
+  const baseHeaders = { "x-content-type-options": "nosniff", ...(extra || {}) };
   if (req.headers["if-none-match"] === etag) {
-    res.writeHead(304, { etag, "cache-control": "no-cache" });
+    res.writeHead(304, { etag, "cache-control": "no-cache", ...baseHeaders });
     res.end();
     return;
   }
@@ -178,6 +198,7 @@ function sendBody(req, res, body, mime, tag) {
       etag,
       "cache-control": "no-cache",
       vary: "accept-encoding",
+      ...baseHeaders,
     });
     res.end(gz);
     return;
@@ -187,6 +208,7 @@ function sendBody(req, res, body, mime, tag) {
     "content-length": buf.length,
     etag,
     "cache-control": "no-cache",
+    ...baseHeaders,
   });
   res.end(buf);
 }
@@ -274,10 +296,28 @@ const server = http.createServer(async (req, res) => {
             "accept-language": "en-US,en;q=0.9",
           },
         });
-        const text = await upstream.text();
+        const YT_MAX_BYTES = 3 * 1024 * 1024;
+        let ytBytes = 0;
+        const ytParts = [];
+        let ytTooBig = false;
+        try {
+          if (!upstream.body) throw new Error("empty");
+          for await (const chunk of upstream.body) {
+            ytBytes += chunk.length;
+            if (ytBytes > YT_MAX_BYTES) {
+              ytTooBig = true;
+              try { await upstream.cancel(); } catch {}
+              break;
+            }
+            ytParts.push(chunk);
+          }
+        } catch {
+          ytTooBig = true;
+        }
+        const text = ytTooBig ? "" : Buffer.concat(ytParts).toString("utf8");
         if (!upstream.ok || !text) {
           res.writeHead(502, { "cache-control": "no-store" });
-          res.end("unreachable");
+          res.end(ytTooBig ? "too large" : "unreachable");
           return;
         }
         const body = Buffer.from(text, "utf8");
@@ -334,8 +374,23 @@ const server = http.createServer(async (req, res) => {
        site, so local runs keep the office's photos and videos on their own
        disk (data/uploads/), served back like any other file. */
     if (pathname === "/__upload" && req.method === "POST") {
+      /* HIGH fix: writes take a signed-in admin connection — see isAdminConn. */
+      if (!(await isAdminConn(String(url.searchParams.get("conn") || "")))) {
+        res.writeHead(403, { "cache-control": "no-store" });
+        res.end("denied");
+        return;
+      }
       const ctype = String(req.headers["content-type"] || "").split(";")[0].trim().toLowerCase();
       if (!ctype.startsWith("image/") && !ctype.startsWith("video/")) {
+        res.writeHead(400, { "cache-control": "no-store" });
+        res.end("bad filetype");
+        return;
+      }
+      /* Stored SVG/HTML runs script from this trusted origin — refuse it no
+         matter what type the uploader claims (the stored name picks the
+         served content type, not the claimed one). */
+      const askedUploadName = String(url.searchParams.get("name") || "file");
+      if (ctype === "image/svg+xml" || /\.svgz?$/i.test(askedUploadName) || /\.html?$/i.test(askedUploadName)) {
         res.writeHead(400, { "cache-control": "no-store" });
         res.end("bad filetype");
         return;
@@ -362,6 +417,13 @@ const server = http.createServer(async (req, res) => {
             const ext = { "image/jpeg": ".jpg", "image/png": ".png", "image/webp": ".webp", "image/gif": ".gif", "video/mp4": ".mp4", "video/webm": ".webm", "video/quicktime": ".mov" }[ctype] || "";
             safe += ext;
           }
+          /* Belt and braces: the stored name decides the served type, so only
+             real media extensions may land, whatever was claimed above. */
+          if (!/\.(jpg|jpeg|png|webp|gif|avif|mp4|webm|mov|m4v|ogv)$/i.test(safe)) {
+            res.writeHead(400, { "cache-control": "no-store" });
+            res.end("bad filetype");
+            return;
+          }
           const dir = path.join(ROOT, "data", "uploads");
           await mkdir(dir, { recursive: true });
           const fname = Date.now().toString(36) + "-" + safe;
@@ -387,6 +449,12 @@ const server = http.createServer(async (req, res) => {
        pattern is refused. Uploads are never deleted by the server — they sit
        in data/uploads/ until the office removes them by hand. */
     if (pathname === "/__restore-file" && req.method === "POST") {
+      /* HIGH fix: writes take a signed-in admin connection — see isAdminConn. */
+      if (!(await isAdminConn(String(url.searchParams.get("conn") || "")))) {
+        res.writeHead(403, { "cache-control": "no-store" });
+        res.end("denied");
+        return;
+      }
       const ctype = String(req.headers["content-type"] || "").split(";")[0].trim().toLowerCase();
       /* Restored backups carry every upload kind the office uses (note 346):
          photos, videos and audio — a refused kind used to come back blank. */
@@ -399,6 +467,14 @@ const server = http.createServer(async (req, res) => {
       if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,99}$/.test(asked) || asked.includes("..")) {
         res.writeHead(400, { "cache-control": "no-store" });
         res.end("bad name");
+        return;
+      }
+      /* The stored name decides the served type: only real media extensions
+         may be written back, so a tampered backup can never plant a script
+         document on this origin. */
+      if (ctype === "image/svg+xml" || !/\.(jpg|jpeg|png|webp|gif|avif|mp4|webm|mov|m4v|ogv|mp3|wav|ogg|oga|opus|m4a|aac|flac|mid|midi)$/i.test(asked)) {
+        res.writeHead(400, { "cache-control": "no-store" });
+        res.end("bad filetype");
         return;
       }
       const chunks = [];
@@ -438,6 +514,12 @@ const server = http.createServer(async (req, res) => {
     /* Delete an upload for good: it leaves data/uploads/ and stops riding in
        backups afterwards. Same naming guard as the other file endpoints. */
     if (pathname === "/__delete-file" && req.method === "POST") {
+      /* HIGH fix: deletes take a signed-in admin connection — see isAdminConn. */
+      if (!(await isAdminConn(String(url.searchParams.get("conn") || "")))) {
+        res.writeHead(403, { "cache-control": "no-store" });
+        res.end("denied");
+        return;
+      }
       const asked = String(url.searchParams.get("name") || "");
       if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,99}$/.test(asked) || asked.includes("..")) {
         res.writeHead(400, { "cache-control": "no-store" });
@@ -518,6 +600,7 @@ const server = http.createServer(async (req, res) => {
         "content-type": "text/html; charset=utf-8",
         "content-length": body.length,
         "cache-control": "no-store",
+        "x-content-type-options": "nosniff",
       });
       res.end(body);
       return;
@@ -538,6 +621,7 @@ const server = http.createServer(async (req, res) => {
         "content-type": mime,
         "content-length": body.length,
         "cache-control": "no-store",
+        "x-content-type-options": "nosniff",
       });
       res.end(body);
       return;
@@ -551,11 +635,15 @@ const server = http.createServer(async (req, res) => {
         "content-type": mime,
         "content-length": body.length,
         "cache-control": "no-store",
+        "x-content-type-options": "nosniff",
       });
       res.end(body);
       return;
     }
-    sendBody(req, res, body, mime, st.size + "-" + Math.round(st.mtimeMs));
+    /* Uploads are office files, not app code: sandbox them so even a stored
+       document type can never run script on this origin. */
+    const uploadExtra = rel.startsWith("data/uploads/") ? { "content-security-policy": "sandbox" } : undefined;
+    sendBody(req, res, body, mime, st.size + "-" + Math.round(st.mtimeMs), uploadExtra);
   } catch {
     res.writeHead(500);
     res.end("server error");

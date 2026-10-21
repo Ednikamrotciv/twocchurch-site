@@ -1026,6 +1026,14 @@ self.rpc = {
     return ok({ rev: REV, notes: NOTES, publishDeploy: PUBLISH_DEPLOY, at: AT, code: publishCodeWord() });
   },
 
+  /* File-door guard (uploads, restores, deletes): true only for a signed-in
+     admin connection. The HTTP file endpoints ask this before touching the
+     disk, so anonymous browsers can never write, overwrite or delete office
+     files. Public read — it names no words, only whether this conn may write. */
+  checkAdmin: function (info) {
+    return ok({ admin: admins.has(info.conn.id) });
+  },
+
   /* Office-reported on-air answer (note 318): reads are public (visitors ask
      every check); writes take an admin connection (the signed-in office tab).
      Only strict, recent answers are kept — anything else is refused, never

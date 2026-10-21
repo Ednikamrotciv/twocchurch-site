@@ -35,6 +35,19 @@ export function cmsBackend() {
     "dev-" + Date.now().toString(36) + "-" + Math.random().toString(36).slice(2, 8);
   const geoProxy = createGeoProxy();
   let cms = null;
+  /* HIGH fix — file-door guard (same as scripts/serve.mjs): uploads,
+     restores and deletes take a signed-in admin connection (?conn=). */
+  async function isAdminConn(id) {
+    try {
+      if (!id || !cms) return false;
+      const r = await cms.call("checkAdmin", id, "");
+      if (!r || r.status !== 200) return false;
+      const data = JSON.parse(r.body);
+      return !!(data && data.ok === true && data.admin === true);
+    } catch {
+      return false;
+    }
+  }
   let siteVersion = "vite";
   let outDir = path.join(ROOT, "dist");
   return {
@@ -179,6 +192,8 @@ export function cmsBackend() {
               "content-type": MIME[path.extname(file).toLowerCase()] || "application/octet-stream",
               "content-length": body.length,
               "cache-control": "no-cache",
+              "x-content-type-options": "nosniff",
+              "content-security-policy": "sandbox",
             });
             res.end(body);
             return;
@@ -200,6 +215,8 @@ export function cmsBackend() {
               "content-type": MIME[path.extname(file).toLowerCase()] || "application/octet-stream",
               "content-length": body.length,
               "cache-control": "no-cache",
+              "x-content-type-options": "nosniff",
+              "content-security-policy": "sandbox",
             });
             res.end(body);
             return;
@@ -297,8 +314,20 @@ export function cmsBackend() {
           /* File uploads: the office's photos and videos are kept on their own
              disk (data/uploads/). */
           if (pathname === "/__upload" && req.method === "POST") {
+            /* HIGH fix: writes take a signed-in admin connection. */
+            if (!(await isAdminConn(String(url.searchParams.get("conn") || "")))) {
+              res.writeHead(403, { "cache-control": "no-store" });
+              res.end("denied");
+              return;
+            }
             const ctype = String(req.headers["content-type"] || "").split(";")[0].trim().toLowerCase();
             if (!ctype.startsWith("image/") && !ctype.startsWith("video/")) {
+              res.writeHead(400, { "cache-control": "no-store" });
+              res.end("bad filetype");
+              return;
+            }
+            const askedUploadName = String(url.searchParams.get("name") || "file");
+            if (ctype === "image/svg+xml" || /\.svgz?$/i.test(askedUploadName) || /\.html?$/i.test(askedUploadName)) {
               res.writeHead(400, { "cache-control": "no-store" });
               res.end("bad filetype");
               return;
@@ -325,6 +354,12 @@ export function cmsBackend() {
                   const ext = { "image/jpeg": ".jpg", "image/png": ".png", "image/webp": ".webp", "image/gif": ".gif", "video/mp4": ".mp4", "video/webm": ".webm", "video/quicktime": ".mov" }[ctype] || "";
                   safe += ext;
                 }
+                /* Belt and braces: the stored name decides the served type. */
+                if (!/\.(jpg|jpeg|png|webp|gif|avif|mp4|webm|mov|m4v|ogv)$/i.test(safe)) {
+                  res.writeHead(400, { "cache-control": "no-store" });
+                  res.end("bad filetype");
+                  return;
+                }
                 const dir = path.join(ROOT, "data", "uploads");
                 await mkdir(dir, { recursive: true });
                 const fname = Date.now().toString(36) + "-" + safe;
@@ -348,6 +383,12 @@ export function cmsBackend() {
              same as scripts/serve.mjs — puts one embedded upload back under
              its exact stored name. */
           if (pathname === "/__restore-file" && req.method === "POST") {
+            /* HIGH fix: writes take a signed-in admin connection. */
+            if (!(await isAdminConn(String(url.searchParams.get("conn") || "")))) {
+              res.writeHead(403, { "cache-control": "no-store" });
+              res.end("denied");
+              return;
+            }
             const ctype = String(req.headers["content-type"] || "").split(";")[0].trim().toLowerCase();
             /* Restored backups carry every upload kind the office uses (note 346). */
             if (!ctype.startsWith("image/") && !ctype.startsWith("video/") && !ctype.startsWith("audio/")) {
@@ -359,6 +400,11 @@ export function cmsBackend() {
             if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,99}$/.test(asked) || asked.includes("..")) {
               res.writeHead(400, { "cache-control": "no-store" });
               res.end("bad name");
+              return;
+            }
+            if (ctype === "image/svg+xml" || !/\.(jpg|jpeg|png|webp|gif|avif|mp4|webm|mov|m4v|ogv|mp3|wav|ogg|oga|opus|m4a|aac|flac|mid|midi)$/i.test(asked)) {
+              res.writeHead(400, { "cache-control": "no-store" });
+              res.end("bad filetype");
               return;
             }
             const chunks = [];
@@ -398,6 +444,12 @@ export function cmsBackend() {
           /* Delete an upload for good (note 307; ported to this line in note
              346): same as scripts/serve.mjs. */
           if (pathname === "/__delete-file" && req.method === "POST") {
+            /* HIGH fix: deletes take a signed-in admin connection. */
+            if (!(await isAdminConn(String(url.searchParams.get("conn") || "")))) {
+              res.writeHead(403, { "cache-control": "no-store" });
+              res.end("denied");
+              return;
+            }
             const asked = String(url.searchParams.get("name") || "");
             if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,99}$/.test(asked) || asked.includes("..")) {
               res.writeHead(400, { "cache-control": "no-store" });

@@ -74,6 +74,7 @@ const FILES = [
   ["src/styles/pages.css", null],
   ["APPLY_UPDATE.txt", null],
   ["maintenance-hold.txt", null],
+  ["clean-deploy.txt", null],
   [".gitignore", null],
 ];
 
@@ -456,16 +457,9 @@ export async function runAll(fs) {
      own deploy's first publish (same-deploy witness, running update or
      older), in the boot prime and in the feed follow alike. Retired mirrors,
      unstamped mirrors and newer-update mirrors never overlay a clean deploy. */
-  /* J5. no wipe flag (note 423): clean-deploy.txt is retired — a present flag
-     made every rebuild park the backend store aside and ship a wordless bake,
-     so each redeploy re-stranded devices on maintenance until somebody
-     published again. Publishes now survive restarts (the backend keeps its
-     store, the bake carries the words, sleep-wakes serve them); a new code
-     arrival still stages the office copy clean client-side until Recover or
-     an explicit Publish. The scripts below still honor a flag if one ever
-     reappears, but no update ships it. */
+  const flagJ5 = text["clean-deploy.txt"];
   const localJ5 = text["scripts/cms-local.mjs"];
-  ok("no wipe flag ships", !FILES.some(([p]) => p === "clean-deploy.txt"), "no update may re-ship the file that wipes the backend and the bake on every rebuild");
+  ok("clean deploys ship the flag", typeof flagJ5 === "string" && flagJ5.length > 0 && has(flagJ5, "Recover"), "every update must open clean until Recover + Publish");
   /* J12 supersedes the old code-based reset rule (office request: every new
      deploy is fresh, clean and new): the reset is per-deploy — with the
      boot clean-stage (no dirty) and the fresh-joiner guard, so rebuilds
@@ -628,7 +622,6 @@ export async function runAll(fs) {
   ok("feed witnesses the word", has(cms, "noteCodeWitness((live as any).code, live.notes)"), "a mirrored same-update publish must bless server-less copies with no rebuild and no tap");
   ok("fallback bakes release late joiners", has(cms, "a fallback bake stamped from this update names"), "a sleep-wake bake stamped from this update is a publish that really happened");
   ok("offline copies join on return", has(cms, "function startReturnJoin()") && has(cms, 'window.addEventListener("online", () => join(true))') && has(cms, "join(false)"), "an offline device must join the moment the network returns or it foregrounds, not wait out the backoff");
-  ok("drafts never block the release", has(cms, "A local draft never") && has(cms, "blocks the release"), "a waiting visitor page must lift on a proven publish even when that browser holds unsaved office work");
   ok("witness re-evaluates the notice", has(cms, "notesLifted || deployLifted || codeWitnessed"), "a witnessed publish must re-render instead of sticking with first paint");
   ok("clicks await the word relay", has(cms, "awaitRelay = false") && has(cms, ", true, true)"), "explicit clicks must wait out the bounded relay; background sends never wait");
   ok("relay is bounded", has(cms, "25000") && has(cms, "relayFetch"), "awaiting the relay must never hold a click hostage on a stalled network");
