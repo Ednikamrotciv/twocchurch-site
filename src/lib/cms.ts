@@ -1668,6 +1668,9 @@ async function joinBeforePublish(): Promise<boolean> {
 export async function publishSection(sectionId: string, note: string): Promise<PublishResult> {
   const def = sectionById(sectionId);
   if (!def || !draft) return { ok: false, error: "nothing-to-do" };
+  /* Sign-in first (office request): nothing publishes signed out — not even
+     a device-local publish. No state changes on refusal. */
+  if (!(await requireSignedIn())) return { ok: false, error: "unauthorized" };
   /* A lapsed entry never survives a publish — expired slides and notices leave
      the draft here, so the live site and the server both forget them in the
      same stroke, whichever section is being published. */
@@ -3770,33 +3773,37 @@ async function syncFromServer() {
   } catch {}
   /* Same-code attestation rides the same answer: a backend running this code
      with this code published lifts the number gate headless — a live publish
-     clears the local notice with no tab open and no click needed. Gated on
-     the same newness: an old publish attesting forever must not lift a copy
-     that never saw it happen (the deploy twin below re-checks the same
-     clock, so stamping it twice changes nothing there). */
-  const codeWitnessed = serverPublishIsNew && noteCodeWitness((res as any).code, res.notes);
-  /* A publish newer than this deploy releases it (note 420): the same-ID
-     witness above only matches a publish stamped from this exact deploy, so
-     one Publish on live/admin used to leave every other deploy — a stale
-     phone, a rebuild, any copy whose id differs — waiting until somebody
-     tapped Publish there too. A server publish stamped from the running
-     update, carrying real words and attested to this code, whose clock is
-     NEWER than this deploy first went live, IS a publish for this deploy —
-     while anything older predates it and still holds. Never in a clean stage
-     (a new code arrival stages nothing inbound until Recover or an explicit
-     Publish), never on seeded or empty answers (those returned above), never
-     across updates, and never on a copy with no stamped deploy (local dev
-     keeps its number gate). Strictly newer — no tolerance: on skewed clocks
-     the publish that missed just needs one more click, which always lands. */
-  const serverAt = typeof res.at === "number" ? res.at : 0;
+     clears the local notice with no tab open and no click needed. Timeless by
+     office request (one Publish clears every device, online or off, with no
+     per-device click): a same-update publish attested to this code with real
+     words IS the review, whenever this copy first saw its deploy — an old
+     publish can never qualify, because only a publish from this update and
+     this code attests, and anything older names a different update or a
+     different word. (The unstamped local twin above keeps its strictly-newer
+     rule: there an unsaved change showing means no Publish was clicked.) */
+  const codeWitnessed = noteCodeWitness((res as any).code, res.notes);
+  /* A publish from the running update releases its deploy (notes 420–421,
+     office request: one Publish click lifts every deploy — a stale phone, a
+     rebuild, a brand-new device or browser, any copy whose id differs — with
+     no second click, ever). The same-ID witness above only matches a publish
+     stamped from this exact deploy; the rule beside it releases on proof
+     instead of timing: a server publish stamped from the running update,
+     carrying real words and attested to this code, IS a publish for this
+     deploy, whenever this deploy first went live. Timing can no longer strand
+     a copy — a publish that landed before this deploy opened counts exactly
+     like one that landed after. Never across updates (a newer update names a
+     different stamp, an older one too), never on a different code word (new
+     code still waits for its own publish), never on an empty answer, and
+     never on a copy with no stamped deploy (local dev keeps its number
+     gate). A clean stage with queued office work still stages nothing
+     inbound until Recover or an explicit Publish — only the notice lifts. */
   if (
     (!cleanStageForNewCode || pendingSections().length === 0) &&
     deployFromMeta && currentDeployId &&
     publishedDeployId !== currentDeployId &&
     codeWitnessed &&
     typeof res.notes === "number" && Math.floor(res.notes) === BUILD_NOTES &&
-    Object.keys(server).length > 0 &&
-    serverAt > 0 && deployFirstSeenAt > 0 && serverAt > deployFirstSeenAt
+    Object.keys(server).length > 0
   ) {
     markDeployPublished();
   }
@@ -3957,6 +3964,25 @@ function clearSession() {
   myRole = null;
   myName = "";
   notify();
+}
+
+/* Sign-in gate (office request: nothing in the admin happens signed out —
+   not even a device-local publish). True when this tab holds an admin
+   session: already signed in, or the saved session still proves on the
+   server (a dead saved session is cleared like any denied login). Never
+   throws, never touches content state on refusal. */
+async function requireSignedIn(): Promise<boolean> {
+  try {
+    if (authed) return true;
+    const saved = sessionPassword();
+    if (!saved) return false;
+    const res = await login(saved, true).catch(() => ({ ok: false as const }));
+    if ((res as any)?.ok) return true;
+    if ((res as any)?.error === "denied") clearSession();
+    return false;
+  } catch {
+    return false;
+  }
 }
 
 /* ------------------------------------------------------------------- admin */
@@ -6007,6 +6033,9 @@ async function sendPatch(
 
 /** Put the draft live. `content` is only for the publish that waited on a save. */
 export async function publish(note: string, content?: Snapshot): Promise<PublishResult> {
+  /* Sign-in first (office request): nothing publishes signed out — not even
+     a device-local publish. No state changes on refusal. */
+  if (!(await requireSignedIn())) return { ok: false, error: "unauthorized" };
   if (!content && draft) {
     dropLapsedSlides(true);
     migrateTestimonies();
@@ -6186,6 +6215,8 @@ export async function publish(note: string, content?: Snapshot): Promise<Publish
 }
 
 export async function clearLog(): Promise<{ ok: boolean; error?: string }> {
+  /* Sign-in first (office request): history clears only signed in. */
+  if (!(await requireSignedIn())) return { ok: false, error: "unauthorized" };
   if ((!socket || status !== "online") && !(await ensureOnline())) return { ok: false, error: "offline" };
   try {
     const res = JSON.parse(await socket.rpc.clearLog(""));
@@ -6259,7 +6290,7 @@ export async function finishPlannedPublish(): Promise<PublishResult | null> {
      keep the plan so the next reload can finish the job. */
   if (websiteIsUnsaved()) return null;
   clearPlannedPublish();
-  if (!authed) return { ok: false, error: "unauthorized" };
+  if (!(await requireSignedIn())) return { ok: false, error: "unauthorized" };
   return await publish(plan.note || "", plan.content);
 }
 
@@ -6341,6 +6372,8 @@ export async function flushPending(): Promise<boolean> {
     an undo from any signed-in device takes back the same publish — the local
     per-browser entry is only the fallback while it is still fresh. */
 export async function undoLastPublish(): Promise<PublishResult> {
+  /* Sign-in first (office request): an undo publishes the other way. */
+  if (!(await requireSignedIn())) return { ok: false, error: "unauthorized" };
   pruneHistory();
   if ((!socket || status !== "online") && !(await ensureOnline())) return { ok: false, error: "offline" };
 
@@ -6433,6 +6466,8 @@ export async function undoLastPublish(): Promise<PublishResult> {
 
 /** Drop every stored override, so the site shows exactly the shipped content. */
 export async function clearAllOverrides(): Promise<PublishResult> {
+  /* Sign-in first (office request): restoring the defaults publishes too. */
+  if (!(await requireSignedIn())) return { ok: false, error: "unauthorized" };
   const ids = Object.keys(overrides);
   if (!ids.length) return { ok: true };
   if (!socket || status !== "online") {

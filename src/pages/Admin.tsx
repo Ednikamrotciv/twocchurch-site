@@ -185,6 +185,13 @@ export function Admin() {
      both clicks. */
   const performPublish = async (noteInput = "", _fromDialog = false): Promise<boolean> => {
     if (publishing || publishSaving) return false;
+    /* Sign-in first (office request): nothing publishes signed out — open
+       the sign-in instead of sending. */
+    if (!state.authed) {
+      setPublishOpen(false);
+      setSignInOpen(true);
+      return false;
+    }
     setPublishSaveFailed(false);
     setPublishing(true);
     try {
