@@ -2271,5 +2271,29 @@ const notes = Number((text["src/lib/hooks.ts"].match(/BUILD_NOTES = (\d+)/) || [
   ok("every build holds fresh", has(buildLLL, "const DEPLOY_ID =") && has(buildLLL, "hold: true, deployId"), "each deploy must ship a fresh id on hold");
   ok("new deploy wipes old wakes", has(cmsLLL, "function wipeOldWakes(): void") && has(cmsLLL, "New deploy wipes old wakes"), "a retired shell must never serve the previous deploy");
   ok("new deploy opens unsaved-clean", has(cmsLLL, "Every new deploy starts unsaved-clean") && has(cmsLLL, 'localStorage.removeItem(PENDING_KEY)'), "draft + pending clear once per deploy");
+  /* MMM. admin Publish saves everywhere (note 432): every office write lane —
+     full Publish, per-section Publish, undo and restore-defaults — rides the
+     same bless pipeline (server stamp with notes + deploy + code, converge at
+     once, live relay with notes + deploy + code and retry), so visitors,
+     local and live all follow one click. */
+  const cmsMMM = text["src/lib/cms.ts"];
+  ok("section publish blesses + relays", has(cmsMMM, "const result = await sendPatch({ [sectionId]: payload }, [sectionId], note.slice(0, 160), true, true"), "a section publish must stamp and relay like a full publish");
+  ok("undo fallback blesses + relays", has(cmsMMM, 'const result = await sendPatch(sections, ids, "Rolled back to the previous revision", true, true)'), "an undo must stamp and relay like a publish");
+  ok("restore defaults blesses + relays", has(cmsMMM, 'const result = await sendPatch(sections, ids, "Restored the shipped defaults", true, true)'), "a restore must stamp and relay like a publish");
+  ok("every bless converges at once", has(cmsMMM, "if (bless) convergeNow();"), "every bless must pull all lanes immediately");
+  ok("relay carries notes + deploy + code", has(cmsMMM, "notes: BUILD_NOTES") && has(cmsMMM, "deploy: liveDeploy") && has(cmsMMM, "code: runningCode"), "the live leg must attest exactly like the office leg");
+  /* NNN. new deploy holds the notice, first Publish clears it (note 433):
+     the deploy lock waits on a fresh deploy until a publish from it lands,
+     every bless stamps the publish through, and each new deploy wipes old
+     wakes and opens unsaved-clean, new and empty. */
+  const cmsNNN = text["src/lib/cms.ts"];
+  const buildNNN = text["scripts/build-static.mjs"];
+  const applyNNN = text["APPLY_UPDATE.txt"];
+  ok("deploy lock holds fresh deploys", has(cmsNNN, "if (publishedDeployId === currentDeployId) return false;") && has(cmsNNN, "Deploy lock (no numbers"), "a new deploy must wait until its own publish lands");
+  ok("publish clears the deploy", has(cmsNNN, "function markDeployPublished") && has(cmsNNN, "blessRunningCode();"), "an admin Publish must bless and release the deploy");
+  ok("new deploy wipes old wakes", has(cmsNNN, "function wipeOldWakes(): void"), "a retired shell must never serve the previous deploy");
+  ok("unsaved opens clean and new", has(cmsNNN, "localStorage.removeItem(DRAFT_KEY);") && has(cmsNNN, "localStorage.removeItem(PENDING_KEY);"), "draft + pending clear once per deploy");
+  ok("new deploy ships new and empty", has(buildNNN, "const DEPLOY_ID =") && has(text["clean-deploy.txt"], "ships no words"), "each deploy must look new with a fresh id and clean words");
+  ok("apply leads with hold-then-clear", has(applyNNN, "APPLY THIS UPDATE (428)"), "the checklist must open with the hold-then-clear rule");
   return out.join("\n");
 }

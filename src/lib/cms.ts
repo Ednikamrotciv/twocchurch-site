@@ -188,12 +188,13 @@ function serverHoldsPublish(): boolean {
     const v = serverVerdict;
     if (!v) return false;
     if (Date.now() - serverVerdictAt > SERVER_VERDICT_FRESH_MS) return false;
+    /* Real words from this update or newer — numbers alone never lift. */
+    if (!(v.words > 0)) return false;
     if (!(v.notes >= BUILD_NOTES)) return false;
-    /* First-publish-clears fix: one Publish from any admin lifts every copy on
-       this host together — the code word IS the review. A bless-only publish
-       (zero sections, zero words on a clean deploy) still stamps the word, so
-       the word match below lifts even with no words yet. Deploy/clock paths
-       below still need real words. */
+    /* Same code, same review: one Publish from any admin lifts every copy on
+       this host together — the late joiner, the rebuilt copy and the
+       publishing copy all read the same word and agree. A new word still
+       waits for its own publish even when the numbers moved. */
     try {
       if (!!v.code && !!runningCode && v.code === runningCode) return true;
     } catch {}
@@ -201,8 +202,6 @@ function serverHoldsPublish(): boolean {
     try {
       if (hostFileAttestsSameCode()) return true;
     } catch {}
-    /* Real words from this update or newer — numbers alone never lift. */
-    if (!(v.words > 0)) return false;
     /* This deploy's own stamp (also witnessed beside this; kept so the
        verdict alone suffices). */
     try {
@@ -736,12 +735,9 @@ export function maintenanceShouldWait(): boolean {
     try {
       if (justPublishedRecently() && publishedNotesAtLeastBuild()) return false;
     } catch {}
-    /* Deploy lock (first-publish-clears fix): every built deploy holds its
-       visitors until a publish from that deploy lands — including pure
-       static copies with no server and no feed behind them. Maintenance
-       stays active on every new deploy; the baked seed witness releases
-       pure static after the office publishes + rebuilds, so the hold always
-       has a release. */
+    /* Deploy lock: any copy whose words can move after deploy waits — server
+       behind it, or a baked feed (note 416). Pure static never waits. */
+    if (!serverInvolved() && !feedFromMeta()) return false;
     return true;
   }
   /* No stamped deploy (local dev): the number gate locks every new fix until
@@ -801,12 +797,9 @@ export function useMaintenance(): boolean {
     try {
       if (justPublishedRecently() && publishedNotesAtLeastBuild()) return false;
     } catch {}
-    /* Deploy lock (first-publish-clears fix): every built deploy holds its
-       visitors until a publish from that deploy lands — including pure
-       static copies with no server and no feed behind them. Maintenance
-       stays active on every new deploy; the baked seed witness releases
-       pure static after the office publishes + rebuilds, so the hold always
-       has a release. */
+    /* Deploy lock: any copy whose words can move after deploy waits — server
+       behind it, or a baked feed (note 416). Pure static never waits. */
+    if (!serverInvolved() && !feedFromMeta()) return false;
     try {
       if (maintenancePreview()) return false;
     } catch {}

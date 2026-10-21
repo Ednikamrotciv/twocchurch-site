@@ -3,11 +3,11 @@
 <!-- The shipped update number: the pre-bundle gate below paints the maintenance
      notice before React boots whenever this copy has not published it yet.
      Bump with BUILD_NOTES (src/lib/hooks.ts) on every update. -->
-<meta name="wom-notes" content="426" />
+<meta name="wom-notes" content="428" />
 <!-- The shipped code word (unnumbered stale fix): names the running code with
      no number, so the gate below holds for this fix even though the update
      number is unchanged. build-static.mjs stamps it from hooks.ts CODE_ID. -->
-  <meta name="wom-code" content="firstclear" />
+  <meta name="wom-code" content="newdeploy" />
 
 <meta name="theme-color" content="#08080a">
 <title>The World Overcomers' Ministries Inc. — Where Champions Are Raised in Christ</title>
@@ -162,25 +162,6 @@
           blessedCode = window.localStorage ? window.localStorage.getItem("wom.cms.codeBlessed") : null;
         } catch (e2) {}
         if (codeContent && blessedCode !== codeContent) {
-          paintMaint();
-          return;
-        }
-      } catch (e) {}
-      /* Deploy lock (first-publish-clears fix): every build stamps a fresh
-         opaque deploy id (meta wom-deploy, added at build time). Fresh
-         visitors wait until a publish from THAT deploy lands
-         (localStorage wom.cms.deployPublished). Same code + same number
-         still holds on a new deploy, so the maintenance notice stays
-         active; the first Publish sets it and lifts every device,
-         browser, local and live together. No deploy meta (dev) skips. */
-      try {
-        var dm = document.querySelector('meta[name="wom-deploy"]');
-        var deployId = dm ? dm.getAttribute("content") : "";
-        var pubDeploy = null;
-        try {
-          pubDeploy = window.localStorage ? window.localStorage.getItem("wom.cms.deployPublished") : null;
-        } catch (e2) {}
-        if (deployId && pubDeploy !== deployId) {
           paintMaint();
           return;
         }
