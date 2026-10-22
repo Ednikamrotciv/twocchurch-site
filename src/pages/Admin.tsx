@@ -179,7 +179,7 @@ export function Admin() {
   const waiting = cms.maintenanceShouldWait();
 
 
-  /* Attached publish rule, retained (note 431): the bottom-bar Publish button
+  /* Attached publish rule, retained (note 432): the bottom-bar Publish button
      and the dialog's Publish now button share the one publish pipeline —
      either one alone finishes it in one click for every visitor (unlimited
      browsers/devices) through runPublishAction → cms.publish, so Publish and

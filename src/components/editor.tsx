@@ -1366,7 +1366,7 @@ function isLocalHost(): boolean {
 }
 
 async function localHostFile(blob: Blob, filename: string): Promise<string> {
-  let base = serverUrl();
+  const base = serverUrl();
   if (!base && !isLocalHost())
     throw new Error("Uploads need the office server connection — connect it in the admin console, or paste a link instead.");
   /* HIGH fix: file writes prove the office conn, so strangers cannot store
@@ -1376,26 +1376,11 @@ async function localHostFile(blob: Blob, filename: string): Promise<string> {
       await cms.ensureOnline(8000);
     } catch {}
   }
-  /* Local still works (note 435): the shared backend wins, but an office PC
-     with the shared unreachable (sleeping, offline) still saves to its own
-     disk instead of failing — the words queue to shared and the file follows
-     on heal/relay. Only transport failures fall back; denials stay denials. */
-  let res: Response;
-  try {
-    res = await fetch(`${base}/__upload?conn=${encodeURIComponent(cms.officeFileConn())}&name=${encodeURIComponent(filename)}`, {
-      method: "POST",
-      headers: { "content-type": blob.type || "application/octet-stream" },
-      body: blob,
-    });
-  } catch (e) {
-    if (!base || !isLocalHost()) throw e;
-    res = await fetch(`/__upload?conn=${encodeURIComponent(cms.officeFileConn())}&name=${encodeURIComponent(filename)}`, {
-      method: "POST",
-      headers: { "content-type": blob.type || "application/octet-stream" },
-      body: blob,
-    });
-    base = "";
-  }
+  const res = await fetch(`${base}/__upload?conn=${encodeURIComponent(cms.officeFileConn())}&name=${encodeURIComponent(filename)}`, {
+    method: "POST",
+    headers: { "content-type": blob.type || "application/octet-stream" },
+    body: blob,
+  });
   if (res.status === 403) throw new Error("Sign in to the admin console first, then upload again.");
   if (!res.ok) throw new Error("The file could not be saved. Try a smaller file, or paste a link instead.");
   const data = await res.json().catch(() => null);
@@ -1415,22 +1400,14 @@ function hostedUploadName(url: string): string {
    afterwards simply stops riding in backups. Two-tap confirmed at the call
    site, because every page using it loses its picture until republished. */
 async function deleteHostFile(name: string): Promise<void> {
-  let base = serverUrl();
+  const base = serverUrl();
   if (!base && !isLocalHost()) throw new Error("The office server connection is needed to delete it — connect it in the admin console.");
   if (!cms.officeFileConn()) {
     try {
       await cms.ensureOnline(8000);
     } catch {}
   }
-  /* Local still works (note 435): transport failures fall back to the
-     same-machine disk; denials stay denials. */
-  let res: Response;
-  try {
-    res = await fetch(`${base}/__delete-file?conn=${encodeURIComponent(cms.officeFileConn())}&name=${encodeURIComponent(name)}`, { method: "POST" });
-  } catch (e) {
-    if (!base || !isLocalHost()) throw e;
-    res = await fetch(`/__delete-file?conn=${encodeURIComponent(cms.officeFileConn())}&name=${encodeURIComponent(name)}`, { method: "POST" });
-  }
+  const res = await fetch(`${base}/__delete-file?conn=${encodeURIComponent(cms.officeFileConn())}&name=${encodeURIComponent(name)}`, { method: "POST" });
   if (res.status === 403) throw new Error("Sign in to the admin console first, then delete again.");
   if (res.status === 404) throw new Error("It is already gone from the office server.");
   if (!res.ok) throw new Error("It could not be deleted on the server.");
@@ -2093,7 +2070,7 @@ export function FieldControl({
 
 /* ---------------------------------------------------------- publish modal */
 
-/* The ONE publish action both buttons share (attached publish rule, note 431):
+/* The ONE publish action both buttons share (attached publish rule, note 432):
    the bottom-bar Publish button and this dialog's Publish now button run this
    same function, so Publish and Publish now do the same thing — one
    cms.publish pipeline, same activity-log note, same result toasts.

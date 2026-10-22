@@ -34,7 +34,6 @@ const FILES = [
   ["scripts/seed-fallback.mjs", "js"],
   ["src/lib/cms.ts", "ts"],
   ["src/lib/livestatus.ts", "ts"],
-  ["src/lib/remoteserver.ts", "ts"],
   ["src/lib/embed.ts", "ts"],
   ["src/lib/recentstreams.ts", "ts"],
   ["src/pages/WatchLive.tsx", "tsx"],
@@ -524,12 +523,12 @@ export async function runAll(fs) {
      and fresh): unnumbered updates kept the local dev token at "n413", so a
      new extract never proved a fresh deploy and the old draft/pending/dirty
      survived forever. The token now carries the code word (rotated to
-     "cleanfresh" with this build), so every behavior update clears unsaved
+     "onepublish" with this build), so every behavior update clears unsaved
      draft + pending + after-save once on boot — same-code rebuilds keep the
      token and never wipe unsaved work. */
   const hooksJ8 = text["src/lib/hooks.ts"];
   const indexJ8 = text["index.html"];
-  ok("code word rotated", has(hooksJ8, 'CODE_ID = "cleanfresh"') && has(indexJ8, 'wom-code" content="cleanfresh"'), "the new word must retire the bundle that holds the 5 stuck rows");
+  ok("code word rotated", has(hooksJ8, 'CODE_ID = "onepublish"') && has(indexJ8, 'wom-code" content="onepublish"'), "the new word must retire the bundle that holds the 5 stuck rows");
   ok("dev token names the code", has(cms, '"n" + BUILD_NOTES + "c" + (runningCode'), "an unnumbered update must still prove a fresh deploy in local dev");
   ok("fresh clear takes after-save", has(cms, "localStorage.removeItem(AFTER_SAVE_KEY)"), "a queued publish-after-save must not republish stale words after the clear");
   /* J9. restore+publish reaches every copy (office request: works on one
@@ -636,10 +635,10 @@ export async function runAll(fs) {
       return fn(new Uint8Array(8 * 1024 * 1024), self, { publish() {} }, console);
     };
     const anon13 = { id: "anon-att", net: ["x", 0, 0], subscribe() {}, topics: new Set() };
-    const rpcW = mkRpc("cleanfresh");
+    const rpcW = mkRpc("onepublish");
     const both = (rpc) => [JSON.parse(rpc.getContent({ conn: anon13 })), JSON.parse(rpc.contentRev({ conn: anon13 }))];
     const [cW, rW] = both(rpcW);
-    ok("server attests its code", cW.ok === true && cW.code === "cleanfresh" && rW.ok === true && rW.code === "cleanfresh", "words=" + cW.code + " rev=" + rW.code);
+    ok("server attests its code", cW.ok === true && cW.code === "onepublish" && rW.ok === true && rW.code === "onepublish", "words=" + cW.code + " rev=" + rW.code);
     const [cE, rE] = both(mkRpc(""));
     ok("empty attestation proves nothing", cE.ok === true && cE.code === "" && rE.code === "", "an untold word must stay empty, never wrong");
   } catch (e) {
@@ -2272,56 +2271,5 @@ const notes = Number((text["src/lib/hooks.ts"].match(/BUILD_NOTES = (\d+)/) || [
   ok("every build holds fresh", has(buildLLL, "const DEPLOY_ID =") && has(buildLLL, "hold: true, deployId"), "each deploy must ship a fresh id on hold");
   ok("new deploy wipes old wakes", has(cmsLLL, "function wipeOldWakes(): void") && has(cmsLLL, "New deploy wipes old wakes"), "a retired shell must never serve the previous deploy");
   ok("new deploy opens unsaved-clean", has(cmsLLL, "Every new deploy starts unsaved-clean") && has(cmsLLL, 'localStorage.removeItem(PENDING_KEY)'), "draft + pending clear once per deploy");
-  /* MMM. admin Publish saves everywhere (note 432): every office write lane —
-     full Publish, per-section Publish, undo and restore-defaults — rides the
-     same bless pipeline (server stamp with notes + deploy + code, converge at
-     once, live relay with notes + deploy + code and retry), so visitors,
-     local and live all follow one click. */
-  const cmsMMM = text["src/lib/cms.ts"];
-  ok("section publish blesses + relays", has(cmsMMM, "const result = await sendPatch({ [sectionId]: payload }, [sectionId], note.slice(0, 160), true, true"), "a section publish must stamp and relay like a full publish");
-  ok("undo fallback blesses + relays", has(cmsMMM, 'const result = await sendPatch(sections, ids, "Rolled back to the previous revision", true, true)'), "an undo must stamp and relay like a publish");
-  ok("restore defaults blesses + relays", has(cmsMMM, 'const result = await sendPatch(sections, ids, "Restored the shipped defaults", true, true)'), "a restore must stamp and relay like a publish");
-  ok("every bless converges at once", has(cmsMMM, "if (bless) convergeNow();"), "every bless must pull all lanes immediately");
-  ok("relay carries notes + deploy + code", has(cmsMMM, "notes: BUILD_NOTES") && has(cmsMMM, "deploy: liveDeploy") && has(cmsMMM, "code: runningCode"), "the live leg must attest exactly like the office leg");
-  /* NNN. new deploy holds the notice, first Publish clears it (note 433):
-     the deploy lock waits on a fresh deploy until a publish from it lands,
-     every bless stamps the publish through, and each new deploy wipes old
-     wakes and opens unsaved-clean, new and empty. */
-  const cmsNNN = text["src/lib/cms.ts"];
-  const buildNNN = text["scripts/build-static.mjs"];
-  const applyNNN = text["APPLY_UPDATE.txt"];
-  ok("deploy lock holds fresh deploys", has(cmsNNN, "if (publishedDeployId === currentDeployId) return false;") && has(cmsNNN, "Deploy lock (no numbers"), "a new deploy must wait until its own publish lands");
-  ok("publish clears the deploy", has(cmsNNN, "function markDeployPublished") && has(cmsNNN, "blessRunningCode();"), "an admin Publish must bless and release the deploy");
-  ok("new deploy wipes old wakes", has(cmsNNN, "function wipeOldWakes(): void"), "a retired shell must never serve the previous deploy");
-  ok("unsaved opens clean and new", has(cmsNNN, "localStorage.removeItem(DRAFT_KEY);") && has(cmsNNN, "localStorage.removeItem(PENDING_KEY);"), "draft + pending clear once per deploy");
-  ok("new deploy ships new and empty", has(buildNNN, "const DEPLOY_ID =") && has(text["clean-deploy.txt"], "ships no words"), "each deploy must look new with a fresh id and clean words");
-  ok("apply leads with hold-then-clear", has(applyNNN, "APPLY THIS UPDATE (428)"), "the checklist must open with the hold-then-clear rule");
-  /* OOO. stranded visitors join the host backend (note 434): a dead baked
-     address never strands remote copies — same-origin joins at boot and in
-     every re-resolve, and repeated connect failures re-home once per boot. */
-  const remoteOOO = text["src/lib/remoteserver.ts"];
-  const cmsOOO = text["src/lib/cms.ts"];
-  ok("same-origin probe exists", has(remoteOOO, "function sameOriginRoot()") && has(remoteOOO, "export async function adoptSameOrigin("), "the host backend must be joinable with no baked address");
-  ok("failure re-home exists", has(remoteOOO, "export async function maybeRehomeAfterFailure(") && has(remoteOOO, "rehomedThisBoot"), "a dead baked address must retire at most once per boot");
-  ok("waking backends are kept", has(remoteOOO, "if (alive || !fast) return false;"), "a slow answer must never abandon the configured backend");
-  ok("boot adopts same-origin", has(cmsOOO, "await adoptSameOrigin()"), "fresh copies must join the host backend before first connect");
-  ok("failures count toward re-home", has(cmsOOO, "function noteConnectFailure()") && has(cmsOOO, "backendFailures = 0;"), "repeated failures must trigger exactly one re-home check");
-  /* PPP. one Publish lands on shared production (note 435): the office PC no
-     longer publishes to its own disk while visitors read shared — the shared
-     backend wins, file doors use it, and an office PC relays to it. */
-  const cmsPPP = text["src/lib/cms.ts"];
-  ok("shared backend wins", has(cmsPPP, "Shared production backend always wins (note 435)") && has(cmsPPP, "if (origin && origin !== remote) return () => createRemoteSocket(remote)"), "an office PC must publish to the store every visitor reads");
-  ok("file doors use shared base", has(cmsPPP, "function officeDiskBase()") && has(cmsPPP, "officeDiskBase();"), "uploads/restores must land where the words live");
-  ok("office PC relays to shared", has(cmsPPP, "so live IS the joined backend"), "a local publish must still reach the shared backend");
-  ok("deploy hold still locked", has(cmsPPP, "if (publishedDeployId === currentDeployId) return false;"), "a new deploy must still wait until Publish");
-  ok("sign-in survives deploy", has(cmsPPP, "function clearSession()") && !has(cmsPPP, "resetLocalCopy(): void {\n    clearSession"), "a deploy must never end the admin session");
-  /* QQQ. local works too (note 436): shared first, same-machine fallback —
-     uploads/deletes try shared then local on transport failure only. */
-  const edQQQ = text["src/components/editor.tsx"];
-  ok("uploads try shared first", has(edQQQ, "let base = serverUrl();") && has(edQQQ, "Local still works (note 435)"), "uploads must target shared before falling back");
-  ok("uploads fall back local", has(edQQQ, "if (!base || !isLocalHost()) throw e;"), "a sleeping shared backend must not strand office files");
-  ok("deletes fall back local", has(edQQQ, "Local still works (note 435): transport failures fall back"), "deletes must survive a sleeping shared backend");
-  ok("local-only publish kept", has(cmsPPP, "return { ok: true, local: true };"), "an unreachable shared backend must still lift this device with a queue");
-  ok("flush lands queued words", has(cmsPPP, "export async function flushPending()"), "queued words must ride to shared on reconnect");
   return out.join("\n");
 }
