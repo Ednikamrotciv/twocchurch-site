@@ -33,7 +33,6 @@ import { SECTION_DEFS, clone, getPath, photoSectionId, sectionById, sectionIsEve
 import { JOBS, HIT_GROUPS, searchEverything, type Hit, type Job } from "../lib/jobs";
 import { COPY_ROLE_LABELS, copyDefault, copyIsEdited, copyIsLocked, copyIsParagraph, copyLineRows, copySegmentsOf, type CopyRole } from "../data/copy";
 import { PHOTO_SLOTS, bundledPhoto, photoById, photoKeyOf, resolvePhoto } from "../data/photos";
-import { pageInfoFor } from "../lib/pageMap";
 import { fireToast } from "../lib/hooks";
 import { useVisitorClock } from "../lib/visitor";
 import {
@@ -452,7 +451,6 @@ export function Admin() {
           onHit={openHit}
           onHelp={() => setHelpOpen(true)}
           onSignIn={() => setSignInOpen(true)}
-          routePath={route.path}
         />
       )}
 
@@ -619,109 +617,6 @@ function EditBar({
 
 /* ---------------------------------------------------------------- the panel */
 
-/* One banner per page — the photo the open page starts with. Shown at the top
-   of the *Update* tab so the office meets it where they stand, instead of
-   hunting through *Photos & banners*. The full set still lives in its job. */
-const PAGE_BANNER_BY_ROUTE: Record<string, string> = {
-  "/": "home",
-  "/about": "about",
-  "/locations": "locations",
-  "/sermons": "sermons",
-  "/watch-live": "watch-live",
-  "/events": "events",
-  "/testimonies": "testimonies",
-  "/giving": "giving",
-  "/give": "giving",
-  "/donate": "giving",
-  "/prayer": "prayer-page",
-  "/contact": "contact",
-  "/visit": "visit",
-  "/devotional": "devotional",
-  "/ministries": "ministries",
-};
-
-function bannerSlotForPath(path: string): string | null {
-  if (!path || path === "/") return "home";
-  if (path.startsWith("/sermons")) return "sermons";
-  const hit = PAGE_BANNER_BY_ROUTE[path];
-  if (hit) return hit;
-  return null;
-}
-
-function PageBannerBlock({
-  draft,
-  dirty,
-  routePath,
-  onOpenSection,
-}: {
-  draft: cms.Snapshot;
-  dirty: boolean;
-  routePath: string;
-  onOpenSection: (id: string, entryKey?: string) => void;
-}) {
-  const [open, setOpen] = useState(true);
-  const slotKey = bannerSlotForPath(routePath);
-  const def = sectionById("photos-banners");
-  const field = slotKey && def ? def.fields.find((f) => f.path === slotKey) : undefined;
-  const slot = slotKey ? photoById(slotKey) : undefined;
-  if (!slotKey || !def || !field || !slot) return null;
-  const value = ((draft as any)?.["photos-banners"] || {})[slotKey] || "";
-  const commit = (nextVal: any) => {
-    const latest = cms.getDraft();
-    const cur = clone((latest as any)?.["photos-banners"] || {});
-    cur[slotKey] = nextVal;
-    cms.setSectionValue("photos-banners", cur);
-  };
-  let pageLabel = "";
-  try {
-    pageLabel = pageInfoFor(routePath).label || "";
-  } catch {
-    pageLabel = "";
-  }
-  return (
-    <Card className={"pblock" + (open ? " is-open" : "")} pad={false}>
-      <button type="button" className="pblock__head" onClick={() => setOpen((v) => !v)} aria-expanded={open}>
-        <span className="pblock__icon">
-          <Icon name="camera" size={16} />
-        </span>
-        <span className="pblock__title">
-          <b>Page banner{pageLabel ? ` — ${pageLabel}` : ` — ${slot.label}`}</b>
-          <em>{slot.where}</em>
-        </span>
-        {dirty && <i className="pblock__dot" title="Changed since the last publish" />}
-        <Icon name="chevronDown" size={16} className={"pblock__chev" + (open ? " is-open" : "")} />
-      </button>
-      {open && (
-        <div className="pblock__body">
-          <div className="admin__form">
-            <FieldControl def={field} value={value} onChange={commit} draft={draft} label={slot.label} />
-          </div>
-          {routePath === "/locations" && (
-            <p className="pblock__blurb">
-              The first branch's own photo shows first — this banner is the fallback when a branch has no photo of its own.
-            </p>
-          )}
-          <div className="pblock__foot" style={{ display: "flex", gap: "1rem", alignItems: "center" }}>
-            <button
-              type="button"
-              className="pblock__reset"
-              onClick={() => {
-                commit("");
-                fireToast(`${slot.label} is back to the original photo (in your draft).`, "info");
-              }}
-            >
-              Use the original photo
-            </button>
-            <button type="button" className="pblock__reset" onClick={() => onOpenSection("photos-banners", slotKey)}>
-              All page banners
-            </button>
-          </div>
-        </div>
-      )}
-    </Card>
-  );
-}
-
 function PagePanel({
   mode,
   onMode,
@@ -735,7 +630,6 @@ function PagePanel({
   onHit,
   onHelp,
   onSignIn,
-  routePath,
 }: {
   mode: PanelMode;
   onMode: (m: PanelMode) => void;
@@ -749,7 +643,6 @@ function PagePanel({
   onHit: (hit: Hit) => void;
   onHelp: () => void;
   onSignIn: () => void;
-  routePath: string;
 }) {
   useCmsTick();
   const state = cms.useCms();
@@ -983,12 +876,6 @@ function PagePanel({
               </>
             ) : mode === "list" ? (
               <>
-                <PageBannerBlock
-                  draft={draft}
-                  dirty={changedIds.includes("photos-banners")}
-                  routePath={routePath}
-                  onOpenSection={onOpenSection}
-                />
                 {groups.map(([group, list]) => (
                   <div className="epanel__group" key={group}>
                     <p className="epanel__group-title">{group}</p>
