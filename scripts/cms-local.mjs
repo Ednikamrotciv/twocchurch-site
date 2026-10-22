@@ -82,12 +82,15 @@ export async function createCmsHost(rootDir, opts) {
 
   /* Clean-deploy mode (office request: every new deploy opens fresh —
      welcome-home slide only — until Recover + Publish): with
-     clean-deploy.txt beside package.json the backend starts with no words,
-     even when a previous store file is still on disk (a fresh extract over
-     the folder, a Render sleep-wake, any unwiped disk). The boot guard above
-     already parked such a store aside; this is the belt behind it, so old
-     slides can never re-serve through the fallback on a clean deploy. The
-     first Publish saves its words normally (saveSoon below) and consumes
+     clean-deploy.txt beside package.json this boot opens with no words.
+     Administrator accounts are NOT code and are never reset by a deploy —
+     the previous store still loads below, and the server's clean boot
+     (see cms-server.js) clears only words, stamps, log, undo and history
+     while the main-password override, sub-admin roster, invites,
+     two-factor, main-off switch and password generation all survive, so no
+     administrator ever has to register again after an update. The boot guard
+     above already snapshotted the previous words; Recover restores them, and
+     the first Publish saves its words normally (saveSoon below) and consumes
      the flag, so normal serving resumes by itself. */
   let cleanDeploy = false;
   try {
@@ -111,15 +114,14 @@ export async function createCmsHost(rootDir, opts) {
   let saving = false;
   let dirtyAgain = false;
   if (cleanDeploy) {
-    console.log("cms backend: clean deploy (clean-deploy.txt) — starting with no words until Recover + Publish");
-  } else {
-    try {
-      const prev = await readFile(statePath);
-      state.set(prev.subarray(0, Math.min(prev.length, STATE_SIZE)));
-      if (prev.length) console.log(`cms backend: loaded ${prev.length} bytes from data/cms-state.bin`);
-    } catch {
-      console.log("cms backend: fresh state (data/cms-state.bin will be created on first publish)");
-    }
+    console.log("cms backend: clean deploy (clean-deploy.txt) — opening with no words until Recover + Publish; administrator accounts are kept");
+  }
+  try {
+    const prev = await readFile(statePath);
+    state.set(prev.subarray(0, Math.min(prev.length, STATE_SIZE)));
+    if (prev.length) console.log(`cms backend: loaded ${prev.length} bytes from data/cms-state.bin`);
+  } catch {
+    console.log("cms backend: fresh state (data/cms-state.bin will be created on first publish)");
   }
   if (prevHash && prevHash !== scriptHash) {
     if (clearPublishLog(state, scriptSrc)) {
@@ -210,7 +212,10 @@ export async function createCmsHost(rootDir, opts) {
      server code through `self` — only this process's own minute loop below
      ever learns it (see the adoptLive rpc in cms-server.js). */
   const adoptToken = "adopt-" + createHash("sha256").update(String(Date.now()) + ":" + String(Math.random()) + ":" + String(process.pid || 0)).digest("hex");
-  vm.runInContext(scriptSrc + "\nself.__adoptToken = " + JSON.stringify(adoptToken) + ";\nself.__codeWord = " + JSON.stringify(codeWord) + ";", sandbox, { filename: "cms-server.js" });
+  /* Clean-deploy flag (note 433): read by the server's boot block BEFORE any
+     content loads, so it must ride ahead of the server source — appended
+     assignments run after the boot blocks and would arrive too late. */
+  vm.runInContext("self.__cleanDeploy = " + (cleanDeploy ? "true" : "false") + ";\n" + scriptSrc + "\nself.__adoptToken = " + JSON.stringify(adoptToken) + ";\nself.__codeWord = " + JSON.stringify(codeWord) + ";", sandbox, { filename: "cms-server.js" });
   const rpc = selfObj.rpc || {};
   console.log(`cms backend: running the site's own server code (${Object.keys(rpc).length} rpc methods)`);
   /* A publish tapped on live/admin reaches this copy by itself (note 344):

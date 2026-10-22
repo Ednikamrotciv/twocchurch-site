@@ -350,6 +350,18 @@ export function LoginGate({ onExit, onDone }: { onExit?: () => void; onDone?: ()
     await doSubLogin(subPw);
   };
 
+  /* Why the sign-in opened (note 433): sessions end on every new deploy and
+     after 15 minutes without an admin action — the accounts are unchanged,
+     only a fresh sign-in is owed. Read once per opening; a successful
+     sign-in clears it. */
+  const [signInReason] = useState(() => {
+    try {
+      return cms.lastSignOutReason();
+    } catch {
+      return "";
+    }
+  });
+
   return (
     <div className="admin__gate admin__gate--modal">
       <Card className="admin__gate-card">
@@ -357,6 +369,16 @@ export function LoginGate({ onExit, onDone }: { onExit?: () => void; onDone?: ()
           <Icon name="lock" size={22} />
         </span>
         <h2>Sign in</h2>
+        {signInReason === "idle" && !needCode && !inviteMode && !subMode ? (
+          <p className="muted">
+            Signed out after 15 minutes without an admin action. Sign in again to publish — your work and your administrator
+            accounts are unchanged.
+          </p>
+        ) : signInReason === "deploy" && !needCode && !inviteMode && !subMode ? (
+          <p className="muted">
+            This is a new deploy — sign in again. Your administrator accounts are unchanged; only a fresh sign-in is owed.
+          </p>
+        ) : null}
         <p className="muted">
           Signing in lets you change the words, the photos and the details on the site itself — nothing you do is public until you
           publish it.
@@ -2132,7 +2154,9 @@ export async function runPublishAction(
       return false;
     }
     fireToast(
-      res.error === "unauthorized"
+      res.error === "idle-expired"
+        ? "Signed out after 15 minutes without an admin action — sign in again, then publish."
+        : res.error === "unauthorized"
         ? "Your session expired — unlock the console again, then publish."
         : `Could not publish (${res.error}). Nothing on the site changed.`,
       "error"

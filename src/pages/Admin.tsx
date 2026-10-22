@@ -204,6 +204,16 @@ export function Admin() {
         setPublishOpen(false);
         return true;
       }
+      /* A publish that fails on a dead session (idle, new deploy, retired
+         password) opens the sign-in with the reason — the next click then
+         publishes. Anything else (network, stale reload) keeps the session
+         and opens nothing. */
+      try {
+        if (!cms.isAuthed()) {
+          setPublishOpen(false);
+          setSignInOpen(true);
+        }
+      } catch {}
       return false;
     } catch (err) {
       /* The shared action already toasted; this only guarantees the buttons

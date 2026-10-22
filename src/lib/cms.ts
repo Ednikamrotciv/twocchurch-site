@@ -30,6 +30,14 @@ const AFTER_SAVE_KEY = "wom.cms.publishAfterSave";
 const AFTER_SAVE_MAX_AGE_MS = 15 * 60 * 1000;
 const NAME_KEY = "wom.cms.editor";
 const SESSION_KEY = "wom.cms.session";
+/* Deploy-bound, idle-expiring sessions (note 433): the saved session belongs
+   to the deploy it signed in on — a new deploy signs in again — and 15
+   minutes without an admin action ends it, so a publish then fails until the
+   office signs in again. Accounts persist server-side across deploys; only
+   the session is per-deploy and per-activity. */
+const SESSION_DEPLOY_KEY = "wom.cms.sessionDeploy";
+const LAST_ADMIN_AT_KEY = "wom.cms.lastAdminAt";
+const SESSION_IDLE_MS = 15 * 60 * 1000;
 const REQUEST_TIMEOUT = 9000;
 
 const NOTES_KEY = "wom.cms.notes";
@@ -1891,7 +1899,7 @@ export async function publishSection(sectionId: string, note: string): Promise<P
       return { ok: true, local: true };
     }
     if (!authed) {
-      const saved = sessionPassword();
+      const saved = silentSessionUsable();
       const res = saved ? await login(saved, true) : { ok: false as const };
       if (!res.ok) {
         if ((res as any).error === "denied") clearSession();
@@ -1949,7 +1957,7 @@ export async function publishSection(sectionId: string, note: string): Promise<P
     return { ok: true, local: true };
   }
   if (!authed) {
-    const saved = sessionPassword();
+    const saved = silentSessionUsable();
     const res = saved ? await login(saved, true) : { ok: false as const };
     if (!res.ok) {
       /* A changed/retired password ends the session here (note 297) but
@@ -2763,7 +2771,7 @@ export async function pullFromLive(): Promise<LivePullResult> {
     return { ok: false, error: "offline" };
   }
   if (!authed) {
-    const saved = sessionPassword();
+    const saved = silentSessionUsable();
     const res = saved ? await login(saved, true) : ({ ok: false as const });
     if (!res.ok) {
       if ((res as any).error === "denied") clearSession();
@@ -2913,7 +2921,7 @@ async function foldLiveInto(target: Snapshot | null, onlyId?: string, boundedMs 
   if (liveNewerThanHere(read.notes, read.at, read.seeded) !== "newer") return { snapshot: target, folded: [] };
   if (!socket || status !== "online") return { snapshot: target, folded: [] };
   if (!authed) {
-    const saved = sessionPassword();
+    const saved = silentSessionUsable();
     const res = saved ? await login(saved, true) : ({ ok: false as const });
     if (!res.ok) {
       if ((res as any).error === "denied") clearSession();
@@ -3342,14 +3350,22 @@ export async function startCms() {
       } catch {}
       /* One-click-everywhere carry from the old deploy never rides in: an owed
          live-relay retry belongs to the old deploy's words, so the new deploy
-         opens with nothing owed. The admin sign-in is untouched here on
-         purpose (session + password generation stay), so the office stays
-         signed in across the deploy. */
+         opens with nothing owed. The saved sign-in ends here too (note 433):
+         accounts persist, but every deploy is a fresh review — the office
+         signs in again. Password generation stays (it names the account, not
+         the session). */
       try {
         localStorage.removeItem("wom.cms.relayPending");
       } catch {}
       try {
         relayRetryPayload = null;
+      } catch {}
+      /* New deploys end admin sessions (note 433): the administrator
+         accounts persist server-side, but every deploy is a fresh review —
+         the office signs in again. Only the session goes (clearSession
+         keeps words, queues and stamps by construction). */
+      try {
+        clearSession("deploy");
       } catch {}
       /* New deploy wipes old wakes (note 428): a retired service worker or
          HTTP cache must never serve the previous deploy's shell (the classic
@@ -3362,9 +3378,15 @@ export async function startCms() {
   }
   /* Proven new update without a readable deploy proof (note 428): the wipe
      above keys on the deploy ID, which needs storage — when the store was
-     unreadable but the codegen proves newness, old wakes still go. */
+     unreadable but the codegen proves newness, old wakes still go, and the
+     saved session ends like any new deploy (note 433). */
   try {
-    if (freshEyes && !freshDeploy) wipeOldWakes();
+    if (freshEyes && !freshDeploy) {
+      wipeOldWakes();
+      try {
+        clearSession("deploy");
+      } catch {}
+    }
   } catch {}
   try {
     markDeploySeen();
@@ -3641,8 +3663,9 @@ function connect() {
       // Only an explicit denial ends it (note 296): a hiccup in the re-login
       // must never burn the saved session, or one bad minute logs the office
       // out for good. Anything else (offline, rate, transport error) keeps
-      // the session for the next attempt.
-      const saved = sessionPassword();
+      // the session for the next attempt. Idle and new-deploy sessions never
+      // re-prove (note 433) — the office signs in again instead.
+      const saved = silentSessionUsable();
       if (saved) {
         try {
           const res = await login(saved, true);
@@ -3771,8 +3794,14 @@ function noteServerPwgen(pw: unknown): boolean {
        reports generation 0 with the default password back, and burning the
        saved session on that would log the office out on every restart — the
        re-login below would never even be attempted. The saved session
-       re-proves itself instead: only an explicit denial ends it. */
+       re-proves itself instead: only an explicit denial ends it. Idle and
+       new-deploy sessions never re-prove (note 433): the office signs in
+       again instead. */
     recordPwgen(pw, savedPwRole() || "main");
+    if (sessionIdle() || !sessionDeployMatches()) {
+      clearSession(sessionDeployMatches() ? "idle" : "deploy");
+      return false;
+    }
     const saved = sessionPassword();
     if (saved) {
       notify();
@@ -4219,13 +4248,87 @@ function sessionPassword(): string {
     return "";
   }
 }
-function clearSession() {
+
+/* The deploy scope a session belongs to: the stamped deploy id on deployed
+   copies, the running update on unstamped local copies. */
+function sessionScope(): string {
+  try {
+    if (deployFromMeta && currentDeployId) return currentDeployId;
+  } catch {}
+  return "notes-" + BUILD_NOTES;
+}
+
+/* True when the saved session belongs to this deploy. Sessions saved before
+   this rule (no scope recorded) do not carry over — a new deploy signs in. */
+function sessionDeployMatches(): boolean {
+  try {
+    const scope = sessionStorage.getItem(SESSION_DEPLOY_KEY) || "";
+    return !!scope && scope === sessionScope();
+  } catch {
+    return false;
+  }
+}
+
+/* Record an admin action (successful sign-in or admin write). Shared across
+   tabs, so activity anywhere keeps the office signed in everywhere. */
+function touchAdminActivity(): void {
+  try {
+    localStorage.setItem(LAST_ADMIN_AT_KEY, JSON.stringify(Date.now()));
+  } catch {}
+}
+
+/* True when no admin action is on record within the last 15 minutes. */
+function sessionIdle(): boolean {
+  try {
+    const raw = localStorage.getItem(LAST_ADMIN_AT_KEY);
+    const n = raw === null ? 0 : Number(JSON.parse(raw));
+    if (!Number.isFinite(n) || !(n > 0)) return true;
+    return Date.now() - Math.floor(n) > SESSION_IDLE_MS;
+  } catch {
+    return true;
+  }
+}
+
+/* The saved session's password when it may still prove itself, else "": the
+   session must belong to this deploy (a new deploy signs in again) and an
+   admin action must be on record within the last 15 minutes (idle sessions
+   fail until sign-in again). Anything else clears the saved session here,
+   so a silent re-login can never bypass the gate. */
+function silentSessionUsable(): string {
+  try {
+    const saved = sessionPassword();
+    if (!saved) return "";
+    if (!sessionDeployMatches()) {
+      clearSession("deploy");
+      return "";
+    }
+    if (sessionIdle()) {
+      clearSession("idle");
+      return "";
+    }
+    return saved;
+  } catch {
+    return "";
+  }
+}
+/* Last sign-out reason for the sign-in card (note 433): "idle" (15 minutes
+   without an admin action), "deploy" (a new deploy ended the session), or
+   "" (explicit sign-out, denied password, server refusal). */
+let signOutReason = "";
+export function lastSignOutReason(): string {
+  return signOutReason;
+}
+function clearSession(reason?: string) {
   /* Sign-out ends the session only (note 297): the saved password goes, the
      admin flags drop, and the tab re-renders signed out. Held words, queued
      work and the publish stamp are untouched here — only an explicit office
      delete (resetLocalCopy) may clear them (note 300). */
+  signOutReason = reason === "idle" || reason === "deploy" ? reason : "";
   try {
     sessionStorage.removeItem(SESSION_KEY);
+  } catch {}
+  try {
+    sessionStorage.removeItem(SESSION_DEPLOY_KEY);
   } catch {}
   try {
     localStorage.removeItem(PWROLE_KEY);
@@ -4237,14 +4340,22 @@ function clearSession() {
 }
 
 /* Sign-in gate (office request: nothing in the admin happens signed out —
-   not even a device-local publish). True when this tab holds an admin
-   session: already signed in, or the saved session still proves on the
-   server (a dead saved session is cleared like any denied login). Never
-   throws, never touches content state on refusal. */
+   not even a device-local publish). True when this tab holds a live admin
+   session: already signed in and active within the last 15 minutes, or the
+   saved session still proves on the server (note 433 — idle and
+   new-deploy sessions fail here until the office signs in again; a dead
+   saved session is cleared like any denied login). Never throws, never
+   touches content state on refusal. */
 async function requireSignedIn(): Promise<boolean> {
   try {
-    if (authed) return true;
-    const saved = sessionPassword();
+    if (authed) {
+      if (sessionIdle()) {
+        clearSession("idle");
+        return false;
+      }
+      return true;
+    }
+    const saved = silentSessionUsable();
     if (!saved) return false;
     const res = await login(saved, true).catch(() => ({ ok: false as const }));
     if ((res as any)?.ok) return true;
@@ -4296,7 +4407,12 @@ export async function login(
       try {
         sessionStorage.setItem(SESSION_KEY, password);
       } catch {}
+      try {
+        sessionStorage.setItem(SESSION_DEPLOY_KEY, sessionScope());
+      } catch {}
+      signOutReason = "";
       recordPwgen((res as any).pwgen, myRole);
+      touchAdminActivity();
       notify();
       await flushPending();
       /* A fresh unlock may be what the owed live carry waited for: the
@@ -4330,7 +4446,12 @@ export async function login2fa(code: string, password: string): Promise<{ ok: bo
       try {
         sessionStorage.setItem(SESSION_KEY, password);
       } catch {}
+      try {
+        sessionStorage.setItem(SESSION_DEPLOY_KEY, sessionScope());
+      } catch {}
+      signOutReason = "";
       recordPwgen((res as any).pwgen, "main");
+      touchAdminActivity();
       notify();
       await flushPending();
       try {
@@ -4390,7 +4511,13 @@ export function validSubName(name: string): boolean {
 async function adminRpc(method: string, payload?: any): Promise<any> {
   if ((!socket || status !== "online") && !(await ensureOnline())) return { ok: false, error: "offline" };
   try {
-    return JSON.parse(await socket.rpc[method](payload === undefined ? "" : JSON.stringify(payload)));
+    const out = JSON.parse(await socket.rpc[method](payload === undefined ? "" : JSON.stringify(payload)));
+    /* A successful admin write is activity (note 433): it re-stamps the
+       15-minute session. A refusal ("unauthorized"/"idle-expired") ends it. */
+    if (out?.ok) touchAdminActivity();
+    else if (out?.err === "idle-expired" || out?.error === "idle-expired") clearSession("idle");
+    else if (out?.err === "unauthorized" || out?.error === "unauthorized") clearSession();
+    return out;
   } catch (err: any) {
     return { ok: false, error: err?.message || "error" };
   }
@@ -4467,6 +4594,11 @@ export async function setMainPassword(password: string, proof: string): Promise<
         if (typeof res.pwgen === "number" && Number.isFinite(res.pwgen)) localStorage.setItem(PWGEN_KEY, String(res.pwgen));
         localStorage.setItem(PWROLE_KEY, "main");
       } catch {}
+      try {
+        sessionStorage.setItem(SESSION_DEPLOY_KEY, sessionScope());
+      } catch {}
+      signOutReason = "";
+      touchAdminActivity();
       return { ok: true };
     }
     return { ok: false, error: res?.err || res?.error || "denied" };
@@ -4491,7 +4623,12 @@ export async function redeemInvite(code: string, password: string): Promise<{ ok
       try {
         sessionStorage.setItem(SESSION_KEY, password);
       } catch {}
+      try {
+        sessionStorage.setItem(SESSION_DEPLOY_KEY, sessionScope());
+      } catch {}
+      signOutReason = "";
       recordPwgen((res as any).pwgen, "sub");
+      touchAdminActivity();
       notify();
       await flushPending();
       return { ok: true, name: myName };
@@ -6242,8 +6379,10 @@ async function sendPatch(
     if (!res?.ok) {
       /* A changed/retired password ends the session here too (note 297) —
          the held words stay; only an explicit office delete may clear
-         last-published (note 300). */
+         last-published (note 300). A 15-minute-idle session ends the same
+         way (note 433) — the next publish waits for a fresh sign-in. */
       if (res?.err === "unauthorized") clearSession();
+      else if (res?.err === "idle-expired") clearSession("idle");
       return { ok: false, error: res?.err || "failed", sent, failed: ids };
     }
     lastRev = res.rev;
@@ -6254,6 +6393,9 @@ async function sendPatch(
       else overrides[id] = JSON.parse(value);
     });
   }
+  /* A landed publish is admin activity (note 433): it re-stamps the
+     15-minute session, so an afternoon of publishing never signs out. */
+  touchAdminActivity();
   if (bless) {
     markDeployPublished();
     /* One click lifts every deploy (not just this tab): stamp the publish
@@ -6398,7 +6540,7 @@ export async function publish(note: string, content?: Snapshot): Promise<Publish
       return { ok: true, local: true };
     }
     if (!authed) {
-      const saved = sessionPassword();
+      const saved = silentSessionUsable();
       const res = saved ? await login(saved, true) : ({ ok: false as const });
       if (!res.ok) {
         /* A changed/retired password ends the session here (note 297) but
@@ -6465,7 +6607,7 @@ export async function publish(note: string, content?: Snapshot): Promise<Publish
   // If the socket reconnected but this connection has not been authenticated
   // yet, restore the tab's session first so a publish is not lost.
   if (!authed) {
-    const saved = sessionPassword();
+    const saved = silentSessionUsable();
     const res = saved ? await login(saved, true) : { ok: false as const };
     if (!res.ok) {
       /* A changed/retired password ends the session here (note 297) but
@@ -6514,7 +6656,11 @@ export async function clearLog(): Promise<{ ok: boolean; error?: string }> {
   if ((!socket || status !== "online") && !(await ensureOnline())) return { ok: false, error: "offline" };
   try {
     const res = JSON.parse(await socket.rpc.clearLog(""));
-    if (!res?.ok) return { ok: false, error: res?.err || "failed" };
+    if (!res?.ok) {
+      if (res?.err === "unauthorized") clearSession();
+      else if (res?.err === "idle-expired") clearSession("idle");
+      return { ok: false, error: res?.err || "failed" };
+    }
   } catch (err: any) {
     return { ok: false, error: err?.message || "error" };
   }
@@ -6686,8 +6832,10 @@ export async function undoLastPublish(): Promise<PublishResult> {
       const res = JSON.parse(await socket.rpc.undoPublish(JSON.stringify({ by: editorName(), deploy: currentDeployId || "" })));
       /* A changed/retired password ends the session here too (note 297) —
          the held words stay; only an explicit office delete may clear
-         last-published (note 300). */
+         last-published (note 300). A 15-minute-idle session ends the same
+         way (note 433). */
       if (res?.err === "unauthorized") clearSession();
+      else if (res?.err === "idle-expired") clearSession("idle");
       if (res?.ok) {
         if (history.length) {
           history = history.slice(1);

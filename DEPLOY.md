@@ -133,6 +133,14 @@ A Render Web Service works as the always-on backend:
   one the worst a restart does is return to the last deploy, never to empty.
   Either way, keep taking Tools backups: they are the way back if words are
   ever deleted by hand.
+- Administrator *accounts* need the disk (note 433): the main-password change,
+  sub-admins, invites and two-factor live in `data/cms-state.bin` beside the
+  words, so on a diskless service every sleep/restart keeps the words but
+  returns sign-in to the shipped default password and forgets sub-admins —
+  nobody is locked out (the default password still works), but the office
+  signs sub-admins up again. Mount a persistent disk at `data` to keep
+  accounts across sleeps exactly like words. Either way a code deploy never
+  resets accounts: clean deploys clear words only, never the roster.
 - Use the paid (non-sleeping) instance type, or the service sleeps and every
   copy works from its last baked words until it wakes.
 - Free tier sleeps — and that is fine now (notes 303–309): sleep wipes the live
