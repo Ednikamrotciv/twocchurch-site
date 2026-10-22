@@ -2291,7 +2291,7 @@ export function PublishModal({
 
           {!state.authed && (
             <Notice tone="crimson">
-              Sign in first — nothing publishes until you sign in, not even on this device.
+              You are not signed in to the shared server, so this publish will only apply to this browser.
             </Notice>
           )}
 

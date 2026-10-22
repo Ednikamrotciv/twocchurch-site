@@ -1843,13 +1843,11 @@ async function joinBeforePublish(): Promise<boolean> {
 }
 
 export async function publishSection(sectionId: string, note: string): Promise<PublishResult> {
-  /* Never stamp from a stale bundle: reload onto the new build instead. */
-  if (await stopIfStale()) return { ok: false, error: "stale-reload" };
+  /* One-click publish (attached 422 behavior): same as publish() above — the
+     click always runs, the branches below silently re-log-in, and offline
+     clicks publish device-locally for the queue + relay to carry over. */
   const def = sectionById(sectionId);
   if (!def || !draft) return { ok: false, error: "nothing-to-do" };
-  /* Sign-in first (office request): nothing publishes signed out — not even
-     a device-local publish. No state changes on refusal. */
-  if (!(await requireSignedIn())) return { ok: false, error: authDenyReason() };
   /* A lapsed entry never survives a publish — expired slides and notices leave
      the draft here, so the live site and the server both forget them in the
      same stroke, whichever section is being published. */
@@ -1899,7 +1897,7 @@ export async function publishSection(sectionId: string, note: string): Promise<P
       return { ok: true, local: true };
     }
     if (!authed) {
-      const saved = silentSessionUsable();
+      const saved = sessionPassword();
       const res = saved ? await login(saved, true) : { ok: false as const };
       if (!res.ok) {
         if ((res as any).error === "denied") clearSession();
@@ -1958,7 +1956,7 @@ export async function publishSection(sectionId: string, note: string): Promise<P
     return { ok: true, local: true };
   }
   if (!authed) {
-    const saved = silentSessionUsable();
+    const saved = sessionPassword();
     const res = saved ? await login(saved, true) : { ok: false as const };
     if (!res.ok) {
       /* A changed/retired password ends the session here (note 297) but
@@ -6809,11 +6807,13 @@ async function sendPatch(
 
 /** Put the draft live. `content` is only for the publish that waited on a save. */
 export async function publish(note: string, content?: Snapshot): Promise<PublishResult> {
-  /* Never stamp from a stale bundle: reload onto the new build instead. */
-  if (await stopIfStale()) return { ok: false, error: "stale-reload" };
-  /* Sign-in first (office request): nothing publishes signed out — not even
-     a device-local publish. No state changes on refusal. */
-  if (!(await requireSignedIn())) return { ok: false, error: authDenyReason() };
+  /* One-click publish (attached 422 behavior): the click itself always runs —
+     no stale/sign-in refusal at the door. The dialog's pre-check still walks
+     a stale tab onto the new build first, and the branches below silently
+     re-log-in with the saved session; only a truly password-less tab reports
+     unauthorized. Signed-out/offline clicks publish device-locally and the
+     queue + relay carry the words to the other copy, so one click in live
+     lands in local and one click in local lands in live. */
   if (!content && draft) {
     dropLapsedSlides(true);
     migrateTestimonies();
@@ -6882,7 +6882,7 @@ export async function publish(note: string, content?: Snapshot): Promise<Publish
       return { ok: true, local: true };
     }
     if (!authed) {
-      const saved = silentSessionUsable();
+      const saved = sessionPassword();
       const res = saved ? await login(saved, true) : ({ ok: false as const });
       if (!res.ok) {
         /* A changed/retired password ends the session here (note 297) but
@@ -6950,7 +6950,7 @@ export async function publish(note: string, content?: Snapshot): Promise<Publish
   // If the socket reconnected but this connection has not been authenticated
   // yet, restore the tab's session first so a publish is not lost.
   if (!authed) {
-    const saved = silentSessionUsable();
+    const saved = sessionPassword();
     const res = saved ? await login(saved, true) : { ok: false as const };
     if (!res.ok) {
       /* A changed/retired password ends the session here (note 297) but
