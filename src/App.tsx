@@ -132,18 +132,10 @@ export function App() {
      reloads onto the update. */
   const ready = useCmsReady();
   const stale = useStaleBuild();
-  /* Boot first: neutral splash until boot + first sync + version check settle.
-     A fresh profile defaults to "wait" until the server proves this deploy is
-     published — rendering MaintenanceSite before ready is what flashed the
-     notice on every new device. Splash first, then decide. Forced local
-     preview (?maintenance=1) still shows the notice at once. */
-  if (!ready || !stale.settled) {
-    try {
-      const qq = new URLSearchParams(window.location.search || "");
-      if (qq.get("maintenance") === "1" || qq.get("showMaintenance") === "1") return <MaintenanceSite />;
-    } catch {}
-    return <BootSplash />;
-  }
+  /* Local preview (?maintenance=1): the notice shows at once, even before boot
+     settles — otherwise the splash covers the very page asked for. */
+  if (maintenance && !ready) return <MaintenanceSite />;
+  if (!ready || !stale.settled) return <BootSplash />;
   if (stale.waiting || maintenance) return <MaintenanceSite />;
 
   return (

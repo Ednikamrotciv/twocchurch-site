@@ -97,19 +97,6 @@ number is unchanged. build-static.mjs stamps it from hooks.ts CODE_ID. -->
           '<p style="margin:0;max-width:34rem;line-height:1.6;opacity:0.85;">The site is being updated. Please check back shortly.</p>' +
           "</div>";
       };
-      /* Neutral first paint for fresh profiles (no stored stamp): logo only, no
-         words. A new device/browser has empty localStorage, so it looks
-         "unpublished" by number comparison — painting the notice text here is
-         what flashed it before React even booted on an already-published
-         deploy. Splash stays until React + first sync decide. */
-      var paintSplash = function () {
-        var r = document.getElementById("root");
-        if (!r || r.hasChildNodes()) return;
-        r.innerHTML =
-          '<div style="min-height:100vh;min-height:100dvh;display:flex;align-items:center;justify-content:center;background:#07070a;">' +
-          '<img src="/src/assets/logo-mark.png" alt="" aria-hidden="true" style="width:72px;height:72px;object-fit:contain;opacity:0.9;" onerror="this.style.display=\'none\'">' +
-          "</div>";
-      };
       if (q.get("preview") === "1") return;
       try {
         if (window.sessionStorage && window.sessionStorage.getItem("wom.cms.preview") === "1") return;
@@ -145,23 +132,20 @@ number is unchanged. build-static.mjs stamps it from hooks.ts CODE_ID. -->
         var n = raw === null ? 0 : Number(JSON.parse(raw));
         if (Number.isFinite(n) && n > 0) stored = Math.floor(n);
       } catch (e) {}
-      /* Shipped-update lock: only a RETURNING browser proves "unpublished"
-         (a stored stamp exists and is behind). A fresh profile (stored === 0)
-         proves nothing — it gets the neutral splash, never the notice text, so
-         an already-published deploy never flashes maintenance on new devices.
-         React + first sync decide after boot. */
+      /* Shipped-update lock (office request: white blank instead of the
+         notice): the wom-notes meta above names the running update, so the
+         notice paints BEFORE React boots whenever this copy has not published
+         it yet — no bundle, no version.json, no server needed. After a
+         publish the stamp catches up and this paints nothing. */
       try {
         var shipped = 0;
         var mn = document.querySelector('meta[name="wom-notes"]');
         var mc = mn ? mn.getAttribute("content") : "";
         var mp = parseInt(String(mc || ""), 10);
         if (isFinite(mp) && mp > 0) shipped = Math.floor(mp);
-        if (shipped > 0 && stored > 0 && stored < shipped) {
+        if (shipped > 0 && stored < shipped) {
           paintMaint();
           return;
-        }
-        if (shipped > 0 && stored === 0) {
-          paintSplash();
         }
       } catch (e) {}
       /* Unnumbered code lock (the stale fix ships with no new number): the
@@ -177,10 +161,7 @@ number is unchanged. build-static.mjs stamps it from hooks.ts CODE_ID. -->
         try {
           blessedCode = window.localStorage ? window.localStorage.getItem("wom.cms.codeBlessed") : null;
         } catch (e2) {}
-        /* Returning browser on new code (stored blessing exists and differs)
-           paints the notice at once. Fresh (never blessed) proves nothing —
-           keep the splash so a published deploy never flashes the notice. */
-        if (codeContent && blessedCode && blessedCode !== codeContent) {
+        if (codeContent && blessedCode !== codeContent) {
           paintMaint();
           return;
         }
@@ -197,12 +178,8 @@ number is unchanged. build-static.mjs stamps it from hooks.ts CODE_ID. -->
           try {
             var latest = Number(data && data.notes);
             if (!Number.isFinite(latest) || latest <= 0) return;
-            /* Fresh profiles prove nothing from numbers alone — only a stored
-               stamp behind the host means "unpublished". Otherwise leave the
-               splash for React + first sync (which knows the server verdict). */
-            var provenBehind = stored > 0 && stored < Math.floor(latest);
-            window.__womStaleBoot = { latest: Math.floor(latest), stored: stored, waiting: provenBehind };
-            if (!provenBehind) return;
+            window.__womStaleBoot = { latest: Math.floor(latest), stored: stored, waiting: stored < Math.floor(latest) };
+            if (stored >= Math.floor(latest)) return;
             var root = document.getElementById("root");
             if (!root || root.hasChildNodes()) return;
             root.innerHTML =
