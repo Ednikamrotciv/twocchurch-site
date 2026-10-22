@@ -528,7 +528,7 @@ export async function runAll(fs) {
      token and never wipe unsaved work. */
   const hooksJ8 = text["src/lib/hooks.ts"];
   const indexJ8 = text["index.html"];
-  ok("code word rotated", has(hooksJ8, 'CODE_ID = "unified436"') && has(indexJ8, 'wom-code" content="unified436"'), "the new word must retire the bundle that holds the 5 stuck rows");
+  ok("code word rotated", has(hooksJ8, 'CODE_ID = "unified437"') && has(indexJ8, 'wom-code" content="unified437"'), "the new word must retire the bundle that holds the 5 stuck rows");
   ok("dev token names the code", has(cms, '"n" + BUILD_NOTES + "c" + (runningCode'), "an unnumbered update must still prove a fresh deploy in local dev");
   ok("fresh clear takes after-save", has(cms, "localStorage.removeItem(AFTER_SAVE_KEY)"), "a queued publish-after-save must not republish stale words after the clear");
   /* J9. restore+publish reaches every copy (office request: works on one
@@ -926,6 +926,7 @@ export async function runAll(fs) {
   const edQ = text["src/components/editor.tsx"];
   ok("pull entry exists", has(cms, "export async function pullFromLive()") && has(cms, "function startLivePull()") && has(cms, "async function foldLiveInto("), "the sync needs its auto entry, its poller and its publish-time fold");
   ok("puller runs with the office", has(cms, "startLivePull();") && has(cms, "initialSyncDone.then"), "live publishes must pull themselves home while an office tab is open");
+  ok("live publish lands both ways", has(cms, "noteUnrecordedLive") && has(cms, "liveAdoptBeatsServer") && has(cms, "The paint adopts by itself"), "a live publish must paint local by itself — session-free — while the office record waits for the desk");
   ok("publish folds live in", has(cms, "await foldLiveInto(content || draft, undefined, 6000)") && has(cms, "await foldLiveInto(draft, sectionId, 6000)"), "every Publish (whole site and per-section) must fold live's newer words in first");
   ok("no hand pull button", !has(edQ, "Pull from live now") && !has(edQ, "pullFromLive(") && has(edQ, "folds into this publish"), "the card is gone — Publish does it, and says so");
   ok("same-update reports only", has(liveQ, "reportMatchesBuild") && has(liveQ, "notes: BUILD_NOTES") && has(liveQ, "notes: number"), "an old bundle's wrong id must never steer this update");
@@ -2296,7 +2297,7 @@ const notes = Number((text["src/lib/hooks.ts"].match(/BUILD_NOTES = (\d+)/) || [
     const rpcMMM = loadVm(testSrc, stateMMM);
     const liMMM = JSON.parse(rpcMMM.login({ conn: officeConn }, pwMMM));
     ok("office can sign in", liMMM.ok === true, "err=" + liMMM.err);
-    const pubMMM = JSON.parse(rpcMMM.publish({ conn: officeConn }, JSON.stringify({ sections: { home: JSON.stringify({ t: 1 }) }, by: "office", changed: ["home"], notes: 436, first: true })));
+    const pubMMM = JSON.parse(rpcMMM.publish({ conn: officeConn }, JSON.stringify({ sections: { home: JSON.stringify({ t: 1 }) }, by: "office", changed: ["home"], notes: 437, first: true })));
     ok("signed-in publish lands", pubMMM.ok === true, "err=" + pubMMM.err);
     const liBMMM = JSON.parse(rpcMMM.login({ conn: officeConn2 }, pwMMM));
     ok("second tab signs in too", liBMMM.ok === true, "err=" + liBMMM.err);
@@ -2304,19 +2305,19 @@ const notes = Number((text["src/lib/hooks.ts"].match(/BUILD_NOTES = (\d+)/) || [
     const tMMM = Date.now();
     try {
       Date.now = () => tMMM + 16 * 60 * 1000;
-      const idlePub = JSON.parse(rpcMMM.publish({ conn: officeConn }, JSON.stringify({ sections: {}, by: "office", changed: [], notes: 436 })));
+      const idlePub = JSON.parse(rpcMMM.publish({ conn: officeConn }, JSON.stringify({ sections: {}, by: "office", changed: [], notes: 437 })));
       ok("idle publish fails until sign-in again", !idlePub.ok && idlePub.err === "idle-expired", "err=" + idlePub.err);
       const idleUndo = JSON.parse(rpcMMM.undoPublish({ conn: officeConn2 }, ""));
       ok("idle undo fails too", !idleUndo.ok && idleUndo.err === "idle-expired", "err=" + idleUndo.err);
       const chkMMM = JSON.parse(rpcMMM.checkAdmin({ conn: officeConn }, ""));
       ok("file doors follow the session", chkMMM.ok === true && chkMMM.admin === false, "admin=" + chkMMM.admin);
-      const anonMMM = JSON.parse(rpcMMM.publish({ conn: { id: "mmm-stranger" } }, JSON.stringify({ sections: {}, by: "x", changed: [], notes: 436 })));
+      const anonMMM = JSON.parse(rpcMMM.publish({ conn: { id: "mmm-stranger" } }, JSON.stringify({ sections: {}, by: "x", changed: [], notes: 437 })));
       ok("strangers stay unauthorized", !anonMMM.ok && anonMMM.err === "unauthorized", "err=" + anonMMM.err);
     } finally {
       Date.now = frozenMMM;
     }
     const li2MMM = JSON.parse(rpcMMM.login({ conn: officeConn }, pwMMM));
-    const pub2MMM = JSON.parse(rpcMMM.publish({ conn: officeConn }, JSON.stringify({ sections: {}, by: "office", changed: [], notes: 436 })));
+    const pub2MMM = JSON.parse(rpcMMM.publish({ conn: officeConn }, JSON.stringify({ sections: {}, by: "office", changed: [], notes: 437 })));
     ok("fresh sign-in publishes again", li2MMM.ok === true && pub2MMM.ok === true, "login=" + li2MMM.err + " publish=" + pub2MMM.err);
     /* A plain reboot keeps words AND accounts; a clean boot clears words but
        keeps the office password. */

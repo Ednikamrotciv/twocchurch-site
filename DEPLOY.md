@@ -72,10 +72,13 @@ Publish from the admin console on your own computer and you are done — with
 the live feed below, every copy catches up within minutes with no rebuild.
 Without the feed, rebuild and re-upload after publishing
 (`npm run build`, upload `dist/`).
-Live/admin is the general control: a publish clicked on live/admin records
-itself on the office copy too (while an office tab is open and signed in),
-even if the office never published on the running code — gates still take an
-explicit Publish, and mid-edit desks wait rather than adopt under.
+Live/admin is the general control, both directions: a publish clicked on
+live/admin paints itself on the office copy too (while an office tab is open
+— signed in or not, mid-edit or not), and a publish clicked on local/admin
+relays itself straight to the live box — even if that side never published
+on the running code. Gates still take an explicit Publish for brand-new code
+arrivals, and the office record still waits for a clean desk and a sign-in —
+but the notice and the words never wait: no second click, ever.
 
 ## The live feed (content without rebuilds)
 

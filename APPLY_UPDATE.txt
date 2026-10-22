@@ -1,4 +1,4 @@
-APPLY THIS UPDATE (436) — ONE UNIFIED UPDATE (ALL OLD UPDATES REMOVED)
+APPLY THIS UPDATE (437) — ONE UNIFIED UPDATE (ALL OLD UPDATES REMOVED)
 =============================================================================
 Single update, one zip — every older update is superseded by this one. Extract fully
 incl. index.html on BOTH sides (office computer + any always-on host), then follow the
@@ -11,32 +11,37 @@ with zero changes still counts — bless-only sendPatch — so the first click c
 notice even when the drawer says there is nothing to publish. /admin is never gated
 by the notice; Publish opens sign-in instead of sending when signed out.
 
-(2) ONE ADMIN PUBLISH WORKS EVERYWHERE, LOCAL INCLUDED. The bottom-bar Publish button
+(2) ONE ADMIN PUBLISH WORKS EVERYWHERE, BOTH DIRECTIONS. The bottom-bar Publish button
 and the dialog's Publish now button share the ONE pipeline (performPublish →
 runPublishAction → cms.publish): either one alone publishes for every visitor with
-the same note and toasts. Server verdict + same-code attestation + publish clock lift
-every copy on the host within seconds (online) or at first sync; no second click, no
-per-device click. Local fix in this build: a dev-boot restart no longer ends the
-admin session (each `npm run dev` boot mints a fresh dev-… id, which used to sign the
-office out, so the next local Publish only opened the sign-in while the deployed copy
-kept working). The local Publish joins up to 20s before settling for device-only, and
-a device-only click still lifts every tab of the browser and queues/relays in the
-background — so one click is enough on local too.
+the same note and toasts. New in this build: live/admin → local/admin is automatic
+the same way local/admin → live/admin already was. A Publish clicked on live/admin
+paints itself on every open local/admin copy within seconds — notice, words, stamps —
+signed in or not, mid-edit or not (open edits are rebased, never overwritten); the
+durable record on the office backend follows by itself once the desk allows (signed
+in, clean desk), and the next local Publish folds everything together, so no second
+click, ever. Server verdict + same-code attestation + publish clock still lift every
+copy on the host within seconds (online) or at first sync. Sessions stay deploy-bound
+(a new deploy signs in again) and survive `npm run dev` restarts; a device-only click
+still lifts every tab of the browser and queues/relays in the background.
 
 (3) NEW DEPLOY OPENS FRESH, CLEAN AND NEW. First boot per deploy ID wipes retired
 service workers/caches (old wakes can never paint the old shell), clears draft +
 pending + history + undos + preview + relay debt so the unsaved list opens new/empty,
 resets drawer place, and stages clean (welcome-home slide only, no former publish) for
-returning browsers until Recover + Publish. Fresh profiles with no prior blessing
-still adopt live words, so a new device joining the live site is never clobbered.
+returning browsers until Recover + Publish. A live adoption never paints over a
+clean stage with queued office work, and never paints an older store over newer
+live words (the owed-record flag guards the server sync). Fresh profiles with no
+prior blessing still adopt live words, so a new device joining the live site is
+never clobbered.
 
 (4) ADMIN SIGN-IN STAYS ACTIVE. Sessions are deploy-bound on stamped builds (a new
 deploy signs in again) and survive `npm run dev` restarts, and idle-expiring (15
 minutes without an admin action ends the session; the next publish fails until the
-office signs in again — the sign-in card names the reason: new deploy vs 15-minute
-idle). Administrator ACCOUNTS are never reset by a deploy: main-password override,
-sub-admin roster, invites, two-factor, main-off switch and generation persist in the
-server store across every update; clean boots clear words only, never the roster.
+office signs in again). Administrator ACCOUNTS are never reset by a deploy:
+main-password override, sub-admin roster, invites, two-factor, main-off switch and
+generation persist in the server store across every update; clean boots clear words
+only, never the roster.
 
 (5) SLEEP-WAKE STAYS ACTIVE. A sleeping box keeps serving its baked words; a wake
 re-serves the last publish whole (words + stamp + history) from the deploy bake /
@@ -46,15 +51,17 @@ Missing uploads heal back from the browser cache / public mirror without an offi
 click, so slides never go blank after a wipe.
 
 (6) PUBLISH AND PUBLISH NOW ARE THE SAME. Both buttons run the attached rule above —
-same pipeline, same note, same toasts, same everywhere-effect.
+same pipeline, same note, same toasts, same everywhere-effect, both directions.
 
 Still ORDER: BACK UP FIRST (Tools backup, download it), extract fully incl. index.html
 BOTH sides (same zip), `npm run dev:fresh` + restart the office backend, hard refresh;
 sign in once (the new deploy asks for it; dev restarts keep you signed in); Publish
 ONCE from any signed-in admin copy — every copy lifts within seconds online (or at
 first sync); THEN bake-seed, commit+push full step-0 set, rebuild BOTH hosts; Publish
-on each host; reload ALL admin tabs. Proof: window.__womBuild = { notes: 436,
-code: "unified436" }; verifier sections GGG (no-change publish blesses deploy) + MMM
-(sessions) pass. Files: src/lib/hooks.ts (436/unified436) + index.html (wom-notes/code),
-src/lib/cms.ts (dev-boot keeps the session across restarts), src/SPEC.md (note 436),
-src/tools/verify-update.mjs (436 payloads).
+on each host; reload ALL admin tabs. Proof: window.__womBuild = { notes: 437,
+code: "unified437" }; verifier sections GGG (no-change publish blesses deploy) + MMM
+(sessions) pass, plus the new live-lands-both-ways lock. Files: src/lib/hooks.ts
+(437/unified437) + index.html (wom-notes/code), src/lib/cms.ts (session-free live
+adoption both directions + owed-record guard + prompt live tick), src/SPEC.md
+(note 437), src/tools/verify-update.mjs (437 payloads + both-ways lock),
+DEPLOY.md (bidirectional routine).

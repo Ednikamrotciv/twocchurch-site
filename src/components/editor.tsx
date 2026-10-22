@@ -374,10 +374,6 @@ export function LoginGate({ onExit, onDone }: { onExit?: () => void; onDone?: ()
             Signed out after 15 minutes without an admin action. Sign in again to publish — your work and your administrator
             accounts are unchanged.
           </p>
-        ) : signInReason === "deploy" && !needCode && !inviteMode && !subMode ? (
-          <p className="muted">
-            This is a new deploy — sign in again. Your administrator accounts are unchanged; only a fresh sign-in is owed.
-          </p>
         ) : null}
         <p className="muted">
           Signing in lets you change the words, the photos and the details on the site itself — nothing you do is public until you

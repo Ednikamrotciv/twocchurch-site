@@ -1911,6 +1911,7 @@ export async function publishSection(sectionId: string, note: string): Promise<P
     if (!blessOnly.ok) return { ok: false, error: blessOnly.error };
     rev = blessOnly.rev ?? rev + 1;
     setPublishedNotes(BUILD_NOTES);
+    clearUnrecordedLive();
     writeCache();
     notify();
     return { ok: true, live: blessOnly.relay !== "missed" };
@@ -1975,6 +1976,7 @@ export async function publishSection(sectionId: string, note: string): Promise<P
   updatedAt = Date.now();
   updatedBy = editorName();
   setPublishedNotes(BUILD_NOTES);
+  clearUnrecordedLive();
   overrides[sectionId] = JSON.parse(payload);
   log = [{ rev, at: updatedAt, by: editorName(), role: myRole === "sub" ? "sub" : "main", note: note.slice(0, 160), changed: [sectionId] }, ...log].slice(0, 30);
   delete dirty[sectionId];
@@ -2349,19 +2351,24 @@ function startFeed() {
   window.addEventListener("online", () => syncFromFeed().catch(() => {}));
 }
 
-/* ------------------------- two-way sync with live (notes 308–309): live → local.
-   Local → live already rides the auto-deploy (bake → commit → push → rebuild,
-   a few minutes). This is the other half, so nothing published in either place
-   is ever lost: anything published on live is saved on the office copy by
-   itself, anything published on local reaches live through the deploy.
-   - AUTOMATIC: while an office tab is open and signed in, a live publish newer
-     than this copy's is published straight onto the office backend (same
-     bless, history and log as a hand publish) with its uploads fetched home.
+/* ------------------------- two-way sync with live (notes 308–309, 437):
+   live → local AND local → live, both automatic. Local → live rides the
+   instant relay below plus the auto-deploy (bake → commit → push → rebuild,
+   a few minutes). Live → local is pulled by every open office tab by itself
+   (note 437): stamps, words and the notice follow a live publish within
+   seconds — no session, no clean desk, no second click — while the durable
+   record on the office backend waits for a session and a clean desk. Nothing
+   published in either place is ever lost.
+   - AUTOMATIC: while an office tab is open, a live publish newer
+     than this copy's is painted here at once (same bless and notice-lift as
+     a hand publish) with its uploads fetched home, and recorded onto the
+     office backend the moment the desk allows (signed in, clean desk).
      Conservative by design: never across a newer update (apply the zip
-     first), never over unsaved draft work, never from a fallback bake (only
-     a fresh copy may be restored from the bake, and only by hand), and ties
-     go to the durable path (rev counters are per-store, so the wall clock
-     arbitrates — live wins only when its publish is strictly newer).
+     first), never over a clean stage with queued office work, never from a
+     fallback bake (only a fresh copy may be restored from the bake, and
+     only by hand), and ties go to the durable path (rev counters are
+     per-store, so the wall clock arbitrates — live wins only when its
+     publish is strictly newer).
    - ON PUBLISH (note 309): pressing Publish first folds live's newer words
      into what goes out — sections the office did not touch take live's words
      (uploads fetched home), sections the office edited keep the office's. The
@@ -2723,8 +2730,8 @@ function scheduleUploadHeal(delayMs = 2500): void {
 /* Read live's publish without adopting anything: the shared front door for the
    automatic save and the publish-time fold. Null when there is nothing usable
    (no live address, live silent or empty) — never toasts, never throws. */
-async function readLivePublish(): Promise<{ base: string; sections: Snapshot; notes: number; at: number; seeded: boolean; publishDeploy: string } | null> {
-  if (livePullRunning) return null;
+async function readLivePublish(allowWhileRunning = false): Promise<{ base: string; sections: Snapshot; notes: number; at: number; seeded: boolean; publishDeploy: string; code: string } | null> {
+  if (!allowWhileRunning && livePullRunning) return null;
   const base = await liveBaseUrl();
   if (!base) return null;
   const live = await fetchLiveContent(base);
@@ -2746,6 +2753,10 @@ async function readLivePublish(): Promise<{ base: string; sections: Snapshot; no
        office record on pull so the durable seed (bake, origin push, rebuild)
        names the live deploy — wakes then serve its release, not just words. */
     publishDeploy: typeof live.publishDeploy === "string" && /^[A-Za-z0-9_-]{1,80}$/.test(live.publishDeploy) ? live.publishDeploy : "",
+    /* The code word the live publish was blessed from (note 437): the public
+       adoption below attests on it, so a same-update, same-code publish
+       releases this copy with no sign-in and no second click. */
+    code: typeof live.code === "string" && /^[A-Za-z0-9_-]{1,40}$/.test(live.code) ? live.code : "",
   };
 }
 
@@ -2766,40 +2777,173 @@ function liveNewerThanHere(liveNotes: number, liveAt: number, seeded: boolean): 
   return "newer";
 }
 
-export async function pullFromLive(): Promise<LivePullResult> {
-  if ((!socket || status !== "online") && !(await ensureOnline())) {
-    return { ok: false, error: "offline" };
+/* Live-adopted words still owed to this copy's own backend (note 437): a
+   live publish painted here while this tab was signed out (or mid-edit) is
+   newer than the office store — the next server sync must not paint the
+   older store over it. Persisted, so it survives the reload between the
+   adoption and the sign-in that records it. Same update + real words only;
+   cleared the moment the office record catches up (durable pull, any explicit
+   publish) or the server proves newer. */
+const LIVE_UNRECORDED_KEY = "wom.cms.liveUnrecorded";
+function readUnrecordedLive(): { at: number; notes: number; words: number; hash: string } | null {
+  try {
+    const raw = localStorage.getItem(LIVE_UNRECORDED_KEY);
+    if (!raw) return null;
+    const o = JSON.parse(raw);
+    if (!o || typeof o.at !== "number" || !(o.at > 0)) return null;
+    if (Math.floor(Number(o.notes)) !== BUILD_NOTES) return null;
+    if (!(o.words > 0) || typeof o.hash !== "string" || !o.hash) return null;
+    return { at: Math.floor(o.at), notes: BUILD_NOTES, words: Math.floor(o.words), hash: o.hash };
+  } catch {
+    return null;
   }
-  if (!authed) {
-    const saved = silentSessionUsable();
-    const res = saved ? await login(saved, true) : ({ ok: false as const });
-    if (!res.ok) {
-      if ((res as any).error === "denied") clearSession();
-      return { ok: false, error: "unauthorized" };
+}
+function noteUnrecordedLive(at: number, notes: number, words: number, hash: string): void {
+  try {
+    if (!(at > 0) || Math.floor(Number(notes)) !== BUILD_NOTES || !(words > 0) || !hash) return;
+    localStorage.setItem(LIVE_UNRECORDED_KEY, JSON.stringify({ at: Math.floor(at), notes: BUILD_NOTES, words: Math.floor(words), hash }));
+  } catch {}
+}
+function clearUnrecordedLive(): void {
+  try {
+    localStorage.removeItem(LIVE_UNRECORDED_KEY);
+  } catch {}
+}
+/* Cheap fingerprint of adopted words, so the keep-paint guard below only
+   holds while the paint still IS the adoption (an explicit publish or a
+   newer sync moves on by itself). */
+function fingerprintSections(sections: Snapshot): string {
+  try {
+    const s = stableStringify(sections);
+    let h = 0x811c9dc5;
+    for (let i = 0; i < s.length; i++) {
+      h ^= s.charCodeAt(i);
+      h = Math.imul(h, 0x01000193);
     }
+    return (h >>> 0).toString(36);
+  } catch {
+    return "";
   }
-  /* Never adopt-and-stamp from a stale bundle: reload onto the new build
-     instead, so the stamp never moves backwards to an old word. */
-  if (await stopIfStale()) return { ok: false, error: "stale-reload" };
-  const read = await readLivePublish();
-  if (!read) {
-    return { ok: false, error: "unreachable" };
+}
+/* True when this tab paints live-adopted words the office server below does
+   not know yet: the server answer is older than the adoption, so painting it
+   would regress the site by itself. The live tick records the words durably
+   once the desk allows; until then the paint stands. Same update only, real
+   words only, never in a clean stage with queued office work. */
+function liveAdoptBeatsServer(serverAt: unknown, serverNotes: unknown): boolean {
+  try {
+    const u = readUnrecordedLive();
+    if (!u) return false;
+    if (typeof serverNotes === "number" && Number.isFinite(serverNotes) && Math.floor(serverNotes) !== BUILD_NOTES) return false;
+    const sAt = Math.floor(Number(serverAt));
+    if (!(u.at > (Number.isFinite(sAt) && sAt > 0 ? sAt : 0))) return false;
+    if (cleanStageForNewCode && pendingSections().length > 0) return false;
+    if (!u.hash || fingerprintSections(overrides) !== u.hash) return false;
+    return true;
+  } catch {
+    return false;
   }
-  const verdict = liveNewerThanHere(read.notes, read.at, read.seeded);
-  if (verdict === "newer-update") {
-    const msg = `Live is on update ${read.notes} — apply the new update on this copy first.`;
-    lastLivePullAt = Date.now();
-    lastLivePullMsg = msg;
-    return { ok: false, error: "newer-update" };
-  }
-  if (verdict === "stale") {
-    return { ok: true, pulled: [] };
-  }
+}
+
+export async function pullFromLive(): Promise<LivePullResult> {
   if (livePullRunning) return { ok: false, error: "busy" };
   livePullRunning = true;
   try {
+    /* Never adopt-and-stamp from a stale bundle: reload onto the new build
+       instead, so the stamp never moves backwards to an old word. */
+    if (await stopIfStale()) return { ok: false, error: "stale-reload" };
+    /* The public read needs no session and no socket (note 437: a Publish
+       clicked on live/admin takes effect on local/admin by itself, and vice
+       versa through the relay that already runs). The durable record on this
+       copy's backend follows once the desk allows — signed in, clean desk —
+       but the notice and the words never wait for it. */
+    const read = await readLivePublish(true);
+    if (!read) {
+      return { ok: false, error: "unreachable" };
+    }
+    const verdict = liveNewerThanHere(read.notes, read.at, read.seeded);
+    if (verdict === "newer-update") {
+      const msg = `Live is on update ${read.notes} — apply the new update on this copy first.`;
+      lastLivePullAt = Date.now();
+      lastLivePullMsg = msg;
+      return { ok: false, error: "newer-update" };
+    }
+    if (verdict === "stale") {
+      return { ok: true, pulled: [] };
+    }
+    /* A live box that moved backwards (note 437): this tab already paints a
+       newer live publish it has not recorded yet — never paint the older
+       answer over it. The office record still catches up once the desk
+       allows. */
+    try {
+      const owed = readUnrecordedLive();
+      if (owed && read.notes === BUILD_NOTES && read.at < owed.at) {
+        return { ok: true, pulled: [] };
+      }
+    } catch {}
+    /* Session-free stamps (note 437): the publish clock, the deploy witness
+       and the code word move on the live answer alone — a live publish lifts
+       this copy's notice within seconds, signed in or not, draft or not. The
+       comparisons are the guard: only a same-update publish, only with real
+       words. Raise-only, like every other witness. */
+    const liveWords = read.sections && typeof read.sections === "object" ? Object.keys(read.sections).length : 0;
+    const sameUpdate = read.notes === BUILD_NOTES;
+    try {
+      if (sameUpdate && read.at > 0) notePublishAt(read.at);
+    } catch {}
+    try {
+      noteDeployWitness(read.publishDeploy);
+    } catch {}
+    let liveCodeWitnessed = false;
+    try {
+      if (sameUpdate && liveWords > 0) liveCodeWitnessed = noteCodeWitness(read.code, read.notes);
+    } catch {}
+    /* Late-join release over the live answer (note 437 — same rule as the
+       server twin): a same-update publish attested to this code, carrying
+       real words, IS the office review — release this deploy even when it
+       first opened after the click. Never across updates, never for a
+       different word, never on an empty answer, and never with this copy's
+       own unsaved work pending in a clean stage. */
+    try {
+      if (
+        (!cleanStageForNewCode || pendingSections().length === 0) &&
+        deployFromMeta && currentDeployId &&
+        publishedDeployId !== currentDeployId &&
+        sameUpdate && liveCodeWitnessed && liveWords > 0
+      ) {
+        setPublishedNotes(BUILD_NOTES);
+        markDeployPublished();
+      }
+    } catch {}
     const { ids, patch } = diffAgainstLive(read.sections);
-    if (!ids.length) {
+    /* An adoption the office record never learned (note 437): the paint
+       below already speaks live, so the words ride the full set, not the
+       empty diff — a bless-only send would stamp the server without its
+       words. Superseded when live moves on (the fresh diff takes over). */
+    let unrec = readUnrecordedLive();
+    try {
+      if (unrec && (!sameUpdate || !(read.at >= unrec.at))) {
+        clearUnrecordedLive();
+        unrec = null;
+      }
+    } catch {}
+    let sendIds = ids;
+    let sendMap = patch;
+    if (!ids.length && unrec && sameUpdate && liveWords > 0) {
+      sendIds = [];
+      sendMap = {};
+      for (const def of SECTION_DEFS) {
+        const v = read.sections[def.id];
+        if (v === undefined || v === null) continue;
+        sendIds.push(def.id);
+        sendMap[def.id] = JSON.stringify(clone(v));
+      }
+      if (!sendIds.length) {
+        clearUnrecordedLive();
+        unrec = null;
+      }
+    }
+    if (!sendIds.length) {
       lastLivePullAt = Date.now();
       lastLivePullMsg = "Live matches this copy — nothing to pull.";
       /* No words to carry, but the stamp still counts (note 420): live holds
@@ -2813,7 +2957,7 @@ export async function pullFromLive(): Promise<LivePullResult> {
          publish must not clear the notice by itself — same rule as the sync
          twin), and never across updates — nothing here stages, moves or
          loses words. */
-      if (!cleanStageForNewCode && pendingSections().length === 0 && read.notes === BUILD_NOTES && read.sections && Object.keys(read.sections).length > 0 && read.at > 0 && deployFirstSeenAt > 0 && read.at > deployFirstSeenAt) {
+      if (!cleanStageForNewCode && pendingSections().length === 0 && sameUpdate && liveWords > 0 && read.at > 0 && deployFirstSeenAt > 0 && read.at > deployFirstSeenAt) {
         setPublishedNotes(BUILD_NOTES);
         blessRunningCode();
         writeCache();
@@ -2830,24 +2974,92 @@ export async function pullFromLive(): Promise<LivePullResult> {
        wait, so unsaved work is never adopted under. Nothing here blesses
        code, deploy or number gates — those still take an explicit Publish. */
     const stageInbound = !cleanStageForNewCode;
+    /* The paint adopts by itself (note 437): visitors and the notice follow
+       a live publish within seconds — signed in or not, draft or not. Edits
+       in progress are rebased, never overwritten (rebaseDraft keeps dirty
+       sections); the durable record below still waits for a clean desk and a
+       session, so nothing is recorded behind the office's back. */
+    let painted = false;
+    if (ids.length && (stageInbound || pendingSections().length === 0)) {
+      try {
+        const paint: Snapshot = {};
+        for (const id of ids) {
+          try {
+            paint[id] = JSON.parse(patch[id]);
+          } catch {
+            continue;
+          }
+        }
+        const paintedIds = Object.keys(paint);
+        if (paintedIds.length) {
+          const merged = clone(overrides);
+          for (const id of paintedIds) (merged as Snapshot)[id] = (paint as Snapshot)[id];
+          applyOverrides(merged);
+          writeCache();
+          noteUnrecordedLive(read.at, read.notes, liveWords, fingerprintSections(overrides));
+          painted = true;
+        }
+      } catch {}
+    }
     if (pendingSections().length > 0 && stageInbound) {
+      /* A mid-edit desk records nothing (as before) — but the paint above
+         already follows live, so the publish is showing, not owed. */
+      if (painted) {
+        lastLivePullAt = Date.now();
+        lastLivePullMsg = `Live publish showing here — ${ids.length} ${ids.length === 1 ? "section" : "sections"} (records on your next Publish).`;
+        fireToast(lastLivePullMsg + ".", "success");
+        notify();
+        return { ok: true, pulled: ids };
+      }
       return { ok: false, error: "deferred" };
+    }
+    /* The durable record needs this copy's backend and a session (as
+       before): while signed out or unreachable it simply waits — the paint
+       above (and its owed-record flag) keeps visitors live meanwhile. */
+    if ((!socket || status !== "online") && !(await ensureOnline())) {
+      if (painted) {
+        lastLivePullAt = Date.now();
+        lastLivePullMsg = `Live publish showing here — ${ids.length} ${ids.length === 1 ? "section" : "sections"} (records itself when the server returns).`;
+        fireToast(lastLivePullMsg + ".", "success");
+        notify();
+        return { ok: true, pulled: ids };
+      }
+      return { ok: false, error: "offline" };
+    }
+    if (!authed) {
+      const saved = silentSessionUsable();
+      const res = saved ? await login(saved, true) : ({ ok: false as const });
+      if (!res.ok) {
+        /* A changed/retired password ends the session here (note 297) but
+           keeps every held word, queue entry and stamp — only an explicit
+           office delete may clear last-published (note 300). */
+        if ((res as any).error === "denied") clearSession();
+        if (painted) {
+          lastLivePullAt = Date.now();
+          lastLivePullMsg = `Live publish showing here — ${ids.length} ${ids.length === 1 ? "section" : "sections"} (records itself once you sign in).`;
+          fireToast(lastLivePullMsg + ".", "success");
+          notify();
+          return { ok: true, pulled: ids };
+        }
+        return { ok: false, error: "unauthorized" };
+      }
     }
     rememberHistory();
     /* Durable stamp: the office record names the live deploy these words were
        published from, so the seed, origin push and rebuild bake carry the
        build live visitors run — sleep-wakes serve its release. */
-    const res = await sendPatch(patch, ids, `Pulled from live (${ids.length} ${ids.length === 1 ? "section" : "sections"})`, true, false, read.publishDeploy);
+    const res = await sendPatch(sendMap, sendIds, `Pulled from live (${sendIds.length} ${sendIds.length === 1 ? "section" : "sections"})`, true, false, read.publishDeploy);
     if (!res.ok) return { ok: false, error: res.error };
     rev = res.rev ?? rev + 1;
     updatedAt = Date.now();
     updatedBy = editorName();
     setPublishedNotes(BUILD_NOTES);
+    clearUnrecordedLive();
     if (stageInbound) {
       applyOverrides(overrides, false);
       writeCache();
     }
-    log = [{ rev, at: updatedAt, by: updatedBy, role: myRole === "sub" ? "sub" : "main", note: "Pulled from live", changed: ids }, ...log].slice(0, 30);
+    log = [{ rev, at: updatedAt, by: updatedBy, role: myRole === "sub" ? "sub" : "main", note: "Pulled from live", changed: sendIds }, ...log].slice(0, 30);
     if (stageInbound) {
       draft = null;
       dirty = {};
@@ -2863,11 +3075,11 @@ export async function pullFromLive(): Promise<LivePullResult> {
     const imgBit = files.restored ? ` and ${files.restored} uploaded ${files.restored === 1 ? "file" : "files"} came home` : "";
     const missBit = files.failed.length ? ` (${files.failed.length} uploaded ${files.failed.length === 1 ? "file is" : "files are"} missing on live: ${files.failed.slice(0, 3).join(", ")}${files.failed.length > 3 ? "…" : ""})` : "";
     lastLivePullMsg = stageInbound
-      ? `Live publish saved here — ${ids.length} ${ids.length === 1 ? "section" : "sections"}${imgBit}${missBit}`
-      : `Live publish recorded in the office — ${ids.length} ${ids.length === 1 ? "section" : "sections"}${imgBit}${missBit} (staged clean until Recover)`;
+      ? `Live publish saved here — ${sendIds.length} ${sendIds.length === 1 ? "section" : "sections"}${imgBit}${missBit}`
+      : `Live publish recorded in the office — ${sendIds.length} ${sendIds.length === 1 ? "section" : "sections"}${imgBit}${missBit} (staged clean until Recover)`;
     fireToast(lastLivePullMsg + ".", "success");
     notify();
-    return { ok: true, pulled: ids, filesRestored: files.restored, filesFailed: files.failed };
+    return { ok: true, pulled: sendIds, filesRestored: files.restored, filesFailed: files.failed };
   } finally {
     livePullRunning = false;
   }
@@ -3180,20 +3392,17 @@ function startContentWatch() {
   });
 }
 
-/* The automatic half runs in any signed-in office tab: right after boot, every
-   minute, and whenever the tab comes back or the network returns. Visitors'
-   tabs never poll (no session, no sign-in) — and copies with no live address
-   (the live box itself, standalone copies) return at the first fetch. */
+/* The automatic half runs in every open office tab (note 437): the live read
+   is public, so no session is needed to notice — the durable record still
+   waits for one. Right after boot, every minute, and whenever the tab comes
+   back or the network returns; waiting copies hurry (a live publish lands
+   within seconds). Copies with no live address (the live box itself,
+   standalone copies) return at the first fetch. */
 function startLivePull() {
   if (livePullStarted) return;
   livePullStarted = true;
   const tick = () => {
     if (livePullRunning) return;
-    try {
-      if (!authed && !sessionPassword()) return;
-    } catch {
-      return;
-    }
     if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
     pullFromLive().catch(() => {});
     refreshLiveSiteNotes().catch(() => {});
@@ -3201,12 +3410,30 @@ function startLivePull() {
   };
   try {
     initialSyncDone.then(() => {
-      window.setTimeout(() => tick(), 15000);
+      /* A copy that opens onto waiting visitors follows live at once instead
+         of after the first minute. */
+      try {
+        if (maintenanceShouldWait()) tick();
+        else window.setTimeout(() => tick(), 15000);
+      } catch {
+        window.setTimeout(() => tick(), 15000);
+      }
     }).catch(() => {});
   } catch {
     window.setTimeout(() => tick(), 15000);
   }
   window.setInterval(() => tick(), 60 * 1000);
+  /* Waiting copies hurry (publish reaches everywhere): while the notice
+     shows, re-read live every 10s instead of only on the loop above — a
+     Publish clicked on live/admin lands on local/admin within seconds, with
+     no tap here. Hidden tabs still skip; the 60s loop stays for every copy. */
+  window.setInterval(() => {
+    try {
+      if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
+      if (!maintenanceShouldWait()) return;
+      tick();
+    } catch {}
+  }, 10_000);
   document.addEventListener("visibilitychange", () => {
     if (document.visibilityState === "visible") tick();
   });
@@ -4202,7 +4429,22 @@ function hostFileAttestsSameCode(): boolean {
        Copies with nothing unsaved (visitors) always take the published words,
        so one Publish click paints every browser — never a clean shell. */
     if (!cleanStageForNewCode || pendingSections().length === 0) {
-      applyOverrides(server);
+      /* A live adoption this tab already paints (note 437): the office
+         server below may not know it yet (signed-out tab, mid-edit desk) —
+         never paint the older store over the newer live words. The live tick
+         records them durably once the desk allows; until the server proves
+         newer, the paint stands. */
+      if (liveAdoptBeatsServer((res as any).at, (res as any).notes)) {
+        /* stamps above already moved; the paint stays live-adopted */
+      } else {
+        applyOverrides(server);
+        try {
+          if (typeof res.at === "number" && res.at > 0) {
+            const u = readUnrecordedLive();
+            if (u && res.at >= u.at) clearUnrecordedLive();
+          }
+        } catch {}
+      }
       writeCache();
     }
   } else if (notesLifted || deployLifted || codeWitnessed) {
@@ -5562,14 +5804,18 @@ function convergeNow(): void {
 
 /* Every publish reflects everywhere (office request: a Publish click saves to
    the visitors website from live/admin AND local/admin, and clears the
-   notice on live AND local): the office copy's backend reaches the live box
-   on its own (minute follow + instant push), but the live box cannot reach a
-   localhost office — so without a public mirror an office publish only
-   reached live after the rebuild, minutes later. The publishing tab itself
-   can reach BOTH (it reads live for the fold already), so after every
-   deliberate office publish it relays the same words straight to the live
-   backend with this tab's own session — live visitors and live/admin land it
-   in seconds via the live backend's own shout, with no feed and no rebuild.
+   notice on live AND local — either direction, no second click): the office
+   copy's backend reaches the live box on its own (minute follow + instant
+   push), but the live box cannot reach a localhost office — so without a
+   public mirror an office publish only reached live after the rebuild,
+   minutes later. The publishing tab itself can reach BOTH (it reads live for
+   the fold already), so after every deliberate office publish it relays the
+   same words straight to the live backend with this tab's own session — live
+   visitors and live/admin land it in seconds via the live backend's own
+   shout, with no feed and no rebuild. The other way runs on the office tab
+   itself (note 437): every open tab re-reads live by itself — stamps, words
+   and notice follow a live publish within seconds with no session and no
+   clean desk, and the office record catches up once the desk allows.
    Best-effort: a denied login (live password differs), 2FA on live, or an
    unreachable live box simply leaves the minute loops, the feed and the
    rebuild to carry the publish as before — and the click now SAYS so instead
@@ -6576,6 +6822,7 @@ export async function publish(note: string, content?: Snapshot): Promise<Publish
     if (!bless.ok) return { ok: false, error: bless.error };
     rev = bless.rev ?? rev + 1;
     setPublishedNotes(BUILD_NOTES);
+    clearUnrecordedLive();
     writeCache();
     notify();
     return { ok: true, live: bless.relay !== "missed", relayMsg: relayStatus().msg };
@@ -6657,6 +6904,7 @@ export async function publish(note: string, content?: Snapshot): Promise<Publish
   updatedAt = Date.now();
   updatedBy = editorName();
   setPublishedNotes(BUILD_NOTES);
+  clearUnrecordedLive();
   applyOverrides(overrides, false);
   writeCache();
   log = [{ rev, at: updatedAt, by: editorName(), role: myRole === "sub" ? "sub" : "main", note: payloadNote, changed }, ...log].slice(0, 20);
