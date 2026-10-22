@@ -3350,9 +3350,10 @@ export async function startCms() {
       } catch {}
       /* One-click-everywhere carry from the old deploy never rides in: an owed
          live-relay retry belongs to the old deploy's words, so the new deploy
-         opens with nothing owed. The saved sign-in ends here too (note 433):
-         accounts persist, but every deploy is a fresh review — the office
-         signs in again. Password generation stays (it names the account, not
+         opens with nothing owed. The saved sign-in ends here too on stamped
+         builds (note 433; dev-boot restarts keep it per note 436): accounts
+         persist, but every deploy is a fresh review — the office signs in
+         again. Password generation stays (it names the account, not
          the session). */
       try {
         localStorage.removeItem("wom.cms.relayPending");
@@ -3363,9 +3364,14 @@ export async function startCms() {
       /* New deploys end admin sessions (note 433): the administrator
          accounts persist server-side, but every deploy is a fresh review —
          the office signs in again. Only the session goes (clearSession
-         keeps words, queues and stamps by construction). */
+         keeps words, queues and stamps by construction). Note 436: a
+         dev-boot restart is not a new review — `npm run dev` mints a fresh
+         dev-… id per boot, so ending the session here signed the office
+         out on every local restart and the next local Publish only opened
+         the sign-in instead of sending (the deployed copy kept working).
+         Dev sessions survive restarts; stamped deploys still sign in again. */
       try {
-        clearSession("deploy");
+        if (!ownDeployIsDevBoot()) clearSession("deploy");
       } catch {}
       /* New deploy wipes old wakes (note 428): a retired service worker or
          HTTP cache must never serve the previous deploy's shell (the classic
