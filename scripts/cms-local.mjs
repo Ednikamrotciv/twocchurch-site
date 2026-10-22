@@ -383,7 +383,7 @@ async function backfillUploadFiles(rootDir, names, baseUrls, where) {
    live publish in about a second; the tiny stamp round beside it lands one
    within seconds even with the stream down; the half-minute full round is
    the backstop for old hosts without the stamp answer. Never throws out. */
-const FOLLOW_MS = 30 * 1000;let followStarted = false;
+const FOLLOW_MS = 5 * 1000;let followStarted = false;
 function startLiveFollow({ rootDir, rpcCall, adoptToken, codeWord }) {
   if (followStarted) return;
   followStarted = true;
@@ -603,7 +603,7 @@ function startLiveFollow({ rootDir, rpcCall, adoptToken, codeWord }) {
    stays the feed's own, so the office never re-adopts what it just published
    and the two loops cannot chase each other. RENDER-only: anywhere else the
    office minute loop above already owns this direction. Never throws out. */
-const FEED_FOLLOW_MS = 30 * 1000;
+const FEED_FOLLOW_MS = 5 * 1000;
 let feedFollowStarted = false;
 function startFeedFollow({ rootDir, rpcCall, adoptToken, codeWord }) {
   if (feedFollowStarted) return;

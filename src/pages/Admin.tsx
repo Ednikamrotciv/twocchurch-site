@@ -186,7 +186,10 @@ export function Admin() {
      Publish now do the same thing. No-change Publish still blesses this
      deploy through the same bless-only sendPatch every publish rides. */
   const performPublish = async (noteInput = "", _fromDialog = false): Promise<boolean> => {
-    if (publishing || publishSaving) return false;
+    if (publishing || publishSaving) {
+      try { fireToast("Publishing… — your click is already sending.", "info"); } catch {}
+      return false;
+    }
     /* No early authed gate here (local-dev fix): state.authed is still false
        on a fresh boot until connect() restores the saved session, so gating
        on it turns a valid silent session into a sign-in popup and the office
@@ -589,13 +592,13 @@ function EditBar({
           </Btn>
         )}
 
-        {canEdit ? (
-          <Btn size="sm" icon="check" onClick={onPublish} disabled={busy} title="Put your changes on the live site for everyone">
-            {busy ? "Publishing…" : "Publish"}
-          </Btn>
-        ) : (
+        {/* One admin everywhere (local fix): Publish stays visible even while the session restores — the click itself signs in silently and only opens sign-in when the session is truly dead, so a fresh local boot never reads as "publish does nothing". */}
+        <Btn size="sm" icon="check" onClick={onPublish} disabled={busy} title="Put your changes on the live site for everyone">
+          {busy ? "Publishing…" : "Publish"}
+        </Btn>
+        {!canEdit && (
           <Btn size="sm" icon="lock" onClick={onSignIn}>
-            Sign in to edit
+            Sign in
           </Btn>
         )}
 

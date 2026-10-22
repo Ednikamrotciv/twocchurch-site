@@ -146,7 +146,7 @@ try {
       console.warn("recent services refresh skipped:", err?.message || err);
     }
   };
-  setInterval(refreshRecent, 20 * 60 * 1000);
+  setInterval(refreshRecent, 2 * 60 * 1000);
   refreshRecent();
 } catch {
   /* a bake that cannot load never stops the server */
