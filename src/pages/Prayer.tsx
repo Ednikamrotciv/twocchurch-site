@@ -39,7 +39,7 @@ export function Prayer() {
         eyebrow={ct("prayer.head.eyebrow")}
         title={<Rich text={ct("prayer.head.title")} />}
         lede={ct("prayer.head.lede")}
-        image={img("prayer")}
+        image={img("prayer-page")}
         crumbs={[{ label: ct("auto.prayer.ab84f09eba88e857"), to: "/" }, { label: ct("auto.prayer.15f16409c14fe008") }]}
         actions={
           <>

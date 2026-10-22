@@ -29,7 +29,7 @@ import { askForRecentServices, fetchPreviousLives, readRecentServices, subscribe
 import type { RecentService } from "../lib/recentstreams";
 import { BRANCHES } from "../data/branches";
 import type { ChurchEvent } from "../data/content";
-import { PHOTO_SLOTS, bundledPhoto, photoById, photoKeyOf, resolvePhoto } from "../data/photos";
+import { PHOTO_SLOTS, bundledPhoto, photoById, photoKeyOf, resolvePhoto, slotBundledPhoto } from "../data/photos";
 import {
   compressImageBlob,
   clockAt,
@@ -1618,7 +1618,7 @@ function ImageField({
   const custom = !!text && !key;
   /* What the site shows when this field is empty: the slot's own photo, the
      bundled photo a record falls back to, or nothing at all. */
-  const original = slot ? bundledPhoto(slot.key) : def.fallbackPhoto ? bundledPhoto(def.fallbackPhoto) : "";
+  const original = slot ? slotBundledPhoto(slot.key) : def.fallbackPhoto ? bundledPhoto(def.fallbackPhoto) : "";
   const rawPreview = resolvePhoto(text) || original;
   /* Sleep-free (note 413): a wiped server copy previews the cached upload
      from this browser instead of the camera placeholder — blank-free. */

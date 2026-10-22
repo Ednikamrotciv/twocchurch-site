@@ -2238,7 +2238,19 @@ let feedSpec: FeedSpec | null | undefined;
 let feedSyncing = false;
 async function syncFromFeed() {
   if (feedSyncing) return;
-  if (typeof socket !== "undefined" && socket && status === "online") return;
+  /* While visitors wait, the mirror hurries the click even on connected tabs:
+     the office backend may not have followed live yet (its minute loop), and
+     the browser pull may be staring at a sleeping live box — the static mirror
+     has no cold boot. Guards below still decide (never across updates, never
+     empty, never over queued office work), so this can only hurry a publish,
+     never release new code by itself. */
+  if (typeof socket !== "undefined" && socket && status === "online") {
+    try {
+      if (!maintenanceShouldWait()) return;
+    } catch {
+      return;
+    }
+  }
   feedSyncing = true;
   try {
     if (feedSpec === undefined) feedSpec = await bakedFeedSpec();
@@ -2730,6 +2742,34 @@ function scheduleUploadHeal(delayMs = 2500): void {
 /* Read live's publish without adopting anything: the shared front door for the
    automatic save and the publish-time fold. Null when there is nothing usable
    (no live address, live silent or empty) — never toasts, never throws. */
+/* Mirror fallback (note 438): when the live box sleeps, its backend needs a
+   30–60s cold boot and the 15s browser read times out — every time. The static
+   feed mirror (publish-feed.txt → seed.json on the public repo) has no boot
+   and answers in milliseconds, carrying the same stamp (notes, clock, deploy,
+   code word) and words. Same guards as the backend read decide below — never
+   across updates, never empty, never from a fallback bake on a used copy —
+   so this can only hurry a real publish, never invent one. */
+async function readLiveViaFeed(): Promise<{ base: string; sections: Snapshot; notes: number; at: number; seeded: boolean; publishDeploy: string; code: string } | null> {
+  try {
+    if (feedSpec === undefined) feedSpec = await bakedFeedSpec();
+    if (!feedSpec) return null;
+    const seed = (await peekSeed(feedSpec, 15000)) as any;
+    if (!seed || typeof seed !== "object") return null;
+    const secs = (seed as any).sections;
+    if (!secs || typeof secs !== "object" || !Object.keys(secs).length) return null;
+    return {
+      base: "feed",
+      sections: clone(secs),
+      notes: typeof (seed as any).notes === "number" ? Math.floor((seed as any).notes) : 0,
+      at: typeof (seed as any).at === "number" ? (seed as any).at : 0,
+      seeded: false,
+      publishDeploy: typeof (seed as any).publishedDeploy === "string" && /^[A-Za-z0-9_-]{1,80}$/.test((seed as any).publishedDeploy) ? (seed as any).publishedDeploy : "",
+      code: typeof (seed as any).code === "string" && /^[A-Za-z0-9_-]{1,40}$/.test((seed as any).code) ? (seed as any).code : "",
+    };
+  } catch {
+    return null;
+  }
+}
 async function readLivePublish(allowWhileRunning = false): Promise<{ base: string; sections: Snapshot; notes: number; at: number; seeded: boolean; publishDeploy: string; code: string } | null> {
   if (!allowWhileRunning && livePullRunning) return null;
   const base = await liveBaseUrl();
@@ -2857,7 +2897,16 @@ export async function pullFromLive(): Promise<LivePullResult> {
        versa through the relay that already runs). The durable record on this
        copy's backend follows once the desk allows — signed in, clean desk —
        but the notice and the words never wait for it. */
-    const read = await readLivePublish(true);
+   let read = await readLivePublish(true);
+    /* Sleeping live box (note 438): the backend read above times out on a
+       cold boot, but the static mirror answers at once — same publish, same
+       guards below. */
+    if (!read) {
+      try {
+        const fb = await readLiveViaFeed();
+        if (fb) read = fb;
+      } catch {}
+    }
     if (!read) {
       return { ok: false, error: "unreachable" };
     }
@@ -2914,6 +2963,18 @@ export async function pullFromLive(): Promise<LivePullResult> {
         setPublishedNotes(BUILD_NOTES);
         markDeployPublished();
       }
+      /* Unstamped copies (note 438 — no deploy meta, e.g. a static preview):
+         the same attested publish still raises the number gate and blesses the
+         code, so local previews replicate live with no second click. Staging
+         untouched. */
+      if (
+        (!cleanStageForNewCode || pendingSections().length === 0) &&
+        (!deployFromMeta || !currentDeployId) &&
+        sameUpdate && liveCodeWitnessed && liveWords > 0
+      ) {
+        setPublishedNotes(BUILD_NOTES);
+        blessRunningCode();
+      }
     } catch {}
     const { ids, patch } = diffAgainstLive(read.sections);
     /* An adoption the office record never learned (note 437): the paint
@@ -2952,12 +3013,13 @@ export async function pullFromLive(): Promise<LivePullResult> {
          somebody taps Publish here too. So adopt it: raise the stamp and
          bless the running code, exactly like a pull that carried words. Only
          outside a clean stage (a new code arrival still takes its explicit
-         Publish or Recover), only with no unsaved work of its own pending,
-         only a publish NEWER than this copy's first sighting (a stale live
-         publish must not clear the notice by itself — same rule as the sync
-         twin), and never across updates — nothing here stages, moves or
-         loses words. */
-      if (!cleanStageForNewCode && pendingSections().length === 0 && sameUpdate && liveWords > 0 && read.at > 0 && deployFirstSeenAt > 0 && read.at > deployFirstSeenAt) {
+         Publish or Recover), only with no unsaved work of its own pending —
+         and a same-update publish attested to this code lifts even when it
+         landed before this deploy opened (one Publish clears every deploy,
+         no per-device click), while an unattested answer still needs to be
+         newer than this copy's first sighting — and never across updates.
+         Nothing here stages, moves or loses words. */
+      if (pendingSections().length === 0 && sameUpdate && liveWords > 0 && (liveCodeWitnessed || (read.at > 0 && deployFirstSeenAt > 0 && read.at > deployFirstSeenAt))) {
         setPublishedNotes(BUILD_NOTES);
         blessRunningCode();
         writeCache();
@@ -2971,8 +3033,10 @@ export async function pullFromLive(): Promise<LivePullResult> {
        running code — the words record on the office disk either way. Staging
        follows only outside a clean stage (a new code arrival stages nothing
        inbound until Recover or an explicit Publish); mid-edit desks still
-       wait, so unsaved work is never adopted under. Nothing here blesses
-       code, deploy or number gates — those still take an explicit Publish. */
+       wait, so unsaved work is never adopted under. The number/code gates DO
+       lift here on a same-update, same-code publish with real words (note
+       438) — that attested publish IS the office review — while a clean
+       stage with queued office work still stages nothing inbound. */
     const stageInbound = !cleanStageForNewCode;
     /* The paint adopts by itself (note 437): visitors and the notice follow
        a live publish within seconds — signed in or not, draft or not. Edits
@@ -2998,6 +3062,16 @@ export async function pullFromLive(): Promise<LivePullResult> {
           writeCache();
           noteUnrecordedLive(read.at, read.notes, liveWords, fingerprintSections(overrides));
           painted = true;
+          /* Number-gate twin (note 438): the paint already speaks live, so the
+             stamp rides with it even while the durable record waits below —
+             otherwise an unstamped/signed-out copy paints live yet keeps
+             waiting until its own click. Same guards, staging untouched. */
+          try {
+            if (sameUpdate && liveWords > 0 && liveCodeWitnessed && pendingSections().length === 0) {
+              setPublishedNotes(BUILD_NOTES);
+              blessRunningCode();
+            }
+          } catch {}
         }
       } catch {}
     }
@@ -3070,7 +3144,7 @@ export async function pullFromLive(): Promise<LivePullResult> {
         localStorage.removeItem(DRAFT_KEY);
       } catch {}
     }
-    const files = await backfillUploadsFrom(read.base);
+    const files = read.base && read.base !== "feed" ? await backfillUploadsFrom(read.base) : { restored: 0, failed: [] as string[] };
     lastLivePullAt = Date.now();
     const imgBit = files.restored ? ` and ${files.restored} uploaded ${files.restored === 1 ? "file" : "files"} came home` : "";
     const missBit = files.failed.length ? ` (${files.failed.length} uploaded ${files.failed.length === 1 ? "file is" : "files are"} missing on live: ${files.failed.slice(0, 3).join(", ")}${files.failed.length > 3 ? "…" : ""})` : "";

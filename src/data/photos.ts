@@ -14,6 +14,84 @@ export type PhotoSlot = {
 
 export const PHOTO_SLOTS: PhotoSlot[] = [
   {
+    key: "home",
+    label: "Home page",
+    where: "The big banner at the top of the home page.",
+    group: "Page banners",
+  },
+  {
+    key: "watch-live",
+    label: "Watch live page",
+    where: "The banner at the top of the Watch live page.",
+    group: "Page banners",
+  },
+  {
+    key: "sermons",
+    label: "Sermons page",
+    where: "The banner at the top of the Sermons page.",
+    group: "Page banners",
+  },
+  {
+    key: "testimonies",
+    label: "Testimonies page",
+    where: "The banner at the top of the Testimonies page.",
+    group: "Page banners",
+  },
+  {
+    key: "events",
+    label: "Events page",
+    where: "The banner at the top of the Events page.",
+    group: "Page banners",
+  },
+  {
+    key: "giving",
+    label: "Giving page",
+    where: "The banner at the top of the Giving page.",
+    group: "Page banners",
+  },
+  {
+    key: "visit",
+    label: "Plan a visit page",
+    where: "The banner at the top of the Plan a visit page.",
+    group: "Page banners",
+  },
+  {
+    key: "about",
+    label: "About page",
+    where: "The banner at the top of the About page.",
+    group: "Page banners",
+  },
+  {
+    key: "contact",
+    label: "Contact page",
+    where: "The banner at the top of the Contact page.",
+    group: "Page banners",
+  },
+  {
+    key: "ministries",
+    label: "Ministries page",
+    where: "The banner at the top of the Ministries page.",
+    group: "Page banners",
+  },
+  {
+    key: "prayer-page",
+    label: "Prayer page",
+    where: "The banner at the top of the Prayer page.",
+    group: "Page banners",
+  },
+  {
+    key: "devotional",
+    label: "Daily devotional page",
+    where: "The banner at the top of the Daily devotional page.",
+    group: "Page banners",
+  },
+  {
+    key: "locations",
+    label: "Locations page",
+    where: "The banner at the top of the Locations page, used when the first branch has no photo of its own.",
+    group: "Page banners",
+  },
+  {
     key: "youth",
     label: "Young people",
     where: "The top of the Ministries page and the Overcomers Youth ministry.",
@@ -80,6 +158,28 @@ const PREFIX = "src/assets/img/";
 
 export const bundledPhoto = (key: string) => PREFIX + key + ".jpg";
 
+/* Page-banner slots are named per page but ship on existing photos: until the
+   office uploads a page's own banner, it shows the photo below. No file copies
+   needed — the fallback only decides which bundled photo paints. */
+const BUNDLED_FALLBACK: Record<string, string> = {
+  home: "hero",
+  "watch-live": "hero",
+  sermons: "worshipband",
+  testimonies: "worshipband",
+  events: "choir",
+  giving: "giving",
+  visit: "building",
+  about: "building2",
+  contact: "welcome",
+  ministries: "youth",
+  "prayer-page": "prayer",
+  devotional: "bible",
+  locations: "building",
+};
+
+/** The bundled file a slot falls back to (its own, or the page's photo). */
+export const slotBundledPhoto = (key: string) => bundledPhoto(BUNDLED_FALLBACK[key] || key);
+
 export const photoById = (key: string) => PHOTO_SLOTS.find((s) => s.key === key);
 
 /** The key a stored value points at, e.g. "src/assets/img/hero.jpg" → "hero". */
@@ -95,7 +195,7 @@ let overrides: Record<string, string> = {};
 export function photoSrc(key: string): string {
   /* Stored values stay host-relative ("src/assets/…") so content moves between
      hosts; the page URL is resolved here, so nested routes still load. */
-  return siteFile(overrides[key] || bundledPhoto(key));
+  return siteFile(overrides[key] || bundledPhoto(BUNDLED_FALLBACK[key] || key));
 }
 
 /**

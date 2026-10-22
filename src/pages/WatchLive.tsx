@@ -200,7 +200,7 @@ export function WatchLive() {
     recentStreams.items[0]?.thumb ||
     designatedFallback().items[0]?.thumb ||
     (latest && sermonThumb(latest)) ||
-    img("hero");
+    img("watch-live");
 
   /* which platforms the office has actually configured (the stream that is on
      air right now counts as YouTube being available, even if all the office
@@ -299,7 +299,7 @@ export function WatchLive() {
         eyebrow={ct("live.head.eyebrow")}
         title={<Rich text={ct("live.head.title")} />}
         lede={ct("live.head.lede")}
-        image={img("hero")}
+        image={img("watch-live")}
         crumbs={[{ label: ct("auto.live.cdd19baece0575cf"), to: "/" }, { label: ct("auto.live.549cf77285281f7b") }]}
       />
 

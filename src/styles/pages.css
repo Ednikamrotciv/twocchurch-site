@@ -31,11 +31,6 @@
   transition: opacity 0.6s ease, filter 0.6s ease;
 }
 
-/* The phones-only banner (the office's verse graphic): off everywhere else. */
-.hero__bg .hero__mobile {
-  display: none;
-}
-
 .hero__scrim {
   position: absolute;
   inset: 0;
@@ -351,21 +346,7 @@
     min-height: 0;
     padding: 2.4rem 0 8rem;
   }
-  /* Phones show the office's verse graphic, not the desktop banner. Its own
-     baked-in words are melted into a soft wash (blur + dim) so only the
-     page's clean text reads over it. */
-  .hero__bg .hero__photo,
-  .hero__bg .hero__faint {
-    display: none;
-  }
-  .hero__bg .hero__mobile {
-    display: block;
-    filter: blur(10px) brightness(0.62) saturate(1.15);
-    transform: scale(1.15);
-  }
-  [data-theme="light"] .hero__bg .hero__mobile {
-    opacity: 0.34;
-  }
+  /* Phones show the same home banner as desktop. */
   .hero__eyebrow {
     font-size: 0.62rem;
     letter-spacing: 0.22em;
