@@ -528,7 +528,7 @@ export async function runAll(fs) {
      token and never wipe unsaved work. */
   const hooksJ8 = text["src/lib/hooks.ts"];
   const indexJ8 = text["index.html"];
-  ok("code word rotated", has(hooksJ8, 'CODE_ID = "onepublish"') && has(indexJ8, 'wom-code" content="onepublish"'), "the new word must retire the bundle that holds the 5 stuck rows");
+  ok("code word rotated", has(hooksJ8, 'CODE_ID = "unified"') && has(indexJ8, 'wom-code" content="unified"'), "the new word must retire the bundle that holds the 5 stuck rows");
   ok("dev token names the code", has(cms, '"n" + BUILD_NOTES + "c" + (runningCode'), "an unnumbered update must still prove a fresh deploy in local dev");
   ok("fresh clear takes after-save", has(cms, "localStorage.removeItem(AFTER_SAVE_KEY)"), "a queued publish-after-save must not republish stale words after the clear");
   /* J9. restore+publish reaches every copy (office request: works on one
@@ -2296,7 +2296,7 @@ const notes = Number((text["src/lib/hooks.ts"].match(/BUILD_NOTES = (\d+)/) || [
     const rpcMMM = loadVm(testSrc, stateMMM);
     const liMMM = JSON.parse(rpcMMM.login({ conn: officeConn }, pwMMM));
     ok("office can sign in", liMMM.ok === true, "err=" + liMMM.err);
-    const pubMMM = JSON.parse(rpcMMM.publish({ conn: officeConn }, JSON.stringify({ sections: { home: JSON.stringify({ t: 1 }) }, by: "office", changed: ["home"], notes: 427, first: true })));
+    const pubMMM = JSON.parse(rpcMMM.publish({ conn: officeConn }, JSON.stringify({ sections: { home: JSON.stringify({ t: 1 }) }, by: "office", changed: ["home"], notes: 435, first: true })));
     ok("signed-in publish lands", pubMMM.ok === true, "err=" + pubMMM.err);
     const liBMMM = JSON.parse(rpcMMM.login({ conn: officeConn2 }, pwMMM));
     ok("second tab signs in too", liBMMM.ok === true, "err=" + liBMMM.err);
@@ -2304,19 +2304,19 @@ const notes = Number((text["src/lib/hooks.ts"].match(/BUILD_NOTES = (\d+)/) || [
     const tMMM = Date.now();
     try {
       Date.now = () => tMMM + 16 * 60 * 1000;
-      const idlePub = JSON.parse(rpcMMM.publish({ conn: officeConn }, JSON.stringify({ sections: {}, by: "office", changed: [], notes: 427 })));
+      const idlePub = JSON.parse(rpcMMM.publish({ conn: officeConn }, JSON.stringify({ sections: {}, by: "office", changed: [], notes: 435 })));
       ok("idle publish fails until sign-in again", !idlePub.ok && idlePub.err === "idle-expired", "err=" + idlePub.err);
       const idleUndo = JSON.parse(rpcMMM.undoPublish({ conn: officeConn2 }, ""));
       ok("idle undo fails too", !idleUndo.ok && idleUndo.err === "idle-expired", "err=" + idleUndo.err);
       const chkMMM = JSON.parse(rpcMMM.checkAdmin({ conn: officeConn }, ""));
       ok("file doors follow the session", chkMMM.ok === true && chkMMM.admin === false, "admin=" + chkMMM.admin);
-      const anonMMM = JSON.parse(rpcMMM.publish({ conn: { id: "mmm-stranger" } }, JSON.stringify({ sections: {}, by: "x", changed: [], notes: 427 })));
+      const anonMMM = JSON.parse(rpcMMM.publish({ conn: { id: "mmm-stranger" } }, JSON.stringify({ sections: {}, by: "x", changed: [], notes: 435 })));
       ok("strangers stay unauthorized", !anonMMM.ok && anonMMM.err === "unauthorized", "err=" + anonMMM.err);
     } finally {
       Date.now = frozenMMM;
     }
     const li2MMM = JSON.parse(rpcMMM.login({ conn: officeConn }, pwMMM));
-    const pub2MMM = JSON.parse(rpcMMM.publish({ conn: officeConn }, JSON.stringify({ sections: {}, by: "office", changed: [], notes: 427 })));
+    const pub2MMM = JSON.parse(rpcMMM.publish({ conn: officeConn }, JSON.stringify({ sections: {}, by: "office", changed: [], notes: 435 })));
     ok("fresh sign-in publishes again", li2MMM.ok === true && pub2MMM.ok === true, "login=" + li2MMM.err + " publish=" + pub2MMM.err);
     /* A plain reboot keeps words AND accounts; a clean boot clears words but
        keeps the office password. */

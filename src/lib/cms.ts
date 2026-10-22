@@ -1849,7 +1849,7 @@ export async function publishSection(sectionId: string, note: string): Promise<P
   if (!def || !draft) return { ok: false, error: "nothing-to-do" };
   /* Sign-in first (office request): nothing publishes signed out — not even
      a device-local publish. No state changes on refusal. */
-  if (!(await requireSignedIn())) return { ok: false, error: "unauthorized" };
+  if (!(await requireSignedIn())) return { ok: false, error: authDenyReason() };
   /* A lapsed entry never survives a publish — expired slides and notices leave
      the draft here, so the live site and the server both forget them in the
      same stroke, whichever section is being published. */
@@ -4250,9 +4250,14 @@ function sessionPassword(): string {
 }
 
 /* The deploy scope a session belongs to: the stamped deploy id on deployed
-   copies, the running update on unstamped local copies. */
+   copies, the running update on unstamped local copies. Dev-boot ids
+   (npm run dev mints a fresh dev-… per boot for the maintenance ritual)
+   never name a served build, so they must not scope the session — else
+   every dev restart signs the office out and local Publish opens the
+   sign-in while the deployed copy (stable id) keeps working. */
 function sessionScope(): string {
   try {
+    if (deployFromMeta && currentDeployId && currentDeployId.indexOf("dev-") === 0) return "notes-" + BUILD_NOTES;
     if (deployFromMeta && currentDeployId) return currentDeployId;
   } catch {}
   return "notes-" + BUILD_NOTES;
@@ -4337,6 +4342,17 @@ function clearSession(reason?: string) {
   myRole = null;
   myName = "";
   notify();
+}
+
+/* Publish-shaped refusal for a dead session (note 433 fix): an idle timeout
+   reports idle-expired so the toast names the 15 minutes, anything else stays
+   unauthorized. Call only right after requireSignedIn() fails. */
+function authDenyReason(): string {
+  try {
+    return signOutReason === "idle" ? "idle-expired" : "unauthorized";
+  } catch {
+    return "unauthorized";
+  }
 }
 
 /* Sign-in gate (office request: nothing in the admin happens signed out —
@@ -6471,7 +6487,7 @@ export async function publish(note: string, content?: Snapshot): Promise<Publish
   if (await stopIfStale()) return { ok: false, error: "stale-reload" };
   /* Sign-in first (office request): nothing publishes signed out — not even
      a device-local publish. No state changes on refusal. */
-  if (!(await requireSignedIn())) return { ok: false, error: "unauthorized" };
+  if (!(await requireSignedIn())) return { ok: false, error: authDenyReason() };
   if (!content && draft) {
     dropLapsedSlides(true);
     migrateTestimonies();
@@ -6652,7 +6668,7 @@ export async function publish(note: string, content?: Snapshot): Promise<Publish
 
 export async function clearLog(): Promise<{ ok: boolean; error?: string }> {
   /* Sign-in first (office request): history clears only signed in. */
-  if (!(await requireSignedIn())) return { ok: false, error: "unauthorized" };
+  if (!(await requireSignedIn())) return { ok: false, error: authDenyReason() };
   if ((!socket || status !== "online") && !(await ensureOnline())) return { ok: false, error: "offline" };
   try {
     const res = JSON.parse(await socket.rpc.clearLog(""));
@@ -6733,7 +6749,7 @@ export async function finishPlannedPublish(): Promise<PublishResult | null> {
      in localStorage and finishes on the new build by itself. */
   if (await stopIfStale()) return { ok: false, error: "stale-reload" };
   clearPlannedPublish();
-  if (!(await requireSignedIn())) return { ok: false, error: "unauthorized" };
+  if (!(await requireSignedIn())) return { ok: false, error: authDenyReason() };
   return await publish(plan.note || "", plan.content);
 }
 
@@ -6749,7 +6765,7 @@ async function resumePlannedPublish() {
         : "The website is saved, and your changes are live for everyone.",
       res.local ? "info" : "success"
     );
-  } else if (res.error === "unauthorized") {
+  } else if (res.error === "unauthorized" || res.error === "idle-expired") {
     fireToast("The website is saved. Sign in to the editor again, then press Publish.", "info");
   } else if (res.error === "stale-reload") {
     /* The tab is reloading onto the new build (or waiting on it): the plan
@@ -6822,7 +6838,7 @@ export async function undoLastPublish(): Promise<PublishResult> {
   /* Never stamp from a stale bundle: reload onto the new build instead. */
   if (await stopIfStale()) return { ok: false, error: "stale-reload" };
   /* Sign-in first (office request): an undo publishes the other way. */
-  if (!(await requireSignedIn())) return { ok: false, error: "unauthorized" };
+  if (!(await requireSignedIn())) return { ok: false, error: authDenyReason() };
   pruneHistory();
   if ((!socket || status !== "online") && !(await ensureOnline())) return { ok: false, error: "offline" };
 
@@ -6920,7 +6936,7 @@ export async function clearAllOverrides(): Promise<PublishResult> {
   /* Never stamp from a stale bundle: reload onto the new build instead. */
   if (await stopIfStale()) return { ok: false, error: "stale-reload" };
   /* Sign-in first (office request): restoring the defaults publishes too. */
-  if (!(await requireSignedIn())) return { ok: false, error: "unauthorized" };
+  if (!(await requireSignedIn())) return { ok: false, error: authDenyReason() };
   const ids = Object.keys(overrides);
   if (!ids.length) return { ok: true };
   if (!socket || status !== "online") {

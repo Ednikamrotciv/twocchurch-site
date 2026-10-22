@@ -1,5 +1,50 @@
-APPLY THIS UPDATE (427) — ONE PUBLISH EVERYWHERE, NEW DEPLOY HOLDS UNTIL FIRST PUBLISH
-====================================================================================
-What this build does (single update, one zip — old updates removed). (1) Attached publish rule: the bottom-bar Publish button and the dialog's Publish now button share the ONE pipeline (performPublish → runPublishAction → cms.publish), so Publish and Publish now do the same thing; either one alone publishes for every visitor with the same note and toasts. (2) Maintenance notice holds on every new deploy and clears on the first admin Publish: each build stamps a fresh opaque deploy ID (version.json + seed.json + entry page carry the same ID); fresh visitors wait on the notice until a publish from that deploy lands. A Publish with zero changes still counts — bless-only sendPatch — so the first click clears the notice even with "no changes to publish". (3) One admin Publish click works everywhere: server verdict + same-code attestation + publish clock lift every copy on the host within seconds (online) or at first sync; no second click, no per-device click. (4) New deploy wipes old wakes and opens unsaved-clean, new, empty, fresh, clean and new: first boot per deploy ID clears draft + pending + history + undos + preview + relay debt, wipes retired service workers/caches, resets drawer place, stages clean for returning browsers. (5) Admin sessions are deploy-bound and idle-expiring (note 433, tightened at the office's request): /admin is never gated by the notice, and Publish opens sign-in instead of sending when signed out — but every new deploy now signs in again, and 15 minutes without an admin action ends the session, so a publish then fails until the office signs in again. Administrator ACCOUNTS are never reset by a deploy: the main-password override, sub-admin roster, invites, two-factor, main-off switch and generation persist in the server store across every update — no re-registration, ever. Deployments are code updates, not account resets. (6) Sleep-wake stays active: a sleeping box keeps serving its baked words, and a wake re-serves the last publish whole (words + stamp + history) from the deploy bake / pushed mirror with no office action. On diskless hosts the words survive but sign-in returns to the shipped default (mount a disk at data/ to keep accounts across sleeps).
+APPLY THIS UPDATE (435) — ONE UNIFIED UPDATE (ALL OLD UPDATES REMOVED)
+=============================================================================
+Single update, one zip — every older update is superseded by this one. Extract fully
+incl. index.html on BOTH sides (office computer + any always-on host), then follow the
+ORDER below. What this build does:
 
-Still ORDER: BACK UP FIRST (Tools backup, download it), extract fully incl. index.html BOTH sides (same zip), `npm run dev:fresh` + restart the office backend, hard refresh; Publish ONCE from any signed-in admin copy — every copy lifts within seconds online (or at first sync); THEN bake-seed, commit+push full step-0 set, rebuild BOTH hosts; Publish on each host; reload ALL admin tabs. Proof: window.__womBuild = { notes: 427, code: "onepublish" }; verifier sections GGG ("no-change publish blesses deploy") + LLL pass. Files: src/lib/hooks.ts (427/onepublish) + index.html (wom-notes/code), src/pages/Admin.tsx + src/components/editor.tsx (attached-rule comments), src/SPEC.md (note 432), src/tools/verify-update.mjs (locks).
+(1) MAINTENANCE HOLDS EVERY NEW DEPLOY, ONE PUBLISH CLEARS IT. Each build stamps a
+fresh opaque deploy ID (version.json + seed.json + entry page carry the same ID);
+fresh visitors wait on the notice until a publish from that deploy lands. A Publish
+with zero changes still counts — bless-only sendPatch — so the first click clears the
+notice even when the drawer says there is nothing to publish. /admin is never gated
+by the notice; Publish opens sign-in instead of sending when signed out.
+
+(2) ONE ADMIN PUBLISH WORKS EVERYWHERE. The bottom-bar Publish button and the dialog's
+Publish now button share the ONE pipeline (performPublish → runPublishAction →
+cms.publish): either one alone publishes for every visitor with the same note and
+toasts. Server verdict + same-code attestation + publish clock lift every copy on the
+host within seconds (online) or at first sync; no second click, no per-device click.
+
+(3) NEW DEPLOY OPENS FRESH, CLEAN AND NEW. First boot per deploy ID wipes retired
+service workers/caches (old wakes can never paint the old shell), clears draft +
+pending + history + undos + preview + relay debt, resets drawer place, and stages
+clean (welcome-home slide only, no former publish) for returning browsers until
+Recover + Publish. Fresh profiles with no prior blessing still adopt live words, so
+a new device joining the live site is never clobbered.
+
+(4) ADMIN SIGN-IN STAYS ACTIVE. Sessions are deploy-bound (a new deploy signs in
+again — dev-boot restarts excluded, so local sessions survive `npm run dev` restarts)
+and idle-expiring (15 minutes without an admin action ends the session; the next
+publish fails until the office signs in again). Administrator ACCOUNTS are never
+reset by a deploy: main-password override, sub-admin roster, invites, two-factor,
+main-off switch and generation persist in the server store across every update.
+
+(5) SLEEP-WAKE STAYS ACTIVE. A sleeping box keeps serving its baked words; a wake
+re-serves the last publish whole (words + stamp + history) from the deploy bake /
+pushed mirror with no office action. On diskless hosts the words survive but sign-in
+returns to the shipped default (mount a disk at data/ to keep accounts across sleeps).
+
+(6) PUBLISH AND PUBLISH NOW ARE THE SAME. Both buttons run the attached rule above —
+same pipeline, same note, same toasts, same everywhere-effect.
+
+Still ORDER: BACK UP FIRST (Tools backup, download it), extract fully incl. index.html
+BOTH sides (same zip), `npm run dev:fresh` + restart the office backend, hard refresh;
+Publish ONCE from any signed-in admin copy — every copy lifts within seconds online
+(or at first sync); THEN bake-seed, commit+push full step-0 set, rebuild BOTH hosts;
+Publish on each host; reload ALL admin tabs. Proof: window.__womBuild = { notes: 435,
+code: "unified" }; verifier sections GGG (no-change publish blesses deploy) + MMM
+(sessions) pass. Files: src/lib/hooks.ts (435/unified) + index.html (wom-notes/code),
+src/lib/cms.ts (dev-boot session scope, no early authed gate, authDenyReason),
+src/pages/Admin.tsx (unified performPublish), src/SPEC.md (note 435).

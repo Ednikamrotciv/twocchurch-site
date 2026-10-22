@@ -187,13 +187,13 @@ export function Admin() {
      deploy through the same bless-only sendPatch every publish rides. */
   const performPublish = async (noteInput = "", _fromDialog = false): Promise<boolean> => {
     if (publishing || publishSaving) return false;
-    /* Sign-in first (office request): nothing publishes signed out — open
-       the sign-in instead of sending. */
-    if (!state.authed) {
-      setPublishOpen(false);
-      setSignInOpen(true);
-      return false;
-    }
+    /* No early authed gate here (local-dev fix): state.authed is still false
+       on a fresh boot until connect() restores the saved session, so gating
+       on it turns a valid silent session into a sign-in popup and the office
+       reads it as "local publish did nothing". cms.publish() already signs in
+       first (requireSignedIn + silent restore + 20s join) and reports
+       unauthorized/idle-expired itself — attempt the send, then open the
+       sign-in only when the session is actually dead. */
     setPublishSaveFailed(false);
     setPublishing(true);
     try {
@@ -1031,7 +1031,7 @@ function UnsavedView({
         return;
       }
       fireToast(
-        `Delete did not go through (${pub.error === "unauthorized" ? "sign in first" : pub.error}) — nothing left the site, and Undo takes back the cleanup.`,
+        `Delete did not go through (${pub.error === "unauthorized" || pub.error === "idle-expired" ? "sign in first" : pub.error}) — nothing left the site, and Undo takes back the cleanup.`,
         "error"
       );
     }
