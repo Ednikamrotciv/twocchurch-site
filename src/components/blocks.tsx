@@ -255,11 +255,11 @@ export function VideoPlayer({
   const ytId = source?.platform === "facebook" || source?.platform === "upload" ? "" : parseYoutubeId(source?.youtubeId || "");
   const [playing, setPlaying] = useState(() => {
     if (!autoPlay) return false;
-    /* A channel with no video id must never autoplay blind: when no broadcast
-       is live YouTube answers "unavailable" inside the frame. Only Facebook
-       (no id concept) opens id-less; everything id-less waits for a tap. */
-    if (!ytId) return source?.platform === "facebook";
-    if (peekVerified(ytId) !== true) return false;
+    /* Livestream screen: play the broadcast by itself WITH SOUND — a verified
+       id, an unverified-but-not-dead id, or the live channel follow all open
+       with no tap. Only a proven-dead id is held back (the fallback below
+       still offers the platform link, never the black "unavailable" frame). */
+    if (ytId && peekVerified(ytId) !== true) return false;
     return true;
   });
   /* A channel with no video id cannot be asked of oEmbed (note 342): tapping

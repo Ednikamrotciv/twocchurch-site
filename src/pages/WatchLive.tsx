@@ -118,9 +118,9 @@ export function WatchLive() {
      broadcast that was already on air — so `true` OR `null` opens the player,
      which verifies behind the frame itself. Only a proven-dead id is held
      back, and it still reaches the player below for its fallback. */
-  const idOk = idVerdict === true;
+  const idOk = idVerdict === true || idVerdict === null;
   const playableId = detectedId && idOk && (isDesignatedChannel(airForTarget.channelId, designatedId) || (guestLive && isGuestTargetUrl(screenAir.target, guestUrl))) ? detectedId : "";
-  const verifiedFallbackId = fallbackId && fallbackVerdict === true ? fallbackId : "";
+  const verifiedFallbackId = fallbackId && (fallbackVerdict === true || fallbackVerdict === null) ? fallbackId : "";
   /* A named id YouTube says is gone still reaches the player (note 420): the
      player's own dead fallback names it and offers the platform link — never
      the black "unavailable" frame, and never the ticking clock for a live
