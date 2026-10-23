@@ -103,8 +103,7 @@ export function applyToList<T extends any[]>(target: T, incoming: any, idKey?: s
 /* ------------------------------------------------------------------ photos */
 
 const PHOTO_BLURBS: Record<string, string> = {
-  "Page banners":
-    "One banner per page — upload the photo each page opens with. Leave a photo empty to go back to the original one.",
+  "Page banners": "",
   "Ministries & programmes":
     "The photos on the ministries, prayer, devotional and giving pages.",
   "Leadership photos": "The photos of the leadership team on the About page.",
@@ -124,9 +123,7 @@ const photoSections: SectionDef[] = PHOTO_GROUPS.map((group) => {
     label: group,
     group: "Photos & covers",
     icon: "camera",
-    blurb:
-      (PHOTO_BLURBS[group] || "") +
-      " Leave a photo empty to go back to the original one. A branch, ministry or person that has been given its own photo keeps it.",
+    blurb: PHOTO_BLURBS[group] || "",
     kind: "object" as const,
     everythingHidden: true,
     fields: slots.map((slot) => ({
