@@ -255,7 +255,11 @@ export function VideoPlayer({
   const ytId = source?.platform === "facebook" || source?.platform === "upload" ? "" : parseYoutubeId(source?.youtubeId || "");
   const [playing, setPlaying] = useState(() => {
     if (!autoPlay) return false;
-    if (ytId && peekVerified(ytId) !== true) return false;
+    /* A channel with no video id must never autoplay blind: when no broadcast
+       is live YouTube answers "unavailable" inside the frame. Only Facebook
+       (no id concept) opens id-less; everything id-less waits for a tap. */
+    if (!ytId) return source?.platform === "facebook";
+    if (peekVerified(ytId) !== true) return false;
     return true;
   });
   /* A channel with no video id cannot be asked of oEmbed (note 342): tapping
@@ -350,8 +354,7 @@ export function VideoPlayer({
       })
       .catch(() => {
         setChecking(false);
-        setPlaying(true);
-        onPlay?.();
+        setNotLive(true);
       });
   };
   const open = () => {
@@ -398,6 +401,16 @@ export function VideoPlayer({
   useEffect(() => {
     if (!autoPlay || playing) return;
     if (!ytId) {
+      /* Id-less autoplay (channel follow) verifies first: an offline channel
+         must show the waiting poster, never the "unavailable" frame. */
+      if (source?.platform === "facebook") {
+        setPlaying(true);
+        return;
+      }
+      if (followId) {
+        checkChannelThenPlay();
+        return;
+      }
       setPlaying(true);
       return;
     }
@@ -422,7 +435,6 @@ export function VideoPlayer({
       .catch(() => {
         if (!alive) return;
         setChecking(false);
-        setPlaying(true);
       });
     return () => {
       alive = false;

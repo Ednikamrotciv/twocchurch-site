@@ -120,6 +120,46 @@ const PUBLISH_AT_KEY = "wom.cms.publishAt";
 /* Clock-skew tolerance: a server clock a few seconds behind the browser must
    not strand a publish that just landed. */
 const PUBLISH_AT_SKEW_MS = 15000;
+/* Maintenance auto-clear (office request): one hour after the FIRST publish,
+   the maintenance notice is gone for every visitor, device and browser — the
+   code stops waiting, so new copies never flash the notice before the site.
+   firstPublishAt is the wall-clock moment of the first witnessed publish from
+   the running update; it only ever moves forward, like lastPublishAt. */
+const MAINTENANCE_AUTO_CLEAR_MS = 60 * 60 * 1000;
+const FIRST_PUBLISH_KEY = "wom.cms.firstPublishAt";
+let firstPublishAt = 0;
+try {
+  const raw = localStorage.getItem(FIRST_PUBLISH_KEY);
+  const n = raw === null ? 0 : Number(JSON.parse(raw));
+  if (Number.isFinite(n) && (n as number) > 0) firstPublishAt = Math.floor(n as number);
+} catch {
+  /* storage may be blocked — startCms re-reads later */
+}
+function noteFirstPublishAt(at: unknown): void {
+  try {
+    const n = Math.floor(Number(at));
+    if (!Number.isFinite(n) || n <= 0 || firstPublishAt > 0) return;
+    firstPublishAt = n;
+    try {
+      localStorage.setItem(FIRST_PUBLISH_KEY, JSON.stringify(firstPublishAt));
+    } catch {}
+  } catch {}
+}
+/** True once the notice has served its hour: first publish (or latest publish,
+    or the shared backend's own publish stamp) is over an hour old. Never throws. */
+function maintenanceAutoCleared(): boolean {
+  try {
+    const hour = MAINTENANCE_AUTO_CLEAR_MS;
+    const now = Date.now();
+    if (firstPublishAt > 0 && now - firstPublishAt > hour) return true;
+    if (lastPublishAt > 0 && now - lastPublishAt > hour) return true;
+    try {
+      const v = serverVerdict;
+      if (v && v.notes >= BUILD_NOTES && v.words > 0 && v.at > 0 && now - v.at > hour) return true;
+    } catch {}
+  } catch {}
+  return false;
+}
 let lastPublishAt = 0;
 try {
   const raw = localStorage.getItem(PUBLISH_AT_KEY);
@@ -133,6 +173,7 @@ function notePublishAt(at: unknown): boolean {
     const n = Math.floor(Number(at));
     if (!Number.isFinite(n) || n <= 0 || n <= lastPublishAt) return false;
     lastPublishAt = n;
+    noteFirstPublishAt(n);
     try {
       localStorage.setItem(PUBLISH_AT_KEY, JSON.stringify(lastPublishAt));
     } catch {}
@@ -308,6 +349,11 @@ function rereadPublishStamps(): void {
     const raw = localStorage.getItem(PUBLISH_AT_KEY);
     const n = raw === null ? 0 : Number(JSON.parse(raw));
     if (Number.isFinite(n) && (n as number) > lastPublishAt) lastPublishAt = Math.floor(n as number);
+  } catch {}
+  try {
+    const raw = localStorage.getItem(FIRST_PUBLISH_KEY);
+    const n = raw === null ? 0 : Number(JSON.parse(raw));
+    if (Number.isFinite(n) && (n as number) > 0 && firstPublishAt <= 0) firstPublishAt = Math.floor(n as number);
   } catch {}
 }
 let crossTabListening = false;
@@ -551,6 +597,8 @@ if (typeof window !== "undefined") {
     deployId: currentDeployId,
     publishedDeploy: publishedDeployId,
     publishAt: lastPublishAt,
+    firstPublishAt,
+    autoCleared: maintenanceAutoCleared(),
     postDeployWitness: postDeployPublishWitnessed(),
     justPublished: justPublishedRecently(),
     deployFirstSeenAt,
@@ -712,6 +760,11 @@ export function maintenanceShouldWait(): boolean {
   try {
     if (maintenanceForced()) return true;
   } catch {}
+  /* One-hour auto-clear: an hour after the first publish the notice is gone
+     for every visitor, device and browser — never a flash of maintenance. */
+  try {
+    if (maintenanceAutoCleared()) return false;
+  } catch {}
   /* Deploy lock (no numbers): a built copy waits until a publish from its
      own deploy lands — or a publish from the running update landed after this
      deploy was first seen (one click lifts every deploy, even a stale tab's
@@ -773,6 +826,11 @@ export function useMaintenance(): boolean {
   /* Local preview: ?maintenance=1 shows the notice even on server-less local. */
   try {
     if (maintenanceForced()) return true;
+  } catch {}
+  /* One-hour auto-clear: an hour after the first publish the notice is gone
+     for every visitor, device and browser — never a flash of maintenance. */
+  try {
+    if (maintenanceAutoCleared()) return false;
   } catch {}
   /* Note 302: a known newer update waits even on this (older) bundle — a
      stale tab never paints live from cached code while the host has moved on.
@@ -1007,7 +1065,7 @@ export function checkStaleBuild(): Promise<void> {
    the button carrying this says so before it arms. This is the explicit
    office delete (note 300) — the ONLY path that clears last-published. */
 export function resetLocalCopy(): void {
-  const keys = [CACHE_KEY, DRAFT_KEY, HISTORY_KEY, PENDING_KEY, NOTES_KEY, AFTER_SAVE_KEY, DEPLOY_KEY, DEPLOY_SEEN_KEY, CODE_BLESS_KEY, PUBLISH_AT_KEY, "wom.cms.slidesReset"];
+  const keys = [CACHE_KEY, DRAFT_KEY, HISTORY_KEY, PENDING_KEY, NOTES_KEY, AFTER_SAVE_KEY, DEPLOY_KEY, DEPLOY_SEEN_KEY, CODE_BLESS_KEY, PUBLISH_AT_KEY, FIRST_PUBLISH_KEY, "wom.cms.slidesReset"];
   for (const k of keys) {
     try {
       localStorage.removeItem(k);
@@ -1028,6 +1086,7 @@ export function resetLocalCopy(): void {
   publishedNotes = 0;
   publishedDeployId = "";
   lastPublishAt = 0;
+  firstPublishAt = 0;
   try {
     window.location.reload();
   } catch {}
@@ -7030,7 +7089,7 @@ function pick(snap: Snapshot, ids: string[]): Snapshot {
 /* ------------------------------------------------- saving the website itself */
 
 /** One-click publish (office request): the CMS publish never waits on the
- * outer editor/Perchance save. Content publish and site save are independent —
+ * outer editor save. Content publish and site save are independent —
  * either Publish button alone puts the words live for every visitor. */
 export function websiteIsUnsaved(): boolean {
   return false;

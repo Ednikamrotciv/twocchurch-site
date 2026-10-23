@@ -274,7 +274,7 @@ try {
   const codeWord = codeMatch ? codeMatch[1] : "";
   const d = new Date();
   const p = (n) => String(n).padStart(2, "0");
-  await writeFile(path.join(OUT, "version.json"), JSON.stringify({ notes, code: codeWord, deployId: DEPLOY_ID, built: `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}` }));
+  await writeFile(path.join(OUT, "version.json"), JSON.stringify({ notes, code: codeWord, deployId: DEPLOY_ID, built: `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`, builtAt: Date.now() }));
   console.log(`build stamped: update ${notes}${codeWord ? " code " + codeWord : ""}`);
 } catch (err) {
   console.warn("version.json skipped:", err?.message || err);

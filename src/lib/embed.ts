@@ -23,24 +23,27 @@ export function isUploadVideoUrl(input: string): boolean {
   return VIDEO_FILE.test(value) || /^https?:\/\//.test(value) || /^src\//.test(value);
 }
 
-/** Accepts a bare id, a watch link, a share link, an embed link or a live link. */
+/** Accepts a bare id, a watch link, a share link, an embed link or a live link.
+ *  Strict: only exact 11-character YouTube ids count. Channel pages, handles,
+ *  sentences and pasted prose are NOT videos — inventing an id from them used
+ *  to embed the black "video unavailable" frame. Anything unrecognized is "". */
 export function parseYoutubeId(input: string): string {
   const value = String(input || "").trim();
   if (!value) return "";
-  if (/^[\w-]{6,20}$/.test(value)) return value;
+  if (/^[\w-]{11}$/.test(value)) return value;
   const patterns = [
-    /[?&]v=([\w-]{6,20})/,
-    /youtu\.be\/([\w-]{6,20})/,
-    /youtube\.com\/live\/([\w-]{6,20})/,
-    /youtube\.com\/embed\/([\w-]{6,20})/,
-    /youtube\.com\/shorts\/([\w-]{6,20})/,
-    /youtube\.com\/watch\/([\w-]{6,20})/,
+    /[?&]v=([\w-]{11})/,
+    /youtu\.be\/([\w-]{11})/,
+    /youtube\.com\/live\/([\w-]{11})/,
+    /youtube\.com\/embed\/([\w-]{11})/,
+    /youtube\.com\/shorts\/([\w-]{11})/,
+    /youtube\.com\/watch\/([\w-]{11})/,
   ];
   for (const re of patterns) {
     const m = re.exec(value);
     if (m) return m[1];
   }
-  return value.replace(/[^\w-]/g, "").slice(0, 20);
+  return "";
 }
 
 export function youtubeEmbed(id: string, autoplay = true): string {

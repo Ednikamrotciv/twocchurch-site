@@ -54,7 +54,8 @@ import {
   sectionIsHidden,
 } from "../lib/cmsSchema";
 import * as cms from "../lib/cms";
-import { cacheUploadBlob, uploadNameOf, useCachedUploadUrl } from "../lib/uploadCache";
+import { cacheUploadBlob, uploadNameOf, useCachedUploadUrl, useFeedUploadUrl } from "../lib/uploadCache";
+import { siteFile } from "../lib/livefeed";
 import { serverUrl } from "../lib/remoteserver";
 
 /* -------------------------------------------------------------- status pill */
@@ -1555,13 +1556,35 @@ function VideoField({
 }) {
   const url = value === undefined || value === null ? "" : String(value);
   const address = url.trim();
+  const cachedVideo = useCachedUploadUrl(address);
+  const feedVideo = useFeedUploadUrl(address);
+  const videoSrc = cachedVideo || address;
+  const [videoUseFeed, setVideoUseFeed] = useState(false);
+  useEffect(() => {
+    setVideoUseFeed(false);
+  }, [address]);
+  const vSrc = videoUseFeed && feedVideo ? feedVideo : videoSrc;
 
   return (
     <div className="admin__wide">
       <Field label={label} hint={def.hint}>
         <div className="admin__videofield">
           <span className="admin__videopreview">
-            {address ? <video src={address} playsInline preload="metadata" muted disablePictureInPicture /> : <Icon name="play" size={20} />}
+            {address ? (
+              <video
+                key={vSrc}
+                src={vSrc}
+                playsInline
+                preload="metadata"
+                muted
+                disablePictureInPicture
+                onError={() => {
+                  if (feedVideo && feedVideo !== videoSrc) setVideoUseFeed(true);
+                }}
+              />
+            ) : (
+              <Icon name="play" size={20} />
+            )}
           </span>
           <div className="admin__videoinputs">
             <VideoUpload onDone={(made) => onChange(made)} />
@@ -1600,11 +1623,12 @@ function ImageField({
   const custom = !!text && !key;
   /* What the site shows when this field is empty: the slot's own photo, the
      bundled photo a record falls back to, or nothing at all. */
-  const original = slot ? slotBundledPhoto(slot.key) : def.fallbackPhoto ? bundledPhoto(def.fallbackPhoto) : "";
+  const original = slot ? siteFile(slotBundledPhoto(slot.key)) : def.fallbackPhoto ? siteFile(bundledPhoto(def.fallbackPhoto)) : "";
   const rawPreview = resolvePhoto(text) || original;
   /* Sleep-free (note 413): a wiped server copy previews the cached upload
      from this browser instead of the camera placeholder — blank-free. */
   const cachedPreview = useCachedUploadUrl(rawPreview);
+  const feedPreview = useFeedUploadUrl(rawPreview);
   const preview = cachedPreview || rawPreview;
   const chosenLabel = key ? PHOTO_SLOTS.find((s) => s.key === key)?.label || key : "";
   const forSlide = def.frame === "slide";
@@ -1613,8 +1637,10 @@ function ImageField({
   /* A dead address (an upload that no longer resolves) shows the camera
      placeholder instead of a torn preview — every upload, every size. */
   const [imgError, setImgError] = useState(false);
+  const [feedFailed, setFeedFailed] = useState(false);
   useEffect(() => {
     setImgError(false);
+    setFeedFailed(false);
   }, [preview]);
   /* The agent reads the picture's own shape, so it can prompt exactly when the
      picture is not landscape. */
@@ -1689,6 +1715,8 @@ function ImageField({
         <span className={"admin__imagepreview" + (forSlide ? " admin__imagepreview--slide" : "")}>
           {preview && !slideVideoLink && !imgError ? (
             <img src={preview} alt="" draggable={false} onError={() => setImgError(true)} />
+          ) : preview && !slideVideoLink && imgError && feedPreview && feedPreview !== preview && !feedFailed ? (
+            <img src={feedPreview} alt="" draggable={false} onError={() => setFeedFailed(true)} />
           ) : (
             <Icon name="camera" size={18} />
           )}
@@ -2133,7 +2161,7 @@ export async function runPublishAction(
     }
     fireToast(
       res.error === "idle-expired"
-        ? "Signed out after 15 minutes without an admin action — sign in again, then publish."
+        ? "Your session ended — sign in again, then publish."
         : res.error === "unauthorized"
         ? "Your session expired — unlock the console again, then publish."
         : `Could not publish (${res.error}). Nothing on the site changed.`,

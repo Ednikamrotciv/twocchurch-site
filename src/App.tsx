@@ -1,6 +1,6 @@
 import React, { useEffect } from "react";
 import { useRoute, navigate, ADMIN_PREFIX } from "./lib/router";
-import { Header, Footer, ScrollTop, SkipLink, MaintenanceSite, PreviewBanner, BootSplash } from "./components/layout";
+import { Header, Footer, ScrollTop, SkipLink, MaintenanceSite, PreviewBanner } from "./components/layout";
 import { Toaster } from "./components/ui";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import { startCms, useCmsVersion, useCmsReady, useMaintenance, usePreviewingWhileWaiting, useStaleBuild, checkStaleBuild } from "./lib/cms";
@@ -21,6 +21,22 @@ import { BRANCHES, HQ } from "./data/branches";
 import { EVENTS } from "./data/content";
 
 const Admin = React.lazy(() => import("./pages/Admin").then((m) => ({ default: m.Admin })));
+
+/* Explicit local preview only (?maintenance=1): the office's way to see the
+   notice on demand. Normal visitors never see it — the site paints at once. */
+function forcedMaintenancePreview(): boolean {
+  try {
+    const q = new URLSearchParams(window.location.search || "");
+    if (q.get("maintenance") === "1" || q.get("showMaintenance") === "1") return true;
+    const h = String(window.location.hash || "");
+    const qi = h.indexOf("?");
+    if (qi !== -1) {
+      const hq = new URLSearchParams(h.slice(qi + 1));
+      if (hq.get("maintenance") === "1" || hq.get("showMaintenance") === "1") return true;
+    }
+  } catch {}
+  return false;
+}
 
 export function App() {
   const route = useRoute();
@@ -125,18 +141,14 @@ export function App() {
       </>
     );
 
-  /* Visitors wait on maintenance until the office publishes (notes 249, 302) —
-     logo and notice only, nothing else. Nothing renders until boot + first
-     sync AND the first version check settle, so a published site never flashes
-     the notice on launch — and a stale bundle never flashes live before it
-     reloads onto the update. */
-  const ready = useCmsReady();
-  const stale = useStaleBuild();
-  /* Local preview (?maintenance=1): the notice shows at once, even before boot
-     settles — otherwise the splash covers the very page asked for. */
-  if (maintenance && !ready) return <MaintenanceSite />;
-  if (!ready || !stale.settled) return <BootSplash />;
-  if (stale.waiting || maintenance) return <MaintenanceSite />;
+  /* The site paints immediately on every load and reload: no logo flash, no
+     maintenance flash — visitors see the website itself while boot, the first
+     sync and the version check settle in the background. The maintenance
+     notice auto-clears an hour after the first publish and never blocks
+     visitors; only an explicit local preview (?maintenance=1) shows it. */
+  useCmsReady();
+  useStaleBuild();
+  if (forcedMaintenancePreview() && maintenance) return <MaintenanceSite />;
 
   return (
     <>

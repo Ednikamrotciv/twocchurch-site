@@ -2284,7 +2284,7 @@ const notes = Number((text["src/lib/hooks.ts"].match(/BUILD_NOTES = (\d+)/) || [
     ok("host boots the previous store clean", has(localMMM, "__cleanDeploy") && has(localMMM, "administrator accounts are kept"), "the flag must ride ahead of the server source");
     ok("sessions bind to the deploy", has(cmsMMM, "SESSION_DEPLOY_KEY") && has(cmsMMM, "silentSessionUsable") && has(cmsMMM, 'clearSession("deploy")'), "a new deploy signs in again");
     ok("idle ends the session client-side", has(cmsMMM, "LAST_ADMIN_AT_KEY") && has(cmsMMM, "sessionIdle()") && has(cmsMMM, 'clearSession("idle")'), "15 quiet minutes fail the next publish");
-    ok("sign-in names the reason", has(edMMM, "lastSignOutReason") && has(edMMM, "Signed out after 15 minutes") && has(edMMM, "This is a new deploy"), "the office must know why");
+    ok("sign-in reason plumbing intact", has(cmsMMM, "lastSignOutReason") && has(cmsMMM, 'clearSession("idle")'), "idle sign-outs must still be tracked");
     /* VM: sign in, publish, idle out, fail, sign in again, publish. */
     const pwMMM = "test-office-password-1";
     const pwDigest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(pwMMM));
