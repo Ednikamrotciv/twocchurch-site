@@ -73,9 +73,139 @@ number is unchanged. build-static.mjs stamps it from hooks.ts CODE_ID. -->
     document.body.appendChild(banner);
   }, 20000);
 </script>
-<!-- Maintenance pre-bundle gate removed: the site paints immediately on every
-     load (no logo flash, no maintenance flash). The notice auto-clears an hour
-     after the first publish and never blocks visitors; ?maintenance=1 still
-     previews it on demand. -->
+<!-- Maintenance pre-bundle gate (note 302): paints the notice before React boots
+     whenever this copy has not published it yet. Same stamp as src/lib/cms.ts,
+     yields to ?preview=1, never touches /admin. After an update a plain reload
+     lands every visitor on the notice until the office publishes. -->
+<script>
+(function () {
+  try {
+    var ap = window.location.pathname || "/";
+    var h0 = window.location.hash || "";
+    if (ap === "/admin" || ap.indexOf("/admin/") === 0 || h0.indexOf("#/admin") === 0) return;
+    var q = new URLSearchParams(window.location.search || "");
+    if (q.get("preview") === "1") return;
+    var hq = null;
+    try {
+      var qi = h0.indexOf("?");
+      if (qi !== -1) hq = new URLSearchParams(h0.slice(qi + 1));
+    } catch (_) {}
+    if (hq && hq.get("preview") === "1") return;
+    var forceMaint = false;
+    try {
+      forceMaint = q.get("maintenance") === "1" || q.get("showMaintenance") === "1" || (hq && (hq.get("maintenance") === "1" || hq.get("showMaintenance") === "1"));
+    } catch (_) {}
+    function meta(name) {
+      try {
+        var m = document.querySelector('meta[name="' + name + '"]');
+        return m ? (m.getAttribute("content") || "") : "";
+      } catch (_) { return ""; }
+    }
+    function ls(k) { try { return window.localStorage.getItem(k); } catch (_) { return null; } }
+    var deployId = meta("wom-deploy");
+    var code = meta("wom-code");
+    var notesNum = parseInt(meta("wom-notes") || "0", 10) || 0;
+    /* Stamp read uses the same keys as src/lib/cms.ts (wom.cms.notes). */
+    var notesRaw = ls("wom.cms.notes");
+    var publishedNotes = 0;
+    try { publishedNotes = Math.floor(Number(JSON.parse(notesRaw))) || 0; } catch (_) { try { publishedNotes = Math.floor(Number(notesRaw)) || 0; } catch (_) {} }
+    var publishedDeploy = ls("wom.cms.deployPublished") || "";
+    var blessed = ls("wom.cms.codeBlessed") || "";
+    var hasServer = false;
+    try { hasServer = !!document.querySelector('meta[name="wom-server"]') || !!document.querySelector('meta[name="wom-feed"]'); } catch (_) {}
+    var shouldWait = false;
+    if (forceMaint) shouldWait = true;
+    else if (deployId) {
+      if (publishedDeploy !== deployId) {
+        /* Deploy lock: any copy whose words can move after deploy waits.
+           Pure static (no server, no feed) never waits — nothing could ever
+           release it, its words move only via rebuild which re-locks. */
+        if (hasServer) shouldWait = true;
+        else shouldWait = false;
+      } else shouldWait = false;
+    } else {
+      /* Local dev (no stamped deploy): number + code gate — every new fix
+         waits until the office publishes (a local Publish always releases). */
+      if (!(publishedNotes >= notesNum && blessed && code && blessed === code)) shouldWait = true;
+    }
+    function paint() {
+      if (document.getElementById("wom-maint-gate")) return;
+      var d = document.createElement("div");
+      d.id = "wom-maint-gate";
+      d.setAttribute("style", "position:fixed;inset:0;z-index:99999;background:#07070a;color:#f5efe0;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:2rem;font-family:Georgia,serif;");
+      d.innerHTML = '<div style="max-width:34rem;"><div style="font-size:0.8rem;letter-spacing:0.2em;opacity:0.7;margin-bottom:1rem;">MAINTENANCE</div><h1 style="font-size:2rem;margin:0 0 0.8rem;">We\u2019ll be right back</h1><p style="opacity:0.85;line-height:1.6;margin:0;">The site is being updated. Please check back shortly.</p></div>';
+      try { document.documentElement.appendChild(d); } catch (_) { try { document.body.appendChild(d); } catch (_) {} }
+    }
+    function unpaint() { try { var e = document.getElementById("wom-maint-gate"); if (e) e.remove(); } catch (_) {} }
+    if (shouldWait) paint();
+    /* Stale-bundle net: a cached page naming a pruned bundle must still hold.
+       Cache-busted like src/lib/cms.ts checkStaleBuild. */
+    try {
+      fetch("/version.json?t=" + Date.now(), { cache: "no-store", headers: { pragma: "no-cache", "cache-control": "no-cache" } })
+        .then(function (r) { return r && r.ok ? r.json() : null; })
+        .then(function (v) {
+          if (!v) return;
+          var vn = Math.floor(Number(v.notes)) || 0;
+          var vd = typeof v.deployId === "string" ? v.deployId : "";
+          var vc = typeof v.code === "string" ? v.code : "";
+          var isNew = false;
+          if (vd && deployId && vd !== deployId) isNew = true;
+          else if (vc && code && vc !== code) isNew = true;
+          else if (vn && notesNum && vn > notesNum) isNew = true;
+          if (isNew) paint();
+        })
+        .catch(function () {});
+    } catch (_) {}
+    /* Publish clears the gate without a reload — and an hour after this
+       deploy's own publish the notice clears totally from code: the office
+       Publish on the deployed copy lifts every visitor via storage +
+       broadcast, so watch the same stamp the app watches and drop the early
+       paint when it lands. The 1s follow below also tracks React itself: once
+       React boots, the early overlay yields to it — React maint takes over,
+       React site (publish cleared or 1h total clear) drops the overlay — so
+       a fresh visitor after the hour never sticks on the early paint. */
+    try {
+      window.addEventListener("storage", function (e) {
+        try {
+          if (!e || !e.key) return;
+          if (e.key === "wom.cms.deployPublished" || e.key === "wom.cms.codeBlessed" || e.key === "wom.cms.notes") {
+            var pd = ls("wom.cms.deployPublished") || "";
+            if (deployId && pd === deployId) unpaint();
+          }
+        } catch (_) {}
+      });
+      if (typeof BroadcastChannel !== "undefined") {
+        try {
+          var ch = new BroadcastChannel("wom.cms.publish");
+          ch.onmessage = function () {
+            try {
+              var pd2 = ls("wom.cms.deployPublished") || "";
+              if (deployId && pd2 === deployId) unpaint();
+              else {
+                var nr = ls("wom.cms.notes");
+                var nn = 0;
+                try { nn = Math.floor(Number(JSON.parse(nr))) || 0; } catch (_) {}
+                if (nn >= notesNum) unpaint();
+              }
+            } catch (_) {}
+          };
+        } catch (_) {}
+      }
+      window.setInterval(function () {
+        try {
+          var pd3 = ls("wom.cms.deployPublished") || "";
+          if (deployId && pd3 === deployId) { unpaint(); return; }
+          /* Follow React once booted (publish cleared or 1h total clear). */
+          var root = document.getElementById("root");
+          if (root && root.hasChildNodes()) {
+            if (document.querySelector(".maint")) { unpaint(); return; }
+            if (!document.querySelector(".boot-splash")) unpaint();
+          }
+        } catch (_) {}
+      }, 1000);
+    } catch (_) {}
+  } catch (_) {}
+})();
+</script>
 
 <script type="module" src="/src/main.tsx"></script>

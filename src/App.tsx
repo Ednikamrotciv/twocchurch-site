@@ -3,7 +3,7 @@ import { useRoute, navigate, ADMIN_PREFIX } from "./lib/router";
 import { Header, Footer, ScrollTop, SkipLink, MaintenanceSite, PreviewBanner } from "./components/layout";
 import { Toaster } from "./components/ui";
 import { ErrorBoundary } from "./components/ErrorBoundary";
-import { startCms, useCmsVersion, useCmsReady, useMaintenance, usePreviewingWhileWaiting, useStaleBuild, checkStaleBuild } from "./lib/cms";
+import { startCms, useCmsVersion, useCmsReady, useMaintenance, usePreviewingWhileWaiting, useStaleBuild, checkStaleBuild, isCurrentDeployPublishedSync } from "./lib/cms";
 import { mountShaderBackground } from "./lib/shaderbg";
 import { startVisitorClock, useVisitorClock, useVisitorClockRefresh } from "./lib/visitor";
 import { useI18nTick, ensureI18n, setProtectedValues, i18nAsk, chooseLang, dismissAsk } from "./lib/i18n";
@@ -23,7 +23,7 @@ import { EVENTS } from "./data/content";
 const Admin = React.lazy(() => import("./pages/Admin").then((m) => ({ default: m.Admin })));
 
 /* Explicit local preview only (?maintenance=1): the office's way to see the
-   notice on demand. Normal visitors never see it — the site paints at once. */
+   notice on demand. Visitors on a fresh deploy see it until Publish clears it. */
 function forcedMaintenancePreview(): boolean {
   try {
     const q = new URLSearchParams(window.location.search || "");
@@ -141,14 +141,31 @@ export function App() {
       </>
     );
 
-  /* The site paints immediately on every load and reload: no logo flash, no
-     maintenance flash — visitors see the website itself while boot, the first
-     sync and the version check settle in the background. The maintenance
-     notice auto-clears an hour after the first publish and never blocks
-     visitors; only an explicit local preview (?maintenance=1) shows it. */
-  useCmsReady();
-  useStaleBuild();
-  if (forcedMaintenancePreview() && maintenance) return <MaintenanceSite />;
+  /* Published deploy fast-path: after this deploy's own Publish (or its 1h
+     total clear, which implies published) never flash notice/splash again —
+     paint the website at once on reload/loading while the sync settles in the
+     background. Unpublished deploys still hold below (splash until settled,
+     then notice until Publish); a newer deploy landing later still takes via
+     the stale gate. /admin never waits (returned above). */
+  const stale = useStaleBuild();
+  const ready = useCmsReady();
+  let publishedHere = false;
+  try {
+    publishedHere = isCurrentDeployPublishedSync();
+  } catch {}
+  if (publishedHere && !stale.waiting) return (
+    <>
+      <SiteApp key={version} />
+      <LangAsk />
+    </>
+  );
+  /* Fresh-deploy hold (note 302): hold the boot splash until boot + the
+     version check settle, then hold fresh visitors on the maintenance notice
+     until the office Publishes. Publish from the deployed copy — even with no
+     changes — clears every visitor at once via the same-deploy witness.
+     ?preview=1 previews the new site. */
+  if (!ready || !stale.settled) return <div className="boot-splash" aria-label="Loading"><div className="boot-splash__inner">Loading…</div></div>;
+  if (stale.waiting || maintenance) return <MaintenanceSite />;
 
   return (
     <>

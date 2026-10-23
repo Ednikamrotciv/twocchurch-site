@@ -120,11 +120,14 @@ const PUBLISH_AT_KEY = "wom.cms.publishAt";
 /* Clock-skew tolerance: a server clock a few seconds behind the browser must
    not strand a publish that just landed. */
 const PUBLISH_AT_SKEW_MS = 15000;
-/* Maintenance auto-clear (office request): one hour after the FIRST publish,
-   the maintenance notice is gone for every visitor, device and browser — the
-   code stops waiting, so new copies never flash the notice before the site.
-   firstPublishAt is the wall-clock moment of the first witnessed publish from
-   the running update; it only ever moves forward, like lastPublishAt. */
+/* Maintenance auto-clear, deploy-scoped (office request: an hour after the
+   FIRST publish the notice clears totally from code — but every NEW deploy
+   still holds until its own Publish). The old global timer lifted every
+   future deploy once the first publish aged an hour, so new deploys never
+   held. Now a deploy that never published never auto-clears; only a deploy
+   that already lifted via its own Publish expires an hour after that publish
+   (lastPublishAt / server stamp — never the ever-first stamp, which would
+   expire a fresh Publish at once). */
 const MAINTENANCE_AUTO_CLEAR_MS = 60 * 60 * 1000;
 const FIRST_PUBLISH_KEY = "wom.cms.firstPublishAt";
 let firstPublishAt = 0;
@@ -145,20 +148,41 @@ function noteFirstPublishAt(at: unknown): void {
     } catch {}
   } catch {}
 }
-/** True once the notice has served its hour: first publish (or latest publish,
-    or the shared backend's own publish stamp) is over an hour old. Never throws. */
+/** True an hour after THIS deploy's own publish: the notice clears totally
+    from code. A deploy that never published never auto-clears — so every new
+    deploy still holds until its own Publish — and the ever-first stamp is
+    ignored (it would expire a fresh Publish at once). Never throws. */
 function maintenanceAutoCleared(): boolean {
   try {
     const hour = MAINTENANCE_AUTO_CLEAR_MS;
     const now = Date.now();
-    if (firstPublishAt > 0 && now - firstPublishAt > hour) return true;
+    if (deployFromMeta && currentDeployId) {
+      /* Stamped build: only a deploy that already lifted expires. */
+      if (publishedDeployId !== currentDeployId) return false;
+      if (lastPublishAt > 0 && now - lastPublishAt > hour) return true;
+      try {
+        const v = serverVerdict;
+        if (v && v.notes >= BUILD_NOTES && v.words > 0 && v.at > 0 && now - v.at > hour) return true;
+      } catch {}
+      return false;
+    }
+    /* Local dev (no stamped deploy): only blessed code expires. */
+    try {
+      if (!codeBlessedMatches()) return false;
+    } catch { return false; }
+    try {
+      const held = typeof publishedNotes === "number" && Number.isFinite(publishedNotes) ? Math.floor(publishedNotes) : 0;
+      if (!(held >= BUILD_NOTES)) return false;
+    } catch { return false; }
     if (lastPublishAt > 0 && now - lastPublishAt > hour) return true;
     try {
-      const v = serverVerdict;
-      if (v && v.notes >= BUILD_NOTES && v.words > 0 && v.at > 0 && now - v.at > hour) return true;
+      const v2 = serverVerdict;
+      if (v2 && v2.notes >= BUILD_NOTES && v2.words > 0 && v2.at > 0 && now - v2.at > hour) return true;
     } catch {}
-  } catch {}
-  return false;
+    return false;
+  } catch {
+    return false;
+  }
 }
 let lastPublishAt = 0;
 try {
@@ -736,6 +760,27 @@ function maintenanceForced(): boolean {
     return false;
   }
 }
+/** Sync fast-path for a published deploy (no flash after Publish): true when THIS
+    copy already lifted — stamped builds when this deploy id is published,
+    local dev when the number gate plus code blessing both pass. Read
+    synchronously on first render so a reload after Publish paints the website
+    at once (no splash hold, no notice), syncing in the background. A deploy
+    that never published is never fast-pathed, so every new deploy still holds
+    until its own Publish; a newer deploy landing later still takes via the
+    stale gate. */
+export function isCurrentDeployPublishedSync(): boolean {
+  try {
+    if (deployFromMeta && currentDeployId) return publishedDeployId === currentDeployId;
+    try {
+      const held = typeof publishedNotes === "number" && Number.isFinite(publishedNotes) ? Math.floor(publishedNotes) : 0;
+      if (!(held >= BUILD_NOTES)) return false;
+    } catch { return false; }
+    try {
+      return codeBlessedMatches();
+    } catch { return false; }
+  } catch { return false; }
+}
+
 /** True while a server is (or was) in play: online, offline after contact, a
     socket waiting, or an address to reach. A copy that never had a server has
     no visitors to protect, so it never waits (note 250). */
