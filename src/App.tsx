@@ -147,8 +147,13 @@ export function App() {
      background. Unpublished deploys still hold below (splash until settled,
      then notice until Publish); a newer deploy landing later still takes via
      the stale gate. /admin never waits (returned above). */
+  /* No blank loading page: paint website or notice at once (sync decision),
+     sync settles in the background. Unpublished deploys show the notice at
+     once until Publish; published deploys show the website at once on every
+     reload/loading with no flash. A newer deploy landing later still takes via
+     the stale gate + reload. */
   const stale = useStaleBuild();
-  const ready = useCmsReady();
+  useCmsReady();
   let publishedHere = false;
   try {
     publishedHere = isCurrentDeployPublishedSync();
@@ -159,12 +164,6 @@ export function App() {
       <LangAsk />
     </>
   );
-  /* Fresh-deploy hold (note 302): hold the boot splash until boot + the
-     version check settle, then hold fresh visitors on the maintenance notice
-     until the office Publishes. Publish from the deployed copy — even with no
-     changes — clears every visitor at once via the same-deploy witness.
-     ?preview=1 previews the new site. */
-  if (!ready || !stale.settled) return <div className="boot-splash" aria-label="Loading"><div className="boot-splash__inner">Loading…</div></div>;
   if (stale.waiting || maintenance) return <MaintenanceSite />;
 
   return (
