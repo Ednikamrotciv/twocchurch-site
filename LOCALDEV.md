@@ -62,16 +62,12 @@ Leave that running on the always-on machine. Content is stored in
 `data/cms-state.bin` (created on first publish — keep that file to keep your
 content); photo/video uploads land in `data/uploads/`.
 
-## Security watch (local terminal after `npm run dev`)
+## Security log (WAF + anomaly)
 
-Every boot starts the WAF (in front of all doors), the session anomaly watch
-(impossible travel, unusual volume, privilege escalation) and the real-time
-security log. The terminal shows everything — local AND live deploy, online or
-offline — with severity, the IP address and a hint on what to do. Whenever a
-potential breach (medium or worse) appears, the terminal prints a clickable link
-to a breach-report PDF: a timestamped file under `logs/` (Ctrl+click to open)
-plus a this-machine-only URL (`/__security-report-local.pdf`). Nothing is shown
-in the admin console by design — the terminal is the whole feed. Maintenance,
-Publish, wakes, relay and clean-deploy behaviour are unchanged: the
-publish/admin doors are allow-listed and the live loops run on loopback, which
-is never rate-limited.
+`npm run dev` and `npm start` both run a zero-dependency shield in front of
+the server (see `scripts/SECURITY.md`): malicious patterns are blocked before
+they reach the code, and every event prints in this terminal with severity +
+IP + hint. Potential breaches also auto-write
+`data/security-report-latest.pdf`; `npm run security:report` rewrites it on
+demand. As a signed-in admin: `/__security/events.json?conn=…` (JSON) and
+`/__security/report.pdf?conn=…` (PDF download).

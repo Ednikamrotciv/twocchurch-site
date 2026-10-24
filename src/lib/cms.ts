@@ -264,24 +264,26 @@ function serverHoldsPublish(): boolean {
     /* Real words from this update or newer — numbers alone never lift. */
     if (!(v.words > 0)) return false;
     if (!(v.notes >= BUILD_NOTES)) return false;
-    /* This deploy's own publish (the office published from this exact deploy):
-       genuine same-deploy release — lifts at once, even for late joiners that
-       first opened after the click. */
-    try {
-      if (deployFromMeta && !!currentDeployId && !!v.deploy && v.deploy === currentDeployId) return true;
-    } catch {}
-    /* Strict per-deploy hold: anything else must be a publish that landed
-       AFTER this deploy arrived. A new deploy holds until its own Publish
-       click, however reviewed the old words are — stale stamps (older
-       deploys' publishes the backend still holds) never pre-release it. */
-    if (!publishIsNewerThanDeploy(v.at)) return false;
-    /* Same code, same review — the publish landed after deploy, so it counts. */
+    /* Same code, same review: one Publish from any admin lifts every copy on
+       this host together — the late joiner, the rebuilt copy and the
+       publishing copy all read the same word and agree. A new word still
+       waits for its own publish even when the numbers moved. */
     try {
       if (!!v.code && !!runningCode && v.code === runningCode) return true;
     } catch {}
     /* The host serves this build (version.json attestation, same rule). */
     try {
       if (hostFileAttestsSameCode()) return true;
+    } catch {}
+    /* This deploy's own stamp (also witnessed beside this; kept so the
+       verdict alone suffices). */
+    try {
+      if (deployFromMeta && !!currentDeployId && !!v.deploy && v.deploy === currentDeployId) return true;
+    } catch {}
+    /* Fresh clock: a same-update publish that landed after this deploy was
+       first seen — the post-deploy witness in verdict form. */
+    try {
+      if (v.notes === BUILD_NOTES && v.at > 0 && deployFirstSeenAt > 0 && v.at + PUBLISH_AT_SKEW_MS > deployFirstSeenAt) return true;
     } catch {}
     return false;
   } catch {
@@ -293,20 +295,6 @@ function postDeployPublishWitnessed(): boolean {
     if (!(lastPublishAt > 0 && deployFirstSeenAt > 0)) return false;
     if (!publishedNotesAtLeastBuild()) return false;
     return lastPublishAt + PUBLISH_AT_SKEW_MS > deployFirstSeenAt;
-  } catch {
-    return false;
-  }
-}
-/** Fresh-publish rule (strict per-deploy hold): a witnessed publish clock only
-    releases this deploy when it landed AFTER this copy first saw the deploy —
-    an explicit Publish click after deploy. Older stamps (a bake, a mirror, an
-    older deploy's publish the backend still holds) prove review of old code,
-    never of this deploy, so a new deploy holds until its own Publish, however
-    reviewed the old words are. Never throws. */
-function publishIsNewerThanDeploy(at: unknown): boolean {
-  try {
-    const a = Math.floor(Number(at));
-    return Number.isFinite(a) && a > 0 && deployFirstSeenAt > 0 && a + PUBLISH_AT_SKEW_MS > deployFirstSeenAt;
   } catch {
     return false;
   }
@@ -2308,16 +2296,37 @@ async function applySeedOnce() {
            shows until the office publishes. A baked publish from THIS deploy
            releases at once; anything else waits. No numbers. */
         noteDeployWitness((seed as any).publishedDeploy);
-        /* Same-update baked publish (strict per-deploy hold): the bake carries
-           the office's last publish with real words — but a bake is not a
-           Publish click on THIS deploy, so it never releases the notice by
-           itself. The words stage above; the hold lifts only on an explicit
-           post-deploy Publish. Releasing here is exactly how the notice kept
-           going missing on updates. */
+        /* Same-update baked publish (one click clears brand-new arrivals):
+           the bake carries the office's last publish with real words, stamped
+           from this update or newer (note 427) — that IS the review, so this deploy
+           releases at first paint even when the bake was built for a different
+           deploy id (cross-built hosts, pre-stamp bakes, mirror seeds). Older
+           updates, empty words and unstamped bakes still hold.
+           Words were applied above; the clean-stage block below still stages
+           returning browsers clean. */
         try {
           const seedCode = (seed as any).code;
           if (typeof (seed as any).notes === "number" && Math.floor((seed as any).notes) === BUILD_NOTES) {
             noteCodeWitness(seedCode, (seed as any).notes);
+          }
+        } catch {}
+        try {
+          const seedSections = (seed as any).sections;
+          const seedWords = seedSections && typeof seedSections === "object" ? Object.keys(seedSections).length : 0;
+          const seedRev = typeof (seed as any).rev === "number" ? Math.floor((seed as any).rev) : 0;
+          /* Cross-deploy seed release needs the word, not just the number
+             (note 428): the bake stamps this deploy's own witness only for its
+             own code, so a same-number bake from older code can never lift a
+             new-code deploy at first paint — only a publish does. The
+             same-deploy stamp above already released (same build, same code by
+             construction). */
+          const seedCode = typeof (seed as any).code === "string" ? (seed as any).code : "";
+          if (
+            typeof (seed as any).notes === "number" && Math.floor((seed as any).notes) >= BUILD_NOTES &&
+            seedRev > 0 && seedWords > 0 && !!seedCode && !!runningCode && seedCode === runningCode
+          ) {
+            setPublishedNotes(BUILD_NOTES);
+            markDeployPublished();
           }
         } catch {}
         applyOverrides(seed.sections);
@@ -2412,11 +2421,9 @@ async function syncFromFeed() {
         blessRunningCode();
       }
     } catch {}
-    /* Late-join release over the mirror (strict per-deploy hold): a same-update
-       feed seed attested to this code releases this deploy only when its
-       publish clock is NEWER than this deploy's first sighting — a real
-       post-deploy click. A mirror carrying an older publish never pre-releases
-       a fresh deploy. */
+    /* Late-join release over the mirror: a same-update feed seed attested to
+       this code, carrying real words, IS the office review — release this
+       deploy even when it first opened after the click. */
     try {
       const seedCode = typeof (live as any).code === "string" ? (live as any).code : "";
       if (
@@ -2424,8 +2431,7 @@ async function syncFromFeed() {
         publishedDeployId !== currentDeployId &&
         typeof live.notes === "number" && Math.floor(live.notes) === BUILD_NOTES &&
         !!seedCode && !!runningCode && seedCode === runningCode &&
-        Object.keys(liveSections).length > 0 &&
-        publishIsNewerThanDeploy((live as any).at)
+        Object.keys(liveSections).length > 0
       ) {
         setPublishedNotes(BUILD_NOTES);
         markDeployPublished();
@@ -3045,11 +3051,10 @@ export async function pullFromLive(): Promise<LivePullResult> {
     try {
       if (sameUpdate && liveWords > 0) liveCodeWitnessed = noteCodeWitness(read.code, read.notes);
     } catch {}
-    /* Late-join release over the live answer (strict per-deploy hold): a
-       same-update publish attested to this code releases this deploy only
-       when its publish clock is NEWER than this deploy's first sighting — a
-       real post-deploy click. A live answer carrying an older publish never
-       pre-releases a fresh deploy. Never across updates, never for a
+    /* Late-join release over the live answer (note 437 — same rule as the
+       server twin): a same-update publish attested to this code, carrying
+       real words, IS the office review — release this deploy even when it
+       first opened after the click. Never across updates, never for a
        different word, never on an empty answer, and never with this copy's
        own unsaved work pending in a clean stage. */
     try {
@@ -3057,8 +3062,7 @@ export async function pullFromLive(): Promise<LivePullResult> {
         (!cleanStageForNewCode || pendingSections().length === 0) &&
         deployFromMeta && currentDeployId &&
         publishedDeployId !== currentDeployId &&
-        sameUpdate && liveCodeWitnessed && liveWords > 0 &&
-        publishIsNewerThanDeploy(read.at)
+        sameUpdate && liveCodeWitnessed && liveWords > 0
       ) {
         setPublishedNotes(BUILD_NOTES);
         markDeployPublished();
@@ -3450,14 +3454,11 @@ async function pollPublishHttp(): Promise<void> {
           try {
             if (Number.isFinite(notes) && notes === BUILD_NOTES && deploy && currentDeployId && deployFromMeta && deploy === currentDeployId) markDeployPublished();
           } catch {}
-          /* Late-join release (strict per-deploy hold): a same-update publish
-             attested to this code releases this deploy only when its publish
-             clock is NEWER than this deploy's first sighting — a real
-             post-deploy click. A stamp carrying an older publish never
-             pre-releases a fresh deploy (the post-deploy twin below covers
-             genuinely new clicks). */
+          /* Late-join release: a same-update publish attested to this code IS
+             the office review — release even when this deploy first opened
+             after the click (no second click needed). */
           try {
-            if (Number.isFinite(notes) && notes === BUILD_NOTES && code && code === runningCode && publishIsNewerThanDeploy((r as any).at)) {
+            if (Number.isFinite(notes) && notes === BUILD_NOTES && code && code === runningCode) {
               setPublishedNotes(BUILD_NOTES);
               blessRunningCode();
               if (deployFromMeta && currentDeployId) markDeployPublished();
@@ -4488,26 +4489,28 @@ async function syncFromServer() {
      different word. (The unstamped local twin above keeps its strictly-newer
      rule: there an unsaved change showing means no Publish was clicked.) */
   const codeWitnessed = noteCodeWitness((res as any).code, res.notes);
-  /* A publish from the running update releases its deploy (office request:
-     one post-deploy Publish click lifts every deploy — a stale phone, a
+  /* A publish from the running update releases its deploy (notes 420–421,
+     office request: one Publish click lifts every deploy — a stale phone, a
      rebuild, a brand-new device or browser, any copy whose id differs — with
      no second click, ever). The same-ID witness above only matches a publish
-     stamped from this exact deploy; the rule beside it releases on a publish
-     clock NEWER than this deploy's first sighting: a real click after deploy.
-     Older stamps never pre-release a fresh deploy. Never across updates, never
-     on a different code word (new code still waits for its own publish), never
-     on an empty answer, and never on a copy with no stamped deploy (local dev
-     keeps its number gate). A clean stage with queued office work still stages
-     nothing inbound until Recover or an explicit Publish — only the notice
-     lifts. */
+     stamped from this exact deploy; the rule beside it releases on proof
+     instead of timing: a server publish stamped from the running update,
+     carrying real words and attested to this code, IS a publish for this
+     deploy, whenever this deploy first went live. Timing can no longer strand
+     a copy — a publish that landed before this deploy opened counts exactly
+     like one that landed after. Never across updates (a newer update names a
+     different stamp, an older one too), never on a different code word (new
+     code still waits for its own publish), never on an empty answer, and
+     never on a copy with no stamped deploy (local dev keeps its number
+     gate). A clean stage with queued office work still stages nothing
+     inbound until Recover or an explicit Publish — only the notice lifts. */
   if (
     (!cleanStageForNewCode || pendingSections().length === 0) &&
     deployFromMeta && currentDeployId &&
     publishedDeployId !== currentDeployId &&
     codeWitnessed &&
     typeof res.notes === "number" && Math.floor(res.notes) === BUILD_NOTES &&
-    Object.keys(server).length > 0 &&
-    publishIsNewerThanDeploy((res as any).at)
+    Object.keys(server).length > 0
   ) {
     markDeployPublished();
     try {
@@ -4543,11 +4546,15 @@ function hostFileAttestsSameCode(): boolean {
     return false;
   }
 }
-  /* Late-join lift (strict per-deploy hold): a live server answer stamped
-     from this same update AND this same code, carrying real words, releases
-     this deploy only when its publish clock is NEWER than this deploy's first
-     sighting — a real post-deploy click. A server answer carrying an older
-     publish never pre-releases a fresh deploy. Never across updates (notes must
+  /* Late-join lift (first publish after a new deploy must clear devices that
+     opened it AFTER the click): the clock above only releases deploys that
+     were already seen, and the same-ID witness only matches a publish stamped
+     from this exact deploy — so a phone that first opened the new deploy
+     after the publish kept waiting until somebody published again. A live
+     server answer stamped from this same update AND this same code, carrying
+     real words (never empty — a fallback bake stamped from this update names
+     a publish that really happened, so it releases too), IS that review —
+     release this deploy with no second click. Never across updates (notes must
      equal this bundle), never for a different code word, never with this
      copy's own unsaved work pending (mid-edit desks still wait). Staging
      follows the normal path below: the stamp moves first, so the words stage
@@ -4558,8 +4565,7 @@ function hostFileAttestsSameCode(): boolean {
       publishedDeployId !== currentDeployId &&
       typeof res.notes === "number" && Math.floor(res.notes) === BUILD_NOTES &&
       typeof (res as any).code === "string" && (res as any).code && ((res as any).code === runningCode || hostFileAttestsSameCode()) &&
-      Object.keys(server).length > 0 &&
-      publishIsNewerThanDeploy((res as any).at)
+      Object.keys(server).length > 0
     ) {
       setPublishedNotes(BUILD_NOTES);
       markDeployPublished();

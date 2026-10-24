@@ -22,6 +22,7 @@
     "restore": "node scripts/backup-data.mjs restore",
     "adopt": "node scripts/backup-data.mjs adopt",
     "set-server": "node scripts/set-server.mjs",
+    "security:report": "node scripts/security-report.mjs",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
@@ -32,7 +33,11 @@
     "swiper": "14.3.0",
     "three": "0.170.0",
     "@react-three/fiber": "8.18.0",
+    "@react-three/drei": "9.122.0",
     "zustand": "^5.0.1"
+  },
+  "overrides": {
+    "three-mesh-bvh": "^0.8.0"
   },
   "devDependencies": {
     "esbuild": "0.25.0",

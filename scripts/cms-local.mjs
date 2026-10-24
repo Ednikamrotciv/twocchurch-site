@@ -270,9 +270,20 @@ export async function createCmsHost(rootDir, opts) {
   }
 
   async function call(method, id, raw) {
+    /* Security hook (WAF/anomaly): the http layers pass onRpc to observe
+       privilege/volume signals. Best-effort — never breaks the rpc. */
+    const emitRpc = (status, body) => {
+      try {
+        if (opts && typeof opts.onRpc === "function") opts.onRpc({ method, id, rawLength: typeof raw === "string" ? raw.length : 0, status, body });
+      } catch {
+        /* observation never breaks serving */
+      }
+    };
     const fn = rpc[method];
     if (typeof fn !== "function") {
-      return { status: 404, body: JSON.stringify({ ok: false, err: "unknown-method" }) };
+      const res = { status: 404, body: JSON.stringify({ ok: false, err: "unknown-method" }) };
+      emitRpc(res.status, res.body);
+      return res;
     }
     const conn = getConn(id);
     let out;
@@ -280,7 +291,9 @@ export async function createCmsHost(rootDir, opts) {
       out = await fn({ conn }, raw);
     } catch (err) {
       console.error(`cms backend rpc ${method}:`, err?.message || err);
-      return { status: 500, body: JSON.stringify({ ok: false, err: "error" }) };
+      const res = { status: 500, body: JSON.stringify({ ok: false, err: "error" }) };
+      emitRpc(res.status, res.body);
+      return res;
     }
     saveSoon();
     /* A publish moves the words — the recents follow the channel on the same
@@ -293,7 +306,9 @@ export async function createCmsHost(rootDir, opts) {
     } catch {
       /* the publish itself already landed */
     }
-    return { status: 200, body: typeof out === "string" ? out : JSON.stringify(out === undefined ? { ok: true } : out) };
+    const res = { status: 200, body: typeof out === "string" ? out : JSON.stringify(out === undefined ? { ok: true } : out) };
+    emitRpc(res.status, res.body);
+    return res;
   }
 
   function attachSender(id, send) {

@@ -4,48 +4,13 @@
    refreshes work with no rewrite rules. Served from the domain root (clean
    addresses assume it). */
 
-import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
-import { copyFile, readdir } from "node:fs/promises";
+import { cp, mkdir, readFile, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { bakeSeed } from "./bake-seed.mjs";
 import { readFeedConfig, effectiveFeed } from "./feed-config.mjs";
 
 const ROOT = process.cwd();
 const OUT = path.join(ROOT, "dist");
-const BUILD_T0 = Date.now();
-const elapsed = () => ((Date.now() - BUILD_T0) / 1000).toFixed(1) + "s";
-
-/* Incremental mirror (deploy speed): copy only new/changed files (size or
-   mtime), so rebuilds with big uploads don't re-copy gigabytes every deploy.
-   dist/ itself is wiped by `vite build` first, so no pruning is needed — but
-   repeat runs of this script alone stay correct too. Never throws. */
-async function syncTree(srcDir, dstDir) {
-  let copied = 0, skipped = 0;
-  const stack = [[srcDir, dstDir]];
-  while (stack.length) {
-    const [s, d] = stack.pop();
-    let names;
-    try {
-      names = await readdir(s, { withFileTypes: true });
-    } catch {
-      return { copied, skipped, missing: true };
-    }
-    await mkdir(d, { recursive: true });
-    for (const ent of names) {
-      const sp = path.join(s, ent.name), dp = path.join(d, ent.name);
-      if (ent.isDirectory()) { stack.push([sp, dp]); continue; }
-      if (!ent.isFile()) continue;
-      let fresh = true;
-      try {
-        const [ss, ds] = await Promise.all([stat(sp), stat(dp)]);
-        if (ds.size === ss.size && ds.mtimeMs >= ss.mtimeMs - 1) fresh = false;
-      } catch { /* no usable copy yet — copy it */ }
-      if (fresh) { await copyFile(sp, dp); copied++; }
-      else skipped++;
-    }
-  }
-  return { copied, skipped, missing: false };
-}
 
 try {
   await stat(path.join(OUT, "index.html"));
@@ -56,10 +21,7 @@ try {
 await mkdir(OUT, { recursive: true });
 
 /* Fresh words on every deploy: bake the pushed store into dist/seed.json, so the
-   deployed seed always matches what the office last published. WOM_SKIP_RECENT
-   is set: the office server refreshes recent-services every 20 minutes and the
-   feed carries it, so the deploy must not stall on a YouTube read. */
-process.env.WOM_SKIP_RECENT = "1";
+   deployed seed always matches what the office last published. */
 try {
   await bakeSeed(ROOT, path.join(OUT, "seed.json"));
 } catch (err) {
@@ -86,16 +48,40 @@ try {
   const seedPath = path.join(OUT, "seed.json");
   const seed = JSON.parse(await readFile(seedPath, "utf8"));
   if (seed && typeof seed === "object") {
-    /* Strict per-deploy hold: the bake NEVER pre-releases the new deploy. An
-       explicit Publish click after deploy is the only thing that clears the
-       notice — even when the bake carries the office's last publish from this
-       same update with real words. Stamping publishedDeploy here used to
-       release every fresh visitor at first paint (the notice never showed);
-       the same-deploy witness still releases genuine same-deploy publishes,
-       and a fresh publish clock lifts every copy — but a bake is not a click. */
+    /* First-publish witness for the new deploy (one click clears everywhere):
+       the bake above carries the office's last publish. When those words were
+       published from THIS update (notes at the code's own update number, with
+       real words), this deploy counts as their publisher too — every fresh
+       visitor's same-deploy witness then matches on first paint, so one
+       office Publish clears the maintenance notice on unlimited
+       browsers/devices with no second click. A bake from an older update (or
+       an empty/clean bake) keeps the hold: new code still waits for review.
+       Backend notes reach the update number only through an explicit office
+       publish/undo/flush, so the stamp can never leak ahead of review. */
+    let buildNotes = 0;
+    let buildCode = "";
+    try {
+      const hooksSrc = await readFile(path.join(ROOT, "src", "lib", "hooks.ts"), "utf8");
+      buildNotes = Number((hooksSrc.match(/BUILD_NOTES = (\d+)/) || [])[1]) || 0;
+      buildCode = (hooksSrc.match(/CODE_ID = "([A-Za-z0-9_-]+)"/) || [])[1] || "";
+    } catch { /* no number — the hold below stands */ }
     const seedOut = { ...seed, hold: true, deployId: DEPLOY_ID };
+    try {
+      const sections = seed && seed.sections && typeof seed.sections === "object" ? Object.keys(seed.sections).length : 0;
+      if (buildNotes > 0 && typeof seed.notes === "number" && Math.floor(seed.notes) >= buildNotes && typeof seed.rev === "number" && seed.rev > 0 && sections > 0) {
+        /* Word-gated (note 428): the bake below names the publish it carries —
+           only the running code's own review releases this deploy at first
+           paint. A same-number bake from older code (or a codeless older bake,
+           which proves nothing) keeps the hold until Publish. */
+        const seedCode = typeof seed.code === "string" ? seed.code : "";
+        if (!!buildCode && !!seedCode && seedCode === buildCode) {
+          seedOut.publishedDeploy = DEPLOY_ID;
+        }
+      }
+    } catch { /* witness skipped — the hold stands */ }
     await writeFile(seedPath, JSON.stringify(seedOut));
-    console.log("maintenance hold on: fresh visitors wait until the office publishes (locked — every deploy holds, bake never pre-releases)");
+    console.log("maintenance hold on: fresh visitors wait until the office publishes (locked — every deploy holds)");
+    if (seedOut.publishedDeploy) console.log("first-publish witness stamped: this deploy carries the office publish — one click clears every visitor");
   }
 } catch (err) {
   console.warn("maintenance hold skipped:", err?.message || err);
@@ -164,14 +150,9 @@ try {
    only, never a secret. */
 try {
   const { execFile: gitExec } = await import("node:child_process");
-  /* Deploy speed: the two git reads run in parallel with a short timeout, so
-     a build farm with slow or missing git stalls ~4s at most, not ~16s. */
-  const gitOut = (args) => new Promise((res) => gitExec("git", args, { cwd: ROOT, timeout: 4000 }, (err, stdout) => res(err ? "" : String(stdout || "").trim())));
-  const [remote, branchRaw] = await Promise.all([
-    gitOut(["config", "--get", "remote.origin.url"]),
-    gitOut(["rev-parse", "--abbrev-ref", "HEAD"]),
-  ]);
-  let branch = branchRaw;
+  const gitOut = (args) => new Promise((res) => gitExec("git", args, { cwd: ROOT, timeout: 8000 }, (err, stdout) => res(err ? "" : String(stdout || "").trim())));
+  const remote = await gitOut(["config", "--get", "remote.origin.url"]);
+  let branch = await gitOut(["rev-parse", "--abbrev-ref", "HEAD"]);
   if (!branch || branch === "HEAD") branch = "main";
   let gm = /^https?:\/\/github\.com\/([A-Za-z0-9_.-]+)\/([A-Za-z0-9_.-]+?)(?:\.git)?\/?$/i.exec(remote);
   if (!gm) gm = /^git@github\.com:([A-Za-z0-9_.-]+)\/([A-Za-z0-9_.-]+?)(?:\.git)?\/?$/i.exec(remote);
@@ -239,21 +220,18 @@ try {
 }
 
 /* String-URL files the app points at (photos are plain "src/assets/…" strings,
-   never imports, so `vite build` skips them) plus the office's own uploads.
-   Deploy speed: synced incrementally (new/changed files only), so a media
-   library is not re-copied gigabyte-by-gigabyte on every build. */
+   never imports, so `vite build` skips them) plus the office's own uploads. */
 try {
-  const r = await syncTree(path.join(ROOT, "src", "assets"), path.join(OUT, "src", "assets"));
-  if (r.missing) console.warn("photos not copied: src/assets missing");
-  else console.log(`photos synced to dist/src/assets (${r.copied} new/changed, ${r.skipped} unchanged)`);
+  await cp(path.join(ROOT, "src", "assets"), path.join(OUT, "src", "assets"), { recursive: true });
+  console.log("photos copied to dist/src/assets");
 } catch (err) {
   console.warn("photos not copied:", err?.message || err);
 }
 try {
   const st = await stat(path.join(ROOT, "data", "uploads")).catch(() => null);
   if (st && st.isDirectory()) {
-    const r = await syncTree(path.join(ROOT, "data", "uploads"), path.join(OUT, "data", "uploads"));
-    console.log(`uploads synced to dist/data/uploads (${r.copied} new/changed, ${r.skipped} unchanged)`);
+    await cp(path.join(ROOT, "data", "uploads"), path.join(OUT, "data", "uploads"), { recursive: true });
+    console.log("uploads copied to dist/data/uploads");
   }
 } catch (err) {
   console.warn("uploads not copied:", err?.message || err);
@@ -331,22 +309,12 @@ try {
 try {
   const headers =
 `# note 302 — entry files always fresh, hashed assets cacheable.
-# security: entry documents carry hardening headers (X-Content-Type-Options,
-# Referrer-Policy, Permissions-Policy). No CSP here — the app uses inline boot
-# scripts (maintenance gate below), which a CSP would break.
 /index.html
   Cache-Control: no-store, must-revalidate
-  X-Content-Type-Options: nosniff
-  Referrer-Policy: same-origin
-  Permissions-Policy: camera=(), microphone=(), geolocation=()
 /*/index.html
   Cache-Control: no-store, must-revalidate
-  X-Content-Type-Options: nosniff
-  Referrer-Policy: same-origin
-  Permissions-Policy: camera=(), microphone=(), geolocation=()
 /404.html
   Cache-Control: no-store, must-revalidate
-  X-Content-Type-Options: nosniff
 /version.json
   Cache-Control: no-store, must-revalidate
 /seed.json
@@ -355,9 +323,6 @@ try {
   Cache-Control: no-store, must-revalidate
 /feed.json
   Cache-Control: no-store, must-revalidate
-/wom-waf.js
-  Cache-Control: no-store, must-revalidate
-  X-Content-Type-Options: nosniff
 `;
   await writeFile(path.join(OUT, "_headers"), headers);
   const htaccess =
@@ -366,13 +331,6 @@ try {
   <FilesMatch "^(index\\.html|404\\.html|version\\.json|seed\\.json|server\\.json|feed\\.json)$">
     Header set Cache-Control "no-store, must-revalidate"
   </FilesMatch>
-  # security: hardening headers on the entry document (no CSP — inline boot
-  # scripts must keep running, incl. the maintenance gate)
-  <FilesMatch "^index\\.html$">
-    Header set X-Content-Type-Options "nosniff"
-    Header set Referrer-Policy "same-origin"
-    Header set Permissions-Policy "camera=(), microphone=(), geolocation=()"
-  </FilesMatch>
 </IfModule>
 `;
   await writeFile(path.join(OUT, ".htaccess"), htaccess);
@@ -380,38 +338,4 @@ try {
 } catch (err) {
   console.warn("cache headers skipped:", err?.message || err);
 }
-/* Static WAF (context #2 — "static"): bake dist/wom-waf.js from the same rule
-   spirit as scripts/waf.mjs and load it BEFORE the maintenance gate on every
-   route page. It never blocks navigation — it neutralises malicious query/hash
-   payloads via history.replaceState and beacons to the office server when one
-   is configured. The maintenance gate below it is untouched: same deploy lock,
-   same publish-clears-it, same /admin bypass. */
-try {
-  const { STATIC_GUARD_SRC } = await import("./waf.mjs");
-  await writeFile(path.join(OUT, "wom-waf.js"), STATIC_GUARD_SRC);
-  const shellPath = path.join(OUT, "index.html");
-  let shell = await readFile(shellPath, "utf8");
-  const wafTag = '<script src="/wom-waf.js" defer></script>';
-  if (!shell.includes("wom-waf.js")) {
-    if (shell.includes("</head>")) shell = shell.replace("</head>", "  " + wafTag + "\n</head>");
-    else shell = wafTag + "\n" + shell;
-    await writeFile(shellPath, shell);
-  }
-  // Route copies were made from the shell earlier — re-stamp them so every
-  // page (admin, sermons, … + 404) carries the guard too.
-  try {
-    const routesSrc = await readFile(path.join(ROOT, "src", "lib", "routes.tsx"), "utf8");
-    const patterns = [...routesSrc.matchAll(/pattern:\s*"([^"]+)"/g)].map((m) => m[1]).filter((p) => !p.includes(":") && p !== "/").map((p) => p.replace(/^\//, ""));
-    const pages = [...new Set([...patterns, "admin"])];
-    for (const page of pages) {
-      for (const dir of [page, path.join("admin", page)]) {
-        try { await writeFile(path.join(OUT, dir, "index.html"), shell); } catch {}
-      }
-    }
-    await writeFile(path.join(OUT, "404.html"), shell);
-  } catch {}
-  console.log("static WAF baked: dist/wom-waf.js on every page (maintenance gate untouched)");
-} catch (err) {
-  console.warn("static WAF skipped:", err?.message || err);
-}
-console.log(`dist/ ready to upload in ${elapsed()} (the *contents* of dist/ go to the static host)`);
+console.log("dist/ ready to upload (the *contents* of dist/ go to the static host)");

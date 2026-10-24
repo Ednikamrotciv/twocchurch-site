@@ -7,6 +7,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { tx, currentLang, useI18nTick, i18nTickN } from "../lib/i18n";
 import * as THREE from "three";
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
+import { Sparkles } from "@react-three/drei/core/Sparkles";
 import { SLIDE_FRAME } from "../lib/slideFrame";
 import { isSlideVideoUrl } from "../data/slides";
 import { LOGO_MARK } from "../data/site";
@@ -68,75 +69,6 @@ export type CuboidApi = {
   /** Any action around the box: stop/hold and restart the 3-minute clock. */
   poke: () => void;
 };
-
-/* Local sparkle field — the same gold-dust drift the stage had, without
-   @react-three/drei. Drei was imported for this one effect only, yet every
-   `npm install` and every deploy build paid for its whole tree (three-stdlib,
-   maath and the rest). Plain three, already a dependency. */
-function GoldSparkles({ count = 42, scale = [15, 7, 4] as [number, number, number], position = [0, 0, 0] as [number, number, number], size = 2.4, speed = 0.22, opacity = 0.5, color = "#e8c37a" }: { count?: number; scale?: [number, number, number]; position?: [number, number, number]; size?: number; speed?: number; opacity?: number; color?: string }) {
-  const ref = useRef<THREE.Points>(null);
-  const base = useMemo(() => {
-    const arr = new Float32Array(count * 3);
-    for (let i = 0; i < count; i++) {
-      arr[i * 3] = (Math.random() - 0.5) * scale[0];
-      arr[i * 3 + 1] = (Math.random() - 0.5) * scale[1];
-      arr[i * 3 + 2] = (Math.random() - 0.5) * scale[2];
-    }
-    return arr;
-  }, [count, scale]);
-  const phase = useMemo(() => {
-    const arr = new Float32Array(count * 2);
-    for (let i = 0; i < count; i++) {
-      arr[i * 2] = Math.random() * Math.PI * 2;
-      arr[i * 2 + 1] = 0.5 + Math.random();
-    }
-    return arr;
-  }, [count]);
-  const geo = useMemo(() => {
-    const g = new THREE.BufferGeometry();
-    g.setAttribute("position", new THREE.BufferAttribute(base.slice(), 3));
-    return g;
-  }, [base]);
-  const sprite = useMemo(() => {
-    const c = document.createElement("canvas");
-    c.width = c.height = 64;
-    const ctx = c.getContext("2d");
-    if (ctx) {
-      const g = ctx.createRadialGradient(32, 32, 0, 32, 32, 32);
-      g.addColorStop(0, "rgba(255,255,255,1)");
-      g.addColorStop(0.4, "rgba(255,255,255,0.55)");
-      g.addColorStop(1, "rgba(255,255,255,0)");
-      ctx.fillStyle = g;
-      ctx.fillRect(0, 0, 64, 64);
-    }
-    return new THREE.CanvasTexture(c);
-  }, []);
-  useEffect(() => () => { geo.dispose(); sprite.dispose(); }, [geo, sprite]);
-  /* Points rise through the box and loop (like the old effect); a sideways
-     sway keeps them from marching in lockstep. 42 points — trivial per frame. */
-  useFrame((_, dt) => {
-    const pts = ref.current;
-    if (!pts) return;
-    const attr = pts.geometry.getAttribute("position") as THREE.BufferAttribute;
-    const arr = attr.array as Float32Array;
-    const h = scale[1];
-    const rise = Math.min(dt, 0.05) * speed * 1.6;
-    const now = performance.now() / 1000;
-    for (let i = 0; i < count; i++) {
-      const sp = phase[i * 2 + 1];
-      let y = arr[i * 3 + 1] + rise * sp;
-      if (y > h / 2) y -= h;
-      arr[i * 3 + 1] = y;
-      arr[i * 3] = base[i * 3] + Math.sin(now * sp + phase[i * 2]) * 0.25;
-    }
-    attr.needsUpdate = true;
-  });
-  return (
-    <points ref={ref} geometry={geo} position={position}>
-      <pointsMaterial size={size * 0.1} map={sprite} color={color} transparent opacity={opacity} depthWrite={false} blending={THREE.AdditiveBlending} sizeAttenuation />
-    </points>
-  );
-}
 
 const TURN_SPEED = (Math.PI * 2) / 26;
 /** Hands off the box this long and rotation resumes: 3 quiet minutes. The
@@ -1004,7 +936,7 @@ export function CuboidSpace3D({ slides, apiRef, held }: { slides: SlideT[]; apiR
         <directionalLight position={[5, 7, 8]} intensity={light ? 1.35 : 1.15} />
         <directionalLight position={[-6, -2, 4]} intensity={0.3} color="#e8bd62" />
         <CameraRig />
-        <GoldSparkles count={42} scale={[15, 7, 4]} position={[0, 0, -3.5]} size={2.4} speed={0.22} opacity={0.5} color="#e8c37a" />
+        <Sparkles count={42} scale={[15, 7, 4]} position={[0, 0, -3.5]} size={2.4} speed={0.22} opacity={0.5} color="#e8c37a" />
         <CuboidFit>
           <Cuboid slides={slides} apiRef={apiRef} held={held} logo={logo} theme={theme} />
         </CuboidFit>

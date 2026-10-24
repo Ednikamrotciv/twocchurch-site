@@ -1,18 +1,5 @@
 # The World Overcomers' Ministries Inc. — website
 
-**Security layer (terminal-only):** `scripts/waf.mjs` sits in front of every
-server door (serve + `npm run dev`), `scripts/session-anomaly.mjs` watches
-impossible travel / unusual volume / privilege escalation in real time, and
-`scripts/security-log.mjs` prints everything to the local terminal with severity
-+ IP + hint (tagged `[local]`/`[live]`, online/offline). Every potential breach
-also writes a breach-report PDF under `logs/` with a clickable terminal link
-(plus a this-machine-only `__security-report-local.pdf` URL). Nothing is shown
-in the admin console — the terminal is the whole feed.
-Static builds bake `dist/wom-waf.js` + hardening headers via `scripts/build-static.mjs`.
-Maintenance, Publish-clears-notice, fresh-deploy clean stage, wakes, relay and
-clean-deploy behaviour are unchanged — publish/admin doors are allow-listed and the
-live loops run on loopback. See `LOCALDEV.md` ("Security watch").
-
 A complete, responsive church website built with **React 18 + TypeScript**, styled after the
 church seal (gold on near-black, crimson and sky accents, serif display type).
 

@@ -1,201 +1,245 @@
-/* scripts/session-anomaly.mjs — real-time session anomaly detection.
-   Watches, per request + per RPC, for:
-   (1) impossible travel — same admin session/conn from two places too far apart,
-       too fast (IP change + optional country change);
-   (2) unusual data-access volume — scraping/getContent floods, upload bursts,
-       denied-door probing;
-   (3) privilege-escalation attempts — login guessing, token guessing on the
-       internal adopt doors, sub->main attempts, TOTP/invite abuse, MAIN_OFF games.
+// session-anomaly.mjs — real-time session anomaly detection.
+// Watches, per admin session (conn id) and per IP:
+//
+//   1. possible travel      — one session id appearing from two distant networks
+//                             within minutes (impossible-travel)
+//   2. unusual data volume  — read/write/denied bursts far above office norms
+//   3. privilege escalation — anonymous connections calling admin-only RPCs,
+//                             adopt-token guessing, repeated denied/file-door hits
+//
+// Zero dependencies, in-memory only (a restart resets baselines — safe).
+// Every finding is logged through security-log with severity + IP + hint.
+import { PRIVILEGED_RPCS } from "./waf.mjs";
 
-   Runs in the Node layer (serve.mjs + vite-cms-backend.mjs), OUTSIDE the content
-   VM, so it can see IPs the server code never sees. It never blocks legitimate
-   traffic by itself — it emits events to the security log; only the WAF blocks,
-   and only on URL patterns. This file only WATCHES and WARNS.
+const ADMIN_WRITE = new Set([...PRIVILEGED_RPCS, "adoptLive", "adoptFeed"]);
+const FIVE_MIN = 5 * 60 * 1000;
+const TEN_MIN = 10 * 60 * 1000;
 
-   Works online AND offline: travel detection falls back to IP-prefix comparison
-   (no network needed); country comparison is best-effort when a lookup is
-   supplied (the geo proxy result), never required.
-*/
-
-const WINDOW_MS = 10 * 60 * 1000;
-const TRAVEL_MS = 30 * 60 * 1000;
-
-function ipPrefix(ip) {
+function isLoopback(ip) {
   const s = String(ip || "");
-  if (!s || s === "unknown") return "unknown";
-  if (s.includes(".")) return s.split(".").slice(0, 2).join(".");
-  if (s.includes(":")) return s.split(":").slice(0, 3).join(":");
-  return s.slice(0, 8);
+  return s === "-" || s === "::1" || s === "::ffff:127.0.0.1" || s.startsWith("127.") || s === "localhost";
 }
 
-function isLocalIp(ip) {
-  const s = String(ip || "").toLowerCase();
-  if (!s || s === "unknown") return true;
-  if (s === "127.0.0.1" || s === "::1" || s === "localhost") return true;
-  if (/^10\./.test(s) || /^192\.168\./.test(s) || /^127\./.test(s)) return true;
-  if (/^172\.(1[6-9]|2\d|3[01])\./.test(s)) return true;
-  return false;
+function net16(ip) {
+  const m = String(ip || "").match(/^(\d{1,3})\.(\d{1,3})\./);
+  return m ? `${m[1]}.${m[2]}` : String(ip || "");
 }
 
-export function createAnomalyTracker({ onEvent } = {}) {
-  const byConn = new Map(); // connId -> { ips:Set, firstSeen, lastSeen, lastPrefix, lastCountry, rpc:{method:count[]}, fails, denied, admin, logins }
-  const byIp = new Map(); // ip -> { reqs:[], rpcs:[], fails, denied, conns:Set, lastSeen }
+function prune(arr, now, windowMs) {
+  while (arr.length && now - arr[0] > windowMs) arr.shift();
+  return arr;
+}
 
-  function emit(e) {
-    try { onEvent && onEvent({ source: "anomaly", ...e }); } catch {}
-  }
-
-  function connRec(id) {
-    let r = byConn.get(id);
-    if (!r) {
-      r = { ips: new Set(), firstSeen: Date.now(), lastSeen: 0, lastPrefix: "", lastCountry: "", rpc: new Map(), fails: 0, denied: 0, successes: 0, adoptDenied: 0, lastIp: "" };
-      byConn.set(id, r);
-      if (byConn.size > 5000) byConn.delete(byConn.keys().next().value);
-    }
-    return r;
-  }
-
-  function ipRec(ip) {
-    let r = byIp.get(ip);
-    if (!r) {
-      r = { reqs: [], rpcs: [], fails: 0, denied: 0, conns: new Set(), lastSeen: 0 };
-      byIp.set(ip, r);
-      if (byIp.size > 5000) byIp.delete(byIp.keys().next().value);
-    }
-    return r;
-  }
-
-  function prune(arr, ms) {
-    const now = Date.now();
-    while (arr.length && now - arr[0] > ms) arr.shift();
-  }
-
-  /* Call for EVERY http request (before routing). Never throws. */
-  function noteHttp({ ip, connId }) {
+export function createSessionAnomaly({ log } = {}) {
+  const conns = new Map(); // connId -> record
+  const ipReq = new Map(); // ip -> timestamps[]
+  const emit = (e) => {
     try {
-      const now = Date.now();
-      const ir = ipRec(ip);
-      ir.reqs.push(now); prune(ir.reqs, WINDOW_MS);
-      ir.lastSeen = now;
-      if (connId) ir.conns.add(connId);
-      const cr = connRec(connId || ("anon:" + ip));
-      cr.lastSeen = now;
-      if (ip && !cr.ips.has(ip)) {
-        const prevPrefix = cr.lastPrefix;
-        const prevIp = cr.lastIp;
-        cr.ips.add(ip);
-        const prefix = ipPrefix(ip);
-        // Same session suddenly from a different network: possible session theft
-        // or the office moved networks (phone <-> wifi). Medium, with guidance.
-        if (prevPrefix && prefix !== prevPrefix && !isLocalIp(ip) && !isLocalIp(prevIp) && now - cr.firstSeen < 12 * 3600 * 1000 && cr.ips.size >= 2) {
-          if (!cr._travelWarned || now - cr._travelWarned > TRAVEL_MS) {
-            cr._travelWarned = now;
+      if (log) log(e);
+    } catch {}
+  };
+
+  function getConn(id) {
+    let c = conns.get(id);
+    if (!c) {
+      c = { ips: new Map(), firstSeen: Date.now(), lastSeen: 0, req: [], denied: [], writes: [], uas: new Set(), adminSeen: false, travelLoggedAt: 0, volLoggedAt: 0, escLoggedAt: 0 };
+      conns.set(id, c);
+      if (conns.size > 2000) {
+        const first = conns.keys().next().value;
+        conns.delete(first);
+      }
+    }
+    return c;
+  }
+
+  // Called on EVERY http request (cheap: a few map ops).
+  function observe({ connId = "anon", ip = "-", route = "-", method = "GET", ua = "" } = {}) {
+    const now = Date.now();
+    try {
+      // per-IP volume (context for scrapers)
+      let hits = ipReq.get(ip);
+      if (!hits) {
+        hits = [];
+        ipReq.set(ip, hits);
+        if (ipReq.size > 5000) ipReq.clear();
+      }
+      hits.push(now);
+      prune(hits, now, FIVE_MIN);
+      if (hits.length === 600) {
+        emit({
+          level: "medium",
+          kind: "unusual-volume",
+          ip,
+          route,
+          detail: `${hits.length} requests in 5 min from one IP`,
+          hint: "likely a scraper or a stuck reload loop — WAF rate-limit throttles it automatically. Block the IP at the host firewall only if it persists for hours.",
+          source: "local",
+        });
+      }
+      // per-session record
+      const c = getConn(String(connId || "anon"));
+      if (ip && ip !== "-") {
+        if (!c.ips.has(ip)) {
+          const prev = [...c.ips.keys()].pop();
+          c.ips.set(ip, now);
+          if (prev && prev !== ip && !isLoopback(ip) && !isLoopback(prev)) {
+            const moved16 = net16(prev) !== net16(ip);
+            const dt = now - (c.lastSeen || c.firstSeen);
+            if (moved16 && dt < TEN_MIN && (c.adminSeen || c.req.length > 5) && now - c.travelLoggedAt > TEN_MIN) {
+              c.travelLoggedAt = now;
+              emit({
+                level: c.adminSeen ? "high" : "medium",
+                kind: "impossible-travel",
+                ip,
+                route,
+                detail: `session ${connId} moved ${prev} -> ${ip} in ${Math.max(1, Math.round(dt / 1000))}s`,
+                hint: "possible session sharing or theft. If the office did not move networks (phone <-> office in seconds is not normal), force sign-out (sessions idle-expire in 15 min; restarting the backend rotates tokens) and rotate the admin password.",
+                source: "local",
+              });
+            }
+          }
+          if (c.ips.size >= 8 && now - c.travelLoggedAt > TEN_MIN) {
+            c.travelLoggedAt = now;
             emit({
-              kind: "impossible-travel", severity: "medium", ip, connId,
-              detail: `session ${String(connId).slice(0, 24)} moved networks (${prevPrefix}.x → ${prefix}.x)`,
-              hint: "Could be the office switching Wi-Fi/VPN — but could also be a stolen session. Ask: did the admin travel or toggle VPN? If not, sign out all sessions (Admin → Tools → Sign out), rotate the admin password, and block the new IP.",
+              level: "medium",
+              kind: "session-hopping",
+              ip,
+              route,
+              detail: `session ${connId} seen from ${c.ips.size} IPs`,
+              hint: "one session id roaming across many IPs — shared link, VPN, or scraping pool. If adminSeen, re-sign-in on the office copy.",
+              source: "local",
             });
           }
         }
-        cr.lastPrefix = prefix;
-        cr.lastIp = ip;
       }
-      // Flood watch (HTTP level; the WAF owns blocking, we own the warning).
-      if (ir.reqs.length === 200) {
-        emit({ kind: "volume", severity: "medium", ip, connId, detail: `${ir.reqs.length} requests in 10 min from ${ip}`, hint: "Unusual volume — possible scraping or flood. If it keeps climbing, block the IP at the host firewall; normal browsing is far below this." });
-      }
-    } catch {}
-  }
-
-  /* Optional country signal (from the geo proxy answer or x-wom-geo). */
-  function noteGeo({ ip, connId, country }) {
-    try {
-      const c = String(country || "").trim().toUpperCase();
-      if (!c || c.length < 2) return;
-      const cr = connRec(connId || ("anon:" + ip));
-      if (cr.lastCountry && cr.lastCountry !== c && Date.now() - cr.firstSeen < 12 * 3600 * 1000) {
-        if (!cr._countryWarned || Date.now() - cr._countryWarned > TRAVEL_MS) {
-          cr._countryWarned = Date.now();
+      c.lastSeen = now;
+      c.req.push(now);
+      prune(c.req, now, FIVE_MIN);
+      if (ua) {
+        c.uas.add(String(ua).slice(0, 80));
+        if (c.uas.size === 5) {
           emit({
-            kind: "impossible-travel", severity: "high", ip, connId,
-            detail: `admin session moved country ${cr.lastCountry} → ${c} within the session lifetime`,
-            hint: "HIGH: real admins rarely change country mid-session. Treat as possible session theft until proven otherwise: sign out everywhere, rotate the admin password + sub-admin passwords, turn on two-factor, and block the new IP.",
+            level: "low",
+            kind: "ua-churn",
+            ip,
+            route,
+            detail: `session ${connId} presented ${c.uas.size} user-agents`,
+            hint: "usually dev-tools / browser updates, not an attack — ignore unless paired with denied writes.",
+            source: "local",
           });
         }
-      } else {
-        cr.lastCountry = c;
       }
+      if (c.req.length === 400 && now - c.volLoggedAt > TEN_MIN) {
+        c.volLoggedAt = now;
+        emit({
+          level: "medium",
+          kind: "unusual-volume",
+          ip,
+          route,
+          detail: `session ${connId}: ${c.req.length} requests in 5 min`,
+          hint: "far above office norms (a publish is a handful of calls). Check for a runaway tab or scraper; throttle lifts by itself.",
+          source: "local",
+        });
+      }
+      void method;
     } catch {}
   }
 
-  /* Call after every __cms RPC (with its result). method = rpc name. */
-  function noteRpc({ ip, connId, method, ok, err }) {
+  // Called after each __cms RPC resolves (needs ok/err only — no extra I/O).
+  function observeRpc({ connId = "anon", ip = "-", rpc = "", ok = true, err = "" } = {}) {
+    const now = Date.now();
     try {
-      const now = Date.now();
-      const m = String(method || "");
-      const cr = connRec(connId || ("anon:" + ip));
-      const ir = ipRec(ip);
-      cr.lastSeen = now;
-      let arr = cr.rpc.get(m);
-      if (!arr) { arr = []; cr.rpc.set(m, arr); }
-      arr.push(now); prune(arr, WINDOW_MS);
-      ir.rpcs.push(now); prune(ir.rpcs, WINDOW_MS);
-
-      const denied = ok !== true;
-      if (denied) { cr.denied++; ir.denied++; }
-
-      // --- privilege-escalation signals ---
-      if ((m === "login" || m === "login2fa" || m === "setSubPassword") && denied) {
-        cr.fails++; ir.fails++;
-        if (ir.fails === 5) emit({ kind: "privilege-escalation", severity: "medium", ip, connId, detail: `5 failed sign-ins from ${ip} (${m}: ${err || "denied"})`, hint: "Possible password guessing. It is rate-limited already. If it keeps going, block the IP; if it was you, wait 10 minutes (the window) and try again." });
-        if (ir.fails === 15) emit({ kind: "privilege-escalation", severity: "high", ip, connId, detail: `15 failed sign-ins from ${ip} — sustained guessing`, hint: "HIGH: sustained guessing against admin sign-in. Block the IP at the host firewall now. Do NOT turn off rate limiting. Consider turning on two-factor (Admin → Tools)." });
-      }
-      if ((m === "login" || m === "login2fa") && ok === true) {
-        if (cr.fails >= 3) emit({ kind: "privilege-escalation", severity: "high", ip, connId, detail: `sign-in succeeded after ${cr.fails} failures on this session`, hint: "Could be the office finally typing it right — but after several failures, verify it was really you. If not, rotate the admin password + enable two-factor immediately." });
-        cr.successes++;
-        cr.fails = 0;
-      }
-      if ((m === "adoptLive" || m === "adoptFeed") && denied) {
-        cr.adoptDenied++;
-        emit({ kind: "privilege-escalation", severity: "critical", ip, connId, detail: `denied internal-door call ${m} (${err || "denied"})`, hint: "CRITICAL: only this machine's own loop knows the adopt token. Someone is probing the internal sync door. Ensure the server is not port-forwarded to the internet beyond what DEPLOY.md describes; restart the server (rotates the token) and block the IP." });
-      }
-      if ((m === "checkAdmin" || m === "liveReport" || m === "publish" || m === "undoPublish") && denied && (err === "denied" || err === "unauthorized" || err === "idle-expired")) {
-        if (cr.denied === 4) emit({ kind: "privilege-escalation", severity: "medium", ip, connId, detail: `4 denied admin-door calls on session ${String(connId).slice(0, 24)} (${m})`, hint: "Someone (or a stale office tab) is touching admin doors without a live session. If no office tab is open, block the IP and check who knew the admin URL." });
-      }
-      if ((m === "setMainPassword" || m === "inviteSub" || m === "deleteSub" || m === "setMainOff" || m === "totpSetup") && denied) {
-        emit({ kind: "privilege-escalation", severity: "high", ip, connId, detail: `denied account-control call ${m} (${err || "denied"})`, hint: "HIGH: an attempt to change passwords/roster/2FA without rights. If unexpected, rotate the main password, review sub-admins (Admin → Tools), and block the IP." });
-      }
-      // --- volume signals ---
-      if (m === "getContent" && arr.length === 60) {
-        emit({ kind: "volume", severity: "medium", ip, connId, detail: `60 content reads in 10 min from ${ip}`, hint: "Possible scraping. Content is public, so this is usually harmless — but if the same IP keeps pulling, rate-limit or block it." });
-      }
-      if (ir.rpcs.length === 400) {
-        emit({ kind: "volume", severity: "high", ip, connId, detail: `400 admin-API calls in 10 min from ${ip}`, hint: "HIGH: far above human use. Likely automated probing. Block the IP at the host firewall and review the log for which doors it touched." });
-      }
-      if (ir.denied === 20) {
-        emit({ kind: "volume", severity: "high", ip, connId, detail: `20 denied admin calls from ${ip}`, hint: "HIGH: repeated denied attempts = probing, not accidents. Block the IP and verify no account changes happened (Admin → Tools → sub-admins, password)." });
-      }
-    } catch {}
-  }
-
-  function noteUpload({ ip, connId, bytes, denied }) {
-    try {
-      if (denied) {
-        emit({ kind: "privilege-escalation", severity: "medium", ip, connId, detail: `denied file upload from ${ip}`, hint: "The file doors need a signed-in admin. Repeated denials = someone probing uploads. Block the IP if it repeats." });
+      const c = getConn(String(connId || "anon"));
+      c.lastSeen = now;
+      const e = String(err || "");
+      const failed = !ok;
+      if (ADMIN_WRITE.has(rpc) && (String(connId) === "anon" || String(connId).startsWith("livefollow") || String(connId).startsWith("officefollow") || String(connId) === "bake")) {
+        // service accounts — not escalation
+      } else if (!ok && PRIVILEGED_RPCS.has(rpc) && (e === "denied" || e === "unauthorized")) {
+        c.denied.push(now);
+        prune(c.denied, now, TEN_MIN);
+        if (now - c.escLoggedAt > TEN_MIN) {
+          c.escLoggedAt = now;
+          emit({
+            level: "high",
+            kind: "privilege-escalation",
+            ip,
+            route: `/__cms/${rpc}`,
+            detail: `anonymous/expired session attempted admin-only ${rpc} (${c.denied.length} denied in 10 min)`,
+            hint: "someone (or a signed-out tab) is pressing admin doors. If the office just signed out, ignore. Otherwise: keep the 15-min idle expiry, use sub-admin accounts, and block repeat IPs at the host.",
+            source: "local",
+          });
+        }
         return;
       }
-      const ir = ipRec(ip);
-      ir._upBytes = (ir._upBytes || 0) + (bytes || 0);
-      if (ir._upBytes > 500 * 1024 * 1024 && !ir._upWarned) {
-        ir._upWarned = true;
-        emit({ kind: "volume", severity: "high", ip, connId, detail: `over 500 MB uploaded from ${ip} this session`, hint: "HIGH: huge upload volume. Check data/uploads/ for unexpected files (especially .svg/.html — the server refuses those, but look anyway) and delete anything the office did not put there." });
+      if (rpc === "adoptLive" || rpc === "adoptFeed") {
+        if (!ok) {
+          emit({
+            level: "high",
+            kind: "privilege-escalation",
+            ip,
+            route: `/__cms/${rpc}`,
+            detail: `${rpc} rejected (${e || "denied"})`,
+            hint: "the live-follow token is per-boot and loopback-only — a reject means a forged or replayed adopt. Restarting the backend rotates the token; no action unless it repeats.",
+            source: "local",
+          });
+        }
+        return;
       }
+      if ((rpc === "login" || rpc === "login2fa" || rpc === "setSubPassword") && failed) {
+        c.denied.push(now);
+        prune(c.denied, now, TEN_MIN);
+        if (c.denied.length === 6 || c.denied.length === 15) {
+          emit({
+            level: c.denied.length >= 15 ? "high" : "medium",
+            kind: c.denied.length >= 15 ? "privilege-escalation" : "auth-probing",
+            ip,
+            route: `/__cms/${rpc}`,
+            detail: `${c.denied.length} failed ${rpc} attempts in 10 min (this session)`,
+            hint: "password/2FA guessing pace. Server already rate-limits per-connection and per-network — consider a host-firewall block if it continues, and confirm 2FA is on.",
+            source: "local",
+          });
+        }
+        return;
+      }
+      if (PRIVILEGED_RPCS.has(rpc) && !failed) {
+        c.adminSeen = true;
+        c.writes.push(now);
+        prune(c.writes, now, FIVE_MIN);
+        if (c.writes.length === 30) {
+          emit({
+            level: "medium",
+            kind: "unusual-volume",
+            ip,
+            route: `/__cms/${rpc}`,
+            detail: `session ${connId}: ${c.writes.length} admin writes in 5 min`,
+            hint: "far above office norms — check the publish log for unexpected authors, then rotate passwords if anything is unfamiliar.",
+            source: "local",
+          });
+        }
+      }
+      void failed;
     } catch {}
   }
 
-  function stats() {
-    return { conns: byConn.size, ips: byIp.size };
+  // File-door denies (uploads/restores/deletes without admin session).
+  function observeFileDeny({ connId = "anon", ip = "-", route = "-" } = {}) {
+    try {
+      const now = Date.now();
+      const c = getConn(String(connId || "anon"));
+      c.denied.push(now);
+      prune(c.denied, now, TEN_MIN);
+      emit({
+        level: "medium",
+        kind: "privilege-escalation",
+        ip,
+        route,
+        detail: `anonymous file-door hit (${c.denied.length} denied in 10 min, session ${connId})`,
+        hint: "uploads/restores/deletes need a signed-in admin — this one had none. Occasional hits are expired tabs; sustained hits are probing — block the IP at the host.",
+        source: "local",
+      });
+    } catch {}
   }
 
-  return { noteHttp, noteGeo, noteRpc, noteUpload, stats };
+  return { observe, observeRpc, observeFileDeny };
 }
