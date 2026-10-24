@@ -34,14 +34,22 @@ something similar — build command, output / publish directory):
 
 ## Holding visitors in maintenance
 
-New code normally holds visitors by itself (it is newer than the last
-publish), but when there is no older stamp to be newer than — a fresh backend,
-a wiped disk — a deploy would open straight away. To hold visitors until you
-publish anyway, keep the `maintenance-hold.txt` file beside `package.json`,
-then build and upload as usual. Fresh visitors see the maintenance notice;
-publishing from the admin console releases them on the spot, with no rebuild.
-Delete the file when holding should stop — it never leaves your computer
-(git-ignored), so hosts rebuilding from git always ship clean.
+Every deploy holds fresh visitors on the maintenance notice until an explicit
+Publish is clicked *after that deploy* — even a zero-change rebuild of the
+same code. Each build stamps a fresh deploy ID, and the notice lifts only
+when a publish from that deploy lands (an office Publish on the deployed
+copy, a witnessed publish carrying the same deploy ID, or a publish clock
+newer than the deploy). A Publish with no content changes still counts as
+the post-deploy bless and releases the notice. `maintenance-hold.txt`
+beside `package.json` still ships as a marker, but holding no longer depends
+on it — the lock cannot be switched off by deleting a file.
+
+Caveat for hosts that auto-rebuild from git on every push: each automatic
+rebuild is a new deploy, so it holds again until blessed. Either pause the
+host's auto-builds and deploy by hand (`npm run build`, upload `dist/`), or
+click Publish after each automatic rebuild. With the live feed set up
+(below), one local publish carries everywhere with no rebuild, so there is
+no bless treadmill.
 
 ## Clean new deploys (option A)
 
