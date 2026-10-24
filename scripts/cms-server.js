@@ -100,6 +100,18 @@ var ADMIN_HASH = "ef797c8118f02dfb649607dd5d3f8c7623048c9c063d532cc95c5ed7a898a6
    the moment it hears a newer number — no reload, no confusion. */
 var PWGEN = 0;
 var MAIN_HASH = "";
+/* Protected-env override (set by the host from ADMIN_HASH_OVERRIDE, never
+   committed): when a valid 64-hex SHA-256 rides self, it becomes the
+   main-password hash instead of the shipped default above — so a diskless
+   host sleep/reset keeps the office's real password. Only a hash ever rides
+   here; the plaintext appears nowhere. Normal runs ignore this entirely. */
+try {
+  if (typeof self.__adminHashOverride === "string" && /^[0-9a-f]{64}$/.test(self.__adminHashOverride) && !MAIN_HASH) {
+    MAIN_HASH = self.__adminHashOverride;
+  }
+} catch (e) {
+  /* an unreadable override must never break boot — shipped hash stands */
+}
 
 /* ------------------------------------------------------------------- views */
 

@@ -16,8 +16,8 @@ const FIVE_MIN = 5 * 60 * 1000;
 const TEN_MIN = 10 * 60 * 1000;
 
 function isLoopback(ip) {
-  const s = String(ip || "");
-  return s === "-" || s === "::1" || s === "::ffff:127.0.0.1" || s.startsWith("127.") || s === "localhost";
+  const s = String(ip || "").toLowerCase();
+  return s === "-" || s === "::1" || s === "127.0.0.1" || s === "::ffff:127.0.0.1" || s.startsWith("127.") || s === "localhost";
 }
 
 function net16(ip) {
@@ -52,37 +52,20 @@ export function createSessionAnomaly({ log } = {}) {
     return c;
   }
 
-  // Called on EVERY http request (cheap: a few map ops).
-  function observe({ connId = "anon", ip = "-", route = "-", method = "GET", ua = "" } = {}) {
+  // Called on EVERY http request (cheap: a few map ops). `quiet` is set for
+  // harmless status/dev/static traffic (version.json, contentRev polls, Vite
+  // HMR): the session is still tracked for travel detection, but volume
+  // counters ignore it — three open dev tabs must not read as a scraper.
+  function observe({ connId = "anon", ip = "-", route = "-", method = "GET", ua = "", quiet = false, netClass = "" } = {}) {
     const now = Date.now();
+    const loop = isLoopback(ip);
     try {
-      // per-IP volume (context for scrapers)
-      let hits = ipReq.get(ip);
-      if (!hits) {
-        hits = [];
-        ipReq.set(ip, hits);
-        if (ipReq.size > 5000) ipReq.clear();
-      }
-      hits.push(now);
-      prune(hits, now, FIVE_MIN);
-      if (hits.length === 600) {
-        emit({
-          level: "medium",
-          kind: "unusual-volume",
-          ip,
-          route,
-          detail: `${hits.length} requests in 5 min from one IP`,
-          hint: "likely a scraper or a stuck reload loop — WAF rate-limit throttles it automatically. Block the IP at the host firewall only if it persists for hours.",
-          source: "local",
-        });
-      }
-      // per-session record
       const c = getConn(String(connId || "anon"));
       if (ip && ip !== "-") {
         if (!c.ips.has(ip)) {
           const prev = [...c.ips.keys()].pop();
           c.ips.set(ip, now);
-          if (prev && prev !== ip && !isLoopback(ip) && !isLoopback(prev)) {
+          if (!quiet && prev && prev !== ip && !isLoopback(ip) && !isLoopback(prev)) {
             const moved16 = net16(prev) !== net16(ip);
             const dt = now - (c.lastSeen || c.firstSeen);
             if (moved16 && dt < TEN_MIN && (c.adminSeen || c.req.length > 5) && now - c.travelLoggedAt > TEN_MIN) {
@@ -98,7 +81,7 @@ export function createSessionAnomaly({ log } = {}) {
               });
             }
           }
-          if (c.ips.size >= 8 && now - c.travelLoggedAt > TEN_MIN) {
+          if (!quiet && c.ips.size >= 8 && now - c.travelLoggedAt > TEN_MIN) {
             c.travelLoggedAt = now;
             emit({
               level: "medium",
@@ -113,6 +96,33 @@ export function createSessionAnomaly({ log } = {}) {
         }
       }
       c.lastSeen = now;
+      if (quiet) return;
+      // per-IP volume (context for scrapers). Loopback is the office's own
+      // machine (dev tabs + HMR + polls share ::1/127.0.0.1): a higher bar at
+      // low severity, so dev noise never mints a "breach".
+      let hits = ipReq.get(ip);
+      if (!hits) {
+        hits = [];
+        ipReq.set(ip, hits);
+        if (ipReq.size > 5000) ipReq.clear();
+      }
+      hits.push(now);
+      prune(hits, now, FIVE_MIN);
+      const ipLimit = loop ? 2000 : 600;
+      if (hits.length === ipLimit) {
+        emit({
+          level: loop ? "low" : "medium",
+          kind: "unusual-volume",
+          ip,
+          route,
+          detail: `${hits.length} requests in 5 min from one IP${loop ? " (loopback dev machine)" : ""}`,
+          hint: loop
+            ? "office-machine traffic (tabs + HMR + polls share one loopback IP) — review only if no dev session explains it."
+            : "likely a scraper or a stuck reload loop — WAF rate-limit throttles it automatically. Block the IP at the host firewall only if it persists for hours.",
+          source: "local",
+        });
+      }
+      // per-session record
       c.req.push(now);
       prune(c.req, now, FIVE_MIN);
       if (ua) {
@@ -129,19 +139,21 @@ export function createSessionAnomaly({ log } = {}) {
           });
         }
       }
-      if (c.req.length === 400 && now - c.volLoggedAt > TEN_MIN) {
+      const sessLimit = loop ? 1500 : 400;
+      if (c.req.length === sessLimit && now - c.volLoggedAt > TEN_MIN) {
         c.volLoggedAt = now;
         emit({
-          level: "medium",
+          level: loop ? "low" : "medium",
           kind: "unusual-volume",
           ip,
           route,
-          detail: `session ${connId}: ${c.req.length} requests in 5 min`,
+          detail: `session ${connId}: ${c.req.length} requests in 5 min${loop ? " (loopback dev machine)" : ""}`,
           hint: "far above office norms (a publish is a handful of calls). Check for a runaway tab or scraper; throttle lifts by itself.",
           source: "local",
         });
       }
       void method;
+      void netClass;
     } catch {}
   }
 
@@ -222,20 +234,37 @@ export function createSessionAnomaly({ log } = {}) {
     } catch {}
   }
 
-  // File-door denies (uploads/restores/deletes without admin session).
+  // File-door denies (uploads/restores/deletes without admin session). A single
+  // deny is an expired tab, not a breach: first hits log LOW as `file-deny`
+  // and only sustained probing (>=3 in 10 min) escalates to MEDIUM
+  // privilege-escalation — which is the only one that can trigger a PDF.
   function observeFileDeny({ connId = "anon", ip = "-", route = "-" } = {}) {
     try {
       const now = Date.now();
       const c = getConn(String(connId || "anon"));
       c.denied.push(now);
       prune(c.denied, now, TEN_MIN);
+      if (c.denied.length >= 3) {
+        if (now - c.escLoggedAt < TEN_MIN) return;
+        c.escLoggedAt = now;
+        emit({
+          level: "medium",
+          kind: "privilege-escalation",
+          ip,
+          route,
+          detail: `anonymous file-door hit (${c.denied.length} denied in 10 min, session ${connId})`,
+          hint: "uploads/restores/deletes need a signed-in admin — this one had none. Occasional hits are expired tabs; sustained hits are probing — block the IP at the host.",
+          source: "local",
+        });
+        return;
+      }
       emit({
-        level: "medium",
-        kind: "privilege-escalation",
+        level: "low",
+        kind: "file-deny",
         ip,
         route,
-        detail: `anonymous file-door hit (${c.denied.length} denied in 10 min, session ${connId})`,
-        hint: "uploads/restores/deletes need a signed-in admin — this one had none. Occasional hits are expired tabs; sustained hits are probing — block the IP at the host.",
+        detail: `anonymous file-door hit (session ${connId}) — likely an expired tab`,
+        hint: "uploads/restores/deletes need a signed-in admin. One-offs are expired tabs; escalates automatically if it repeats.",
         source: "local",
       });
     } catch {}

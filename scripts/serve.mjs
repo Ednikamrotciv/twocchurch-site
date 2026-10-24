@@ -9,8 +9,10 @@ import { createGeoProxy } from "./geo-proxy.mjs";
 import { guardAtBoot } from "./backup-data.mjs";
 import { MIME } from "./mime.mjs";
 import { createSecurityLog } from "./security-log.mjs";
-import { createWaf } from "./waf.mjs";
+import { createWaf, getClientIp, isSafePath, endpointCategory, ipClass, normalizeIp } from "./waf.mjs";
 import { createSessionAnomaly } from "./session-anomaly.mjs";
+import { createPublishWatch } from "./publish-watch.mjs";
+import { createHash } from "node:crypto";
 
 const ROOT = process.cwd();
 const PORT = Number(process.env.PORT || 5173);
@@ -99,6 +101,25 @@ try {
 const secLog = createSecurityLog({ rootDir: ROOT, service: "serve" });
 const waf = createWaf();
 const anomaly = createSessionAnomaly({ log: (e) => secLog.log(e) });
+/* First-Publish proof (the "other browsers still wait" fix): after every
+   successful office publish, re-read the office stamp and ask the live box —
+   logging confirmation or, if live is still behind, the exact remedy. Skips
+   itself on the live box (RENDER). Zero deploy impact: runtime only. */
+const publishWatch = createPublishWatch({
+  getOfficeStamp: async () => {
+    try {
+      const r = await cms.call("contentRev", "publish-watch", "");
+      if (!r || r.status !== 200) return null;
+      const d = JSON.parse(r.body);
+      if (!d || d.ok !== true) return null;
+      return { rev: Math.floor(Number(d.rev)) || 0, notes: Math.floor(Number(d.notes)) || 0, at: Number(d.at) || 0 };
+    } catch {
+      return null;
+    }
+  },
+  getLiveUrl: liveUrlFromFile,
+  log: (e) => secLog.log(e),
+});
 // last network address seen per conn id (for RPC attribution; best effort)
 const lastIpByConn = new Map();
 function rpcAnomaly({ connId, rpc, ok, err }) {
@@ -107,14 +128,34 @@ function rpcAnomaly({ connId, rpc, ok, err }) {
   } catch {}
 }
 function clientIp(req) {
+  // Spoof-safe: forwarded headers are honored ONLY behind a trusted proxy
+  // (Render's router sets RENDER; TRUST_PROXY=1 covers other hosts). Direct
+  // hits use the socket address — a public client cannot smuggle XFF past
+  // this. Loopback/IPv6 forms are normalized to one spelling (see waf.mjs).
   try {
-    const fwd = String((req.headers && (req.headers["x-forwarded-for"] || req.headers["x-real-ip"])) || "");
-    const first = fwd.split(",")[0].trim();
-    if (first && /[0-9a-fA-F.:]{3,64}/.test(first)) return first.slice(0, 64);
-    const ra = req.socket && req.socket.remoteAddress;
-    if (ra) return String(ra).slice(0, 64);
-  } catch {}
-  return "-";
+    return getClientIp(req, !!process.env.RENDER || process.env.TRUST_PROXY === "1");
+  } catch {
+    return "-";
+  }
+}
+// Short per-request id, logged with every security event (request identifiers).
+function reqId() {
+  try {
+    return Math.random().toString(36).slice(2, 10);
+  } catch {
+    return "r0";
+  }
+}
+// Stable per-IP number for the content server's per-NETWORK login backstop
+// (cms-server.js allowAttempt keys netFails off conn.net[2]). Previously every
+// conn carried 0, so 40 fails anywhere locked out logins EVERYWHERE for 10
+// min; now the backstop is genuinely per IP.
+function ipNetNum(ip) {
+  try {
+    return createHash("sha256").update("wom-net|" + normalizeIp(ip)).digest().readUInt32BE(0);
+  } catch {
+    return 0;
+  }
 }
 async function liveUrlFromFile() {
   try {
@@ -148,6 +189,7 @@ const cms = await (async () => {
         const em = /"err"\s*:\s*"([^"]{1,40})"/.exec(b.slice(0, 4000));
         if (em) err = em[1];
         rpcAnomaly({ connId: id, rpc: m, ok, err });
+        if (m === "publish" && ok) publishWatch.noteOfficePublish();
       } catch {
         /* observation never breaks serving */
       }
@@ -155,7 +197,23 @@ const cms = await (async () => {
   });
 })();
 const geoProxy = createGeoProxy();
-secLog.log({ level: "info", kind: "shield-on", ip: "-", route: "-", detail: "WAF + session-anomaly shield active (static + context) — malicious traffic is filtered before the server", hint: "watch this terminal for [SEC] lines; breaches auto-write data/security-report-latest.pdf; admin PDF at /__security/report.pdf", source: "local" });
+// Production shield line: names the mode honestly (this IS the prod path —
+// the dev backend logs its own dev line), plus proxy trust and evidence
+// persistence, so the terminal never reads as "only dev is protected".
+try {
+  const persist = secLog.getPersistence();
+  secLog.log({
+    level: "info",
+    kind: "shield-on",
+    ip: "-",
+    route: "-",
+    detail: `WAF + session-anomaly shield active (PROD, strict, server-side — frontend edits cannot bypass) — trustProxy=${!!process.env.RENDER || process.env.TRUST_PROXY === "1" ? "on" : "off"}, evidence ${persist.persistent ? "PERSISTENT at " + persist.dir : "EPHEMERAL (" + persist.reason + ")"}`,
+    hint: "watch this terminal for [SEC] lines; unique incidents auto-write data/security-report-latest.pdf; admin PDF at /__security/report.pdf",
+    source: "local",
+  });
+} catch {
+  secLog.log({ level: "info", kind: "shield-on", ip: "-", route: "-", detail: "WAF + session-anomaly shield active (PROD, strict) — malicious traffic is filtered before the server", hint: "watch this terminal for [SEC] lines; breaches auto-write data/security-report-latest.pdf; admin PDF at /__security/report.pdf", source: "local" });
+}
 
 /* HIGH fix — file-door guard: /__upload, /__restore-file and /__delete-file
    take effect only for a signed-in admin connection (the same conn id the
@@ -296,38 +354,69 @@ const server = http.createServer(async (req, res) => {
     // --- WAF front door: filters malicious traffic BEFORE it reaches the server.
     // Maintenance / publish / seed / live-relay flows are allow-listed inside
     // the WAF (publish bodies carry HTML and are never signature-scanned).
+    // Every check runs HERE, server-side — frontend JavaScript cannot bypass it.
     const client = clientIp(req);
+    const rid = reqId();
     const connId = url.searchParams.get("conn") || "anon";
     try {
       lastIpByConn.set(String(connId || "anon"), client);
       if (lastIpByConn.size > 2000) lastIpByConn.delete(lastIpByConn.keys().next().value);
     } catch {}
+    // Real per-IP login backstop (see ipNetNum): without this every conn
+    // shared net 0 and 40 fails anywhere locked out logins everywhere.
     try {
-      anomaly.observe({ connId, ip: client, route: pathname, method: req.method, ua: String((req.headers && req.headers["user-agent"]) || "").slice(0, 120) });
+      if (typeof cms.setConnNet === "function") cms.setConnNet(connId, ipNetNum(client));
+    } catch {}
+    const quiet = isSafePath(pathname, req.method);
+    try {
+      anomaly.observe({ connId, ip: client, route: pathname, method: req.method, ua: String((req.headers && req.headers["user-agent"]) || "").slice(0, 120), quiet, netClass: ipClass(client) });
     } catch {}
     try {
       const verdict = waf.checkRequest({ method: req.method, pathname, search: url.search || "", headers: req.headers, ip: client });
       if (!verdict.allow) {
-        secLog.log({ level: verdict.severity || "high", kind: "waf-block", ip: client, route: pathname, detail: verdict.reason, hint: verdict.hint, source: "local" });
-        res.writeHead(403, { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" });
-        res.end(JSON.stringify({ ok: false, err: "forbidden" }));
+        // Throttle-window repeats are the SAME incident, not new breaches:
+        // info level, `rate-throttle` kind, never PDF-triggering. Fresh trips
+        // keep their bucket severity. Rate trips answer 429 (+Retry-After);
+        // signature blocks answer 403.
+        const cont = !!verdict.continuation;
+        const status = Number(verdict.status) || (cont ? 429 : 403);
+        secLog.log({
+          level: cont ? "info" : verdict.severity || "high",
+          kind: cont ? "rate-throttle" : verdict.bucket && verdict.bucket !== "api" && status === 429 ? "rate-limit" : status === 429 ? "rate-limit" : "waf-block",
+          ip: client,
+          route: pathname,
+          detail: verdict.reason,
+          hint: verdict.hint,
+          category: verdict.category || endpointCategory(pathname, req.method),
+          status,
+          reqId: rid,
+          source: "local",
+        });
+        const headers = { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" };
+        if (verdict.retryAfter) headers["retry-after"] = String(verdict.retryAfter);
+        res.writeHead(status, headers);
+        res.end(JSON.stringify({ ok: false, err: status === 429 ? "rate-limited" : "forbidden" }));
         return;
       }
     } catch {
       /* fail-open: a WAF error never blocks serving */
     }
 
-    // --- Security evidence doors (signed-in admin only).
+    // --- Security evidence doors (signed-in admin only). The check runs HERE,
+    // server-side, against the live session table (isAdminConn -> checkAdmin ->
+    // sessionLive): no frontend edit, forged cookie, or query-string trick can
+    // open them — an unknown/expired conn reads signed-out, full stop.
     if (pathname === "/__security/events.json" && req.method === "GET") {
       if (!(await isAdminConn(String(url.searchParams.get("conn") || "")))) {
         try {
           anomaly.observeFileDeny({ connId, ip: client, route: pathname });
         } catch {}
+        secLog.log({ level: "low", kind: "file-deny", ip: client, route: pathname, detail: "unauthenticated /__security/events.json attempt denied (403)", hint: "one-offs are mistyped links; repeats escalate automatically.", category: "security", status: 403, reqId: rid, source: "local" });
         res.writeHead(403, { "cache-control": "no-store" });
         res.end("denied");
         return;
       }
-      const body = JSON.stringify({ ok: true, events: secLog.getEvents(200) });
+      const body = JSON.stringify({ ok: true, events: secLog.getEvents(200), incidents: secLog.getIncidents(100) });
       res.writeHead(200, { "content-type": "application/json; charset=utf-8", "content-length": Buffer.byteLength(body), "cache-control": "no-store" });
       res.end(body);
       return;
@@ -337,13 +426,14 @@ const server = http.createServer(async (req, res) => {
         try {
           anomaly.observeFileDeny({ connId, ip: client, route: pathname });
         } catch {}
+        secLog.log({ level: "low", kind: "file-deny", ip: client, route: pathname, detail: "unauthenticated /__security/report.pdf attempt denied (403)", hint: "report PDFs need a signed-in admin conn (?conn=). One-offs are mistyped links; repeats escalate automatically.", category: "security", status: 403, reqId: rid, source: "local" });
         res.writeHead(403, { "cache-control": "no-store" });
         res.end("denied");
         return;
       }
       const events = secLog.getEvents(1000).reverse();
       const pdf = secLog.buildPdf();
-      secLog.log({ level: "info", kind: "pdf-download", ip: client, route: pathname, detail: `admin downloaded security PDF (${events.length} events)`, source: "local" });
+      secLog.log({ level: "info", kind: "pdf-download", ip: client, route: pathname, detail: `admin downloaded security PDF (${events.length} events)`, category: "security", status: 200, reqId: rid, source: "local" });
       res.writeHead(200, { "content-type": "application/pdf", "content-length": pdf.length, "cache-control": "no-store", "content-disposition": 'attachment; filename="security-report.pdf"' });
       res.end(pdf);
       return;
@@ -494,7 +584,7 @@ const server = http.createServer(async (req, res) => {
         try {
           anomaly.observeFileDeny({ connId, ip: client, route: pathname });
         } catch {}
-        secLog.log({ level: "medium", kind: "privilege-escalation", ip: client, route: pathname, detail: "anonymous /__upload attempt denied", hint: "uploads need a signed-in admin — expired tabs hit this once; sustained hits are probing, block the IP at the host.", source: "local" });
+        secLog.log({ level: "low", kind: "file-deny", ip: client, route: pathname, detail: "anonymous /__upload attempt denied (403) — likely an expired tab", hint: "uploads need a signed-in admin; sustained hits escalate automatically.", category: "upload", status: 403, reqId: rid, source: "local" });
         res.writeHead(403, { "cache-control": "no-store" });
         res.end("denied");
         return;
@@ -573,7 +663,7 @@ const server = http.createServer(async (req, res) => {
         try {
           anomaly.observeFileDeny({ connId, ip: client, route: pathname });
         } catch {}
-        secLog.log({ level: "medium", kind: "privilege-escalation", ip: client, route: pathname, detail: "anonymous /__restore-file attempt denied", hint: "restores need a signed-in admin — sustained hits are probing, block the IP at the host.", source: "local" });
+        secLog.log({ level: "low", kind: "file-deny", ip: client, route: pathname, detail: "anonymous /__restore-file attempt denied (403) — likely an expired tab", hint: "restores need a signed-in admin; sustained hits escalate automatically.", category: "upload", status: 403, reqId: rid, source: "local" });
         res.writeHead(403, { "cache-control": "no-store" });
         res.end("denied");
         return;
@@ -642,7 +732,7 @@ const server = http.createServer(async (req, res) => {
         try {
           anomaly.observeFileDeny({ connId, ip: client, route: pathname });
         } catch {}
-        secLog.log({ level: "medium", kind: "privilege-escalation", ip: client, route: pathname, detail: "anonymous /__delete-file attempt denied", hint: "deletes need a signed-in admin — sustained hits are probing, block the IP at the host.", source: "local" });
+        secLog.log({ level: "low", kind: "file-deny", ip: client, route: pathname, detail: "anonymous /__delete-file attempt denied (403) — likely an expired tab", hint: "deletes need a signed-in admin; sustained hits escalate automatically.", category: "upload", status: 403, reqId: rid, source: "local" });
         res.writeHead(403, { "cache-control": "no-store" });
         res.end("denied");
         return;
@@ -676,10 +766,13 @@ const server = http.createServer(async (req, res) => {
       try {
         lastIpByConn.set(String(id || "anon"), client);
       } catch {}
+      try {
+        if (typeof cms.setConnNet === "function") cms.setConnNet(id, ipNetNum(client));
+      } catch {}
       /* Live-follow adoption (note 344) opens to this machine only — the
          per-boot token is the real lock; this is the second one. */
       if (rpcMatch[1] === "adoptLive" && !isLoopbackAddr(req.socket && req.socket.remoteAddress)) {
-        secLog.log({ level: "high", kind: "privilege-escalation", ip: client, route: pathname, detail: "non-loopback adoptLive rejected", hint: "adoptLive is loopback + per-boot token only — a remote hit is forged. Restarting the backend rotates the token.", source: "local" });
+        secLog.log({ level: "high", kind: "privilege-escalation", ip: client, route: pathname, detail: "non-loopback adoptLive rejected", hint: "adoptLive is loopback + per-boot token only — a remote hit is forged. Restarting the backend rotates the token.", category: "api-publish", status: 403, reqId: rid, source: "local" });
         res.writeHead(403, { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" });
         res.end(JSON.stringify({ ok: false, err: "denied" }));
         return;
@@ -695,9 +788,13 @@ const server = http.createServer(async (req, res) => {
         try {
           const bv = waf.checkBody({ rpc: rpcMatch[1], body, ip: client });
           if (!bv.allow) {
-            secLog.log({ level: bv.severity || "high", kind: "waf-block", ip: client, route: pathname, detail: bv.reason, hint: bv.hint, source: "local" });
-            res.writeHead(403, { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" });
-            res.end(JSON.stringify({ ok: false, err: "forbidden" }));
+            const cont = !!bv.continuation;
+            const status = Number(bv.status) || (cont ? 429 : 403);
+            secLog.log({ level: cont ? "info" : bv.severity || "high", kind: cont ? "rate-throttle" : status === 429 ? "rate-limit" : "waf-block", ip: client, route: pathname, detail: bv.reason, hint: bv.hint, category: bv.category || "api", status, reqId: rid, source: "local" });
+            const headers = { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" };
+            if (bv.retryAfter) headers["retry-after"] = String(bv.retryAfter);
+            res.writeHead(status, headers);
+            res.end(JSON.stringify({ ok: false, err: status === 429 ? "rate-limited" : "forbidden" }));
             return;
           }
         } catch {
@@ -709,9 +806,9 @@ const server = http.createServer(async (req, res) => {
           const preview = typeof r.body === "string" ? r.body.slice(0, 2000) : "";
           const denied = /"ok"\s*:\s*false/.test(preview);
           if ((rpcMatch[1] === "login" || rpcMatch[1] === "login2fa") && denied) {
-            secLog.log({ level: "medium", kind: "auth-fail", ip: client, route: pathname, detail: `${rpcMatch[1]} denied (session ${id})`, hint: "a wrong password/2FA code — a few is the office mistyping; a burst is guessing (already rate-limited). Confirm 2FA is on.", source: "local" });
+            secLog.log({ level: "low", kind: "auth-fail", ip: client, route: pathname, detail: `${rpcMatch[1]} denied (session ${id})`, hint: "a wrong password/2FA code — a few is the office mistyping; a burst escalates via auth-probing (already rate-limited). Confirm 2FA is on.", category: "api-auth", status: 200, reqId: rid, source: "local" });
           } else if (rpcMatch[1] === "publish" && !denied) {
-            secLog.log({ level: "info", kind: "publish", ip: client, route: pathname, detail: `publish accepted (session ${id}) — maintenance clears on this deploy`, hint: "no action — visitors lift via storage/broadcast; the deploy witness carries it to fresh browsers.", source: "local" });
+            secLog.log({ level: "info", kind: "publish", ip: client, route: pathname, detail: `publish accepted (session ${id}) — maintenance clears on this deploy`, hint: "no action — visitors lift via storage/broadcast; the deploy witness carries it to fresh browsers.", category: "api-publish", status: 200, reqId: rid, source: "local" });
           }
         } catch {}
         /* No-disk survival (note 290): an emptied live store answers

@@ -6353,7 +6353,9 @@ async function attemptRelayRetry(): Promise<boolean> {
     } catch {}
     let outcome: string = "missed";
     try {
-      outcome = await relayPublishWordsToLive(payload.sections, payload.changed, payload.note, payload.deploy, 20000, false);
+      /* Wake-aware bound (Render naps take a while to answer): each background
+         attempt gets its own long deadline so a sleep-wake landing still counts. */
+      outcome = await relayPublishWordsToLive(payload.sections, payload.changed, payload.note, payload.deploy, 45000, false);
     } catch {
       outcome = "missed";
     }

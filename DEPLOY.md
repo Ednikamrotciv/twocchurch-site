@@ -144,6 +144,26 @@ A Render Web Service works as the always-on backend:
   signs sub-admins up again. Mount a persistent disk at `data` to keep
   accounts across sleeps exactly like words. Either way a code deploy never
   resets accounts: clean deploys clear words only, never the roster.
+- **Without a disk, keep the office password anyway:** set
+  `ADMIN_HASH_OVERRIDE` in the Render dashboard (Service → Environment) to
+  the 64-hex SHA-256 of the office password (compute locally with
+  `node -e "console.log(require('crypto').createHash('sha256').update('YOUR-PASSWORD','utf8').digest('hex'))"` —
+  never commit the password or the hash to git). Diskless sleeps then keep
+  the real password instead of falling back to the shipped default.
+  With a disk mounted at `data`, this is unnecessary.
+- **Security evidence without a disk is ephemeral:** `data/security-events.jsonl`
+  and the PDFs live on the local disk, which Render wipes on sleep/restart
+  unless a disk is mounted. The server logs this at boot and
+  `npm run security:report` states it. To keep evidence across sleeps: mount
+  a disk at `data/`, or set `SECURITY_LOG_DIR` (e.g. `/var/data/security`)
+  to a mounted path. The live terminal + admin JSON/PDF doors work either way.
+- Security note: the WAF, anomaly detector, login throttles and admin-door
+  checks all run server-side in `scripts/serve.mjs` — the deployed site is
+  protected even though the dev shield line only ever described the laptop.
+  If the service sits behind another proxy (non-Render), set `TRUST_PROXY=1`
+  so client IPs (and per-IP limits) stay correct. Keep a single instance
+  unless sticky sessions or a shared rate-limit store are added — in-memory
+  buckets are per-process (see `scripts/waf.mjs`).
 - Use the paid (non-sleeping) instance type, or the service sleeps and every
   copy works from its last baked words until it wakes.
 - Free tier sleeps — and that is fine now (notes 303–309): sleep wipes the live

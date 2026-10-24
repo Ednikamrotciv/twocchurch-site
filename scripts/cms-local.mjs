@@ -190,6 +190,21 @@ export async function createCmsHost(rootDir, opts) {
     return c;
   }
 
+  // Real per-network login throttling (cms-server.js allowAttempt keys the
+  // network bucket off conn.net[2]). The http layers call this on every
+  // request with a hash of the normalized client IP — previously every conn
+  // carried net[2] = 0, so the "40 fails per network per 10 min" backstop was
+  // effectively one GLOBAL bucket shared by all visitors. Now it is per IP.
+  function setConnNet(id, netNum) {
+    try {
+      const c = getConn(String(id || "anon"));
+      const n = Number(netNum) >>> 0;
+      c.net = ["remote", 0, n];
+    } catch {
+      /* bookkeeping must never break serving */
+    }
+  }
+
   const pubsub = {
     publish(topic, msg) {
       const text = String(msg);
@@ -208,6 +223,18 @@ export async function createCmsHost(rootDir, opts) {
   const selfObj = {};
   const sandbox = { state, pubsub, self: selfObj, console };
   vm.createContext(sandbox);
+  // Admin-hash override from a protected environment variable (Render dashboard
+  // > Environment, never committed): when set to a 64-hex SHA-256, it becomes
+  // the main-password hash instead of the shipped default — so a diskless
+  // Render sleep/reset keeps the office's real password instead of falling
+  // back to the shipped one. The plaintext never appears anywhere; only the
+  // hash rides the env. Normal runs (and laptops) ignore this entirely.
+  let adminHashOverride = "";
+  try {
+    const raw = String(process.env.ADMIN_HASH_OVERRIDE || "").trim().toLowerCase();
+    if (/^[0-9a-f]{64}$/.test(raw)) adminHashOverride = raw;
+    else if (raw) console.warn("cms backend: ADMIN_HASH_OVERRIDE ignored (not 64-hex sha256)");
+  } catch { /* env unreadable — shipped hash stands */ }
   /* Live-follow token (note 344): minted fresh on every boot, handed to the
      server code through `self` — only this process's own minute loop below
      ever learns it (see the adoptLive rpc in cms-server.js). */
@@ -215,7 +242,11 @@ export async function createCmsHost(rootDir, opts) {
   /* Clean-deploy flag (note 433): read by the server's boot block BEFORE any
      content loads, so it must ride ahead of the server source — appended
      assignments run after the boot blocks and would arrive too late. */
-  vm.runInContext("self.__cleanDeploy = " + (cleanDeploy ? "true" : "false") + ";\n" + scriptSrc + "\nself.__adoptToken = " + JSON.stringify(adoptToken) + ";\nself.__codeWord = " + JSON.stringify(codeWord) + ";", sandbox, { filename: "cms-server.js" });
+  // All host-provided flags ride AHEAD of the server source: the boot blocks
+  // read them at load time (cleanDeploy clears the store on boot; the hash
+  // override is consumed by the loadState-adjacent block). Runtime tokens
+  // (adopt, code word) are appended after — handlers read them per call.
+  vm.runInContext("self.__cleanDeploy = " + (cleanDeploy ? "true" : "false") + ";\nself.__adminHashOverride = " + JSON.stringify(adminHashOverride) + ";\n" + scriptSrc + "\nself.__adoptToken = " + JSON.stringify(adoptToken) + ";\nself.__codeWord = " + JSON.stringify(codeWord) + ";", sandbox, { filename: "cms-server.js" });
   const rpc = selfObj.rpc || {};
   console.log(`cms backend: running the site's own server code (${Object.keys(rpc).length} rpc methods)`);
   /* A publish tapped on live/admin reaches this copy by itself (note 344):
@@ -319,7 +350,7 @@ export async function createCmsHost(rootDir, opts) {
     senders.delete(id);
   }
 
-  return { openConn, closeConn, attachSender, detachSender, call };
+  return { openConn, closeConn, setConnNet, attachSender, detachSender, call };
 }
 
 /* This folder's own update number (BUILD_NOTES in src/lib/hooks.ts) — the

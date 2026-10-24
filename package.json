@@ -23,6 +23,7 @@
     "adopt": "node scripts/backup-data.mjs adopt",
     "set-server": "node scripts/set-server.mjs",
     "security:report": "node scripts/security-report.mjs",
+    "security:test": "node scripts/security-test.mjs",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
