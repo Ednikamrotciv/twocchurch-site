@@ -4,13 +4,48 @@
    refreshes work with no rewrite rules. Served from the domain root (clean
    addresses assume it). */
 
-import { cp, mkdir, readFile, stat, writeFile } from "node:fs/promises";
+import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
+import { copyFile, readdir } from "node:fs/promises";
 import path from "node:path";
 import { bakeSeed } from "./bake-seed.mjs";
 import { readFeedConfig, effectiveFeed } from "./feed-config.mjs";
 
 const ROOT = process.cwd();
 const OUT = path.join(ROOT, "dist");
+const BUILD_T0 = Date.now();
+const elapsed = () => ((Date.now() - BUILD_T0) / 1000).toFixed(1) + "s";
+
+/* Incremental mirror (deploy speed): copy only new/changed files (size or
+   mtime), so rebuilds with big uploads don't re-copy gigabytes every deploy.
+   dist/ itself is wiped by `vite build` first, so no pruning is needed — but
+   repeat runs of this script alone stay correct too. Never throws. */
+async function syncTree(srcDir, dstDir) {
+  let copied = 0, skipped = 0;
+  const stack = [[srcDir, dstDir]];
+  while (stack.length) {
+    const [s, d] = stack.pop();
+    let names;
+    try {
+      names = await readdir(s, { withFileTypes: true });
+    } catch {
+      return { copied, skipped, missing: true };
+    }
+    await mkdir(d, { recursive: true });
+    for (const ent of names) {
+      const sp = path.join(s, ent.name), dp = path.join(d, ent.name);
+      if (ent.isDirectory()) { stack.push([sp, dp]); continue; }
+      if (!ent.isFile()) continue;
+      let fresh = true;
+      try {
+        const [ss, ds] = await Promise.all([stat(sp), stat(dp)]);
+        if (ds.size === ss.size && ds.mtimeMs >= ss.mtimeMs - 1) fresh = false;
+      } catch { /* no usable copy yet — copy it */ }
+      if (fresh) { await copyFile(sp, dp); copied++; }
+      else skipped++;
+    }
+  }
+  return { copied, skipped, missing: false };
+}
 
 try {
   await stat(path.join(OUT, "index.html"));
@@ -21,7 +56,10 @@ try {
 await mkdir(OUT, { recursive: true });
 
 /* Fresh words on every deploy: bake the pushed store into dist/seed.json, so the
-   deployed seed always matches what the office last published. */
+   deployed seed always matches what the office last published. WOM_SKIP_RECENT
+   is set: the office server refreshes recent-services every 20 minutes and the
+   feed carries it, so the deploy must not stall on a YouTube read. */
+process.env.WOM_SKIP_RECENT = "1";
 try {
   await bakeSeed(ROOT, path.join(OUT, "seed.json"));
 } catch (err) {
@@ -126,9 +164,14 @@ try {
    only, never a secret. */
 try {
   const { execFile: gitExec } = await import("node:child_process");
-  const gitOut = (args) => new Promise((res) => gitExec("git", args, { cwd: ROOT, timeout: 8000 }, (err, stdout) => res(err ? "" : String(stdout || "").trim())));
-  const remote = await gitOut(["config", "--get", "remote.origin.url"]);
-  let branch = await gitOut(["rev-parse", "--abbrev-ref", "HEAD"]);
+  /* Deploy speed: the two git reads run in parallel with a short timeout, so
+     a build farm with slow or missing git stalls ~4s at most, not ~16s. */
+  const gitOut = (args) => new Promise((res) => gitExec("git", args, { cwd: ROOT, timeout: 4000 }, (err, stdout) => res(err ? "" : String(stdout || "").trim())));
+  const [remote, branchRaw] = await Promise.all([
+    gitOut(["config", "--get", "remote.origin.url"]),
+    gitOut(["rev-parse", "--abbrev-ref", "HEAD"]),
+  ]);
+  let branch = branchRaw;
   if (!branch || branch === "HEAD") branch = "main";
   let gm = /^https?:\/\/github\.com\/([A-Za-z0-9_.-]+)\/([A-Za-z0-9_.-]+?)(?:\.git)?\/?$/i.exec(remote);
   if (!gm) gm = /^git@github\.com:([A-Za-z0-9_.-]+)\/([A-Za-z0-9_.-]+?)(?:\.git)?\/?$/i.exec(remote);
@@ -196,18 +239,21 @@ try {
 }
 
 /* String-URL files the app points at (photos are plain "src/assets/…" strings,
-   never imports, so `vite build` skips them) plus the office's own uploads. */
+   never imports, so `vite build` skips them) plus the office's own uploads.
+   Deploy speed: synced incrementally (new/changed files only), so a media
+   library is not re-copied gigabyte-by-gigabyte on every build. */
 try {
-  await cp(path.join(ROOT, "src", "assets"), path.join(OUT, "src", "assets"), { recursive: true });
-  console.log("photos copied to dist/src/assets");
+  const r = await syncTree(path.join(ROOT, "src", "assets"), path.join(OUT, "src", "assets"));
+  if (r.missing) console.warn("photos not copied: src/assets missing");
+  else console.log(`photos synced to dist/src/assets (${r.copied} new/changed, ${r.skipped} unchanged)`);
 } catch (err) {
   console.warn("photos not copied:", err?.message || err);
 }
 try {
   const st = await stat(path.join(ROOT, "data", "uploads")).catch(() => null);
   if (st && st.isDirectory()) {
-    await cp(path.join(ROOT, "data", "uploads"), path.join(OUT, "data", "uploads"), { recursive: true });
-    console.log("uploads copied to dist/data/uploads");
+    const r = await syncTree(path.join(ROOT, "data", "uploads"), path.join(OUT, "data", "uploads"));
+    console.log(`uploads synced to dist/data/uploads (${r.copied} new/changed, ${r.skipped} unchanged)`);
   }
 } catch (err) {
   console.warn("uploads not copied:", err?.message || err);
@@ -368,4 +414,4 @@ try {
 } catch (err) {
   console.warn("static WAF skipped:", err?.message || err);
 }
-console.log("dist/ ready to upload (the *contents* of dist/ go to the static host)");
+console.log(`dist/ ready to upload in ${elapsed()} (the *contents* of dist/ go to the static host)`);

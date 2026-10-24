@@ -29,6 +29,14 @@ something similar — build command, output / publish directory):
 - Output / publish directory: `dist`
 - Framework preset: none / static / "other". A one-click framework preset that
   runs only the bundler would skip the baking step above and ship empty pages.
+
+Deploy speed: the build is shaped to stay fast — the 3D slide effect is
+hand-rolled (no `drei` tree to install or bundle), the deploy never waits on
+a YouTube read (recent-services refresh on the office copy every 20 minutes
+instead, carried by the feed), git lookups run in parallel with a short
+timeout, and photos/uploads sync incrementally (new/changed files only), so a
+big media library is not re-copied on every build. The build prints its total
+time on the last line (`dist/ ready to upload in …`).
 - Environment variables: none. The repo builds with the Node version in
   `.nvmrc`.
 

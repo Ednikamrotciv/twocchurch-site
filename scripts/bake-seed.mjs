@@ -121,12 +121,19 @@ export async function bakeSeed(rootDir, outPath) {
   console.log(`bake-seed: baked ${ids.length} sections into ${path.relative(rootDir, target)}`);
   /* The recent-services list ships in the same file, so every copy paints the
      same services as the preview (see bake-recent.mjs). Best effort — a missed
-     read keeps the previous bake. */
-  try {
-    const { bakeRecent } = await import("./bake-recent.mjs");
-    await bakeRecent(rootDir);
-  } catch (err) {
-    console.warn("recent services not re-baked:", err?.message || err);
+     read keeps the previous bake. Deploy builds set WOM_SKIP_RECENT=1 (see
+     build-static.mjs): the office server re-runs this refresh every 20
+     minutes and the feed carries it, so a deploy must not stall up to 25s on
+     a datacenter-blocked YouTube read — the carried list stands. */
+  if (process.env.WOM_SKIP_RECENT === "1") {
+    console.log("bake-seed: recent refresh skipped (deploy build) — carried list stands");
+  } else {
+    try {
+      const { bakeRecent } = await import("./bake-recent.mjs");
+      await bakeRecent(rootDir);
+    } catch (err) {
+      console.warn("recent services not re-baked:", err?.message || err);
+    }
   }
   /* The refresh above writes the repo seed only (note 366): copy its list
      into this bake too, so dist ships the same services as the preview. */
