@@ -3,12 +3,14 @@ import { readFile, stat, mkdir, writeFile, rm } from "node:fs/promises";
 import { gzipSync } from "node:zlib";
 import path from "node:path";
 import { createCmsHost, hashText } from "./cms-local.mjs";
-import { isLoopbackAddr } from "./live-follow.mjs";
+import { isLoopbackAddr, pickLiveOrigin, DEFAULT_LIVE_ORIGIN } from "./live-follow.mjs";
 import { answerWithSeedFallback, primeMirrorSeed } from "./seed-fallback.mjs";
 import { createGeoProxy } from "./geo-proxy.mjs";
-import { createWaf } from "./waf.mjs";
 import { guardAtBoot } from "./backup-data.mjs";
 import { MIME } from "./mime.mjs";
+import { createWaf, getClientIp } from "./waf.mjs";
+import { createAnomalyTracker } from "./session-anomaly.mjs";
+import { createSecurityLog } from "./security-log.mjs";
 
 const ROOT = process.cwd();
 const PORT = Number(process.env.PORT || 5173);
@@ -89,12 +91,6 @@ try {
   console.warn("clean-deploy.txt present — this deploy ships no words: Recover + Publish, then REMOVE the file and rebuild to lock words in.");
 } catch { /* words ride as usual */ }
 
-/* WAF + session anomaly detection (see scripts/waf.mjs): one engine for this
-   process, shared with the content host below so HTTP-layer sightings (IPs,
-   geo, conn bindings) and RPC-layer sightings (admin state, denied writes)
-   feed the same session picture. */
-const waf = createWaf();
-
 const cms = await (async () => {
   /* Snapshot the published words first (a zip extract cannot touch the
      timestamped backup names), and recover the newest snapshot if the live
@@ -104,9 +100,31 @@ const cms = await (async () => {
   } catch (err) {
     console.warn("content backup skipped:", err?.message || err);
   }
-  return createCmsHost(ROOT, { follow: true, waf });
+  return createCmsHost(ROOT, { follow: true });
 })();
-const geoProxy = createGeoProxy({ onLookup: (ip, country) => waf.noteGeo(ip, country) });
+const geoProxy = createGeoProxy();
+
+/* Security layer (WAF + anomaly + real-time log): sits in FRONT of every door
+   below. Blocks malicious URL patterns before they reach the server, watches
+   sessions for impossible travel / volume / privilege escalation, and logs with
+   severity + IP + hint. Maintenance, publish, wakes, relay and clean-deploy
+   behaviour are untouched — the publish/admin doors are allow-listed and the
+   internal live loops run on loopback, which the WAF never rate-limits. */
+const security = createSecurityLog({ rootDir: ROOT, service: process.env.RENDER ? "live" : "office", localBase: `http://localhost:${PORT}` });
+const anomaly = createAnomalyTracker({ onEvent: (e) => security.logEvent(e) });
+const waf = createWaf({ onEvent: (e) => security.logEvent(e) });
+security.bootLine({ cleanDeploy: false });
+try {
+  security.startLiveWatch({
+    getLiveOrigin: async () => {
+      if (process.env.RENDER) return "";
+      try {
+        const raw = await readFile(path.join(ROOT, "cms-server.txt"), "utf8").catch(() => "");
+        return pickLiveOrigin(raw) || DEFAULT_LIVE_ORIGIN;
+      } catch { return DEFAULT_LIVE_ORIGIN; }
+    },
+  });
+} catch { /* live watch never breaks serving */ }
 
 /* HIGH fix — file-door guard: /__upload, /__restore-file and /__delete-file
    take effect only for a signed-in admin connection (the same conn id the
@@ -225,12 +243,30 @@ const server = http.createServer(async (req, res) => {
     const url = new URL(req.url || "/", "http://localhost");
     const pathname = url.pathname;
 
+    /* WAF FIRST — in front of the entire code (ModSecurity-style). Malicious
+       URL patterns never reach any door below. Loopback (live-follow, bakes)
+       and the publish/admin/maintenance doors are never broken by this: it
+       inspects URL+headers+method only, never JSON bodies. */
+    try {
+      const verdict = waf.check(req);
+      const cip = getClientIp(req) || "";
+      try { anomaly.noteHttp({ ip: cip, connId: String(url.searchParams.get("conn") || "") || undefined }); } catch {}
+      if (!verdict.allow) {
+        res.writeHead(403, { "content-type": "text/plain; charset=utf-8", "cache-control": "no-store", "x-waf": "blocked" });
+        res.end("forbidden");
+        return;
+      }
+    } catch { /* WAF never breaks serving */ }
+
     /* The office server doubles as the deployed site's backend: browsers from
        anywhere may read it (the published content is public; writes take the
        admin password and stay rate-limited as always). */
     res.setHeader("Access-Control-Allow-Origin", "*");
     res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
     res.setHeader("Access-Control-Allow-Headers", "content-type");
+    res.setHeader("Referrer-Policy", "same-origin");
+    res.setHeader("Permissions-Policy", "camera=(), microphone=(), geolocation=()");
+    res.setHeader("X-WAF", "on");
     /* A public page (the hosted site, opened on this same computer) may probe
        and join this server over loopback: Chrome's private-network check
        needs this header on the preflight and the answer. */
@@ -238,72 +274,6 @@ const server = http.createServer(async (req, res) => {
     if (req.method === "OPTIONS") {
       res.writeHead(204);
       res.end();
-      return;
-    }
-
-    /* WAF front door (see scripts/waf.mjs): every request — static files,
-       admin RPC, uploads, proxies — is inspected BEFORE any routing, so
-       malicious traffic patterns never reach the server code. Denials carry
-       the hardening headers too. */
-    try {
-      const _wh = res.writeHead.bind(res);
-      res.writeHead = (code, headers) => {
-        try {
-          const extra = waf.securityHeaders();
-          if (headers && typeof headers === "object" && !Array.isArray(headers)) {
-            for (const k of Object.keys(extra)) {
-              if (!(k in headers)) headers[k] = extra[k];
-            }
-          }
-        } catch {}
-        return _wh(code, headers);
-      };
-    } catch {}
-    {
-      const rpcHead = pathname.startsWith("/__cms/") && req.method === "POST"
-        ? (pathname.match(/^\/__cms\/([A-Za-z0-9_]+)$/) || [])[1] || ""
-        : "";
-      const verdict = waf.inspect(req, {
-        path: pathname,
-        query: url.search ? url.search.slice(1) : "",
-        conn: url.searchParams.get("conn") || "",
-        rpc: rpcHead,
-      });
-      if (!verdict.ok) {
-        const api = pathname.startsWith("/__");
-        const body = api
-          ? JSON.stringify({ ok: false, err: verdict.err })
-          : verdict.err === "rate-limited"
-            ? "rate-limited — slow down and try again"
-            : "blocked";
-        const headers = {
-          "content-type": api ? "application/json; charset=utf-8" : "text/plain; charset=utf-8",
-          "cache-control": "no-store",
-          "x-content-type-options": "nosniff",
-        };
-        if (verdict.retryAfter) headers["retry-after"] = String(verdict.retryAfter);
-        res.writeHead(verdict.status, headers);
-        res.end(body);
-        return;
-      }
-    }
-
-    /* Admin-only WAF status: counters, active blocks/quarantines and recent
-       security events (truncated — no request bodies). Same sign-in as every
-       other admin door. */
-    if (pathname === "/__waf-status" && req.method === "GET") {
-      if (!(await isAdminConn(String(url.searchParams.get("conn") || "")))) {
-        res.writeHead(403, { "cache-control": "no-store" });
-        res.end("denied");
-        return;
-      }
-      const body = JSON.stringify(waf.status());
-      res.writeHead(200, {
-        "content-type": "application/json; charset=utf-8",
-        "content-length": Buffer.byteLength(body),
-        "cache-control": "no-store",
-      });
-      res.end(body);
       return;
     }
 
@@ -345,6 +315,31 @@ const server = http.createServer(async (req, res) => {
     if ((pathname === "/__geo" || pathname === "/__rates") && req.method === "GET") {
       if (pathname === "/__geo") await geoProxy.handleGeo(req, res);
       else await geoProxy.handleRates(req, res);
+      return;
+    }
+
+    /* Security doors: real-time log for the local terminal. Status is
+       public-but-redacted (counts, no IPs) so the office live-watch can poll
+       it; full IPs need a signed-in admin conn. The PDFs: the conn-gated full
+       report plus the loopback-only local snapshot behind the clickable
+       terminal link. The beacon is tiny + unsigned (static-guard reports).
+       None of these touch content or maintenance. */
+    if (pathname === "/__security-status" && req.method === "GET") {
+      const admin = await isAdminConn(String(url.searchParams.get("conn") || ""));
+      await security.handleStatus(req, res, { admin });
+      return;
+    }
+    if (pathname === "/__security-report.pdf" && req.method === "GET") {
+      const admin = await isAdminConn(String(url.searchParams.get("conn") || ""));
+      await security.handleReport(req, res, { admin });
+      return;
+    }
+    if (pathname === "/__security-report-local.pdf" && req.method === "GET") {
+      await security.handleLocalReport(req, res, { loopback: isLoopbackAddr(req.socket && req.socket.remoteAddress) });
+      return;
+    }
+    if (pathname === "/__security-beacon" && req.method === "POST") {
+      await security.handleBeacon(req, res, { ip: getClientIp(req) || "unknown" });
       return;
     }
 
@@ -449,6 +444,7 @@ const server = http.createServer(async (req, res) => {
     if (pathname === "/__upload" && req.method === "POST") {
       /* HIGH fix: writes take a signed-in admin connection — see isAdminConn. */
       if (!(await isAdminConn(String(url.searchParams.get("conn") || "")))) {
+        try { anomaly.noteUpload({ ip: getClientIp(req) || "unknown", connId: String(url.searchParams.get("conn") || "anon"), denied: true }); } catch {}
         res.writeHead(403, { "cache-control": "no-store" });
         res.end("denied");
         return;
@@ -501,6 +497,7 @@ const server = http.createServer(async (req, res) => {
           await mkdir(dir, { recursive: true });
           const fname = Date.now().toString(36) + "-" + safe;
           await writeFile(path.join(dir, fname), Buffer.concat(chunks));
+          try { anomaly.noteUpload({ ip: getClientIp(req) || "unknown", connId: String(url.searchParams.get("conn") || "anon"), bytes: size }); } catch {}
           const body = JSON.stringify({ url: "/data/uploads/" + fname });
           res.writeHead(200, { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" });
           res.end(body);
@@ -622,6 +619,7 @@ const server = http.createServer(async (req, res) => {
       /* Live-follow adoption (note 344) opens to this machine only — the
          per-boot token is the real lock; this is the second one. */
       if (rpcMatch[1] === "adoptLive" && !isLoopbackAddr(req.socket && req.socket.remoteAddress)) {
+        try { anomaly.noteRpc({ ip: getClientIp(req) || "unknown", connId: id, method: "adoptLive", ok: false, err: "denied" }); } catch {}
         res.writeHead(403, { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" });
         res.end(JSON.stringify({ ok: false, err: "denied" }));
         return;
@@ -633,20 +631,15 @@ const server = http.createServer(async (req, res) => {
         if (body.length > 8 * 1024 * 1024) req.destroy();
       });
       req.on("end", async () => {
-        /* WAF body scan: prototype pollution and smuggled role-grant fields
-           never reach the content server. */
-        try {
-          const bs = waf.scanBody(body);
-          if (!bs.ok) {
-            res.writeHead(403, {
-              "content-type": "application/json; charset=utf-8",
-              "cache-control": "no-store",
-            });
-            res.end(JSON.stringify({ ok: false, err: "blocked" }));
-            return;
-          }
-        } catch {}
         const r = await cms.call(rpcMatch[1], id, body);
+        /* Anomaly watch: every admin-API answer is scored (impossible travel
+           uses the conn id, volume + privilege escalation use method/result).
+           Never blocks — only logs with severity + hint. */
+        try {
+          let ok = false; let err = "";
+          try { const p = JSON.parse(r.body); ok = !!(p && p.ok === true); err = String((p && p.err) || ""); } catch {}
+          anomaly.noteRpc({ ip: getClientIp(req) || "unknown", connId: id, method: rpcMatch[1], ok, err });
+        } catch {}
         /* No-disk survival (note 290): an emptied live store answers
            getContent from the baked seed instead of blank. */
         const outBody = await answerWithSeedFallback(rpcMatch[1], r.body, ROOT, DIST);

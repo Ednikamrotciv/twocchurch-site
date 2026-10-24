@@ -309,12 +309,22 @@ try {
 try {
   const headers =
 `# note 302 — entry files always fresh, hashed assets cacheable.
+# security: entry documents carry hardening headers (X-Content-Type-Options,
+# Referrer-Policy, Permissions-Policy). No CSP here — the app uses inline boot
+# scripts (maintenance gate below), which a CSP would break.
 /index.html
   Cache-Control: no-store, must-revalidate
+  X-Content-Type-Options: nosniff
+  Referrer-Policy: same-origin
+  Permissions-Policy: camera=(), microphone=(), geolocation=()
 /*/index.html
   Cache-Control: no-store, must-revalidate
+  X-Content-Type-Options: nosniff
+  Referrer-Policy: same-origin
+  Permissions-Policy: camera=(), microphone=(), geolocation=()
 /404.html
   Cache-Control: no-store, must-revalidate
+  X-Content-Type-Options: nosniff
 /version.json
   Cache-Control: no-store, must-revalidate
 /seed.json
@@ -323,16 +333,9 @@ try {
   Cache-Control: no-store, must-revalidate
 /feed.json
   Cache-Control: no-store, must-revalidate
-# WAF static half — edge headers on every deployed file (the runtime half in
-# scripts/waf.mjs enforces the same set on the office/Render Node server).
-# Conservative on purpose: no CSP here (the entry page ships inline scripts
-# and the Watch page embeds YouTube/Facebook), only headers that cannot
-# break the site.
-/*
+/wom-waf.js
+  Cache-Control: no-store, must-revalidate
   X-Content-Type-Options: nosniff
-  Referrer-Policy: strict-origin-when-cross-origin
-  Permissions-Policy: camera=(), microphone=(), geolocation=()
-  X-Frame-Options: SAMEORIGIN
 `;
   await writeFile(path.join(OUT, "_headers"), headers);
   const htaccess =
@@ -341,16 +344,52 @@ try {
   <FilesMatch "^(index\\.html|404\\.html|version\\.json|seed\\.json|server\\.json|feed\\.json)$">
     Header set Cache-Control "no-store, must-revalidate"
   </FilesMatch>
-  # WAF static half (see _headers above): edge headers on every file.
-  Header always set X-Content-Type-Options "nosniff"
-  Header always set Referrer-Policy "strict-origin-when-cross-origin"
-  Header always set Permissions-Policy "camera=(), microphone=(), geolocation=()"
-  Header always set X-Frame-Options "SAMEORIGIN"
+  # security: hardening headers on the entry document (no CSP — inline boot
+  # scripts must keep running, incl. the maintenance gate)
+  <FilesMatch "^index\\.html$">
+    Header set X-Content-Type-Options "nosniff"
+    Header set Referrer-Policy "same-origin"
+    Header set Permissions-Policy "camera=(), microphone=(), geolocation=()"
+  </FilesMatch>
 </IfModule>
 `;
   await writeFile(path.join(OUT, ".htaccess"), htaccess);
   console.log("cache headers written (_headers + .htaccess): entry files never cached");
 } catch (err) {
   console.warn("cache headers skipped:", err?.message || err);
+}
+/* Static WAF (context #2 — "static"): bake dist/wom-waf.js from the same rule
+   spirit as scripts/waf.mjs and load it BEFORE the maintenance gate on every
+   route page. It never blocks navigation — it neutralises malicious query/hash
+   payloads via history.replaceState and beacons to the office server when one
+   is configured. The maintenance gate below it is untouched: same deploy lock,
+   same publish-clears-it, same /admin bypass. */
+try {
+  const { STATIC_GUARD_SRC } = await import("./waf.mjs");
+  await writeFile(path.join(OUT, "wom-waf.js"), STATIC_GUARD_SRC);
+  const shellPath = path.join(OUT, "index.html");
+  let shell = await readFile(shellPath, "utf8");
+  const wafTag = '<script src="/wom-waf.js" defer></script>';
+  if (!shell.includes("wom-waf.js")) {
+    if (shell.includes("</head>")) shell = shell.replace("</head>", "  " + wafTag + "\n</head>");
+    else shell = wafTag + "\n" + shell;
+    await writeFile(shellPath, shell);
+  }
+  // Route copies were made from the shell earlier — re-stamp them so every
+  // page (admin, sermons, … + 404) carries the guard too.
+  try {
+    const routesSrc = await readFile(path.join(ROOT, "src", "lib", "routes.tsx"), "utf8");
+    const patterns = [...routesSrc.matchAll(/pattern:\s*"([^"]+)"/g)].map((m) => m[1]).filter((p) => !p.includes(":") && p !== "/").map((p) => p.replace(/^\//, ""));
+    const pages = [...new Set([...patterns, "admin"])];
+    for (const page of pages) {
+      for (const dir of [page, path.join("admin", page)]) {
+        try { await writeFile(path.join(OUT, dir, "index.html"), shell); } catch {}
+      }
+    }
+    await writeFile(path.join(OUT, "404.html"), shell);
+  } catch {}
+  console.log("static WAF baked: dist/wom-waf.js on every page (maintenance gate untouched)");
+} catch (err) {
+  console.warn("static WAF skipped:", err?.message || err);
 }
 console.log("dist/ ready to upload (the *contents* of dist/ go to the static host)");

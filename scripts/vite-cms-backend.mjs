@@ -6,12 +6,14 @@
 import { readFile, stat, mkdir, writeFile, cp, rm } from "node:fs/promises";
 import path from "node:path";
 import { createCmsHost, hashText } from "./cms-local.mjs";
-import { isLoopbackAddr } from "./live-follow.mjs";
+import { isLoopbackAddr, pickLiveOrigin, DEFAULT_LIVE_ORIGIN } from "./live-follow.mjs";
 import { answerWithSeedFallback } from "./seed-fallback.mjs";
 import { guardAtBoot } from "./backup-data.mjs";
 import { createGeoProxy } from "./geo-proxy.mjs";
-import { createWaf } from "./waf.mjs";
 import { MIME } from "./mime.mjs";
+import { createWaf, getClientIp } from "./waf.mjs";
+import { createAnomalyTracker } from "./session-anomaly.mjs";
+import { createSecurityLog } from "./security-log.mjs";
 
 /* index.html points straight at the source entry — no prebuilt bundle involved. */
 const ENTRY_TAG = '<script type="module" src="/src/main.tsx"></script>';
@@ -34,10 +36,14 @@ export function cmsBackend() {
      durableDeploy path, releasing the hold. */
   const devDeployId =
     "dev-" + Date.now().toString(36) + "-" + Math.random().toString(36).slice(2, 8);
-  /* WAF + session anomaly detection (see scripts/waf.mjs): same engine as
-     scripts/serve.mjs, so dev behaves exactly like production. */
-  const waf = createWaf();
-  const geoProxy = createGeoProxy({ onLookup: (ip, country) => waf.noteGeo(ip, country) });
+  const geoProxy = createGeoProxy();
+  /* Security layer for `npm run dev`: same WAF + anomaly + real-time log as
+     the office server. The terminal tells everything — local AND live deploy,
+     online or offline — with severity + IP + hint. Maintenance + fresh-deploy
+     ritual below are untouched. */
+  const security = createSecurityLog({ rootDir: ROOT, service: "dev", localBase: "http://localhost:5173" });
+  const anomaly = createAnomalyTracker({ onEvent: (e) => security.logEvent(e) });
+  const waf = createWaf({ onEvent: (e) => security.logEvent(e) });
   let cms = null;
   /* HIGH fix — file-door guard (same as scripts/serve.mjs): uploads,
      restores and deletes take a signed-in admin connection (?conn=). */
@@ -74,10 +80,21 @@ export function cmsBackend() {
         /* same snapshot-and-recover as scripts/serve.mjs — never fatal */
       }
       console.log(`dev server: fresh deploy ${devDeployId} — maintenance holds until Publish, staged welcome-only until Recover + Publish (like a new deploy; the office disk is untouched)`);
+      security.bootLine({ deployId: devDeployId, cleanDeploy: false });
+      try {
+        security.startLiveWatch({
+          getLiveOrigin: async () => {
+            try {
+              const raw = await readFile(path.join(ROOT, "cms-server.txt"), "utf8").catch(() => "");
+              return pickLiveOrigin(raw) || DEFAULT_LIVE_ORIGIN;
+            } catch { return DEFAULT_LIVE_ORIGIN; }
+          },
+        });
+      } catch { /* live watch never breaks dev */ }
       /* Follow live only while serving (note 378): this hook also runs for
          `vite build`, where a minute loop would hold the build process open
          forever — exactly how the Vercel deploy got stuck. */
-      cms = await createCmsHost(ROOT, config && config.command === "serve" ? { follow: true, waf } : { waf });
+      cms = await createCmsHost(ROOT, config && config.command === "serve" ? { follow: true } : undefined);
       outDir = path.resolve(config.root || ROOT, (config.build && config.build.outDir) || "dist");
     },
     /* Dev only: the shim connects the page to this backend (sign-in, publish,
@@ -169,81 +186,30 @@ export function cmsBackend() {
           const url = new URL(req.url || "/", "http://localhost");
           const pathname = url.pathname;
 
+          /* WAF FIRST — in front of the entire dev backend, same as serve.mjs.
+             Inspects URL+headers+method only, so Publish bodies never trip it. */
+          try {
+            const verdict = waf.check(req);
+            const cip = getClientIp(req) || "";
+            try { anomaly.noteHttp({ ip: cip, connId: String(url.searchParams.get("conn") || "") || undefined }); } catch {}
+            if (!verdict.allow) {
+              res.writeHead(403, { "content-type": "text/plain", "cache-control": "no-store", "x-waf": "blocked" });
+              res.end("forbidden");
+              return;
+            }
+          } catch { /* WAF never breaks dev */ }
+
           /* Same open door as scripts/serve.mjs: this backend also serves
              deployed copies pointed at it (see src/lib/remoteserver.ts). */
           res.setHeader("Access-Control-Allow-Origin", "*");
           res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
           res.setHeader("Access-Control-Allow-Headers", "content-type");
+          res.setHeader("Referrer-Policy", "same-origin");
+          res.setHeader("Permissions-Policy", "camera=(), microphone=(), geolocation=()");
+          res.setHeader("X-WAF", "on");
           if (req.method === "OPTIONS") {
             res.writeHead(204);
             res.end();
-            return;
-          }
-
-          /* WAF front door (see scripts/waf.mjs): same as scripts/serve.mjs —
-             every backend route is inspected before routing. Unknown paths
-             fall through to Vite via next(). */
-          try {
-            const _wh = res.writeHead.bind(res);
-            res.writeHead = (code, headers) => {
-              try {
-                const extra = waf.securityHeaders();
-                if (headers && typeof headers === "object" && !Array.isArray(headers)) {
-                  for (const k of Object.keys(extra)) {
-                    if (!(k in headers)) headers[k] = extra[k];
-                  }
-                }
-              } catch {}
-              return _wh(code, headers);
-            };
-          } catch {}
-          {
-            const rpcHead = pathname.startsWith("/__cms/") && req.method === "POST"
-              ? (pathname.match(/^\/__cms\/([A-Za-z0-9_]+)$/) || [])[1] || ""
-              : "";
-            const verdict = waf.inspect(req, {
-              path: pathname,
-              query: url.search ? url.search.slice(1) : "",
-              conn: url.searchParams.get("conn") || "",
-              rpc: rpcHead,
-            });
-            if (!verdict.ok) {
-              /* Vite owns everything else: only end backend-shaped paths here,
-                 and let Vite/404 handle the rest. */
-              if (pathname.startsWith("/__") || pathname.startsWith("/scripts/") || pathname.startsWith("/data/") || pathname.startsWith("/src/assets/")) {
-                const api = pathname.startsWith("/__");
-                const body = api
-                  ? JSON.stringify({ ok: false, err: verdict.err })
-                  : verdict.err === "rate-limited"
-                    ? "rate-limited — slow down and try again"
-                    : "blocked";
-                const headers = {
-                  "content-type": api ? "application/json; charset=utf-8" : "text/plain; charset=utf-8",
-                  "cache-control": "no-store",
-                  "x-content-type-options": "nosniff",
-                };
-                if (verdict.retryAfter) headers["retry-after"] = String(verdict.retryAfter);
-                res.writeHead(verdict.status, headers);
-                res.end(body);
-                return;
-              }
-            }
-          }
-
-          /* Admin-only WAF status (same as scripts/serve.mjs). */
-          if (pathname === "/__waf-status" && req.method === "GET") {
-            if (!(await isAdminConn(String(url.searchParams.get("conn") || "")))) {
-              res.writeHead(403, { "cache-control": "no-store" });
-              res.end("denied");
-              return;
-            }
-            const body = JSON.stringify(waf.status());
-            res.writeHead(200, {
-              "content-type": "application/json; charset=utf-8",
-              "content-length": Buffer.byteLength(body),
-              "cache-control": "no-store",
-            });
-            res.end(body);
             return;
           }
 
@@ -358,6 +324,7 @@ export function cmsBackend() {
             const id = url.searchParams.get("conn") || "anon";
             /* Live-follow adoption (note 344) opens to this machine only. */
             if (rpcMatch[1] === "adoptLive" && !isLoopbackAddr(req.socket && req.socket.remoteAddress)) {
+              try { anomaly.noteRpc({ ip: getClientIp(req) || "unknown", connId: id, method: "adoptLive", ok: false, err: "denied" }); } catch {}
               res.writeHead(403, { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" });
               res.end(JSON.stringify({ ok: false, err: "denied" }));
               return;
@@ -369,19 +336,12 @@ export function cmsBackend() {
               if (body.length > 8 * 1024 * 1024) req.destroy();
             });
             req.on("end", async () => {
-              /* WAF body scan (same as scripts/serve.mjs). */
-              try {
-                const bs = waf.scanBody(body);
-                if (!bs.ok) {
-                  res.writeHead(403, {
-                    "content-type": "application/json; charset=utf-8",
-                    "cache-control": "no-store",
-                  });
-                  res.end(JSON.stringify({ ok: false, err: "blocked" }));
-                  return;
-                }
-              } catch {}
               const r = await cms.call(rpcMatch[1], id, body);
+              try {
+                let ok = false; let err = "";
+                try { const p = JSON.parse(r.body); ok = !!(p && p.ok === true); err = String((p && p.err) || ""); } catch {}
+                anomaly.noteRpc({ ip: getClientIp(req) || "unknown", connId: id, method: rpcMatch[1], ok, err });
+              } catch {}
               /* Same no-disk net as scripts/serve.mjs (note 290): an emptied
                  live store answers getContent from the baked seed. */
               const outBody = await answerWithSeedFallback(rpcMatch[1], r.body, ROOT, outDir);
@@ -399,6 +359,7 @@ export function cmsBackend() {
           if (pathname === "/__upload" && req.method === "POST") {
             /* HIGH fix: writes take a signed-in admin connection. */
             if (!(await isAdminConn(String(url.searchParams.get("conn") || "")))) {
+              try { anomaly.noteUpload({ ip: getClientIp(req) || "unknown", connId: String(url.searchParams.get("conn") || "anon"), denied: true }); } catch {}
               res.writeHead(403, { "cache-control": "no-store" });
               res.end("denied");
               return;
@@ -582,6 +543,28 @@ export function cmsBackend() {
           if ((pathname === "/__geo" || pathname === "/__rates") && req.method === "GET") {
             if (pathname === "/__geo") await geoProxy.handleGeo(req, res);
             else await geoProxy.handleRates(req, res);
+            return;
+          }
+
+          /* Security doors: same as serve.mjs — real-time log for `npm run dev`.
+             Status redacted unless admin; PDFs: conn-gated full report plus
+             loopback-only local snapshot behind the clickable terminal link. */
+          if (pathname === "/__security-status" && req.method === "GET") {
+            const admin = await isAdminConn(String(url.searchParams.get("conn") || ""));
+            await security.handleStatus(req, res, { admin });
+            return;
+          }
+          if (pathname === "/__security-report.pdf" && req.method === "GET") {
+            const admin = await isAdminConn(String(url.searchParams.get("conn") || ""));
+            await security.handleReport(req, res, { admin });
+            return;
+          }
+          if (pathname === "/__security-report-local.pdf" && req.method === "GET") {
+            await security.handleLocalReport(req, res, { loopback: isLoopbackAddr(req.socket && req.socket.remoteAddress) });
+            return;
+          }
+          if (pathname === "/__security-beacon" && req.method === "POST") {
+            await security.handleBeacon(req, res, { ip: getClientIp(req) || "unknown" });
             return;
           }
 

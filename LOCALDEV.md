@@ -61,3 +61,17 @@ npm start       # serves dist/ + the backend (or double-click start.bat)
 Leave that running on the always-on machine. Content is stored in
 `data/cms-state.bin` (created on first publish — keep that file to keep your
 content); photo/video uploads land in `data/uploads/`.
+
+## Security watch (local terminal after `npm run dev`)
+
+Every boot starts the WAF (in front of all doors), the session anomaly watch
+(impossible travel, unusual volume, privilege escalation) and the real-time
+security log. The terminal shows everything — local AND live deploy, online or
+offline — with severity, the IP address and a hint on what to do. Whenever a
+potential breach (medium or worse) appears, the terminal prints a clickable link
+to a breach-report PDF: a timestamped file under `logs/` (Ctrl+click to open)
+plus a this-machine-only URL (`/__security-report-local.pdf`). Nothing is shown
+in the admin console by design — the terminal is the whole feed. Maintenance,
+Publish, wakes, relay and clean-deploy behaviour are unchanged: the
+publish/admin doors are allow-listed and the live loops run on loopback, which
+is never rate-limited.
