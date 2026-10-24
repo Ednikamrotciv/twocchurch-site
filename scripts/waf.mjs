@@ -22,10 +22,11 @@
 
    CONTEXT (session anomaly) half — behavior over time, in real time:
      * Impossible travel: an authenticated admin connection (conn id) seen
-       from a new IP/country within minutes of the last one is quarantined:
-       reads and login still work, but write RPC is refused until the office
-       signs in again (which clears the quarantine). Reads-only visitors are
-       never quarantined — only sessions that held admin.
+       from two COUNTRIES within minutes (geo-confirmed via the geo proxy)
+       is quarantined: reads and login still work, but write RPC is refused
+       until the office signs in again (which clears the quarantine). Plain
+       IP switches in the same country only flag, never block. Visitors are
+       never quarantined — only admin sessions caught hopping countries.
      * Unusual data-access volume: per-IP and per-connection sliding windows
        over requests, RPC calls and bytes read; bursts past the caps are
        throttled (429) and logged.
@@ -56,7 +57,8 @@ const DEFAULTS = {
   authPerIp: [30, 60 * 1000, 300 * 1000],
   rpcPerConn: [240, 60 * 1000, 120 * 1000],
   readBurstPerConn: [120, 60 * 1000, 0],
-  /* Session anomaly. */
+  /* Session anomaly: IP switches only flag (see bindConn); only a
+     geo-confirmed country hop quarantines (see noteGeo). */
   travelWindowMs: 10 * 60 * 1000,
   travelIpsBeforeFlag: 2,
   quarantineMs: 30 * 60 * 1000,
@@ -236,6 +238,17 @@ export function isLoopbackIp(ip) {
   if (/^169\.254\./.test(ip)) return true;
   if (/^(fc|fd)/i.test(low) || /^fe[89ab]/i.test(low)) return true;
   return false;
+}
+
+/* Internal sync loops, not human sessions: the office-to-live publish relay
+   (relay-*), the visitor on-air poll (rpt-*) and the follow loops
+   (*follow). They rotate conn ids and carry the publish itself, so travel
+   rules never touch them — flagging them would break the relay on any
+   network that rotates egress IPs. */
+const MACHINE_CONN_RE = /^(relay-|rpt-|livefollow|feedfollow|officefollow)/i;
+function isMachineConn(id) {
+  const s = String(id || "");
+  return MACHINE_CONN_RE.test(s) || /follow/i.test(s);
 }
 
 export function createWaf(opts) {
@@ -487,19 +500,26 @@ export function createWaf(opts) {
       if (!rec) {
         c.ips.set(ip, { at: t, ua: String(ua || "").slice(0, 120) });
         if (c.ips.size > 10) c.ips.delete(c.ips.keys().next().value);
-        /* Impossible travel: an ADMIN session hopping IPs within minutes.
-           Visitors (never authed) are exempt — a phone moving networks is
-           normal; an office session teleporting is not. Country-level hops
-           are caught in noteGeo() once the geo proxy resolves addresses. */
-        if (c.authed && t - c.authedAt < cfg.travelWindowMs && c.ips.size >= cfg.travelIpsBeforeFlag) {
-          const seen = [...c.ips.keys()];
-          const diverse = seen.length >= cfg.travelIpsBeforeFlag;
-          if (diverse && t - (c.lastTravelAt || 0) > cfg.travelWindowMs) {
-            c.lastTravelAt = t;
-            c.quarantinedUntil = t + cfg.quarantineMs;
+        /* IP switches alone never block (DHCP renew, WiFi/cellular hop,
+           dual-WAN egress rotation, VPN on/off in the same country): they
+           only flag for visibility. Quarantine is reserved for a
+           geo-confirmed country hop in noteGeo(). Machine loops are exempt. */
+        if (!isMachineConn(connId) && c.authed && t - c.authedAt < cfg.travelWindowMs && c.ips.size >= cfg.travelIpsBeforeFlag && t - (c.lastFlagAt || 0) > cfg.travelWindowMs) {
+          let localOnly = true;
+          try {
+            for (const pip of c.ips.keys()) {
+              if (!isLoopbackIp(pip)) {
+                localOnly = false;
+                break;
+              }
+            }
+          } catch {
+            localOnly = false;
+          }
+          if (!localOnly) {
+            c.lastFlagAt = t;
             counters.travelFlags++;
-            counters.quarantined++;
-            log("travelFlags", ip, `impossible-travel conn=${connId.slice(0, 12)} ips=${seen.slice(0, 3).join(",")}`);
+            log("travelFlags", ip, `ip-switch conn=${connId.slice(0, 12)} ips=${[...c.ips.keys()].slice(0, 3).join(",")}`);
           }
         }
       } else {
@@ -518,6 +538,7 @@ export function createWaf(opts) {
       /* Country-level travel: same authed conn, two countries, minutes apart. */
       for (const [cid, c] of conns) {
         if (!c.authed || !c.ips.has(ip)) continue;
+        if (isMachineConn(cid)) continue;
         const t = clock();
         if (t - c.authedAt > cfg.travelWindowMs) continue;
         const lands = new Set();
@@ -565,6 +586,11 @@ export function createWaf(opts) {
     counters.rpcGuarded++;
     try {
       const m = String(method || "");
+      /* liveReport doubles as a public read: an empty body only ASKS for the
+         latest office on-air report (every visitor polls it), so it passes
+         like any other read. A non-empty body STORES a report and stays a
+         guarded admin write below. */
+      if (m === "liveReport" && !String(raw || "").trim()) return { ok: true };
       const authed = (() => {
         try {
           return !!isAdmin();

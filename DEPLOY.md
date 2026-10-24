@@ -203,9 +203,15 @@ mod-security-style WAF in front of the entire codebase
   known scanner user-agents) are rejected with 403 before they ever reach
   the server code; floods are answered 429 with `Retry-After`.
 - **Session anomaly detection**, live and in real time: an admin session
-  that hops IPs/countries within minutes (impossible travel) is
+  seen from two countries within minutes (geo-confirmed impossible travel) is
   quarantined — reads and sign-in still work, but publishing and other
-  admin writes are refused until the office signs in again. Unusual
+  admin writes are refused until the office signs in again (a normal
+  sign-in clears it at once). Plain IP switches in the same country —
+  DHCP renews, WiFi/cellular hops, dual-WAN rotation, VPN on/off — never
+  block: they are only logged, so the office-to-live publish relay and
+  office publishing stay up across them. The relay and follow loops
+  (relay-*, rpt-*, *follow conns) are exempt from travel rules entirely.
+  Unusual
   read volume is flagged, and unauthenticated publish/password/role
   attempts (privilege escalation, including smuggled `role` fields and
   prototype-pollution keys) are denied, counted, and after a few tries
@@ -221,7 +227,7 @@ mod-security-style WAF in front of the entire codebase
   blocks/quarantines and recent events (truncated, no request bodies).
 
 Nothing to configure and no new dependencies. If the office is ever
-locked out by a false positive (e.g. aggressive hotel Wi-Fi hopping),
+locked out by a false positive (e.g. a VPN exit in another country),
 restarting the server clears all in-memory blocks and quarantines at once
 — sessions simply sign in again.
 
