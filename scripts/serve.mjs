@@ -6,6 +6,7 @@ import { createCmsHost, hashText } from "./cms-local.mjs";
 import { isLoopbackAddr } from "./live-follow.mjs";
 import { answerWithSeedFallback, primeMirrorSeed } from "./seed-fallback.mjs";
 import { createGeoProxy } from "./geo-proxy.mjs";
+import { createWaf } from "./waf.mjs";
 import { guardAtBoot } from "./backup-data.mjs";
 import { MIME } from "./mime.mjs";
 
@@ -88,6 +89,12 @@ try {
   console.warn("clean-deploy.txt present — this deploy ships no words: Recover + Publish, then REMOVE the file and rebuild to lock words in.");
 } catch { /* words ride as usual */ }
 
+/* WAF + session anomaly detection (see scripts/waf.mjs): one engine for this
+   process, shared with the content host below so HTTP-layer sightings (IPs,
+   geo, conn bindings) and RPC-layer sightings (admin state, denied writes)
+   feed the same session picture. */
+const waf = createWaf();
+
 const cms = await (async () => {
   /* Snapshot the published words first (a zip extract cannot touch the
      timestamped backup names), and recover the newest snapshot if the live
@@ -97,9 +104,9 @@ const cms = await (async () => {
   } catch (err) {
     console.warn("content backup skipped:", err?.message || err);
   }
-  return createCmsHost(ROOT, { follow: true });
+  return createCmsHost(ROOT, { follow: true, waf });
 })();
-const geoProxy = createGeoProxy();
+const geoProxy = createGeoProxy({ onLookup: (ip, country) => waf.noteGeo(ip, country) });
 
 /* HIGH fix — file-door guard: /__upload, /__restore-file and /__delete-file
    take effect only for a signed-in admin connection (the same conn id the
@@ -231,6 +238,72 @@ const server = http.createServer(async (req, res) => {
     if (req.method === "OPTIONS") {
       res.writeHead(204);
       res.end();
+      return;
+    }
+
+    /* WAF front door (see scripts/waf.mjs): every request — static files,
+       admin RPC, uploads, proxies — is inspected BEFORE any routing, so
+       malicious traffic patterns never reach the server code. Denials carry
+       the hardening headers too. */
+    try {
+      const _wh = res.writeHead.bind(res);
+      res.writeHead = (code, headers) => {
+        try {
+          const extra = waf.securityHeaders();
+          if (headers && typeof headers === "object" && !Array.isArray(headers)) {
+            for (const k of Object.keys(extra)) {
+              if (!(k in headers)) headers[k] = extra[k];
+            }
+          }
+        } catch {}
+        return _wh(code, headers);
+      };
+    } catch {}
+    {
+      const rpcHead = pathname.startsWith("/__cms/") && req.method === "POST"
+        ? (pathname.match(/^\/__cms\/([A-Za-z0-9_]+)$/) || [])[1] || ""
+        : "";
+      const verdict = waf.inspect(req, {
+        path: pathname,
+        query: url.search ? url.search.slice(1) : "",
+        conn: url.searchParams.get("conn") || "",
+        rpc: rpcHead,
+      });
+      if (!verdict.ok) {
+        const api = pathname.startsWith("/__");
+        const body = api
+          ? JSON.stringify({ ok: false, err: verdict.err })
+          : verdict.err === "rate-limited"
+            ? "rate-limited — slow down and try again"
+            : "blocked";
+        const headers = {
+          "content-type": api ? "application/json; charset=utf-8" : "text/plain; charset=utf-8",
+          "cache-control": "no-store",
+          "x-content-type-options": "nosniff",
+        };
+        if (verdict.retryAfter) headers["retry-after"] = String(verdict.retryAfter);
+        res.writeHead(verdict.status, headers);
+        res.end(body);
+        return;
+      }
+    }
+
+    /* Admin-only WAF status: counters, active blocks/quarantines and recent
+       security events (truncated — no request bodies). Same sign-in as every
+       other admin door. */
+    if (pathname === "/__waf-status" && req.method === "GET") {
+      if (!(await isAdminConn(String(url.searchParams.get("conn") || "")))) {
+        res.writeHead(403, { "cache-control": "no-store" });
+        res.end("denied");
+        return;
+      }
+      const body = JSON.stringify(waf.status());
+      res.writeHead(200, {
+        "content-type": "application/json; charset=utf-8",
+        "content-length": Buffer.byteLength(body),
+        "cache-control": "no-store",
+      });
+      res.end(body);
       return;
     }
 
@@ -560,6 +633,19 @@ const server = http.createServer(async (req, res) => {
         if (body.length > 8 * 1024 * 1024) req.destroy();
       });
       req.on("end", async () => {
+        /* WAF body scan: prototype pollution and smuggled role-grant fields
+           never reach the content server. */
+        try {
+          const bs = waf.scanBody(body);
+          if (!bs.ok) {
+            res.writeHead(403, {
+              "content-type": "application/json; charset=utf-8",
+              "cache-control": "no-store",
+            });
+            res.end(JSON.stringify({ ok: false, err: "blocked" }));
+            return;
+          }
+        } catch {}
         const r = await cms.call(rpcMatch[1], id, body);
         /* No-disk survival (note 290): an emptied live store answers
            getContent from the baked seed instead of blank. */

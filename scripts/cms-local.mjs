@@ -7,6 +7,7 @@ import { notePublished } from "./auto-push.mjs";
 import { DEFAULT_LIVE_ORIGIN, pickLiveOrigin, shouldAdoptLive, adoptPatch, referencedUploads, BACKFILL_MAX_BYTES } from "./live-follow.mjs";
 import { openInstantPush } from "./instant-push.mjs";
 import { parseFeedSpec, peekFeedSeed } from "./feed-spec.mjs";
+import { createWaf } from "./waf.mjs";
 
 const STATE_SIZE = 8 * 1024 * 1024;
 
@@ -58,6 +59,12 @@ function clearPublishLog(state, scriptSrc) {
 }
 
 export async function createCmsHost(rootDir, opts) {
+  /* WAF engine for the RPC layer (see scripts/waf.mjs): serve.mjs and the
+     dev backend pass their HTTP-layer engine in so both halves share one
+     session picture; one-shot users (bakes, builds) get a private engine.
+     Either way every admin-RPC call below passes the privilege-escalation
+     and volume guards before the content server runs. */
+  const waf = (opts && opts.waf) || createWaf();
   /* The site's own content server (sign-in, publishing, uploads, live
      updates): one plain code file, run here in Node for `npm run dev` and
      `npm start` alike. */
@@ -275,6 +282,39 @@ export async function createCmsHost(rootDir, opts) {
       return { status: 404, body: JSON.stringify({ ok: false, err: "unknown-method" }) };
     }
     const conn = getConn(id);
+    /* WAF RPC guard (privilege escalation + session quarantine): unauth
+       writes and quarantined sessions never reach the content server.
+       adoptLive/adoptFeed carry the per-boot token instead of a session —
+       a matching token is the process's own loop and skips the admin check
+       (a wrong token still faces it, and counts as a probe). */
+    try {
+      let trustedLoop = false;
+      if (method === "adoptLive" || method === "adoptFeed") {
+        try {
+          trustedLoop = !!(raw && JSON.parse(String(raw)).token === adoptToken);
+        } catch {
+          trustedLoop = false;
+        }
+      }
+      if (!trustedLoop) {
+        const adminSync = () => {
+          try {
+            const s = rpc.checkAdmin({ conn }, "");
+            const d = JSON.parse(typeof s === "string" ? s : "{}");
+            return !!(d && d.admin === true);
+          } catch {
+            return false;
+          }
+        };
+        const g = waf.rpcGuard(method, id, String(raw || ""), adminSync);
+        if (!g.ok) {
+          try {
+            waf.noteRpcOutcome(method, id, false, g.status, JSON.stringify({ ok: false, err: g.err }));
+          } catch {}
+          return { status: g.status, body: JSON.stringify({ ok: false, err: g.err }) };
+        }
+      }
+    } catch {}
     let out;
     try {
       out = await fn({ conn }, raw);
@@ -282,6 +322,11 @@ export async function createCmsHost(rootDir, opts) {
       console.error(`cms backend rpc ${method}:`, err?.message || err);
       return { status: 500, body: JSON.stringify({ ok: false, err: "error" }) };
     }
+    try {
+      const bodyText = typeof out === "string" ? out : JSON.stringify(out === undefined ? { ok: true } : out);
+      const okFlag = bodyText.indexOf('"ok":true') !== -1;
+      waf.noteRpcOutcome(method, id, okFlag, 200, bodyText);
+    } catch {}
     saveSoon();
     /* A publish moves the words — the recents follow the channel on the same
        cycle (note 346): without this the new channel's services took up to

@@ -10,6 +10,7 @@ import { isLoopbackAddr } from "./live-follow.mjs";
 import { answerWithSeedFallback } from "./seed-fallback.mjs";
 import { guardAtBoot } from "./backup-data.mjs";
 import { createGeoProxy } from "./geo-proxy.mjs";
+import { createWaf } from "./waf.mjs";
 import { MIME } from "./mime.mjs";
 
 /* index.html points straight at the source entry — no prebuilt bundle involved. */
@@ -33,7 +34,10 @@ export function cmsBackend() {
      durableDeploy path, releasing the hold. */
   const devDeployId =
     "dev-" + Date.now().toString(36) + "-" + Math.random().toString(36).slice(2, 8);
-  const geoProxy = createGeoProxy();
+  /* WAF + session anomaly detection (see scripts/waf.mjs): same engine as
+     scripts/serve.mjs, so dev behaves exactly like production. */
+  const waf = createWaf();
+  const geoProxy = createGeoProxy({ onLookup: (ip, country) => waf.noteGeo(ip, country) });
   let cms = null;
   /* HIGH fix — file-door guard (same as scripts/serve.mjs): uploads,
      restores and deletes take a signed-in admin connection (?conn=). */
@@ -73,7 +77,7 @@ export function cmsBackend() {
       /* Follow live only while serving (note 378): this hook also runs for
          `vite build`, where a minute loop would hold the build process open
          forever — exactly how the Vercel deploy got stuck. */
-      cms = await createCmsHost(ROOT, config && config.command === "serve" ? { follow: true } : undefined);
+      cms = await createCmsHost(ROOT, config && config.command === "serve" ? { follow: true, waf } : { waf });
       outDir = path.resolve(config.root || ROOT, (config.build && config.build.outDir) || "dist");
     },
     /* Dev only: the shim connects the page to this backend (sign-in, publish,
@@ -173,6 +177,73 @@ export function cmsBackend() {
           if (req.method === "OPTIONS") {
             res.writeHead(204);
             res.end();
+            return;
+          }
+
+          /* WAF front door (see scripts/waf.mjs): same as scripts/serve.mjs —
+             every backend route is inspected before routing. Unknown paths
+             fall through to Vite via next(). */
+          try {
+            const _wh = res.writeHead.bind(res);
+            res.writeHead = (code, headers) => {
+              try {
+                const extra = waf.securityHeaders();
+                if (headers && typeof headers === "object" && !Array.isArray(headers)) {
+                  for (const k of Object.keys(extra)) {
+                    if (!(k in headers)) headers[k] = extra[k];
+                  }
+                }
+              } catch {}
+              return _wh(code, headers);
+            };
+          } catch {}
+          {
+            const rpcHead = pathname.startsWith("/__cms/") && req.method === "POST"
+              ? (pathname.match(/^\/__cms\/([A-Za-z0-9_]+)$/) || [])[1] || ""
+              : "";
+            const verdict = waf.inspect(req, {
+              path: pathname,
+              query: url.search ? url.search.slice(1) : "",
+              conn: url.searchParams.get("conn") || "",
+              rpc: rpcHead,
+            });
+            if (!verdict.ok) {
+              /* Vite owns everything else: only end backend-shaped paths here,
+                 and let Vite/404 handle the rest. */
+              if (pathname.startsWith("/__") || pathname.startsWith("/scripts/") || pathname.startsWith("/data/") || pathname.startsWith("/src/assets/")) {
+                const api = pathname.startsWith("/__");
+                const body = api
+                  ? JSON.stringify({ ok: false, err: verdict.err })
+                  : verdict.err === "rate-limited"
+                    ? "rate-limited — slow down and try again"
+                    : "blocked";
+                const headers = {
+                  "content-type": api ? "application/json; charset=utf-8" : "text/plain; charset=utf-8",
+                  "cache-control": "no-store",
+                  "x-content-type-options": "nosniff",
+                };
+                if (verdict.retryAfter) headers["retry-after"] = String(verdict.retryAfter);
+                res.writeHead(verdict.status, headers);
+                res.end(body);
+                return;
+              }
+            }
+          }
+
+          /* Admin-only WAF status (same as scripts/serve.mjs). */
+          if (pathname === "/__waf-status" && req.method === "GET") {
+            if (!(await isAdminConn(String(url.searchParams.get("conn") || "")))) {
+              res.writeHead(403, { "cache-control": "no-store" });
+              res.end("denied");
+              return;
+            }
+            const body = JSON.stringify(waf.status());
+            res.writeHead(200, {
+              "content-type": "application/json; charset=utf-8",
+              "content-length": Buffer.byteLength(body),
+              "cache-control": "no-store",
+            });
+            res.end(body);
             return;
           }
 
@@ -298,6 +369,18 @@ export function cmsBackend() {
               if (body.length > 8 * 1024 * 1024) req.destroy();
             });
             req.on("end", async () => {
+              /* WAF body scan (same as scripts/serve.mjs). */
+              try {
+                const bs = waf.scanBody(body);
+                if (!bs.ok) {
+                  res.writeHead(403, {
+                    "content-type": "application/json; charset=utf-8",
+                    "cache-control": "no-store",
+                  });
+                  res.end(JSON.stringify({ ok: false, err: "blocked" }));
+                  return;
+                }
+              } catch {}
               const r = await cms.call(rpcMatch[1], id, body);
               /* Same no-disk net as scripts/serve.mjs (note 290): an emptied
                  live store answers getContent from the baked seed. */

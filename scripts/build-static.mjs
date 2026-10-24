@@ -323,6 +323,16 @@ try {
   Cache-Control: no-store, must-revalidate
 /feed.json
   Cache-Control: no-store, must-revalidate
+# WAF static half — edge headers on every deployed file (the runtime half in
+# scripts/waf.mjs enforces the same set on the office/Render Node server).
+# Conservative on purpose: no CSP here (the entry page ships inline scripts
+# and the Watch page embeds YouTube/Facebook), only headers that cannot
+# break the site.
+/*
+  X-Content-Type-Options: nosniff
+  Referrer-Policy: strict-origin-when-cross-origin
+  Permissions-Policy: camera=(), microphone=(), geolocation=()
+  X-Frame-Options: SAMEORIGIN
 `;
   await writeFile(path.join(OUT, "_headers"), headers);
   const htaccess =
@@ -331,6 +341,11 @@ try {
   <FilesMatch "^(index\\.html|404\\.html|version\\.json|seed\\.json|server\\.json|feed\\.json)$">
     Header set Cache-Control "no-store, must-revalidate"
   </FilesMatch>
+  # WAF static half (see _headers above): edge headers on every file.
+  Header always set X-Content-Type-Options "nosniff"
+  Header always set Referrer-Policy "strict-origin-when-cross-origin"
+  Header always set Permissions-Policy "camera=(), microphone=(), geolocation=()"
+  Header always set X-Frame-Options "SAMEORIGIN"
 </IfModule>
 `;
   await writeFile(path.join(OUT, ".htaccess"), htaccess);

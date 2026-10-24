@@ -79,7 +79,8 @@ function cleanRates(raw) {
   return out;
 }
 
-export function createGeoProxy() {
+export function createGeoProxy(opts) {
+  const onLookup = opts && typeof opts.onLookup === "function" ? opts.onLookup : null;
   /* Per-visitor answers: one cache entry per IP (a single global entry would
      hand the first visitor's place to everyone). Rates stay global. */
   const geoCache = new Map();
@@ -170,9 +171,16 @@ export function createGeoProxy() {
       const raw = clientIp(req);
       const body = await lookupGeo(isPrivateIp(raw) ? "" : raw);
       if (!body) sendJson(res, 502, { error: "unreachable" });
-      /* Echo the address the visitor arrived on, so the page can notice when
-         it moves (VPN on/off) without asking a third party. */
-      else sendJson(res, 200, isPrivateIp(raw) ? body : { ...body, ip: raw });
+      /* WAF feed: hand the resolved country to the session anomaly engine so
+         impossible-travel checks compare countries, not just addresses. The
+         echoed address lets the page notice when it moves (VPN on/off)
+         without asking a third party. */
+      else {
+        try {
+          if (onLookup && body.country) onLookup(isPrivateIp(raw) ? "" : raw, body.country);
+        } catch {}
+        sendJson(res, 200, isPrivateIp(raw) ? body : { ...body, ip: raw });
+      }
     } catch {
       sendJson(res, 502, { error: "unreachable" });
     }

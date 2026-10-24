@@ -192,6 +192,39 @@ demand, `npm run restore` picks a snapshot by hand. Uploaded photos and videos
 are not copied into snapshots — if any are missing after a recovery the
 console says which.
 
+## Web application firewall
+
+Every Node server in this repo (`npm start` and `npm run dev`) runs a
+mod-security-style WAF in front of the entire codebase
+(`scripts/waf.mjs`) — static files and admin/API routes alike:
+
+- **Malicious traffic patterns** (SQL injection, XSS, command injection,
+  template injection, XXE/LDAP/JNDI, path traversal, `/.git/`-style probes,
+  known scanner user-agents) are rejected with 403 before they ever reach
+  the server code; floods are answered 429 with `Retry-After`.
+- **Session anomaly detection**, live and in real time: an admin session
+  that hops IPs/countries within minutes (impossible travel) is
+  quarantined — reads and sign-in still work, but publishing and other
+  admin writes are refused until the office signs in again. Unusual
+  read volume is flagged, and unauthenticated publish/password/role
+  attempts (privilege escalation, including smuggled `role` fields and
+  prototype-pollution keys) are denied, counted, and after a few tries
+  earn the source a temporary block. The office machine itself
+  (loopback) is never auto-blocked, only scanned and logged.
+- **Static half:** every `npm run build` bakes edge headers into `dist/`
+  (`_headers` for Netlify/Cloudflare, `.htaccess` for Apache/cPanel —
+  nosniff, referrer-policy, permissions-policy, same-origin framing), so
+  static hosts get the header-level protection even with no server to run
+  the runtime half.
+- **Watch it:** the server log lines start with `[waf]`. From a signed-in
+  admin tab, `GET /__waf-status?conn=...` returns the counters, active
+  blocks/quarantines and recent events (truncated, no request bodies).
+
+Nothing to configure and no new dependencies. If the office is ever
+locked out by a false positive (e.g. aggressive hotel Wi-Fi hopping),
+restarting the server clears all in-memory blocks and quarantines at once
+— sessions simply sign in again.
+
 ## If the host says "Permission denied" or "command not found"
 
 That means `node_modules/` got committed to the repo by mistake (it must
