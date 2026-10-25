@@ -81,8 +81,10 @@ try {
   } catch (e) {
     console.log(`PDF refresh skipped (${String((e && e.message) || e).slice(0, 120)}) — run npm run security:report.`);
   }
-  process.exit(0);
+  // Windows fix: never force-exit with open fetch/socket handles (win32 libuv
+  // UV_HANDLE_CLOSING assertion). Let the loop drain naturally instead.
+  process.exitCode = 0;
 } catch (e) {
   try { console.log(`security-status: checks skipped (${String((e && e.message) || e).slice(0, 160)})`); } catch {}
-  process.exit(0);
+  process.exitCode = 0;
 }

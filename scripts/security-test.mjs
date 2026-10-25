@@ -260,4 +260,5 @@ const req = (pathname, method = "GET", ip = "127.0.0.1", search = "") =>
 
 console.log(`\nsecurity:test ${fail ? "FAILED" : "PASSED"} — ${pass} passed, ${fail} failed`);
 if (failures.length) console.log("failures:\n- " + failures.join("\n- "));
-process.exit(fail ? 1 : 0);
+// Windows fix: graceful drain instead of force-exit (avoids UV_HANDLE_CLOSING with open handles).
+process.exitCode = fail ? 1 : 0;

@@ -155,6 +155,8 @@ async function fetchWithTimeout(url, ms = 8000) {
       timer = setTimeout(() => {
         try { ctrl.abort(); } catch {}
       }, ms);
+      // Windows fix: never let the abort timer hold the loop open on its own.
+      try { if (timer && timer.unref) timer.unref(); } catch {}
     }
     const r = await fetch(url, { cache: "no-store", signal: ctrl ? ctrl.signal : undefined });
     if (timer) clearTimeout(timer);
@@ -247,6 +249,9 @@ export async function runSecurityChecks(rootDir) {
     if (liveUrl) {
       try {
         const r = await fetchWithTimeout(liveUrl + "/version.json?t=" + Date.now(), 8000);
+        // Windows fix: drain/cancel the body so no fetch socket stays open into
+        // process exit (open body + process.exit on win32 trips UV_HANDLE_CLOSING).
+        try { if (r && r.body && r.body.cancel) await r.body.cancel(); } catch {}
         liveState = r && r.ok ? "online" : `http-${(r && r.status) || "no-response"}`;
       } catch {
         liveState = "offline";

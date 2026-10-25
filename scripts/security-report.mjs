@@ -128,5 +128,6 @@ try {
   else console.log(`${review.length} incident(s) needing review — see above; only a human review can declare a compromise.`);
 } catch (err) {
   console.error("PDF write failed:", err?.message || err);
-  process.exit(1);
+  // Windows fix: use exitCode (graceful drain) instead of force-exit with open handles.
+  process.exitCode = 1;
 }
