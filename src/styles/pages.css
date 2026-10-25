@@ -1029,17 +1029,22 @@
 }
 
 .player__poster {
-  position: relative;
-  width: 100%;
-  height: 100%;
+  position: absolute;
+  inset: 0;
+  width: auto;
+  height: auto;
   padding: 0;
   border: 0;
   cursor: pointer;
   background: none;
   display: block;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
 }
 
 .player__poster img {
+  position: absolute;
+  inset: 0;
   width: 100%;
   height: 100%;
   object-fit: cover;
@@ -1053,9 +1058,8 @@
 
 .player__play {
   position: absolute;
-  top: 50%;
-  left: 50%;
-  transform: translate(-50%, -50%);
+  inset: 0;
+  margin: auto;
   width: 84px;
   height: 84px;
   border-radius: 50%;
@@ -1070,7 +1074,7 @@
 }
 
 .player__poster:hover .player__play {
-  transform: translate(-50%, -50%) scale(1.07);
+  transform: scale(1.07);
   box-shadow: 0 0 0 18px rgba(227, 183, 92, 0.18);
 }
 
