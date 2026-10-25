@@ -78,8 +78,6 @@ function pdfEscape(s) {
 }
 
 // Every event gets a class. A blocked request or a throttle is NOT a breach.
-// Connectivity events (a sleeping host, a publish still carrying) are
-// operational, never breaches: they must not read as "confirmed compromise".
 export function classifyEvent(e) {
   const kind = String((e && e.kind) || "");
   const level = String((e && e.level) || "info");
@@ -90,16 +88,13 @@ export function classifyEvent(e) {
     if (/throttl|rate .*exceed|retry in/i.test(detail)) return "rate-limit";
     return "blocked-request";
   }
-  if (kind === "live-online" || kind === "live-offline" || kind === "publish-stuck" || kind === "publish-watch") {
-    return "connectivity";
-  }
-  if (kind === "auth-fail" || kind === "ua-churn") {
+  if (kind === "auth-fail" || kind === "ua-churn" || kind === "live-online" || kind === "live-offline") {
     return kind === "auth-fail" ? "suspicious-pattern" : "notice";
   }
   if (kind === "unusual-volume" || kind === "auth-probing" || kind === "session-hopping") return "suspicious-pattern";
-  if (kind === "privilege-escalation") return "security-incident";
+  if (kind === "privilege-escalation" || kind === "publish-stuck") return "security-incident";
   if (level === "critical") return "security-incident";
-  if (level === "high") return kind === "impossible-travel" ? "suspicious-pattern" : "security-incident";
+  if (level === "high") return kind === "impossible-travel" || kind === "live-offline" ? "suspicious-pattern" : "security-incident";
   return "notice";
 }
 
@@ -108,7 +103,10 @@ export function aggregateKey(e) {
 }
 
 // Minimal multi-page PDF writer (Helvetica only, no deps).
-export function buildPdfBuffer(allEvents, breachCount, incidents) {
+// statusRows (optional, 4th arg) prepends the 7-area posture board:
+// RED ALERT lines render in red, WARNING in dark orange, the rest in black.
+// Old 3-arg callers keep working — the board is simply skipped when absent.
+export function buildPdfBuffer(allEvents, breachCount, incidents, statusRows = null) {
   const events = Array.isArray(allEvents) ? allEvents.slice(-300) : [];
   const list = Array.isArray(incidents) ? incidents.slice(-120) : null;
   const generated = new Date().toISOString();
@@ -117,38 +115,68 @@ export function buildPdfBuffer(allEvents, breachCount, incidents) {
     ? `Generated ${generated}  |  unique incidents: ${list.length}  |  raw events: ${events.length}`
     : `Generated ${generated}  |  potential breaches: ${breachCount}  |  events shown: ${events.length}`;
   const lines = [];
-  lines.push(title);
-  lines.push(sub);
-  lines.push("Counts are UNIQUE incidents (repeats from one source+endpoint inside 10 min count once).");
-  lines.push("A blocked request or a throttle is not a breach — only reviewed security-incidents may escalate.");
-  lines.push("");
+  const colors = []; // parallel to lines: "" | "red" | "warn"
+  function push(ln, color = "") {
+    lines.push(ln);
+    colors.push(color);
+  }
+  function colorForHead(head) {
+    const h = String(head || "");
+    if (/\[RED ALERT\]|\[CRITICAL\]|\[HIGH\]|\(security-incident\)/.test(h)) return "red";
+    if (/\[WARNING\]|\[MEDIUM\]/.test(h)) return "warn";
+    return "";
+  }
+  push(title);
+  push(sub);
+  push("Counts are UNIQUE incidents (repeats from one source+endpoint inside 10 min count once).");
+  push("A blocked request or a throttle is not a breach — only reviewed security-incidents may escalate.");
+  push("");
+  if (Array.isArray(statusRows) && statusRows.length) {
+    push("SECURITY POSTURE — 7 AREAS (most serious = RED ALERT; operational gaps = WARNING/NOTICE, never red)");
+    for (const r of statusRows) {
+      const tag = r.status === "RED ALERT" ? "[RED ALERT]" : `[${String(r.status || "notice").toUpperCase()}]`;
+      const head = `${tag} ${r.area} — ${String(r.detail || "").slice(0, 220)}`;
+      push(head, r.status === "RED ALERT" ? "red" : r.status === "WARNING" ? "warn" : "");
+      if (r.hint) push(`  hint: ${String(r.hint).slice(0, 220)}`);
+    }
+    push("");
+  }
   if (list && list.length) {
     for (const inc of list) {
       const head = `[${inc.lastTs || inc.firstTs || "?"}][${String(inc.maxLevel || "info").toUpperCase()}][${inc.ip || "-"}][${inc.route || "-"}] ${inc.kind || "event"} x${inc.count || 1} (${inc.class || "notice"})`;
-      lines.push(head);
-      if (inc.sample) lines.push(`  sample: ${inc.sample}`);
-      if (inc.hint) lines.push(`  hint: ${inc.hint}`);
-      if (inc.firstTs && inc.lastTs && inc.lastTs !== inc.firstTs) lines.push(`  window: ${inc.firstTs} .. ${inc.lastTs}`);
-      lines.push("");
+      push(head, colorForHead(head));
+      if (inc.sample) push(`  sample: ${inc.sample}`);
+      if (inc.hint) push(`  hint: ${inc.hint}`);
+      if (inc.firstTs && inc.lastTs && inc.lastTs !== inc.firstTs) push(`  window: ${inc.firstTs} .. ${inc.lastTs}`);
+      push("");
     }
+  } else if (!events.length && !(Array.isArray(statusRows) && statusRows.length)) {
+    push("No security events recorded yet.");
+    push("The WAF and session-anomaly detector log here in real time.");
   } else if (!events.length) {
-    lines.push("No security events recorded yet.");
-    lines.push("The WAF and session-anomaly detector log here in real time.");
+    push("No security events recorded yet — board above reflects live checks, not the log.");
   } else {
     for (const e of events) {
       const head = `[${e.ts || "?"}][${String(e.level || "info").toUpperCase()}][${e.ip || "-"}][${e.route || "-"}] ${e.kind || "event"}${e.class ? " (" + e.class + ")" : ""}${e.dup ? " [repeat]" : ""}`;
-      lines.push(head);
-      if (e.detail) lines.push(`  detail: ${e.detail}`);
-      if (e.hint) lines.push(`  hint: ${e.hint}`);
-      if (e.source) lines.push(`  source: ${e.source}${e.online != null ? (e.online ? " (online)" : " (offline)") : ""}`);
-      lines.push("");
+      push(head, colorForHead(head));
+      if (e.detail) push(`  detail: ${e.detail}`);
+      if (e.hint) push(`  hint: ${e.hint}`);
+      if (e.source) push(`  source: ${e.source}${e.online != null ? (e.online ? " (online)" : " (offline)") : ""}`);
+      push("");
     }
   }
-  // paginate: ~48 lines per A4 page at 9pt
+  // paginate: ~48 lines per A4 page at 9pt (colors ride alongside lines)
   const PER_PAGE = 48;
   const pages = [];
-  for (let i = 0; i < lines.length; i += PER_PAGE) pages.push(lines.slice(i, i + PER_PAGE));
-  if (!pages.length) pages.push(["No events."]);
+  const pageColors = [];
+  for (let i = 0; i < lines.length; i += PER_PAGE) {
+    pages.push(lines.slice(i, i + PER_PAGE));
+    pageColors.push(colors.slice(i, i + PER_PAGE));
+  }
+  if (!pages.length) {
+    pages.push(["No events."]);
+    pageColors.push([""]);
+  }
   const objects = [];
   // object numbering: 1 catalog, 2 pages, 3 font, then per page: page obj + content obj
   const pageObjs = [];
@@ -158,13 +186,17 @@ export function buildPdfBuffer(allEvents, breachCount, incidents) {
     n += 2;
   }
   const fontObj = 3;
-  function textStream(pageLines) {
-    let s = "BT /F1 9 Tf 40 800 Td 11 TL ";
+  function textStream(pageLines, colorsForPage) {
+    // Per-line color: RED ALERT / critical / high in red, WARNING / medium in
+    // dark orange, everything else black. One BT/ET block per line so the
+    // color operator applies exactly to that line.
+    let s = "";
     pageLines.forEach((ln, i) => {
-      if (i > 0) s += "T* ";
-      s += `(${pdfEscape(ln)}) Tj `;
+      const c = (colorsForPage && colorsForPage[i]) || "";
+      const col = c === "red" ? "1 0 0 rg" : c === "warn" ? "0.6 0.35 0 rg" : "0 0 0 rg";
+      const y = 800 - i * 11;
+      s += `BT /F1 9 Tf ${col} 40 ${y} Td (${pdfEscape(ln)}) Tj ET\n`;
     });
-    s += "ET";
     return s;
   }
   const pageRefs = pageObjs.map((p) => `${p.page} 0 R`).join(" ");
@@ -174,7 +206,7 @@ export function buildPdfBuffer(allEvents, breachCount, incidents) {
   pages.forEach((pl, i) => {
     const { page, content } = pageObjs[i];
     objects[page] = `${page} 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 ${fontObj} 0 R >> >> /Contents ${content} 0 R >>\nendobj\n`;
-    const stream = textStream(pl);
+    const stream = textStream(pl, pageColors[i]);
     objects[content] = `${content} 0 obj\n<< /Length ${Buffer.byteLength(stream)} >>\nstream\n${stream}\nendstream\nendobj\n`;
   });
   let out = "%PDF-1.4\n";
@@ -365,7 +397,14 @@ export function createSecurityLog({ rootDir, service = "site" } = {}) {
   async function writeLatestPdf() {
     const list = incidentList();
     const review = incidentsNeedingReview();
-    const buf = buildPdfBuffer(events.slice(-300), review.length, list.slice(-120));
+    // Same 7-area board inside every auto-written PDF (best effort — the
+    // incident evidence below is authoritative even when the board skips).
+    let statusRows = null;
+    try {
+      const { runSecurityChecks } = await import("./security-checks.mjs");
+      statusRows = await runSecurityChecks(base);
+    } catch { statusRows = null; }
+    const buf = buildPdfBuffer(events.slice(-300), review.length, list.slice(-120), statusRows);
     try {
       await mkdir(dir, { recursive: true });
       const stamp = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
@@ -404,12 +443,8 @@ export function createSecurityLog({ rootDir, service = "site" } = {}) {
   }
 
   // Polls the live deploy so the LOCAL terminal narrates the LIVE box too.
-  // Cold-boot aware: a free host takes 30–60s to answer its first request,
-  // so one slow answer is a wake, not an outage — it takes TWO consecutive
-  // failures to log live-offline, and the deadline (45s) outlasts the boot.
   // getLiveUrl: async () => "https://xxx.onrender.com" or "" (standalone).
   function startLiveWatch({ getLiveUrl, intervalMs = 60000 } = {}) {
-    let fails = 0;
     const tick = async () => {
       let url = "";
       try {
@@ -417,12 +452,7 @@ export function createSecurityLog({ rootDir, service = "site" } = {}) {
       } catch {
         url = "";
       }
-      if (!url) {
-        fails = 0;
-        return;
-      }
-      const started = Date.now();
-      const rid = Math.random().toString(36).slice(2, 10);
+      if (!url) return;
       const clean = String(url).replace(/\/+$/, "");
       let ctrl = null;
       let timer = 0;
@@ -433,47 +463,41 @@ export function createSecurityLog({ rootDir, service = "site" } = {}) {
             try {
               ctrl.abort();
             } catch {}
-          }, 45000);
+          }, 15000);
         }
         const r = await fetch(clean + "/version.json?t=" + Date.now(), { cache: "no-store", signal: ctrl ? ctrl.signal : undefined });
         if (timer) clearTimeout(timer);
-        const elapsed = Date.now() - started;
         if (r && r.ok) {
-          fails = 0;
           if (liveOnline !== true) {
             liveOnline = true;
-            log({ level: "info", kind: "live-online", ip: "-", route: clean, detail: `live deploy reachable [${rid}] (${elapsed}ms)`, source: "live", online: true });
+            log({ level: "info", kind: "live-online", ip: "-", route: clean, detail: "live deploy reachable", source: "live", online: true });
           }
         } else {
-          fails += 1;
-          if (fails >= 2 && liveOnline !== false) {
+          if (liveOnline !== false) {
             liveOnline = false;
             log({
               level: "medium",
               kind: "live-offline",
               ip: "-",
               route: clean,
-              detail: `live deploy answered ${r ? r.status : "no response"} twice in a row [${rid}] (last try ${elapsed}ms)`,
-              hint: "check the host logs; on Render free tier this is usually a sleep — a keep-awake ping (e.g. UptimeRobot every 5 min to /__health) avoids the 30-60s cold boot. Office copy keeps serving baked words and syncs on return. This is connectivity, not a breach.",
+              detail: `live deploy answered ${r ? r.status : "no response"}`,
+              hint: "check the host logs; on Render free tier this is usually a sleep — a keep-awake ping (e.g. UptimeRobot every 5 min to /version.json) avoids the 30-60s cold boot. Office copy keeps serving baked words and syncs on return.",
               source: "live",
               online: false,
             });
           }
         }
-      } catch (err) {
+      } catch {
         if (timer) clearTimeout(timer);
-        const elapsed = Date.now() - started;
-        const why = err && err.name === "AbortError" ? `no answer in 45s (still waking?)` : "unreachable (offline, sleeping, or no network)";
-        fails += 1;
-        if (fails >= 2 && liveOnline !== false) {
+        if (liveOnline !== false) {
           liveOnline = false;
           log({
             level: "medium",
             kind: "live-offline",
             ip: "-",
             route: clean,
-            detail: `live deploy ${why} — twice in a row [${rid}] (last try ${elapsed}ms)`,
-            hint: "check host logs / keep-awake ping; office copy keeps serving baked words and syncs on return. This is connectivity, not a breach.",
+            detail: "live deploy unreachable (offline, sleeping, or no network)",
+            hint: "check host logs / keep-awake ping; office copy keeps serving baked words and syncs on return.",
             source: "live",
             online: false,
           });

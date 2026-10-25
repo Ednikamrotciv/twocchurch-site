@@ -80,6 +80,34 @@ for (const inc of list) byClass[inc.class || "notice"] = (byClass[inc.class || "
 
 const onRender = !!process.env.RENDER;
 const persistent = !onRender || !!(process.env.DATA_DIR || process.env.SECURITY_PERSISTENT === "1" || process.env.SECURITY_LOG_DIR);
+// 7-area posture board (same checks as `npm run dev` predev + PDF section).
+let statusRows = [];
+try {
+  const { runSecurityChecks } = await import("./security-checks.mjs");
+  statusRows = await runSecurityChecks(ROOT);
+} catch { statusRows = []; }
+{
+  const RED_BG = "\x1b[41m\x1b[37m";
+  const YELLOW = "\x1b[33m";
+  const GREEN = "\x1b[32m";
+  const GREY = "\x1b[90m";
+  const RESET = "\x1b[0m";
+  const useColor = !process.env.NO_COLOR;
+  const col = (r) => !useColor ? "" : r.status === "RED ALERT" ? RED_BG : r.status === "WARNING" ? YELLOW : r.status === "SECURE" ? GREEN : GREY;
+  const pad = (s, n) => { s = String(s); return s.length >= n ? s.slice(0, n) : s + " ".repeat(n - s.length); };
+  console.log("==============================================================");
+  console.log(" SECURITY POSTURE — 7 areas (*** RED ALERT = attack / shield hole;");
+  console.log(" WARNING / NOTICE = operational gap, NOT an attack — low/medium)");
+  console.log("==============================================================");
+  for (const r of statusRows) {
+    const c = col(r);
+    console.log(` ${pad(r.area, 42)} | ${c}${pad(r.status, 12)}${useColor ? RESET : ""}${r.status === "RED ALERT" ? "  <-- RED ALERT" : ""}`);
+    console.log(`   ${String(r.detail).slice(0, 220)}`);
+  }
+  const reds = statusRows.filter((r) => r.status === "RED ALERT");
+  if (reds.length) console.log(`${useColor ? RED_BG : ""} ${reds.length} RED ALERT(s): ${reds.map((r) => r.area).join("; ")} ${useColor ? RESET : ""}`);
+  else console.log(" No RED ALERTs — only low/medium operational notes (not attacks).");
+}
 console.log(`security report: ${events.length} raw events, ${list.length} unique incidents, ${review.length} incident(s) needing review`);
 console.log(`by class: ${Object.entries(byClass).map(([k, v]) => `${k}=${v}`).join(", ") || "none"}`);
 console.log(`evidence persistence: ${persistent ? "PERSISTENT" : "EPHEMERAL — mount a disk at data/ (or set SECURITY_LOG_DIR) to keep evidence across Render sleeps/restarts"}`);
@@ -88,7 +116,7 @@ for (const inc of list.slice(0, 50)) {
 }
 try {
   await mkdir(base, { recursive: true });
-  const buf = buildPdfBuffer(events.slice(-300), review.length, list.slice(-120));
+  const buf = buildPdfBuffer(events.slice(-300), review.length, list.slice(-120), statusRows);
   const stamp = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
   const p1 = path.join(base, `security-report-${stamp}.pdf`);
   const p2 = path.join(base, "security-report-latest.pdf");

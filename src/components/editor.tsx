@@ -2153,7 +2153,7 @@ export async function runPublishAction(
         res.local
           ? "Saved on this device. The shared server was unreachable, so other visitors follow when it returns — no second click needed."
           : res.live === false
-          ? res.relayMsg || "Published here. The live site follows as soon as it answers — no second click needed."
+          ? res.relayMsg || "Published here. The live site follows within a minute — no second click needed."
           : "Published. Every visitor sees the new content right away — no second click needed.",
         res.local || res.live === false ? "info" : "success"
       );
@@ -2401,7 +2401,7 @@ export function ToolsPage() {
     if (!res.ok) {
       fireToast(`Could not roll back (${res.error}).`, "error");
     } else if (res.live === false) {
-      fireToast("Rolled back here. The live site follows as soon as it answers.", "info");
+      fireToast("Rolled back here. The live site follows within a minute.", "info");
     } else {
       fireToast("Rolled back to the previous revision.", "success");
     }

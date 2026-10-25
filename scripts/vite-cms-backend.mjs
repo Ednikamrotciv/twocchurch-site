@@ -193,6 +193,18 @@ export function cmsBackend() {
             persistNote = p.persistent ? `evidence PERSISTENT at ${p.dir}` : `evidence EPHEMERAL (${p.reason})`;
           } catch {}
           secLog.log({ level: "info", kind: "shield-on", ip: "-", route: "-", detail: `WAF + session-anomaly shield active in DEV (same server-side module as prod; Vite dev paths exempt from rate counting, all signature scans apply) — ${persistNote}`, hint: "every [SEC] line below is also saved to data/security-events.jsonl; unique incidents auto-write data/security-report-latest.pdf", source: "local" });
+          // 7-area posture board in this terminal too (info only — never a PDF trigger).
+          try {
+            const { runSecurityChecks } = await import("./security-checks.mjs");
+            const rows = await runSecurityChecks(ROOT);
+            const useColor = !process.env.NO_COLOR;
+            const C = { redBg: "\x1b[41m\x1b[37m", yellow: "\x1b[33m", green: "\x1b[32m", grey: "\x1b[90m", reset: "\x1b[0m" };
+            console.log(" SECURITY POSTURE — 7 areas (RED ALERT = attack; WARNING/NOTICE = operational, not an attack)");
+            for (const r of rows) {
+              const c = r.status === "RED ALERT" ? C.redBg : r.status === "WARNING" ? C.yellow : r.status === "SECURE" ? C.green : C.grey;
+              console.log(`  ${(useColor ? c : "")}${String(r.area).slice(0, 42).padEnd(42)} | ${r.status}${(useColor ? C.reset : "")}${r.status === "RED ALERT" ? "  <-- RED ALERT" : ""} — ${String(r.detail).slice(0, 160)}`);
+            }
+          } catch {}
           secLog.startLiveWatch({ getLiveUrl: devLiveUrl, intervalMs: 60000 });
         }
       } catch {}

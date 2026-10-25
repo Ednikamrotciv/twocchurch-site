@@ -1019,7 +1019,7 @@ function UnsavedView({
         pub.local
           ? "Deleted on this device — it leaves the site everywhere once the connection returns."
           : pub.live === false
-          ? "Deleted here — the live site follows as soon as it answers."
+          ? "Deleted here — the live site follows within a minute."
           : "Deleted — gone from the site everywhere.",
         pub.local || pub.live === false ? "info" : "success"
       );

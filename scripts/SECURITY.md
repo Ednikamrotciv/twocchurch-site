@@ -54,15 +54,12 @@ network backstop is genuinely per-IP instead of one global bucket.
   is **not** a breach by itself.
 - `rate-limit` — a throttle-window trip (429). Policy event, not an attack
   verdict. Routine polling must never read as "20 breaches".
-- `suspicious-pattern` — anomaly watch (volume, auth failures) to
+- `suspicious-pattern` — anomaly watch (volume, auth failures, offline) to
   review.
 - `security-incident` — needs a human: privilege escalation, auth-probing
-  bursts, command injection. Only a reviewed incident may
+  bursts, command injection, stuck publishes. Only a reviewed incident may
   escalate — a confirmed compromise is NEVER auto-declared.
-- `connectivity` — operational transport: live-offline/live-online,
-  publish-stuck/publish-watch, a publish still carrying to a waking host.
-  Never a breach, never in the "needing review" count.
-- `notice` — operational info (shield-on, publish accepted,
+- `notice` — operational info (shield-on, publish accepted, live-online,
   PDF written). Never a breach.
 
 Repeats from one source+endpoint inside 10 minutes aggregate into ONE
@@ -162,3 +159,30 @@ If an incident needs review:
    tab, or Render sleep — the throttle + keep-awake ping hint covers it.
 3. Keep `npm run backup` snapshots: the PDF + JSONL are evidence, not
    content; Tools → Backup/Restore + Publish is the way back for words.
+
+## 8. Seven-area posture board (terminal + PDF)
+
+Every `npm run dev` prints the posture table first (the `predev` hook runs
+`node scripts/security-status.mjs`; `dev` itself stays `vite`), the dev
+and production backends re-print it at boot, and every PDF carries it on page
+one — same checks, same wording, in all three places.
+
+Areas: Security event monitoring | Incident classification |
+Production backend availability | Admin login and password protection |
+Protection against unauthorized publishing | Persistent storage and backups |
+Protection against common web attacks.
+
+Severity rule: the most serious problems — live attacks, probing bursts,
+privilege escalation, WAF holes, missing publish guards — are RED ALERT
+(red in the terminal, red in the PDF). Anything that is NOT an attack
+(ephemeral disk, no snapshot yet, live box asleep, default-password hygiene,
+dev-only gaps) is WARNING or NOTICE (yellow/green/grey — low/medium, never
+red). A blocked request or a throttle is never a compromise; only a reviewed
+security-incident may escalate.
+
+```sh
+npm run dev              # predev prints the 7-area board, then vite starts
+npm run security:status  # board only (terminal + data/security-status.json + PDF refresh)
+npm run security:report  # board + unique incidents + PDF rewrite
+npm run security:test    # full WAF/anomaly/auth test matrix (unchanged)
+```

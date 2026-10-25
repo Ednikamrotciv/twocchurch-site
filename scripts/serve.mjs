@@ -214,6 +214,18 @@ try {
 } catch {
   secLog.log({ level: "info", kind: "shield-on", ip: "-", route: "-", detail: "WAF + session-anomaly shield active (PROD, strict) — malicious traffic is filtered before the server", hint: "watch this terminal for [SEC] lines; breaches auto-write data/security-report-latest.pdf; admin PDF at /__security/report.pdf", source: "local" });
 }
+// 7-area posture board in the production terminal too (info only).
+try {
+  const { runSecurityChecks } = await import("./security-checks.mjs");
+  const rows = await runSecurityChecks(ROOT);
+  const useColor = !process.env.NO_COLOR;
+  const C = { redBg: "\x1b[41m\x1b[37m", yellow: "\x1b[33m", green: "\x1b[32m", grey: "\x1b[90m", reset: "\x1b[0m" };
+  console.log(" SECURITY POSTURE — 7 areas (RED ALERT = attack; WARNING/NOTICE = operational, not an attack)");
+  for (const r of rows) {
+    const c = r.status === "RED ALERT" ? C.redBg : r.status === "WARNING" ? C.yellow : r.status === "SECURE" ? C.green : C.grey;
+    console.log(`  ${(useColor ? c : "")}${String(r.area).slice(0, 42).padEnd(42)} | ${r.status}${(useColor ? C.reset : "")}${r.status === "RED ALERT" ? "  <-- RED ALERT" : ""} — ${String(r.detail).slice(0, 160)}`);
+  }
+} catch {}
 
 /* HIGH fix — file-door guard: /__upload, /__restore-file and /__delete-file
    take effect only for a signed-in admin connection (the same conn id the
@@ -446,41 +458,6 @@ const server = http.createServer(async (req, res) => {
       return;
     }
 
-
-    /* Lightweight health door (monitoring + admin Status): proves publishing
-       AND retrieval work without moving any content — revision identifiers,
-       counts and flags only, never words. Cache-proof so uptime pings read
-       the live store, not a CDN. */
-    if (pathname === "/__health" && req.method === "GET") {
-      const started = Date.now();
-      let stamp = null;
-      try {
-        const r = await cms.call("contentRev", "health", "");
-        if (r && r.status === 200) stamp = JSON.parse(r.body);
-      } catch { /* store unreadable — reported below, still 200 */ }
-      const okStamp = !!(stamp && stamp.ok === true);
-      const body = JSON.stringify({
-        ok: true,
-        service: "serve",
-        time: new Date().toISOString(),
-        uptimeSec: Math.floor(process.uptime()),
-        store: okStamp ? "ready" : "unreadable",
-        rev: okStamp ? Math.floor(Number(stamp.rev)) || 0 : 0,
-        notes: okStamp ? Math.floor(Number(stamp.notes)) || 0 : 0,
-        code: okStamp && typeof stamp.code === "string" ? String(stamp.code).slice(0, 80) : "",
-        publishDeploy: okStamp && typeof stamp.publishDeploy === "string" ? String(stamp.publishDeploy).slice(0, 80) : "",
-        words: okStamp ? Math.floor(Number(stamp.words)) || 0 : 0,
-        at: okStamp ? Number(stamp.at) || 0 : 0,
-        elapsedMs: Date.now() - started,
-      });
-      res.writeHead(200, {
-        "content-type": "application/json; charset=utf-8",
-        "content-length": Buffer.byteLength(body),
-        "cache-control": "no-store",
-      });
-      res.end(body);
-      return;
-    }
 
     /* Live address for the two-way sync (note 308; ported to this line in
        note 346 — without this door the live→local pull never answered here):

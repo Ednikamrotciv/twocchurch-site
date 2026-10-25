@@ -7081,7 +7081,7 @@ async function sendPatch(
       checkStaleBuild().catch(() => {});
     } catch {}
   }
-  return { ok: true, rev: lastRev, sent, relay, live: relay !== "missed", relayMsg: relayStatus().msg };
+  return { ok: true, rev: lastRev, sent, relay };
 }
 
 /** Put the draft live. `content` is only for the publish that waited on a save. */

@@ -7,6 +7,8 @@
   "scripts": {
     "start": "node scripts/serve.mjs",
     "dev": "vite",
+    "predev": "node scripts/security-status.mjs",
+    "security:status": "node scripts/security-status.mjs",
     "dev:fresh": "vite --force",
     "clean": "node scripts/clean.mjs",
     "serve": "node scripts/serve.mjs",
