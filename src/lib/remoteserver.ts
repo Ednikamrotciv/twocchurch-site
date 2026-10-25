@@ -51,13 +51,7 @@ async function siteServer(): Promise<string> {
   const meta = serverMeta();
   if (meta) return meta;
   try {
-    const ctrl = typeof AbortController !== "undefined" ? new AbortController() : null;
-    const timer = ctrl ? setTimeout(() => { try { ctrl.abort(); } catch {} }, 8000) : 0;
-    let res: Response | null = null;
-    try {
-      res = await fetch(siteFile(SITE_FILE), { cache: "no-store", signal: ctrl ? ctrl.signal : undefined });
-    } catch { return ""; } finally { try { if (timer) clearTimeout(timer as any); } catch {} }
-    if (!res) return "";
+    const res = await fetch(siteFile(SITE_FILE), { cache: "no-store" });
     if (!res.ok) return "";
     const data = await res.json().catch(() => null);
     return normalizeServerUrl(data && (data.url || data.server));
@@ -196,20 +190,13 @@ export function createRemoteSocket(base: string, connId?: string): any {
     });
   };
   async function call(method: string, arg: any): Promise<string> {
-    const ctrl = typeof AbortController !== "undefined" ? new AbortController() : null;
-    const timer = ctrl ? setTimeout(() => { try { ctrl.abort(); } catch {} }, 15000) : 0;
-    try {
-      const res = await fetch(root + "/__cms/" + method + "?conn=" + encodeURIComponent(connIdFinal), {
-        method: "POST",
-        headers: { "content-type": "text/plain;charset=utf-8" },
-        body: arg === undefined || arg === null ? "" : String(arg),
-        signal: ctrl ? ctrl.signal : undefined,
-      });
-      if (!res.ok) throw new Error("rpc " + method + ": http " + res.status);
-      return await res.text();
-    } finally {
-      try { if (timer) clearTimeout(timer as any); } catch {}
-    }
+    const res = await fetch(root + "/__cms/" + method + "?conn=" + encodeURIComponent(connIdFinal), {
+      method: "POST",
+      headers: { "content-type": "text/plain;charset=utf-8" },
+      body: arg === undefined || arg === null ? "" : String(arg),
+    });
+    if (!res.ok) throw new Error("rpc " + method + ": http " + res.status);
+    return res.text();
   }
   let es: EventSource | null = null;
   try {

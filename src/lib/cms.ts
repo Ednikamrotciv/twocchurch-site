@@ -39,34 +39,6 @@ const SESSION_DEPLOY_KEY = "wom.cms.sessionDeploy";
 const LAST_ADMIN_AT_KEY = "wom.cms.lastAdminAt";
 const SESSION_IDLE_MS = 15 * 60 * 1000;
 const REQUEST_TIMEOUT = 3500;
-/* Stuck-free bounds (nothing gets stuck): every network wait below carries its
-   own deadline, and every poll carries a re-entry guard — a hanging fetch or a
-   wedged flag can never strand boot, maintenance or a Publish click. */
-function withRpcTimeout<T>(p: Promise<T>, ms: number, label = "rpc"): Promise<T> {
-  let timer = 0;
-  try {
-    return (Promise.race([
-      p,
-      new Promise<T>((_, reject) => {
-        timer = window.setTimeout(() => reject(new Error(label + " timeout")), ms);
-      }),
-    ]) as Promise<T>).finally(() => {
-      try { if (timer) window.clearTimeout(timer); } catch {}
-    });
-  } catch { return p; }
-}
-function fetchWithTimeout(url: string, init: RequestInit, ms: number): Promise<Response> {
-  const ctrl = typeof AbortController !== "undefined" ? new AbortController() : null;
-  const timer = ctrl ? window.setTimeout(() => { try { ctrl.abort(); } catch {} }, ms) : 0;
-  try {
-    return fetch(url, { ...init, signal: ctrl ? ctrl.signal : undefined }).finally(() => {
-      try { if (timer) window.clearTimeout(timer as any); } catch {}
-    });
-  } catch (e) {
-    try { if (timer) window.clearTimeout(timer as any); } catch {}
-    throw e;
-  }
-}
 
 const NOTES_KEY = "wom.cms.notes";
 /* Which code update the browser's saved store belongs to (note 253). */
@@ -1068,11 +1040,11 @@ export function isDeployOnlyStale(): boolean {
 export async function peekFreshDeploy(): Promise<void> {
   try {
     const sep = siteFile("version.json").includes("?") ? "&" : "?";
-    const res = await fetchWithTimeout(siteFile("version.json") + sep + "t=" + Date.now(), {
+    const res = await fetch(siteFile("version.json") + sep + "t=" + Date.now(), {
       cache: "no-store",
       headers: { pragma: "no-cache", "cache-control": "no-cache" },
-    }, 8000).catch(() => null);
-    if (!res || !res.ok) return;
+    });
+    if (!res.ok) return;
     const data = await res.json().catch(() => null);
     const n = Number(data && (data as any).notes);
     const vDeploy = data && (data as any).deployId;
@@ -1136,11 +1108,11 @@ export function checkStaleBuild(): Promise<void> {
       /* Cache-buster + no-store headers: an intermediate cache must never
          answer this with the previous update's number. */
       const sep = siteFile("version.json").includes("?") ? "&" : "?";
-      const res = await fetchWithTimeout(siteFile("version.json") + sep + "t=" + Date.now(), {
+      const res = await fetch(siteFile("version.json") + sep + "t=" + Date.now(), {
         cache: "no-store",
         headers: { pragma: "no-cache", "cache-control": "no-cache" },
-      }, 8000).catch(() => null);
-      if (!res || !res.ok) return;
+      });
+      if (!res.ok) return;
       const data = await res.json().catch(() => null);
       const n = Number(data && (data as any).notes);
       const vDeploy = data && (data as any).deployId;
@@ -1209,10 +1181,9 @@ export function checkStaleBuild(): Promise<void> {
           sessionStorage.setItem(STALE_RELOAD_KEY, JSON.stringify({ notes: staleNewerNotes, at, tries }));
         } catch {}
       } catch {}
-      /* Warm the entry document past the HTTP cache, then reload onto it —
-         never let a hanging warm fetch block the reload (stuck on old code). */
+      /* Warm the entry document past the HTTP cache, then reload onto it. */
       try {
-        await withRpcTimeout(fetch(window.location.href, { cache: "reload" } as RequestInit).catch(() => null), 5000, "warm");
+        await fetch(window.location.href, { cache: "reload" } as RequestInit);
       } catch {}
       window.location.reload();
     } catch {
@@ -2388,8 +2359,7 @@ async function applySeedOnce() {
   if (seedApplied) return;
   seedApplied = true;
   try {
-    const res = await fetchWithTimeout(siteFile("seed.json"), { cache: "no-store" }, 8000).catch(() => null);
-    if (!res) return;
+    const res = await fetch(siteFile("seed.json"), { cache: "no-store" });
     if (res.ok) {
       const seed = await res.json();
       /* The baked recent-services list paints even when the words are not
@@ -2686,10 +2656,10 @@ async function joinedBackendRoot(): Promise<string> {
 }
 async function liveBaseUrl(): Promise<string> {
   try {
-    const joined = await withRpcTimeout(joinedBackendRoot(), 3000, "live-root").catch(() => "");
+    const joined = await joinedBackendRoot();
     if (joined) {
       try {
-        const res = await fetchWithTimeout(joined + "/__live-url", { cache: "no-store" }, 5000).catch(() => null);
+        const res = await fetch(joined + "/__live-url", { cache: "no-store" });
         if (res.ok) {
           const data = await res.json().catch(() => null);
           const u = String((data && data.url) || "").trim().replace(/\/+$/, "");
@@ -2707,8 +2677,7 @@ async function liveBaseUrl(): Promise<string> {
   }
   let backend = "";
   try {
-    const res = await fetchWithTimeout("/__live-url", { cache: "no-store" }, 5000).catch(() => null);
-    if (!res) throw 0;
+    const res = await fetch("/__live-url", { cache: "no-store" });
     if (res.ok) {
       const data = await res.json().catch(() => null);
       const u = String((data && data.url) || "").trim().replace(/\/+$/, "");
@@ -2880,24 +2849,22 @@ async function backfillUploadsFrom(fromBase: string, content: Snapshot = overrid
   for (const name of localUploadNames(content)) {
     let here = false;
     try {
-      const res = await fetchWithTimeout("/data/uploads/" + name, { cache: "no-store" }, 8000).catch(() => null);
-      here = !!res && res.ok;
+      const res = await fetch("/data/uploads/" + name, { cache: "no-store" });
+      here = res.ok;
     } catch {
       here = false;
     }
     if (here) continue;
     try {
-      const res = await fetchWithTimeout(fromBase + "/data/uploads/" + name, { cache: "no-store" }, 10000).catch(() => null);
-      if (!res) throw 0;
+      const res = await fetch(fromBase + "/data/uploads/" + name, { cache: "no-store" });
       if (!res.ok) throw 0;
       const blob = await res.blob();
       if (!blob.size || blob.size > BACKUP_FILE_MAX_BYTES) throw 0;
-      const put = await fetchWithTimeout("/__restore-file?conn=" + encodeURIComponent(officeFileConn()) + "&name=" + encodeURIComponent(name), {
+      const put = await fetch("/__restore-file?conn=" + encodeURIComponent(officeFileConn()) + "&name=" + encodeURIComponent(name), {
         method: "POST",
         headers: { "content-type": blob.type || guessUploadType(name) },
         body: blob,
-      }, 15000).catch(() => null);
-      if (!put) throw 0;
+      });
       if (!put.ok) throw 0;
       restored++;
     } catch {
@@ -2920,8 +2887,7 @@ async function uploadNameMissing(name: string): Promise<boolean> {
      missing" and let the cached copy paint; the next online heal restores. */
   try {
     if (typeof navigator !== "undefined" && (navigator as any).onLine === false) return false;
-    const res = await fetchWithTimeout("/data/uploads/" + name, { cache: "no-store" }, 8000).catch(() => null);
-    if (!res) return false;
+    const res = await fetch("/data/uploads/" + name, { cache: "no-store" });
     if (!res.ok) return true;
     const type = String(res.headers.get("content-type") || "").toLowerCase();
     if (type.includes("text/html")) return true;
@@ -2962,8 +2928,7 @@ export async function healMissingUploads(): Promise<{ restored: number; checked:
         if (!blob || !(blob as any).size) {
           for (const u of await feedUrlsForUpload(name)) {
             try {
-              const r = await fetchWithTimeout(u, { cache: "no-store" }, 10000).catch(() => null);
-              if (!r) continue;
+              const r = await fetch(u, { cache: "no-store" });
               if (!r.ok) continue;
               const b = await r.blob();
               if (!b || !(b as any).size) continue;
@@ -2975,12 +2940,12 @@ export async function healMissingUploads(): Promise<{ restored: number; checked:
           }
         }
         if (!blob || !(blob as any).size) continue;
-        const put = await fetchWithTimeout("/__restore-file?conn=" + encodeURIComponent(officeFileConn()) + "&name=" + encodeURIComponent(name), {
+        const put = await fetch("/__restore-file?conn=" + encodeURIComponent(officeFileConn()) + "&name=" + encodeURIComponent(name), {
           method: "POST",
           headers: { "content-type": (blob as any).type || guessUploadType(name) },
           body: blob,
-        }, 15000).catch(() => null);
-        if (put && put.ok) restored++;
+        });
+        if (put.ok) restored++;
       } catch {}
     }
     return { restored, checked };
@@ -3543,10 +3508,7 @@ function stampTupleOf(r: any): string {
    — a public read, no session — which wakes a sleeping server like any HTTP
    request. Any same-update publish with real words releases this deploy at
    once, whatever deploy id it was stamped from. Best-effort, never throws. */
-let pollPublishRunning = false;
 async function pollPublishHttp(): Promise<void> {
-  if (pollPublishRunning) return;
-  pollPublishRunning = true;
   try {
     if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
     const urls: string[] = [];
@@ -3643,7 +3605,6 @@ async function pollPublishHttp(): Promise<void> {
       notify();
     }
   } catch {}
-  finally { pollPublishRunning = false; }
 }
 function startContentWatch() {
   if (contentWatchStarted) return;
@@ -3660,7 +3621,7 @@ function startContentWatch() {
       if (contentWatchRunning) return;
       contentWatchRunning = true;
       try {
-        const raw = await withRpcTimeout(socket.rpc.contentRev(""), 8000, "contentRev");
+        const raw = await socket.rpc.contentRev("");
         const r = typeof raw === "string" ? JSON.parse(raw) : raw;
         try {
           noteServerVerdict((r as any).notes, (r as any).words, (r as any).at, (r as any).publishDeploy, (r as any).code);
@@ -4500,7 +4461,7 @@ function scheduleReconnect() {
 }
 
 async function syncFromServer() {
-  const raw = await withRpcTimeout(socket.rpc.getContent(""), 10000, "getContent");
+  const raw = await socket.rpc.getContent("");
   const res = JSON.parse(raw);
   if (!res?.ok) return;
   /* A reload must not strand the live site: once per session, pick up any
@@ -4551,49 +4512,13 @@ async function syncFromServer() {
     notify();
     return;
   }
-  /* Note 301: a blank answer can never clear — the paint stays, words are
-     stashed for the heal above. But a bless-only publish carries notes + code
-     + clock with no words, and that stamp IS the office review: when it names
-     this update and this code, adopt the stamps so the notice can lift while
-     the paint stays. Unattested empties (wiped box, wrong update/code) still
-     wait exactly as before. Never throws. */
+  /* Note 301: a blank answer can never bless and never clear — the empty
+     guard runs BEFORE the publish stamp is adopted, so only a live answer
+     moves maintenance. */
   if (!Object.keys(server).length && Object.keys(overrides).length) {
     if (pending) pending = { ...clone(pending), ...clone(overrides) };
     else if (!plannedPublish()) pending = clone(overrides);
     if (pending) writeJSON(PENDING_KEY, pending);
-    try {
-      lastServerWitness = {
-        notes: typeof res.notes === "number" ? Math.floor(res.notes) : 0,
-        code: typeof (res as any).code === "string" ? (res as any).code : "",
-        deploy: typeof (res as any).publishDeploy === "string" ? (res as any).publishDeploy : "",
-        at: typeof res.at === "number" ? Math.floor(res.at) : 0,
-        words: 0,
-      };
-    } catch { lastServerWitness = null; }
-    try {
-      const nE = typeof res.notes === "number" ? Math.floor(res.notes) : 0;
-      const cE = typeof (res as any).code === "string" ? (res as any).code : "";
-      const aE = typeof res.at === "number" ? res.at : 0;
-      if (nE === BUILD_NOTES && !!cE && !!runningCode && cE === runningCode) {
-        setPublishedNotes(BUILD_NOTES);
-        try { if (aE > 0) notePublishAt(aE); } catch {}
-        try { noteDeployWitness((res as any).publishDeploy); } catch {}
-        try { noteCodeWitness(cE, nE); } catch {}
-        try {
-          if (deployFromMeta && currentDeployId && publishedDeployId !== currentDeployId &&
-            (!cleanStageForNewCode || pendingSections().length === 0)) {
-            markDeployPublished();
-            try { lastReleaseBy = "server-word-witness-empty-held"; } catch {}
-          }
-        } catch {}
-        try {
-          if (!deployFromMeta && (!cleanStageForNewCode || pendingSections().length === 0)) {
-            blessRunningCode();
-          }
-        } catch {}
-        version += 1;
-      }
-    } catch {}
     if (authed) {
       try {
         await healEmptyServer();
@@ -7113,7 +7038,7 @@ async function sendPatch(
     });
     let res: any;
     try {
-      res = JSON.parse(await withRpcTimeout(socket.rpc.publish(raw), 15000, "publish"));
+      res = JSON.parse(await socket.rpc.publish(raw));
     } catch (err: any) {
       return { ok: false, error: err?.message || "error", sent, failed: ids };
     }
