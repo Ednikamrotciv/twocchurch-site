@@ -447,6 +447,41 @@ const server = http.createServer(async (req, res) => {
     }
 
 
+    /* Lightweight health door (monitoring + admin Status): proves publishing
+       AND retrieval work without moving any content — revision identifiers,
+       counts and flags only, never words. Cache-proof so uptime pings read
+       the live store, not a CDN. */
+    if (pathname === "/__health" && req.method === "GET") {
+      const started = Date.now();
+      let stamp = null;
+      try {
+        const r = await cms.call("contentRev", "health", "");
+        if (r && r.status === 200) stamp = JSON.parse(r.body);
+      } catch { /* store unreadable — reported below, still 200 */ }
+      const okStamp = !!(stamp && stamp.ok === true);
+      const body = JSON.stringify({
+        ok: true,
+        service: "serve",
+        time: new Date().toISOString(),
+        uptimeSec: Math.floor(process.uptime()),
+        store: okStamp ? "ready" : "unreadable",
+        rev: okStamp ? Math.floor(Number(stamp.rev)) || 0 : 0,
+        notes: okStamp ? Math.floor(Number(stamp.notes)) || 0 : 0,
+        code: okStamp && typeof stamp.code === "string" ? String(stamp.code).slice(0, 80) : "",
+        publishDeploy: okStamp && typeof stamp.publishDeploy === "string" ? String(stamp.publishDeploy).slice(0, 80) : "",
+        words: okStamp ? Math.floor(Number(stamp.words)) || 0 : 0,
+        at: okStamp ? Number(stamp.at) || 0 : 0,
+        elapsedMs: Date.now() - started,
+      });
+      res.writeHead(200, {
+        "content-type": "application/json; charset=utf-8",
+        "content-length": Buffer.byteLength(body),
+        "cache-control": "no-store",
+      });
+      res.end(body);
+      return;
+    }
+
     /* Live address for the two-way sync (note 308; ported to this line in
        note 346 — without this door the live→local pull never answered here):
        office copies ask this door where "live" is (the first origin in

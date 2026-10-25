@@ -626,7 +626,7 @@ export async function runAll(fs) {
   ok("clicks await the word relay", has(cms, "awaitRelay = false") && has(cms, ", true, true)"), "explicit clicks must wait out the bounded relay; background sends never wait");
   ok("relay is bounded", has(cms, "25000") && has(cms, "relayFetch"), "awaiting the relay must never hold a click hostage on a stalled network");
   ok("result names live", has(cms, "live?: boolean") && has(cms, 'relay !== "missed"'), "the click result must say whether live visitors got it");
-  ok("toasts tell the truth", has(ed, "The live site follows within a minute."), "a click live missed must say so, not claim every visitor");
+  ok("toasts tell the truth", has(ed, "The live site follows as soon as it answers"), "a click live missed must say so, not claim every visitor");
   ok("undo relays too", has(cms, '"Undid the last publish"'), "an undo is a publish the other way — live must learn it at once");
   try {
     const mkRpc = (word) => {

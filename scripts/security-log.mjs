@@ -78,6 +78,8 @@ function pdfEscape(s) {
 }
 
 // Every event gets a class. A blocked request or a throttle is NOT a breach.
+// Connectivity events (a sleeping host, a publish still carrying) are
+// operational, never breaches: they must not read as "confirmed compromise".
 export function classifyEvent(e) {
   const kind = String((e && e.kind) || "");
   const level = String((e && e.level) || "info");
@@ -88,13 +90,16 @@ export function classifyEvent(e) {
     if (/throttl|rate .*exceed|retry in/i.test(detail)) return "rate-limit";
     return "blocked-request";
   }
-  if (kind === "auth-fail" || kind === "ua-churn" || kind === "live-online" || kind === "live-offline") {
+  if (kind === "live-online" || kind === "live-offline" || kind === "publish-stuck" || kind === "publish-watch") {
+    return "connectivity";
+  }
+  if (kind === "auth-fail" || kind === "ua-churn") {
     return kind === "auth-fail" ? "suspicious-pattern" : "notice";
   }
   if (kind === "unusual-volume" || kind === "auth-probing" || kind === "session-hopping") return "suspicious-pattern";
-  if (kind === "privilege-escalation" || kind === "publish-stuck") return "security-incident";
+  if (kind === "privilege-escalation") return "security-incident";
   if (level === "critical") return "security-incident";
-  if (level === "high") return kind === "impossible-travel" || kind === "live-offline" ? "suspicious-pattern" : "security-incident";
+  if (level === "high") return kind === "impossible-travel" ? "suspicious-pattern" : "security-incident";
   return "notice";
 }
 
@@ -399,8 +404,12 @@ export function createSecurityLog({ rootDir, service = "site" } = {}) {
   }
 
   // Polls the live deploy so the LOCAL terminal narrates the LIVE box too.
+  // Cold-boot aware: a free host takes 30–60s to answer its first request,
+  // so one slow answer is a wake, not an outage — it takes TWO consecutive
+  // failures to log live-offline, and the deadline (45s) outlasts the boot.
   // getLiveUrl: async () => "https://xxx.onrender.com" or "" (standalone).
   function startLiveWatch({ getLiveUrl, intervalMs = 60000 } = {}) {
+    let fails = 0;
     const tick = async () => {
       let url = "";
       try {
@@ -408,7 +417,12 @@ export function createSecurityLog({ rootDir, service = "site" } = {}) {
       } catch {
         url = "";
       }
-      if (!url) return;
+      if (!url) {
+        fails = 0;
+        return;
+      }
+      const started = Date.now();
+      const rid = Math.random().toString(36).slice(2, 10);
       const clean = String(url).replace(/\/+$/, "");
       let ctrl = null;
       let timer = 0;
@@ -419,41 +433,47 @@ export function createSecurityLog({ rootDir, service = "site" } = {}) {
             try {
               ctrl.abort();
             } catch {}
-          }, 15000);
+          }, 45000);
         }
         const r = await fetch(clean + "/version.json?t=" + Date.now(), { cache: "no-store", signal: ctrl ? ctrl.signal : undefined });
         if (timer) clearTimeout(timer);
+        const elapsed = Date.now() - started;
         if (r && r.ok) {
+          fails = 0;
           if (liveOnline !== true) {
             liveOnline = true;
-            log({ level: "info", kind: "live-online", ip: "-", route: clean, detail: "live deploy reachable", source: "live", online: true });
+            log({ level: "info", kind: "live-online", ip: "-", route: clean, detail: `live deploy reachable [${rid}] (${elapsed}ms)`, source: "live", online: true });
           }
         } else {
-          if (liveOnline !== false) {
+          fails += 1;
+          if (fails >= 2 && liveOnline !== false) {
             liveOnline = false;
             log({
               level: "medium",
               kind: "live-offline",
               ip: "-",
               route: clean,
-              detail: `live deploy answered ${r ? r.status : "no response"}`,
-              hint: "check the host logs; on Render free tier this is usually a sleep — a keep-awake ping (e.g. UptimeRobot every 5 min to /version.json) avoids the 30-60s cold boot. Office copy keeps serving baked words and syncs on return.",
+              detail: `live deploy answered ${r ? r.status : "no response"} twice in a row [${rid}] (last try ${elapsed}ms)`,
+              hint: "check the host logs; on Render free tier this is usually a sleep — a keep-awake ping (e.g. UptimeRobot every 5 min to /__health) avoids the 30-60s cold boot. Office copy keeps serving baked words and syncs on return. This is connectivity, not a breach.",
               source: "live",
               online: false,
             });
           }
         }
-      } catch {
+      } catch (err) {
         if (timer) clearTimeout(timer);
-        if (liveOnline !== false) {
+        const elapsed = Date.now() - started;
+        const why = err && err.name === "AbortError" ? `no answer in 45s (still waking?)` : "unreachable (offline, sleeping, or no network)";
+        fails += 1;
+        if (fails >= 2 && liveOnline !== false) {
           liveOnline = false;
           log({
             level: "medium",
             kind: "live-offline",
             ip: "-",
             route: clean,
-            detail: "live deploy unreachable (offline, sleeping, or no network)",
-            hint: "check host logs / keep-awake ping; office copy keeps serving baked words and syncs on return.",
+            detail: `live deploy ${why} — twice in a row [${rid}] (last try ${elapsed}ms)`,
+            hint: "check host logs / keep-awake ping; office copy keeps serving baked words and syncs on return. This is connectivity, not a breach.",
             source: "live",
             online: false,
           });

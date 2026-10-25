@@ -54,12 +54,15 @@ network backstop is genuinely per-IP instead of one global bucket.
   is **not** a breach by itself.
 - `rate-limit` — a throttle-window trip (429). Policy event, not an attack
   verdict. Routine polling must never read as "20 breaches".
-- `suspicious-pattern` — anomaly watch (volume, auth failures, offline) to
+- `suspicious-pattern` — anomaly watch (volume, auth failures) to
   review.
 - `security-incident` — needs a human: privilege escalation, auth-probing
-  bursts, command injection, stuck publishes. Only a reviewed incident may
+  bursts, command injection. Only a reviewed incident may
   escalate — a confirmed compromise is NEVER auto-declared.
-- `notice` — operational info (shield-on, publish accepted, live-online,
+- `connectivity` — operational transport: live-offline/live-online,
+  publish-stuck/publish-watch, a publish still carrying to a waking host.
+  Never a breach, never in the "needing review" count.
+- `notice` — operational info (shield-on, publish accepted,
   PDF written). Never a breach.
 
 Repeats from one source+endpoint inside 10 minutes aggregate into ONE
