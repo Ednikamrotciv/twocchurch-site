@@ -6172,6 +6172,33 @@ async function deployStampForOfficePublish(): Promise<string> {
     return "";
   }
 }
+/* Bless-only convergence (first-publish-clears-all): an explicit Publish with
+   no changed sections (a fresh deploy's first click, a no-change bless) still
+   promises every visitor the new content — so the live relay carries the words
+   this copy holds instead of an empty stamp. Without this the live box learns
+   the stamp but keeps no words, and its visitors wait on maintenance while the
+   clicking browser lifts. Overrides only (never defaults): a clean-staged copy
+   stages nothing, exactly like the office record. Never throws. */
+function fillBlessRelay(
+  sections: Record<string, string | null>,
+  changed: string[]
+): { sections: Record<string, string | null>; changed: string[] } {
+  try {
+    if (sections && Object.keys(sections).length) return { sections, changed };
+    const ids = Object.keys(overrides || {}).filter((id) => /^[a-zA-Z][a-zA-Z0-9-]{0,31}$/.test(id));
+    if (!ids.length) return { sections, changed };
+    const full: Record<string, string | null> = {};
+    for (const id of ids) {
+      try {
+        full[id] = JSON.stringify((overrides as any)[id]);
+      } catch {}
+    }
+    if (!Object.keys(full).length) return { sections, changed };
+    return { sections: full, changed: Object.keys(full) };
+  } catch {
+    return { sections, changed };
+  }
+}
 async function relayPublishWordsToLive(
   sections: Record<string, string | null>,
   changed: string[],
@@ -6184,6 +6211,11 @@ async function relayPublishWordsToLive(
   ms = 2500,
   bounded = true
 ): Promise<"landed" | "missed" | "unneeded"> {
+  try {
+    const filled = fillBlessRelay(sections, changed);
+    sections = filled.sections;
+    changed = filled.changed;
+  } catch {}
   const run = async (): Promise<"landed" | "missed" | "unneeded"> => {
     const base = await relayLiveBase();
     if (!base) return "unneeded";
@@ -6271,6 +6303,29 @@ async function relayPublishWordsToLive(
     relayNeedsLivePw = false;
     try {
       relayUploadConn = conn;
+    } catch {}
+    /* Live-newer guard: the live box may have published newer (a Publish on
+       live/admin, or a faster loop) while this carry waited — an older bless
+       must never regress it, not even its stamp. A newer UPDATE there is an
+       absolute stop (this copy is behind: apply the zip first). Otherwise the
+       wall clock arbitrates with a skew margin; an unreadable stamp never
+       blocks delivery. */
+    try {
+      const stampRes = await relayFetch(base + "/__cms/contentRev?conn=relay-stamp-" + encodeURIComponent(conn), "", Math.min(ms, 1500));
+      if (stampRes && (stampRes as any).ok) {
+        const sj = await (stampRes as any).json().catch(() => null);
+        const liveNotes = Math.floor(Number(sj && (sj as any).notes));
+        if (Number.isFinite(liveNotes) && liveNotes > BUILD_NOTES) {
+          noteRelay("Live site runs a newer update — kept the live words.");
+          return "landed";
+        }
+        const liveAt = Number(sj && (sj as any).at);
+        const officeAt = lastPublishAt || Date.now();
+        if (Number.isFinite(liveAt) && liveAt > 0 && Number.isFinite(officeAt) && officeAt > 0 && liveAt > officeAt + 30000) {
+          noteRelay("Live site published newer while this copy was shut — kept the live words.");
+          return "landed";
+        }
+      }
     } catch {}
     /* The relay blesses LIVE's own deploy, never ours: our deploy id would
        name a build the live box never served, and its visitors would keep
@@ -6478,6 +6533,11 @@ async function attemptRelayRetry(): Promise<boolean> {
   }
 }
 function scheduleRelayRetry(sections: Record<string, string | null>, changed: string[], note: string, knownDeploy?: string): void {
+  try {
+    const filled = fillBlessRelay(sections, changed);
+    sections = filled.sections;
+    changed = filled.changed;
+  } catch {}
   try {
     relayRetryPayload = {
       sections: clone(sections),

@@ -100,7 +100,8 @@ export function createPublishWatch({ getOfficeStamp, getLiveUrl, log } = {}) {
       !live.unreachable &&
       live.notes >= office.notes &&
       live.at > 0 &&
-      live.at + 15000 >= office.at;
+      live.at + 15000 >= office.at &&
+      (live.words || 0) > 0;
     if (confirmed) {
       try {
         log({
