@@ -26,7 +26,6 @@
     "set-server": "node scripts/set-server.mjs",
     "security:report": "node scripts/security-report.mjs",
     "security:test": "node scripts/security-test.mjs",
-    "publish:test": "node scripts/publish-acceptance.mjs",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {

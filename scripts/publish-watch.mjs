@@ -116,34 +116,27 @@ export function createPublishWatch({ getOfficeStamp, getLiveUrl, log } = {}) {
       } catch {}
       return;
     }
-    // Convergence fix (rev1 office vs rev2 live): rev counters are per-store
-    // and NEVER match across boxes — only notes/clock/words decide. The old
-    // message blamed the rev gap itself and gave up after ~50s, before a
-    // rebuild (minutes) could carry the words. Keep proving for ~7 minutes and
-    // say what actually blocks visitors.
-    if (round >= 5) {
+    if (round >= 3) {
       const why = !live
         ? "could not read the live stamp"
         : live.unreachable
           ? "live box unreachable (asleep/offline?)"
-          : `live notes ${live.notes} words ${live.words} at ${live.at ? new Date(live.at).toISOString() : "never"} (office notes ${office.notes} at ${office.at ? new Date(office.at).toISOString() : "never"}; rev ${live.rev} vs ${office.rev} is normal — counters are per-store)`;
+          : `live still shows rev ${live.rev} from ${live.at ? new Date(live.at).toISOString() : "never"} (office: rev ${office.rev})`;
       try {
         log({
           level: "high",
           kind: "publish-stuck",
           ip: "-",
           route: liveUrl,
-          detail: `Publish has NOT reached the live box after ~7min (${why}) — other browsers/devices stay on maintenance until live holds this update with real words`,
-          hint: "1) Admin tab toast by Publish: if live login was denied, type the live box's CURRENT password once on Status (diskless hosts reset to shipped default on sleep) or set ADMIN_HASH_OVERRIDE on Render. 2) Terminal: 'auto-deploy … not a git checkout' means this folder cannot push — publish from a git checkout so the rebuild carries the words, or Publish once on live/admin too. 3) Sleeping live: the 4s relay retry + wake carries it; keep the tab open or Publish on live/admin for instant lift. Rev mismatch alone is NOT failure — only notes/clock/words matter.",
+          detail: `first Publish has NOT reached the live box after ~50s (${why}) — other browsers/devices stay on maintenance`,
+          hint: "1) In the admin tab read the toast by the Publish button: if it says the live login was denied, type the live box's CURRENT password once on the Status tab (diskless hosts reset it to the shipped default on sleep). 2) This terminal: 'auto-deploy … not a git checkout' means this folder cannot push — publish from a git checkout, or click Publish on live/admin too. 3) If the live box is just asleep, its retry + wake carry it — or Publish once on live/admin for an instant lift.",
           source: "live",
           online: live && !live.unreachable ? true : false,
         });
       } catch {}
       return;
     }
-    // 3s, 15s, 45s, ~2.5min, ~5min, then the ~7min verdict above — long enough
-    // for a sleep-wake relay AND a rebuild to land.
-    later(round === 0 ? 12000 : round === 1 ? 30000 : round === 2 ? 90000 : 120000, () => check(my, round + 1));
+    later(round === 0 ? 10000 : 20000, () => check(my, round + 1));
   }
 
   function noteOfficePublish() {

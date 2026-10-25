@@ -451,32 +451,6 @@ function gatedReport() {
    change was needed. */
 var PREV = null;
 var UNDO_MS = 15 * 60 * 1000;
-/* Publish idempotency + optimistic concurrency (fast parallel publish, surgical):
-   - opId: unique per Publish click; retries reuse it, so a timeout retry can
-   never duplicate or corrupt the publish. In-memory only (bounded, expires),
-   keyed per batch so multi-batch publishes stay exactly-once per batch.
-   - baseRev: REV the publisher based its patch on (first batch only). A stale
-   base arriving after a newer publish fails with "conflict" instead of
-   overwriting newer words. Newest click always carries a fresh base, so rapid
-   publishes still land newest-wins. Old clients omit both and work as before. */
-var SEEN_OPS = {};
-var SEEN_OP_ORDER = [];
-function opKey(id, ids, first) {
-  try {
-    var s = ids.slice().sort().join(",");
-    return String(id) + "|" + s + "|" + (first === true ? "1" : "0");
-  } catch (e) { return String(id); }
-}
-function seenOpResult(key) {
-  try { return Object.prototype.hasOwnProperty.call(SEEN_OPS, key) ? SEEN_OPS[key] : null; } catch (e) { return null; }
-}
-function rememberOpResult(key, res) {
-  try {
-    if (!Object.prototype.hasOwnProperty.call(SEEN_OPS, key)) SEEN_OP_ORDER.push(key);
-    SEEN_OPS[key] = res;
-    while (SEEN_OP_ORDER.length > 80) { var old = SEEN_OP_ORDER.shift(); try { delete SEEN_OPS[old]; } catch (e) {} }
-  } catch (e) {}
-}
 /* @twocorg arrives ready (note 352): stored words keep whatever channel the
    office last published — debugging handles included — across every update.
    The first boot of this update moves a non-@twocorg channel to @twocorg
@@ -1174,11 +1148,6 @@ self.rpc = {
   contentRev: function (info) {
     return ok({ rev: REV, notes: NOTES, publishDeploy: PUBLISH_DEPLOY, at: AT, code: publishCodeWord(), words: INDEX.length });
   },
-  /* Lightweight health stamp (fast publish §6): same tiny tuple as contentRev,
-     explicit name for pre-publish checks. Public read, no session, never throws. */
-  health: function (info) {
-    return ok({ rev: REV, notes: NOTES, publishDeploy: PUBLISH_DEPLOY, at: AT, code: publishCodeWord(), words: INDEX.length });
-  },
 
   /* File-door guard (uploads, restores, deletes): true only for a live admin
      session on this connection. A 15-minute-idle conn reports false, so the
@@ -1843,21 +1812,6 @@ self.rpc = {
     var deploy = validDeployId(payload.deploy);
     if (!ids.length && !notes) return fail("empty");
     if (ids.length > SLOTS) return fail("too-many");
-    /* Idempotency + concurrency (surgical, backward compatible): old clients
-       omit opId/baseRev and flow exactly as before. */
-    var opId = typeof payload.opId === "string" && /^[A-Za-z0-9_-]{1,64}$/.test(payload.opId) ? payload.opId : "";
-    var baseRev = typeof payload.baseRev === "number" && isFinite(payload.baseRev) ? Math.floor(payload.baseRev) : -1;
-    var opK = opId ? opKey(opId, ids, payload.first === true) : "";
-    if (opK) {
-      var prior = seenOpResult(opK);
-      if (prior) return ok(prior);
-    }
-    /* Stale-tab guard for competing writes: a first-batch patch based on an
-       older REV loses to the newer commit instead of overwriting it. Retries
-       reuse opId so they hit the cache above, never this branch. Later batches
-       (first !== true) belong to the same op and always proceed. Bless-only
-       sends (no sections) never conflict. */
-    if (baseRev >= 0 && payload.first !== false && ids.length && baseRev !== REV) return fail("conflict");
 
     var i, value;
     for (i = 0; i < ids.length; i++) {
@@ -1951,11 +1905,7 @@ self.rpc = {
     } catch (e) {
       /* a missed nudge is harmless: clients refresh on next load */
     }
-    /* Explicit commit receipt (reliable publish §4): the committed revision id
-       plus its timestamp, so the office can confirm the intended revision. */
-    var receipt = { rev: REV, notes: NOTES, publishDeploy: PUBLISH_DEPLOY, at: AT };
-    if (opK) rememberOpResult(opK, receipt);
-    return ok(receipt);
+    return ok({ rev: REV, notes: NOTES, publishDeploy: PUBLISH_DEPLOY });
   },
   /* Put the previous publish back whole (note 291): one undo, inside about
      15 minutes of the publish it supersedes. It replaces the current publish
@@ -2028,7 +1978,7 @@ self.rpc = {
     } catch (e) {
       /* a missed nudge is harmless: clients refresh on next load */
     }
-    return ok({ rev: REV, notes: NOTES, publishDeploy: PUBLISH_DEPLOY, at: AT });
+    return ok({ rev: REV, notes: NOTES, publishDeploy: PUBLISH_DEPLOY });
   },
   /* Forget the publish history. Content is untouched — the next publish
      starts the record again from there. Main admin only. */

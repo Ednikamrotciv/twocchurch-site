@@ -178,8 +178,6 @@ const STATUS_EXACT = new Set([
   "/feed.json",
   "/__live-url",
   "/scripts/local-shim.js",
-  "/__cms/health",
-  "/__health",
 ]);
 const STATUS_SSE = new Set(["/__cms/events"]);
 
@@ -201,7 +199,7 @@ const SAFE_EXT = /\.(js|mjs|cjs|css|map|png|jpg|jpeg|webp|gif|avif|svg|ico|woff2
 const AUTH_LOGIN_RPCS = new Set(["login", "login2fa"]);
 const RECOVERY_RPCS = new Set(["setSubPassword"]);
 const PUBLISH_RPCS = new Set(["publish", "undoPublish", "adoptLive", "adoptFeed"]);
-const STATUS_READ_RPCS = new Set(["contentRev", "getContent", "checkAdmin", "liveReport", "health"]);
+const STATUS_READ_RPCS = new Set(["contentRev", "getContent", "checkAdmin", "liveReport"]);
 
 // Category names are logged with every security event (endpoint categories).
 export function endpointCategory(pathname, method = "GET") {

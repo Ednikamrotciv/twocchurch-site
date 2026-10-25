@@ -543,26 +543,6 @@ export function cmsBackend() {
               /* Same no-disk net as scripts/serve.mjs (note 290): an emptied
                  live store answers getContent from the baked seed. */
               const outBody = await answerWithSeedFallback(rpcMatch[1], r.body, ROOT, outDir);
-              try {
-                if (rpcMatch[1] === "contentRev" || rpcMatch[1] === "health") {
-                  const stamp = JSON.parse(r.body);
-                  if (stamp && stamp.ok === true) {
-                    const tag = 'W/"' + String(stamp.rev || 0) + "-" + String(stamp.at || 0) + "-" + String(stamp.notes || 0) + '"';
-                    if (req.headers["if-none-match"] === tag) {
-                      res.writeHead(304, { etag: tag, "cache-control": "no-store" });
-                      res.end();
-                      return;
-                    }
-                    res.writeHead(r.status, {
-                      "content-type": "application/json; charset=utf-8",
-                      "cache-control": "no-store",
-                      etag: tag,
-                    });
-                    res.end(outBody);
-                    return;
-                  }
-                }
-              } catch { /* fall through to the plain answer */ }
               res.writeHead(r.status, {
                 "content-type": "application/json; charset=utf-8",
                 "cache-control": "no-store",
@@ -769,31 +749,6 @@ export function cmsBackend() {
             return;
           }
 
-          /* Dev health stamp: same tiny public tuple as prod (see serve.mjs). */
-          if ((pathname === "/__cms/health" || pathname === "/__health") && (req.method === "GET" || req.method === "HEAD")) {
-            try {
-              const r = await cms.call("health", "health", "");
-              const fixed = await answerWithSeedFallback("health", r.body, ROOT, outDir);
-              const stamp = JSON.parse(fixed);
-              const tag = 'W/"' + String(stamp.rev || 0) + "-" + String(stamp.at || 0) + "-" + String(stamp.notes || 0) + '"';
-              if (req.headers["if-none-match"] === tag) {
-                res.writeHead(304, { etag: tag, "cache-control": "no-store" });
-                res.end();
-                return;
-              }
-              const body = JSON.stringify({ ok: true, rev: stamp.rev, notes: stamp.notes, at: stamp.at, words: stamp.words, publishDeploy: stamp.publishDeploy, code: stamp.code });
-              const headers = { "content-type": "application/json; charset=utf-8", "cache-control": "no-store", etag: tag };
-              if (req.method === "HEAD") { res.writeHead(200, headers); res.end(); return; }
-              res.writeHead(200, { ...headers, "content-length": Buffer.byteLength(body) });
-              res.end(body);
-              return;
-            } catch {
-              res.writeHead(503, { "cache-control": "no-store" });
-              res.end("unavailable");
-              return;
-            }
-          }
-
           if ((pathname === "/__geo" || pathname === "/__rates") && req.method === "GET") {
             if (pathname === "/__geo") await geoProxy.handleGeo(req, res);
             else await geoProxy.handleRates(req, res);
@@ -854,3 +809,4 @@ export function cmsBackend() {
     },
   };
 }
+

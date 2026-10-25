@@ -2149,17 +2149,12 @@ export async function runPublishAction(
       /* One click reaches every visitor (unlimited browsers/devices): the
          words ride the office server, the live relay, the feed and the
          rebuild — no maintenance hold to clear with a second click. */
-      /* Explicit stages (§4): local-save vs live-commit stay separate. The
-         office rev/at receipt proves the durable commit; warming means the
-         live box is still waking (syncing, not failed). Never claims every
-         browser updated when only the local save landed. */
-      const receipt = typeof (res as any).rev === "number" ? ` (rev ${(res as any).rev})` : "";
       fireToast(
         res.local
-          ? "Saved on this device (local save only). The shared server was unreachable, so other visitors follow when it returns — no second click needed."
+          ? "Saved on this device. The shared server was unreachable, so other visitors follow when it returns — no second click needed."
           : res.live === false
-          ? (res.relayMsg || "Live revision committed on the office server. Devices are synchronizing — no second click needed.") + receipt
-          : "Live revision committed on the production server" + receipt + ". Connected devices are synchronizing — no second click needed.",
+          ? res.relayMsg || "Published here. The live site follows within a minute — no second click needed."
+          : "Published. Every visitor sees the new content right away — no second click needed.",
         res.local || res.live === false ? "info" : "success"
       );
       return true;
@@ -2179,17 +2174,7 @@ export async function runPublishAction(
         ? "Your session ended — sign in again, then publish."
         : res.error === "unauthorized"
         ? "Your session expired — unlock the console again, then publish."
-        : res.error === "conflict"
-        ? "Another publish landed first — your edits are kept. Pull the latest and publish again."
-        : res.error === "timeout"
-        ? "Publish timed out — nothing was duplicated. Press Publish again to retry safely."
-        : res.error === "denied"
-        ? "Live login denied — the live password differs. Type it once on Status; your words are kept."
-        : res.error === "rate-limited"
-        ? "Server is rate-limiting — wait a moment, then press Publish again. Your words are kept."
-        : res.error === "no-space"
-        ? "Server storage is full — publish failed safely, nothing changed."
-        : `Could not publish (${res.error}). Nothing on the site changed — your edits are kept, press Publish again.`,
+        : `Could not publish (${res.error}). Nothing on the site changed.`,
       "error"
     );
     return false;

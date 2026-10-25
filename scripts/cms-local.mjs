@@ -122,13 +122,6 @@ export async function createCmsHost(rootDir, opts) {
     if (prev.length) console.log(`cms backend: loaded ${prev.length} bytes from data/cms-state.bin`);
   } catch {
     console.log("cms backend: fresh state (data/cms-state.bin will be created on first publish)");
-    /* Loud diskless warning (never silent fallback): on hosts without a
-       persistent disk (Render free without a disk at data/) every restart
-       wipes admin accounts back to the shipped default. The office must set
-       ADMIN_HASH_OVERRIDE or attach a disk — this line names it in the host log. */
-    try {
-      if (process.env.RENDER && !adminHashOverride) console.warn("cms backend: WARNING fresh state on RENDER with no ADMIN_HASH_OVERRIDE — admin password is the shipped default until the office sets ADMIN_HASH_OVERRIDE or mounts a persistent disk at data/");
-    } catch { /* warning never breaks boot */ }
   }
   if (prevHash && prevHash !== scriptHash) {
     if (clearPublishLog(state, scriptSrc)) {
@@ -333,24 +326,7 @@ export async function createCmsHost(rootDir, opts) {
       emitRpc(res.status, res.body);
       return res;
     }
-    /* Durable commit (live server is source of truth §2): write RPCs persist
-       at once instead of riding the 150ms debounce, so a restart in the next
-       instant still reloads the committed revision. Reads keep the debounce. */
-    try {
-      if (method === "publish" || method === "adoptLive" || method === "adoptFeed" || method === "undoPublish" || method === "clearLog") {
-        try { await writeFile(statePath, state); } catch (err) { console.error("cms backend: could not save state:", err?.message || err); }
-        try {
-          const sum = createHash("sha256").update(state).digest("hex").slice(0, 16);
-          await recordSeen(rootDir, sum);
-        } catch { /* fingerprinting never breaks a save */ }
-        try { notePublished(rootDir); } catch { /* auto-deploy never breaks a save */ }
-        /* Cancel any pending debounce — the bytes are already on disk. */
-        try { if (saveTimer) { clearTimeout(saveTimer); saveTimer = null; } } catch {}
-        if (dirtyAgain) { dirtyAgain = false; }
-      } else {
-        saveSoon();
-      }
-    } catch { try { saveSoon(); } catch {} }
+    saveSoon();
     /* A publish moves the words — the recents follow the channel on the same
        cycle (note 346): without this the new channel's services took up to
        the 20-minute loop plus a deploy to appear. Only real publishes
