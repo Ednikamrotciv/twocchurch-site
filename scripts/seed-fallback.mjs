@@ -298,14 +298,63 @@ export async function primeMirrorSeed(rootDir, distDir) {
     return { primed: false };
   }
 }
-/* Drop-in for the /__cms/getContent answer path. Any other method passes
-   through untouched; any failure returns the live answer unchanged — the
-   fallback must never break content. */
+/* Pure decision: a live contentRev stamp plus a baked seed in, the stamp to
+   send out. When the store was wiped (rev 0 / words 0) but the bake carries a
+   real publish, serve the bake's stamp — otherwise visitors polling the stamp
+   stay on maintenance while getContent already serves the bake's words. Never
+   across updates: only a bake stamped at or below the running update lifts;
+   empty/unreadable bakes prove nothing. Never throws. */
+export function fallbackContentRev(bodyText, seed, buildNotes) {
+  try {
+    const good = usableSeed(seed);
+    if (!good) return bodyText;
+    const ans = JSON.parse(bodyText);
+    if (!ans || ans.ok !== true) return bodyText;
+    const liveWords = typeof ans.words === "number" ? Math.floor(ans.words) : 0;
+    const liveNotes = typeof ans.notes === "number" ? Math.floor(ans.notes) : 0;
+    // Store holds words — its own stamp stands (no fallback).
+    if (liveWords > 0 && liveNotes > 0) return bodyText;
+    const build = typeof buildNotes === "number" && isFinite(buildNotes) ? Math.floor(buildNotes) : 0;
+    // A newer-update bake must never release this box by itself.
+    if (build > 0 && good.notes > build) return bodyText;
+    if (!(good.notes > 0)) return bodyText;
+    const out = { ...ans, ok: true };
+    out.rev = good.rev;
+    out.notes = good.notes;
+    out.at = good.at;
+    out.publishDeploy = good.publishedDeploy;
+    if (good.code) out.code = good.code;
+    try {
+      const n = Object.keys(good.sections || {}).length;
+      if (Number.isFinite(n) && n > 0) out.words = n;
+    } catch {}
+    out.seeded = true;
+    return JSON.stringify(out);
+  } catch {
+    return bodyText;
+  }
+}
+/* Drop-in for the /__cms/getContent + /__cms/contentRev answer paths. Any other
+   method passes through untouched; any failure returns the live answer
+   unchanged — the fallback must never break content. */
 export async function answerWithSeedFallback(method, bodyText, rootDir, distDir) {
   try {
-    if (method !== "getContent" || typeof bodyText !== "string" || !bodyText.includes('"ok":true')) return bodyText;
-    const seed = await loadBakedSeed(rootDir, distDir);
-    return fallbackGetContent(bodyText, seed);
+    if (typeof bodyText !== "string" || !bodyText.includes('"ok":true')) return bodyText;
+    if (method === "getContent") {
+      const seed = await loadBakedSeed(rootDir, distDir);
+      return fallbackGetContent(bodyText, seed);
+    }
+    if (method === "contentRev") {
+      const seed = await loadBakedSeed(rootDir, distDir);
+      let buildNotes = 0;
+      try {
+        const fs = await import("node:fs/promises");
+        const hooksSrc = await fs.readFile((await import("node:path")).join(rootDir, "src", "lib", "hooks.ts"), "utf8");
+        buildNotes = Number((hooksSrc.match(/BUILD_NOTES = (\d+)/) || [])[1]) || 0;
+      } catch {}
+      return fallbackContentRev(bodyText, seed, buildNotes);
+    }
+    return bodyText;
   } catch {
     return bodyText;
   }

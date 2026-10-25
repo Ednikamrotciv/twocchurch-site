@@ -2051,7 +2051,11 @@ function gateLiveSnapshot(snap: Snapshot): Snapshot {
    there. Copies with no server anywhere (pure static, nothing configured)
    skip the wait — there is nothing to join. True when the server can be
    reached (or already is). Never throws. */
-const JOIN_BEFORE_PUBLISH_MS = 800;
+// Convergence fix: 800ms stranded a Publish as device-only when the office
+// server was waking (sleep wake, Render nap). Wait up to 5s for the join so
+// one click lands on the shared server instead of queuing locally while live
+// stays behind and other browsers wait.
+const JOIN_BEFORE_PUBLISH_MS = 5000;
 async function joinBeforePublish(): Promise<boolean> {
   try {
     if (socket && status === "online") return true;
@@ -2084,7 +2088,7 @@ export async function publishSection(sectionId: string, note: string): Promise<P
      deploy, so the office record carries the build visitors run. Fetched
      alongside the fold; "" when stamped or unreachable. */
   const sectionStampP: Promise<string> = deployStampForOfficePublish().catch(() => "");
-  const sectionFoldP = foldLiveInto(draft, sectionId, 800);
+  const sectionFoldP = foldLiveInto(draft, sectionId, 12000);
   const sectionJoinP: Promise<boolean> = joinBeforePublish().catch(() => false);
   await sectionFoldP;
   let value = clone(draft[sectionId]);
@@ -6345,7 +6349,13 @@ async function relayPublishWordsToLive(
         const liveAt = Number(sj && (sj as any).at);
         const officeAt = lastPublishAt || Date.now();
         if (Number.isFinite(liveAt) && liveAt > 0 && Number.isFinite(officeAt) && officeAt > 0 && liveAt > officeAt + 30000) {
-          noteRelay("Live site published newer while this copy was shut — kept the live words.");
+          // Live is strictly newer: never regress it. Pull its words home now
+          // so this office copy converges instead of staying diverged
+          // (office rev N vs live rev M is normal — counters are per-store —
+          // but the WORDS must match). The pull heals the office side; the
+          // next Publish then carries the merged set.
+          noteRelay("Live site published newer — kept the live words, pulling them home now.");
+          try { pullFromLive().catch(() => {}); } catch {}
           return "landed";
         }
       }
@@ -7133,7 +7143,12 @@ export async function publish(note: string, content?: Snapshot): Promise<Publish
      alongside the fold so the click waits for no extra round trip; "" when
      stamped or unreachable (words still ride without the witness). */
   const officeStampP: Promise<string> = deployStampForOfficePublish().catch(() => "");
-  const foldP = foldLiveInto(content || draft, undefined, 800);
+  // Convergence fix (rev1 office vs rev2 live): the 800ms fold used to miss a
+  // sleepy live box, so the office published without live's newer words and the
+  // relay then overwrote live (or skipped) — leaving the two stores diverged
+  // and other browsers on maintenance. Wait up to 12s for live's words; past
+  // it the click still proceeds and the minute loops heal it.
+  const foldP = foldLiveInto(content || draft, undefined, 12000);
   const joinP: Promise<boolean> = joinBeforePublish().catch(() => false);
   const fold = await foldP;
   /* The transport arms the send (notes 390, 392, 394): without a clicked play,
