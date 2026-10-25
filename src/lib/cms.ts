@@ -995,6 +995,86 @@ let hostFileCode = "";
 let staleCodeMismatch = false;
 let staleCheckSettled = false;
 let staleCheckRunning: Promise<void> | null = null;
+/* Fresh deploy id + notes version.json names (one-click publish fix): when a
+   new build lands with the SAME notes/code but a different deploy id, a stale
+   office tab publishes the FRESH id in one click instead of reloading + asking
+   for a second click. Cleared whenever version.json matches this bundle. */
+let staleHostDeploy = "";
+let staleHostNotes = 0;
+/* Publish in flight: while a publish click runs, skip the stale auto-reload
+   so the click finishes stamping instead of unloading mid-send. */
+let publishInFlight = false;
+export function beginPublishNoReload(): void {
+  try {
+    publishInFlight = true;
+  } catch {}
+}
+export function endPublishNoReload(): void {
+  try {
+    publishInFlight = false;
+  } catch {}
+}
+/** Fresh deploy id version.json names ("" when this bundle is current). */
+export function getFreshDeployId(): string {
+  try {
+    if (typeof staleHostDeploy === "string" && /^[A-Za-z0-9_-]{1,80}$/.test(staleHostDeploy) && staleHostDeploy !== currentDeployId) return staleHostDeploy;
+  } catch {}
+  return "";
+}
+/** True when only the deploy id is stale (same notes/code) — one click can
+    stamp the fresh id, no reload + second click needed. */
+export function isDeployOnlyStale(): boolean {
+  try {
+    if (!staleHostDeploy || staleHostDeploy === currentDeployId) return false;
+    if (!/^[A-Za-z0-9_-]{1,80}$/.test(staleHostDeploy)) return false;
+    if (staleCodeMismatch) return false;
+    if (Number.isFinite(staleHostNotes) && staleHostNotes > BUILD_NOTES) return false;
+    return true;
+  } catch {
+    return false;
+  }
+}
+/** Read version.json without reloading (publish path): learns the fresh
+    deploy/notes/code so one click stamps what visitors run. Never reloads,
+    never throws. */
+export async function peekFreshDeploy(): Promise<void> {
+  try {
+    const sep = siteFile("version.json").includes("?") ? "&" : "?";
+    const res = await fetch(siteFile("version.json") + sep + "t=" + Date.now(), {
+      cache: "no-store",
+      headers: { pragma: "no-cache", "cache-control": "no-cache" },
+    });
+    if (!res.ok) return;
+    const data = await res.json().catch(() => null);
+    const n = Number(data && (data as any).notes);
+    const vDeploy = data && (data as any).deployId;
+    const vCode = data && typeof (data as any).code === "string" ? (data as any).code : "";
+    try {
+      if (typeof vCode === "string" && vCode) hostFileCode = vCode;
+    } catch {}
+    if (typeof vDeploy === "string" && /^[A-Za-z0-9_-]{1,80}$/.test(vDeploy)) {
+      staleHostDeploy = vDeploy === currentDeployId ? "" : vDeploy;
+    } else {
+      staleHostDeploy = "";
+    }
+    staleHostNotes = Number.isFinite(n) ? Math.floor(n) : 0;
+    const deployIsNew = !!staleHostDeploy;
+    const codeIsNew = !!vCode && !!runningCode && vCode !== runningCode;
+    if (!deployIsNew && !codeIsNew && (!Number.isFinite(n) || n <= BUILD_NOTES)) {
+      if (staleNewerNotes || staleCodeMismatch) {
+        staleNewerNotes = 0;
+        staleCodeMismatch = false;
+        version += 1;
+        notify();
+      }
+      return;
+    }
+    staleNewerNotes = deployIsNew && !(Number.isFinite(n) && n > BUILD_NOTES) ? BUILD_NOTES + 1 : Math.floor(n) || BUILD_NOTES + 1;
+    if (codeIsNew && !deployIsNew) staleCodeMismatch = true;
+    version += 1;
+    notify();
+  } catch {}
+}
 function readStaleAttempts(): { notes: number; at: number; tries: number } | null {
   try {
     const raw = sessionStorage.getItem(STALE_RELOAD_KEY);
@@ -1062,14 +1142,31 @@ export function checkStaleBuild(): Promise<void> {
           version += 1;
           notify();
         }
+        staleHostDeploy = "";
+        staleHostNotes = Number.isFinite(n) ? Math.floor(n) : 0;
         return;
       }
       staleNewerNotes = deployIsNew ? BUILD_NOTES + 1 : Math.floor(n);
       if (codeIsNew && !deployIsNew) staleCodeMismatch = true;
+      try {
+        staleHostDeploy = typeof vDeploy === "string" && /^[A-Za-z0-9_-]{1,80}$/.test(vDeploy) ? vDeploy : "";
+        if (staleHostDeploy === currentDeployId) staleHostDeploy = "";
+      } catch {
+        staleHostDeploy = "";
+      }
+      try {
+        staleHostNotes = Number.isFinite(n) ? Math.floor(n) : 0;
+      } catch {
+        staleHostNotes = 0;
+      }
       /* Bump so the maintenance notice re-evaluates at once instead of
          sticking with first paint — the old bundle waits, it never plays live. */
       version += 1;
       notify();
+      /* One-click publish: while a publish click runs, record the fresh deploy
+         but do NOT unload — the click stamps the fresh id below instead of
+         asking for a second click. */
+      if (publishInFlight) return;
       
       /* Retryable guard: a few attempts inside a few minutes, then stop
          reloading but KEEP waiting (maintenance stays, no live flash, no
@@ -6764,6 +6861,19 @@ async function sendPatch(
       if (currentDeployId && deployFromMeta && !ownDeployIsDevBoot()) {
         durableDeploy = currentDeployId;
         relayDeploy = currentDeployId;
+        /* One-click stale fix: same notes/code but a newer deploy id — stamp
+           the FRESH id visitors run so one Publish clears every browser/device
+           instead of blessing the old deploy and leaving the new one waiting
+           for a second click. Real updates (newer notes/code) still reload. */
+        try {
+          if (isDeployOnlyStale()) {
+            const fresh = getFreshDeployId();
+            if (fresh) {
+              durableDeploy = fresh;
+              relayDeploy = fresh;
+            }
+          }
+        } catch {}
       } else if (ownDeployIsDevBoot() && currentDeployId && deployFromMeta) {
         durableDeploy = currentDeployId;
         if (typeof deployStamp === "string" && /^[A-Za-z0-9_-]{1,80}$/.test(deployStamp)) relayDeploy = deployStamp;

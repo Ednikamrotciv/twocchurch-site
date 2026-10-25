@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Link, navigate } from "../lib/router";
 import { motion, AnimatePresence, useReducedMotion } from "framer-motion";
 import { useLocalState, fireToast, useNow, useReveal } from "../lib/hooks";
@@ -226,6 +226,44 @@ export function AnnouncementBanner() {
 
 /* ------------------------------------------------------------------ video player */
 
+/* YouTube's own unavailable frame (deleted, private, embedding disabled,
+   age-gate, region block) loads fine as an iframe — so the pre-play oEmbed
+   check alone cannot catch it. The IFrame Player API reports it as an error
+   (100 not found/private, 101/150 embedding disabled) — the player listens
+   for that and swaps to the dead fallback instead of sitting on YouTube's
+   black "unavailable" frame. Loaded once, shared by every player. */
+let ytApiPromise: Promise<any> | null = null;
+function loadYtPlayerApi(): Promise<any> {
+  try {
+    const w = window as any;
+    if (w.YT && w.YT.Player) return Promise.resolve(w.YT);
+    if (ytApiPromise) return ytApiPromise;
+    ytApiPromise = new Promise((resolve) => {
+      try {
+        const prev = w.onYouTubeIframeAPIReady;
+        w.onYouTubeIframeAPIReady = () => {
+          try {
+            if (typeof prev === "function") prev();
+          } catch {}
+          resolve(w.YT);
+        };
+        const tag = document.createElement("script");
+        tag.src = "https://www.youtube.com/iframe_api";
+        tag.async = true;
+        document.head.appendChild(tag);
+        /* If the API never loads (offline, blocked), give up quietly — the
+           pre-play check + escape link remain the net. */
+        window.setTimeout(() => resolve(w.YT || null), 10000);
+      } catch {
+        resolve(null);
+      }
+    });
+    return ytApiPromise;
+  } catch {
+    return Promise.resolve(null);
+  }
+}
+
 export function VideoPlayer({
   source,
   title,
@@ -253,6 +291,7 @@ export function VideoPlayer({
      platform link instead. Channel follows and files cannot be asked, so
      only bare YouTube ids are verified. Autoplay never opens an unverified id. */
   const ytId = source?.platform === "facebook" || source?.platform === "upload" ? "" : parseYoutubeId(source?.youtubeId || "");
+  const followId = live && source?.platform !== "facebook" && source?.platform !== "upload" ? String(source?.youtubeChannelId || "") : "";
   const [playing, setPlaying] = useState(() => {
     if (!autoPlay) return false;
     /* Livestream screen: play the broadcast by itself WITH SOUND — a verified
@@ -260,6 +299,9 @@ export function VideoPlayer({
        with no tap. Only a proven-dead id is held back (the fallback below
        still offers the platform link, never the black "unavailable" frame). */
     if (ytId && peekVerified(ytId) !== true) return false;
+    /* A channel follow never opens blind: it verifies first, so an offline
+       channel shows the waiting poster, never the black "unavailable" frame. */
+    if (!ytId && followId) return false;
     return true;
   });
   /* A channel with no video id cannot be asked of oEmbed (note 342): tapping
@@ -267,11 +309,13 @@ export function VideoPlayer({
      YouTube answers "unavailable" inside the frame. The tap now asks the
      check first and plays the verified broadcast id instead. Only the live
      panel follows channels; every other sourceless tap plays as before. */
-  const followId = live && source?.platform !== "facebook" && source?.platform !== "upload" ? String(source?.youtubeChannelId || "") : "";
   const [dead, setDead] = useState(false);
   const [checking, setChecking] = useState(false);
   const [notLive, setNotLive] = useState(false);
   const [liveVideoId, setLiveVideoId] = useState("");
+  /* Frame handle for YouTube's own error events (unavailable/dead inside
+     the iframe). Attached below once the iframe plays. */
+  const frameRef = useRef<HTMLIFrameElement | null>(null);
   /* Sound on (note 388): every opening plays with its audio — a tap, or a
      broadcast the site starts by itself the moment it goes live. Every live
      from a channel carries its sound. */
@@ -483,6 +527,46 @@ export function VideoPlayer({
     return () => window.clearInterval(t);
   }, [playing, ytId, dead]);
 
+  /* YouTube's own failure signal: when the iframe loads YouTube's black
+     "unavailable" frame (deleted/private video, embedding disabled,
+     age-gate, region block, ended live), the API fires onError — swap to
+     the dead fallback (poster + Watch on YouTube) instead of leaving the
+     black frame on screen. Unknown/API-down keeps the frame as before. */
+  useEffect(() => {
+    if (!playing || dead || !src) return;
+    if (platform !== "youtube") return;
+    const el = frameRef.current;
+    if (!el) return;
+    let player: any = null;
+    let cancelled = false;
+    loadYtPlayerApi()
+      .then((api) => {
+        if (cancelled || !api || !api.Player) return;
+        try {
+          player = new api.Player(el, {
+            events: {
+              onError: (e: any) => {
+                const code = Number(e && (e as any).data);
+                /* 100 not found/private, 101/150 embedding disabled. */
+                if (code === 100 || code === 101 || code === 105 || code === 150) {
+                  try {
+                    setDead(true);
+                  } catch {}
+                }
+              },
+            },
+          });
+        } catch {}
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+      try {
+        if (player && typeof player.destroy === "function") player.destroy();
+      } catch {}
+    };
+  }, [playing, dead, src, platform]);
+
   if (file) {
     /* A video the office uploaded plays in the browser itself. */
     return (
@@ -543,6 +627,7 @@ export function VideoPlayer({
       {playing ? (
         <>
           <iframe
+            ref={frameRef}
             className="player__frame"
             src={src}
             title={shown}

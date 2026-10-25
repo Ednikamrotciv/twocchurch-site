@@ -893,8 +893,8 @@ export async function runAll(fs) {
     const chEmbed = embMod3.exports.youtubeChannelEmbed;
     const srcOf = embMod3.exports.embedSrc;
     const hasVid = embMod3.exports.hasVideo;
-    ok("channel embed is strict", chEmbed(OWNER, false) === "https://www.youtube.com/embed/live_stream?channel=" + OWNER + "&rel=0&modestbranding=1&playsinline=1" && chEmbed("short", false) === "" && chEmbed("", false) === "", "only a real channel id may build the player");
-    ok("video id still wins", srcOf({ platform: "youtube", youtubeId: "dQw4w9WgXcQ", youtubeChannelId: OWNER }, false) === "https://www.youtube.com/embed/dQw4w9WgXcQ?rel=0&modestbranding=1&playsinline=1", "a verified video must keep playing by id");
+    ok("channel embed is strict", chEmbed(OWNER, false) === "https://www.youtube.com/embed/live_stream?channel=" + OWNER + "&rel=0&modestbranding=1&playsinline=1&enablejsapi=1" && chEmbed("short", false) === "" && chEmbed("", false) === "", "only a real channel id may build the player");
+    ok("video id still wins", srcOf({ platform: "youtube", youtubeId: "dQw4w9WgXcQ", youtubeChannelId: OWNER }, false) === "https://www.youtube.com/embed/dQw4w9WgXcQ?rel=0&modestbranding=1&playsinline=1&enablejsapi=1", "a verified video must keep playing by id");
     ok("channel plays without id", srcOf({ platform: "youtube", youtubeId: "", youtubeChannelId: OWNER }, false) === chEmbed(OWNER, false) && srcOf({ platform: "youtube" }, false) === "", "no id and no channel means no player, never a guess");
     ok("channel counts as video", hasVid({ platform: "youtube", youtubeChannelId: OWNER }) === true && hasVid({ platform: "youtube" }) === false, "the watch page must treat a followed channel as playable");
     const goodCh = { target: "https://www.youtube.com/@church/live", state: "live", videoId: "", title: "Sunday", channelId: OWNER, checkedAt: Date.now() };
@@ -1775,9 +1775,9 @@ export async function runAll(fs) {
     const VID = "dQw4w9WgXcQ";
     const OWNER_OO = "UCQ0KIUXUV7gTZmDDlvd3ZcQ";
     ok("no live ever silenced", yte(VID, true, true).indexOf("mute") === -1 && yte(VID, true).indexOf("mute") === -1, "even a legacy muted call must play with sound");
-    ok("old outputs identical", yte(VID, true) === "https://www.youtube.com/embed/" + VID + "?rel=0&modestbranding=1&playsinline=1&autoplay=1" && yte(VID, false).indexOf("autoplay") === -1 && yte(VID, false).indexOf("mute") === -1, "two-arg calls must build exactly what they built");
+    ok("old outputs identical", yte(VID, true) === "https://www.youtube.com/embed/" + VID + "?rel=0&modestbranding=1&playsinline=1&enablejsapi=1&autoplay=1" && yte(VID, false).indexOf("autoplay") === -1 && yte(VID, false).indexOf("mute") === -1, "two-arg calls must build exactly what they built");
     ok("channel never silenced", che(OWNER_OO, true, true).indexOf("live_stream?channel=" + OWNER_OO) !== -1 && che(OWNER_OO, true, true).indexOf("mute") === -1, "a followed channel must self-start with sound too");
-    ok("channel default identical", che(OWNER_OO, false) === "https://www.youtube.com/embed/live_stream?channel=" + OWNER_OO + "&rel=0&modestbranding=1&playsinline=1", "the old two-arg channel build must not move");
+    ok("channel default identical", che(OWNER_OO, false) === "https://www.youtube.com/embed/live_stream?channel=" + OWNER_OO + "&rel=0&modestbranding=1&playsinline=1&enablejsapi=1", "the old two-arg channel build must not move");
     ok("sound src threads through", srcOf({ platform: "youtube", youtubeChannelId: OWNER_OO }, true, true).indexOf("mute") === -1 && srcOf({ platform: "youtube", youtubeChannelId: OWNER_OO }, true).indexOf("mute") === -1, "the player must never build a silent address");
     const connOO = { id: "t", net: ["local", 0, 0], subscribe() {}, topics: new Set() };
     const stOO = new Uint8Array(8 * 1024 * 1024);

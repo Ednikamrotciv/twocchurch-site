@@ -2117,24 +2117,34 @@ export async function runPublishAction(
        Publish now alone finishes the job — no second click, no save gate.
        (websiteIsUnsaved is always false now; the old save-first branch is
        retired.) */
-    /* Never publish with the wrong stamp: a stale tab on the previous deploy
-       would bless the OLD deploy id, leaving the new deploy's visitors
-       waiting until somebody publishes again. Reload onto the new code first
-       instead — the next click then stamps the deploy visitors run. */
+    /* One click is one publish (Publish == Publish now): a stale tab on the
+       previous deploy stamps the FRESH deploy id below instead of blessing
+       the old one — so one click clears every browser/device, no second
+       click. Only a real update (newer notes/code the old bundle cannot
+       bless) still reloads first. */
     try {
-      await cms.checkStaleBuild().catch(() => {});
+      cms.beginPublishNoReload();
     } catch {}
     try {
-      if (cms.isStaleWaiting()) {
-        fireToast("New deploy arrived — reloading onto it. Press Publish again once it loads.", "info");
+      await cms.peekFreshDeploy().catch(() => {});
+    } catch {}
+    try {
+      if (cms.isStaleWaiting() && !cms.isDeployOnlyStale()) {
+        fireToast("New update arrived — reloading onto it. Press Publish again once it loads.", "info");
         try {
           window.location.reload();
+        } catch {}
+        try {
+          cms.endPublishNoReload();
         } catch {}
         return false;
       }
     } catch {}
     onPhase?.("publishing");
     const res = await cms.publish(note);
+    try {
+      cms.endPublishNoReload();
+    } catch {}
     if (res.ok) {
       /* One click reaches every visitor (unlimited browsers/devices): the
          words ride the office server, the live relay, the feed and the
@@ -2169,6 +2179,9 @@ export async function runPublishAction(
     );
     return false;
   } catch (err) {
+    try {
+      cms.endPublishNoReload();
+    } catch {}
     /* Never leave the caller hanging with no toast: a throw (e.g. a network
        failure that rejects instead of returning {ok:false}) reports and
        releases, so the buttons never stick on "Publishing…". */
