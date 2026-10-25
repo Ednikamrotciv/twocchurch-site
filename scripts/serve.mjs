@@ -485,6 +485,34 @@ const server = http.createServer(async (req, res) => {
       return;
     }
 
+    /* Lightweight health stamp (fast publish §6): public, no session, no words
+       — the office checks this before publishing without paying for a full
+       content fetch. ETag + 304 so idle polls move no bytes. */
+    if ((pathname === "/__cms/health" || pathname === "/__health") && (req.method === "GET" || req.method === "HEAD")) {
+      try {
+        const r = await cms.call("health", "health", "");
+        /* Wiped-store survival: report the bake this box actually serves. */
+        const fixed = await answerWithSeedFallback("health", r.body, ROOT, DIST);
+        const stamp = JSON.parse(fixed);
+        const tag = 'W/"' + String(stamp.rev || 0) + "-" + String(stamp.at || 0) + "-" + String(stamp.notes || 0) + '"';
+        if (req.headers["if-none-match"] === tag) {
+          res.writeHead(304, { etag: tag, "cache-control": "no-store" });
+          res.end();
+          return;
+        }
+        const body = JSON.stringify({ ok: true, rev: stamp.rev, notes: stamp.notes, at: stamp.at, words: stamp.words, publishDeploy: stamp.publishDeploy, code: stamp.code });
+        const headers = { "content-type": "application/json; charset=utf-8", "cache-control": "no-store", etag: tag };
+        if (req.method === "HEAD") { res.writeHead(200, headers); res.end(); return; }
+        res.writeHead(200, { ...headers, "content-length": Buffer.byteLength(body) });
+        res.end(body);
+        return;
+      } catch {
+        res.writeHead(503, { "cache-control": "no-store" });
+        res.end("unavailable");
+        return;
+      }
+    }
+
 
     if ((pathname === "/__geo" || pathname === "/__rates") && req.method === "GET") {
       if (pathname === "/__geo") await geoProxy.handleGeo(req, res);
@@ -826,6 +854,28 @@ const server = http.createServer(async (req, res) => {
         /* No-disk survival (note 290): an emptied live store answers
            getContent from the baked seed instead of blank. */
         const outBody = await answerWithSeedFallback(rpcMatch[1], r.body, ROOT, DIST);
+        /* Revision ETag (immediate sync §3): stamps carry their own validator
+           so polls can revalidate with If-None-Match instead of pulling words. */
+        try {
+          if (rpcMatch[1] === "contentRev" || rpcMatch[1] === "health") {
+            const stamp = JSON.parse(r.body);
+            if (stamp && stamp.ok === true) {
+              const tag = 'W/"' + String(stamp.rev || 0) + "-" + String(stamp.at || 0) + "-" + String(stamp.notes || 0) + '"';
+              if (req.headers["if-none-match"] === tag) {
+                res.writeHead(304, { etag: tag, "cache-control": "no-store" });
+                res.end();
+                return;
+              }
+              res.writeHead(r.status, {
+                "content-type": "application/json; charset=utf-8",
+                "cache-control": "no-store",
+                etag: tag,
+              });
+              res.end(outBody);
+              return;
+            }
+          }
+        } catch { /* fall through to the plain answer */ }
         res.writeHead(r.status, {
           "content-type": "application/json; charset=utf-8",
           "cache-control": "no-store",

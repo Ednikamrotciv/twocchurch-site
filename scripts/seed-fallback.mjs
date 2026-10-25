@@ -354,6 +354,18 @@ export async function answerWithSeedFallback(method, bodyText, rootDir, distDir)
       } catch {}
       return fallbackContentRev(bodyText, seed, buildNotes);
     }
+    /* Health is the same tiny stamp under another name — a wiped store must
+       report the bake it serves, or health checks flap while content is fine. */
+    if (method === "health") {
+      const seed = await loadBakedSeed(rootDir, distDir);
+      let buildNotes = 0;
+      try {
+        const fs = await import("node:fs/promises");
+        const hooksSrc = await fs.readFile((await import("node:path")).join(rootDir, "src", "lib", "hooks.ts"), "utf8");
+        buildNotes = Number((hooksSrc.match(/BUILD_NOTES = (\d+)/) || [])[1]) || 0;
+      } catch {}
+      return fallbackContentRev(bodyText, seed, buildNotes);
+    }
     return bodyText;
   } catch {
     return bodyText;

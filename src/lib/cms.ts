@@ -2051,11 +2051,10 @@ function gateLiveSnapshot(snap: Snapshot): Snapshot {
    there. Copies with no server anywhere (pure static, nothing configured)
    skip the wait — there is nothing to join. True when the server can be
    reached (or already is). Never throws. */
-// Convergence fix: 800ms stranded a Publish as device-only when the office
-// server was waking (sleep wake, Render nap). Wait up to 5s for the join so
-// one click lands on the shared server instead of queuing locally while live
-// stays behind and other browsers wait.
-const JOIN_BEFORE_PUBLISH_MS = 5000;
+// Speed: join races the fold — 1.5s max so the click stays 1-2s local even
+// when the office server is waking. Timeout settles device-only fast; the
+// queue + 4s relay retry carry the words in background (live 3-4s warm).
+const JOIN_BEFORE_PUBLISH_MS = 1500;
 async function joinBeforePublish(): Promise<boolean> {
   try {
     if (socket && status === "online") return true;
@@ -3500,11 +3499,22 @@ let contentWatchRunning = false;
 /* Last stamp tuple seen by the freshness watch (note 427): any movement on
    the shared backend while the notice shows pulls the full answer at once. */
 let lastStampTuple = "";
+/* Revision ETag for conditional polling (§3, §7): the last stamp's validator,
+   sent as If-None-Match so unchanged polls answer 304 with no body. */
+let lastStampEtag = "";
 function stampTupleOf(r: any): string {
   try {
     return [(r as any).rev, (r as any).notes, (r as any).at, (r as any).publishDeploy, (r as any).code, (r as any).words]
       .map((v) => String(v))
       .join("|");
+  } catch {
+    return "";
+  }
+}
+function stampEtagOf(r: any): string {
+  try {
+    if (!r || (r as any).ok !== true) return "";
+    return 'W/"' + String((r as any).rev || 0) + "-" + String((r as any).at || 0) + "-" + String((r as any).notes || 0) + '"';
   } catch {
     return "";
   }
@@ -3539,18 +3549,26 @@ async function pollPublishHttp(): Promise<void> {
     for (const u of urls) {
       try {
         const ctrl = typeof AbortController !== "undefined" ? new AbortController() : null;
-        const timer = ctrl ? window.setTimeout(() => ctrl.abort(), 8000) : 0;
+        /* Idle polls ride the normal bound; an active publish/reconnect hurries
+           (1–2s cadence §3) so the bound stays short and the next tick fires. */
+        const bound = holding ? 4000 : 8000;
+        const timer = ctrl ? window.setTimeout(() => ctrl.abort(), bound) : 0;
         try {
+          const headers: Record<string, string> = { "content-type": "text/plain;charset=utf-8" };
+          try { if (lastStampEtag) headers["if-none-match"] = lastStampEtag; } catch {}
           const res = await fetch(u + "?conn=http-poll-" + Math.random().toString(36).slice(2), {
             method: "POST",
-            headers: { "content-type": "text/plain;charset=utf-8" },
+            headers,
             body: "",
             cache: "no-store",
             signal: ctrl ? ctrl.signal : undefined,
           });
+          /* 304 = unchanged since the last stamp — no bytes, no parse. */
+          if (res.status === 304) continue;
           if (!res.ok) continue;
           const r = await res.json().catch(() => null);
           if (!r || (r as any).ok !== true) continue;
+          try { const tag = stampEtagOf(r); if (tag) lastStampEtag = tag; } catch {}
           let synced = false;
           try {
             noteServerVerdict((r as any).notes, (r as any).words, (r as any).at, (r as any).publishDeploy, (r as any).code);
@@ -3629,6 +3647,7 @@ function startContentWatch() {
       try {
         const raw = await socket.rpc.contentRev("");
         const r = typeof raw === "string" ? JSON.parse(raw) : raw;
+        try { const tag = stampEtagOf(r); if (tag) lastStampEtag = tag; } catch {}
         try {
           noteServerVerdict((r as any).notes, (r as any).words, (r as any).at, (r as any).publishDeploy, (r as any).code);
         } catch {}
@@ -3666,10 +3685,10 @@ function startContentWatch() {
   window.setInterval(() => {
     tick().catch(() => {});
   }, 5000);
-  /* Waiting copies hurry (publish reaches everywhere): while this copy holds
-     on maintenance, re-ask the stamp every 10s instead of only on the loop
-     above — the moment the server learns the publish, the notice lifts with
-     no tap. Hidden tabs still skip; the 30s loop stays for every copy. */
+  /* Waiting copies hurry (immediate sync §3): idle polls every 5s (within the
+     5–8s budget); while the notice shows or a publish/reconnect is active,
+     re-ask every 1–2s so connected browsers fetch the new revision at once.
+     Hidden tabs still skip. ETag/304 keeps idle polls byte-free. */
   window.setInterval(() => {
     try {
       if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
@@ -3680,7 +3699,7 @@ function startContentWatch() {
       try { checkStaleBuild().catch(() => {}); } catch {}
       try { syncFromFeed().catch(() => {}); } catch {}
     } catch {}
-  }, 10_000);
+  }, 2000);
   document.addEventListener("visibilitychange", () => {
     if (document.visibilityState === "visible") {
       tick().catch(() => {});
@@ -6061,7 +6080,62 @@ export async function importBackup(text: string): Promise<ImportResult> {
 
 /* ----------------------------------------------------------------- publish */
 
-export type PublishResult = { ok: boolean; error?: string; local?: boolean; live?: boolean; relayMsg?: string };
+/* Explicit publish states (reliable publish §4): local-save vs live-commit are
+   separate flags, and success carries the durable commit receipt (rev + at +
+   opId) so the office can confirm the intended revision. `warming` means the
+   office commit landed but the live box is still waking — syncing, not failed.
+   Never claims global delivery when only the local save succeeded. */
+export type PublishResult = { ok: boolean; error?: string; local?: boolean; live?: boolean; relayMsg?: string; rev?: number; at?: number; opId?: string; warming?: boolean };
+function newOpId(): string {
+  try {
+    const c: any = typeof crypto !== "undefined" ? crypto : null;
+    if (c && typeof c.randomUUID === "function") return String(c.randomUUID()).replace(/-/g, "").slice(0, 32);
+    if (c && typeof c.getRandomValues === "function") {
+      const b = new Uint8Array(16);
+      c.getRandomValues(b);
+      let s = "";
+      for (let i = 0; i < b.length; i++) s += "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz-_"[b[i] & 63];
+      return s;
+    }
+  } catch {}
+  return "op-" + Date.now().toString(36) + "-" + Math.random().toString(36).slice(2, 12);
+}
+/* Last durable office commit (separate from live-relay sync): rev + clock +
+   opId of the publish the production server confirmed. */
+let lastCommit: { rev: number; at: number; opId: string } | null = null;
+/** The last production-confirmed publish receipt (null until one lands). */
+export function lastPublishCommit(): { rev: number; at: number; opId: string } | null {
+  return lastCommit ? { ...lastCommit } : null;
+}
+function noteCommit(rev: number, at: number, opId: string): void {
+  try {
+    if (Number.isFinite(rev) && Number.isFinite(at) && opId) lastCommit = { rev: Math.floor(rev), at: Math.floor(at), opId: String(opId) };
+  } catch {}
+}
+/* Lightweight backend health (availability §6): public stamp, never authed,
+   bounded so it never delays a publish. Runs alongside the fold/join — the
+   click never waits on it past its bound. */
+async function checkBackendHealth(boundMs = 2500): Promise<{ ok: boolean; warming: boolean }> {
+  try {
+    const ctrl = typeof AbortController !== "undefined" ? new AbortController() : null;
+    const timer = ctrl ? window.setTimeout(() => ctrl.abort(), boundMs) : 0;
+    try {
+      const res = await fetch("/__cms/health?conn=health-" + Math.random().toString(36).slice(2), {
+        method: "GET",
+        cache: "no-store",
+        signal: ctrl ? ctrl.signal : undefined,
+      });
+      if (res.status === 304) return { ok: true, warming: false };
+      if (!res.ok) return { ok: false, warming: true };
+      const r = await res.json().catch(() => null);
+      return r && (r as any).ok === true ? { ok: true, warming: false } : { ok: false, warming: true };
+    } finally {
+      if (timer) window.clearTimeout(timer as ReturnType<typeof setTimeout>);
+    }
+  } catch {
+    return { ok: false, warming: true };
+  }
+}
 
 /** Only the sections that differ from what is live are sent. */
 function buildPatch(target: Snapshot): { sections: Record<string, string | null>; changed: string[] } {
@@ -6585,8 +6659,18 @@ function scheduleRelayRetry(sections: Record<string, string | null>, changed: st
   } catch {
     return;
   }
+  /* Denied credentials never auto-retry (§5): the words stay owed for the
+     Status tab's one-time Send, but no background loop hammers a wrong password. */
+  try {
+    if (relayNeedsLivePw) return;
+  } catch {}
   if (relayRetryTimer) return;
+  /* Bounded retries with exponential backoff + jitter (§5): fast while the
+     publish is fresh (1–2s active sync), backing off so a sleeping box is
+     retried safely until it lands or a newer publish supersedes it. */
+  let attempt = 0;
   const tick = () => {
+    attempt += 1;
     attemptRelayRetry()
       .then((done) => {
         if (done) {
@@ -6596,11 +6680,23 @@ function scheduleRelayRetry(sections: Record<string, string | null>, changed: st
           }
           return;
         }
+        /* Still owed: re-arm with backoff (clear + set, never overlapping). */
+        try {
+          if (relayNeedsLivePw) {
+            if (relayRetryTimer) { window.clearInterval(relayRetryTimer); relayRetryTimer = 0; }
+            return;
+          }
+          if (relayRetryTimer) { window.clearInterval(relayRetryTimer); relayRetryTimer = 0; }
+          const delay = Math.min(30000, 1500 * Math.pow(1.6, Math.min(attempt, 6))) + Math.random() * 400;
+          relayRetryTimer = window.setInterval(tick, delay);
+        } catch {}
       })
       .catch(() => {});
   };
   try {
-    relayRetryTimer = window.setInterval(tick, 4000);
+    /* Immediate first carry (warm live lands in ~1–2s), then the backoff loop. */
+    tick();
+    if (!relayRetryTimer) relayRetryTimer = window.setInterval(tick, 4000);
   } catch {
     return;
   }
@@ -6677,16 +6773,31 @@ export function retryLiveNow(): Promise<boolean> {
 function ensureRetryLoop(): void {
   try {
     if (relayRetryTimer || !relayRetryPayload) return;
-    relayRetryTimer = window.setInterval(() => {
+    /* Same bounded backoff as scheduleRelayRetry; denied creds stay manual. */
+    try { if (relayNeedsLivePw) return; } catch {}
+    let attempt = 0;
+    const tick = () => {
+      attempt += 1;
       attemptRelayRetry()
         .then((done) => {
           if (done && relayRetryTimer) {
             window.clearInterval(relayRetryTimer);
             relayRetryTimer = 0;
+            return;
           }
+          try {
+            if (relayNeedsLivePw) {
+              if (relayRetryTimer) { window.clearInterval(relayRetryTimer); relayRetryTimer = 0; }
+              return;
+            }
+            if (relayRetryTimer) { window.clearInterval(relayRetryTimer); relayRetryTimer = 0; }
+            const delay = Math.min(30000, 1500 * Math.pow(1.6, Math.min(attempt, 6))) + Math.random() * 400;
+            relayRetryTimer = window.setInterval(tick, delay);
+          } catch {}
         })
         .catch(() => {});
-    }, 4000);
+    };
+    relayRetryTimer = window.setInterval(tick, 1500);
   } catch {}
 }
 /** Type the live box's own admin password once: saved in this browser only,
@@ -6939,7 +7050,7 @@ async function sendPatch(
      its release, not just its words. Stamped copies ignore this (their own id
      always wins). */
   deployStamp?: string
-): Promise<{ ok: boolean; error?: string; rev?: number; sent: string[]; failed?: string[]; relay?: "landed" | "missed" | "unneeded" }> {
+): Promise<{ ok: boolean; error?: string; rev?: number; at?: number; opId?: string; sent: string[]; failed?: string[]; relay?: "landed" | "missed" | "unneeded" }> {
   /* The durable stamp for this send. Stamped copies name their own deploy
      for both the server and the relay. Dev-boot copies (npm run dev) split
      them: the local server is blessed with this boot's own dev ID so fresh
@@ -6999,6 +7110,13 @@ async function sendPatch(
 
   const sent: string[] = [];
   let lastRev: number | undefined;
+  let lastAt = 0;
+  /* Unique op per send (no duplicate writes §5): retries reuse it, so the
+     server dedups instead of double-bumping. baseRev pins the concurrency
+     check — a stale first batch fails "conflict" instead of overwriting newer. */
+  const opId = newOpId();
+  const baseRev = rev;
+  const NON_RETRYABLE = new Set(["unauthorized", "idle-expired", "denied", "rate-limited", "rate", "bad-payload", "bad-id", "bad-value", "empty", "too-many", "no-space", "too-big", "conflict", "failed"]);
   for (let b = 0; b < batches.length; b++) {
     const ids = batches[b];
     const part: Record<string, string | null> = {};
@@ -7021,12 +7139,39 @@ async function sendPatch(
       /* Every batch stores its sections, but only the last one records the
          history entry — otherwise one Publish shows up as several rows. */
       quiet: b < batches.length - 1,
+      opId,
+      baseRev: b === 0 ? baseRev : undefined,
     });
-    let res: any;
-    try {
-      res = JSON.parse(await socket.rpc.publish(raw));
-    } catch (err: any) {
-      return { ok: false, error: err?.message || "error", sent, failed: ids };
+    /* Bounded send with retry (no stuck publishes §5): 12s per attempt, up to
+       2 retries on transport/timeout only — never on auth, validation or
+       conflict. Backoff with jitter between attempts. Never throws past here. */
+    let res: any = null;
+    let attemptErr = "";
+    for (let attempt = 0; attempt < 3; attempt++) {
+      if (attempt > 0) {
+        const backoff = Math.min(4000, 400 * Math.pow(2, attempt)) + Math.random() * 250;
+        try { await new Promise((r) => window.setTimeout(r, backoff)); } catch {}
+      }
+      try {
+        const raced = await Promise.race([
+          socket.rpc.publish(raw),
+          new Promise<string>((_, rej) => window.setTimeout(() => rej(new Error("timeout")), 12000)),
+        ]);
+        res = JSON.parse(raced as string);
+        attemptErr = "";
+        break;
+      } catch (err: any) {
+        const msg = String(err?.message || "error").slice(0, 60);
+        attemptErr = msg;
+        /* AbortError/timeout/network — retry. Anything else breaks below. */
+        const transient = /timeout|abort|network|fetch|failed to fetch|load failed|offline/i.test(msg) || (err && (err as any).name === "AbortError");
+        if (!transient) { res = null; break; }
+        if (attempt >= 2) { res = null; break; }
+        continue;
+      }
+    }
+    if (!res) {
+      return { ok: false, error: attemptErr && /timeout|abort/i.test(attemptErr) ? "timeout" : attemptErr || "error", sent, failed: ids };
     }
     if (!res?.ok) {
       /* A changed/retired password ends the session here too (note 297) —
@@ -7038,6 +7183,7 @@ async function sendPatch(
       return { ok: false, error: res?.err || "failed", sent, failed: ids };
     }
     lastRev = res.rev;
+    if (typeof (res as any).at === "number" && Number.isFinite((res as any).at)) lastAt = Math.floor((res as any).at);
     ids.forEach((id) => {
       sent.push(id);
       const value = sections[id];
@@ -7092,9 +7238,10 @@ async function sendPatch(
       } else if (relay === "missed") {
         /* Live was unreachable (asleep, slow mobile): keep carrying these exact
            words there in the background so live visitors leave maintenance
-           without needing another click. */
+           without needing another click. Denied credentials never auto-retry
+           (§5: no hammering a wrong password) — the Status tab sends those once. */
         try {
-          scheduleRelayRetry(sections, changed, note, relayDeploy || durableDeploy);
+          if (!relayNeedsLivePw) scheduleRelayRetry(sections, changed, note, relayDeploy || durableDeploy);
         } catch {}
       }
     } else {
@@ -7114,7 +7261,12 @@ async function sendPatch(
       checkStaleBuild().catch(() => {});
     } catch {}
   }
-  return { ok: true, rev: lastRev, sent, relay };
+  /* Record the durable commit (§4): rev + clock + opId, so the office can
+     confirm the intended revision before declaring success. */
+  try {
+    if (typeof lastRev === "number" && Number.isFinite(lastRev)) noteCommit(lastRev, lastAt || Date.now(), opId);
+  } catch {}
+  return { ok: true, rev: lastRev, at: lastAt || undefined, opId, sent, relay };
 }
 
 /** Put the draft live. `content` is only for the publish that waited on a save. */
@@ -7143,14 +7295,23 @@ export async function publish(note: string, content?: Snapshot): Promise<Publish
      alongside the fold so the click waits for no extra round trip; "" when
      stamped or unreachable (words still ride without the witness). */
   const officeStampP: Promise<string> = deployStampForOfficePublish().catch(() => "");
-  // Convergence fix (rev1 office vs rev2 live): the 800ms fold used to miss a
-  // sleepy live box, so the office published without live's newer words and the
-  // relay then overwrote live (or skipped) — leaving the two stores diverged
-  // and other browsers on maintenance. Wait up to 12s for live's words; past
-  // it the click still proceeds and the minute loops heal it.
-  const foldP = foldLiveInto(content || draft, undefined, 12000);
+  // Speed: Publish runs in parallel instead of steps — fold + join + stamp start
+  // together, the click takes the fast lane (warm live answers in 200-500ms),
+  // and the loops heal a sleepy live box in the background. Local toast 1-2s,
+  // live 3-4s warm; hard limits are Render cold boot (30-60s asleep) + network.
+  /* Health rides alongside (availability §6, no extra delay): the click never
+     waits on it — it only marks the result warming when the backend is cold. */
+  const healthP: Promise<{ ok: boolean; warming: boolean }> = checkBackendHealth(2500).catch(() => ({ ok: false, warming: true }));
+  const foldP = foldLiveInto(content || draft, undefined, 1800);
   const joinP: Promise<boolean> = joinBeforePublish().catch(() => false);
-  const fold = await foldP;
+  // Fast lane: never hold the click past ~1.5s for the fold — warm folds win
+  // inside it; a sleepy live box misses it and the background pull heals it.
+  const fold = await Promise.race([
+    foldP,
+    new Promise<{ snapshot: Snapshot | null; folded: string[] }>((res) =>
+      window.setTimeout(() => res({ snapshot: null, folded: [] }), 1500)
+    ),
+  ]).catch(() => ({ snapshot: null as Snapshot | null, folded: [] as string[] }));
   /* The transport arms the send (notes 390, 392, 394): without a clicked play,
      pause or stop newer than what is published, the on-air state stays out of
      the patch — a natural end stamps nothing and needs no publish. */
@@ -7211,14 +7372,30 @@ export async function publish(note: string, content?: Snapshot): Promise<Publish
         return { ok: false, error: "unauthorized" };
       }
     }
-    const bless = await sendPatch({}, [], note.slice(0, 160), true, true, officeStamp);
+    const bless = await sendPatch({}, [], note.slice(0, 160), true, false, officeStamp);
     if (!bless.ok) return { ok: false, error: bless.error };
-    rev = bless.rev ?? rev + 1;
+    /* Commit receipt: only the server's durable rev/at counts (§4). A bless
+       that the server confirmed moves rev to it; anything else keeps local. */
+    if (typeof bless.rev === "number" && Number.isFinite(bless.rev)) {
+      rev = bless.rev;
+      try { noteCommit(bless.rev, typeof (bless as any).at === "number" ? (bless as any).at : Date.now(), (bless as any).opId || ""); } catch {}
+    } else {
+      rev = rev + 1;
+    }
     setPublishedNotes(BUILD_NOTES);
     clearUnrecordedLive();
     writeCache();
     notify();
-    return { ok: true, live: bless.relay !== "missed", relayMsg: relayStatus().msg };
+    // Speed: local returns in ~1s warm — live follows in ~3-4s via the 4s retry
+    // (immediate attempt + toast update). Cold boot still 30-60s Render nap.
+    try {
+      scheduleRelayRetry({}, [], note.slice(0, 160), officeStamp);
+    } catch {}
+    try {
+      pullFromLive().catch(() => {});
+    } catch {}
+    /* Live-committed on the office backend; devices sync separately (§4). */
+    return { ok: true, live: (bless as any).relay !== "missed", rev: (bless as any).rev, at: (bless as any).at, opId: (bless as any).opId, relayMsg: relayStatus().msg || "Published here. Live follows in seconds — no second click needed." };
   }
 
   /* One click publishes to visitors: the join gets a few seconds first
@@ -7281,20 +7458,38 @@ export async function publish(note: string, content?: Snapshot): Promise<Publish
   }
 
   rememberHistory();
-  const result = await sendPatch(sections, changed, payloadNote, true, true, officeStamp);
+  // Speed: office + live run in parallel instead of steps — office send lands
+  // local in ~1-2s warm, the 4s retry carries live in ~3-4s with its own toast.
+  const result = await sendPatch(sections, changed, payloadNote, true, false, officeStamp);
   if (!result.ok) {
     if (result.sent.length) {
       // Part of the patch landed; keep the site consistent with what is stored.
-      rev = result.rev ?? rev;
+      /* Partial commit still records the durable rev the server confirmed. */
+      if (typeof result.rev === "number" && Number.isFinite(result.rev)) {
+        rev = result.rev;
+        try { noteCommit(result.rev, typeof (result as any).at === "number" ? (result as any).at : Date.now(), (result as any).opId || ""); } catch {}
+      } else {
+        rev = rev;
+      }
       applyOverrides(overrides, false);
       writeCache();
       notify();
     }
+    /* Stuck-publish cause (§5): conflict/timeout/auth surface verbatim so the
+       office sees WHY — content stays unsaved locally with a retry option. */
     return { ok: false, error: result.error };
   }
 
-  rev = result.rev ?? rev + 1;
-  updatedAt = Date.now();
+  /* Durable commit first (§4): the production server's rev + clock. The toast
+     may only claim Published after this receipt; device sync stays separate. */
+  if (typeof result.rev === "number" && Number.isFinite(result.rev)) {
+    rev = result.rev;
+    updatedAt = typeof (result as any).at === "number" && Number.isFinite((result as any).at) ? Math.floor((result as any).at) : Date.now();
+    try { noteCommit(result.rev, updatedAt, (result as any).opId || ""); } catch {}
+  } else {
+    rev = rev + 1;
+    updatedAt = Date.now();
+  }
   updatedBy = editorName();
   setPublishedNotes(BUILD_NOTES);
   clearUnrecordedLive();
@@ -7310,7 +7505,11 @@ export async function publish(note: string, content?: Snapshot): Promise<Publish
     localStorage.removeItem(DRAFT_KEY);
   } catch {}
   notify();
-  return { ok: true, live: result.relay !== "missed", relayMsg: relayStatus().msg };
+  /* Warming flag (§6): the office commit landed but the live box is still
+     waking — syncing, not failed. Never claims every browser updated. */
+  let warming = false;
+  try { warming = (await healthP.catch(() => ({ ok: true, warming: false }))).warming && (result as any).relay === "missed"; } catch { warming = false; }
+  return { ok: true, live: result.relay !== "missed", relayMsg: relayStatus().msg, rev, at: updatedAt, opId: (result as any).opId, warming: warming || undefined };
 }
 
 export async function clearLog(): Promise<{ ok: boolean; error?: string }> {
