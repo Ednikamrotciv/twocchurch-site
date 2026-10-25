@@ -7,11 +7,12 @@
 // carried the words yet, those other copies stay on maintenance with no loud
 // signal anywhere. This watch runs server-side after every successful office
 // `publish` RPC: it re-reads the office stamp, then asks the live box for its
-// stamp at ~45s, ~2.5min and ~6min. On confirmation it logs one info line
+// stamp at ~3s, ~13s, ~28s and ~48s. On confirmation it logs one info line
 // (other browsers lift); if live is still behind at the end it logs a HIGH
 // line with the exact remedy. Zero deps, timers unref'd (never holds a build
 // or deploy open), skipped on the live box itself (RENDER=true — a publish
-// there needs no relay).
+// there needs no relay). Very fast: first proof in seconds, stuck signal in
+// under a minute.
 export function createPublishWatch({ getOfficeStamp, getLiveUrl, log } = {}) {
   let token = 0;
 
@@ -37,7 +38,7 @@ export function createPublishWatch({ getOfficeStamp, getLiveUrl, log } = {}) {
           try {
             ctrl.abort();
           } catch {}
-        }, 15000);
+        }, 8000);
       }
       const r = await fetch(clean + "/__cms/contentRev?conn=publish-watch", {
         method: "POST",
@@ -72,7 +73,7 @@ export function createPublishWatch({ getOfficeStamp, getLiveUrl, log } = {}) {
       office = null;
     }
     if (!office || !(office.notes > 0)) {
-      if (round < 3 && my === token) later(round === 0 ? 40000 : 150000, () => check(my, round + 1));
+      if (round < 3 && my === token) later(round === 0 ? 10000 : 20000, () => check(my, round + 1));
       return;
     }
     let liveUrl = "";
@@ -126,7 +127,7 @@ export function createPublishWatch({ getOfficeStamp, getLiveUrl, log } = {}) {
           kind: "publish-stuck",
           ip: "-",
           route: liveUrl,
-          detail: `first Publish has NOT reached the live box after ~6 min (${why}) — other browsers/devices stay on maintenance`,
+          detail: `first Publish has NOT reached the live box after ~50s (${why}) — other browsers/devices stay on maintenance`,
           hint: "1) In the admin tab read the toast by the Publish button: if it says the live login was denied, type the live box's CURRENT password once on the Status tab (diskless hosts reset it to the shipped default on sleep). 2) This terminal: 'auto-deploy … not a git checkout' means this folder cannot push — publish from a git checkout, or click Publish on live/admin too. 3) If the live box is just asleep, its retry + wake carry it — or Publish once on live/admin for an instant lift.",
           source: "live",
           online: live && !live.unreachable ? true : false,
@@ -134,7 +135,7 @@ export function createPublishWatch({ getOfficeStamp, getLiveUrl, log } = {}) {
       } catch {}
       return;
     }
-    later(round === 0 ? 40000 : 150000, () => check(my, round + 1));
+    later(round === 0 ? 10000 : 20000, () => check(my, round + 1));
   }
 
   function noteOfficePublish() {
@@ -142,8 +143,8 @@ export function createPublishWatch({ getOfficeStamp, getLiveUrl, log } = {}) {
       if (process.env.RENDER) return;
     } catch {}
     const my = ++token;
-    // Let the save settle, then prove the live box has it.
-    later(8000, () => check(my, 0));
+    // Let the save settle, then prove the live box has it — very fast.
+    later(3000, () => check(my, 0));
   }
 
   return { noteOfficePublish };
