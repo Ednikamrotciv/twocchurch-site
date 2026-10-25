@@ -252,6 +252,20 @@ function noteServerVerdict(notes: unknown, words: unknown, at?: unknown, deploy?
     try {
       if (typeof code === "string" && /^[A-Za-z0-9_-]{1,40}$/.test(code)) c = code;
     } catch {}
+    /* Live-relay fix (one Publish clears all browsers/devices): polling multiple
+       backends (office new, live old) must never let a stale answer clobber a
+       fresh publish verdict. Raise-only: a good verdict (this update+ with real
+       words) sticks until a same-or-newer update replaces it. */
+    try {
+      const cur = serverVerdict;
+      if (cur && cur.notes >= BUILD_NOTES && cur.words > 0) {
+        const newGood = n >= BUILD_NOTES && w > 0;
+        if (!newGood) return;
+        if (n < cur.notes) return;
+        if (n === cur.notes && w <= 0 && cur.words > 0) return;
+        if (n === cur.notes && a > 0 && cur.at > 0 && a < cur.at) return;
+      }
+    } catch {}
     serverVerdict = { notes: n, words: w, at: a, deploy: d, code: c };
     serverVerdictAt = Date.now();
   } catch {}
@@ -284,6 +298,15 @@ function serverHoldsPublish(): boolean {
        first seen — the post-deploy witness in verdict form. */
     try {
       if (v.notes === BUILD_NOTES && v.at > 0 && deployFirstSeenAt > 0 && v.at + PUBLISH_AT_SKEW_MS > deployFirstSeenAt) return true;
+    } catch {}
+    /* Shared-backend release (live-relay, one click clears all devices): this
+       update (or newer) with real words on the backend this copy reads means
+       live, with no deploy/code/clock matching. A late device, a rebuilt
+       device and the publishing device read the same answer and agree.
+       Genuinely new code (server behind this update) and empty/unreviewed
+       backends still wait via the checks above. */
+    try {
+      if (v.notes >= BUILD_NOTES && v.words > 0) return true;
     } catch {}
     return false;
   } catch {
@@ -2534,27 +2557,6 @@ async function syncFromFeed() {
         markDeployPublished();
       }
     } catch {}
-    /* Word-free twin of the rule above (bless-only first publish over the
-       mirror): the stamp carries notes + code + clock but no words, so the
-       word-gated rule cannot fire — yet on a live mirrored publish from this
-       same update and code it IS the review. Same guards (never across
-       updates, never another code, never over a mid-edit clean stage — the
-       block above already returned those), seeded fallback bakes excluded. */
-    try {
-      const seedCode2 = typeof (live as any).code === "string" ? (live as any).code : "";
-      if (
-        (!cleanStageForNewCode || pendingSections().length === 0) &&
-        (live as any).seeded !== true &&
-        deployFromMeta && currentDeployId &&
-        publishedDeployId !== currentDeployId &&
-        typeof live.notes === "number" && Math.floor(live.notes) === BUILD_NOTES &&
-        !!seedCode2 && !!runningCode && seedCode2 === runningCode &&
-        Object.keys(liveSections).length === 0
-      ) {
-        setPublishedNotes(BUILD_NOTES);
-        markDeployPublished();
-      }
-    } catch {}
     applyOverrides(liveSections);
     writeCache();
   } catch {
@@ -4652,32 +4654,6 @@ async function syncFromServer() {
       markDeployPublished();
     }
   } catch {}
-  /* Word-free release for a live same-update + same-code stamp (twin of the
-     poll fast-path below): a bless-only first publish attests notes + code +
-     clock but carries no words, so the word-gated rules above cannot fire —
-     yet the stamp IS the office review (only a bless-true publish moves the
-     code on a live answer; heals never bless, seeded bakes never reach this
-     branch as live). Seeded answers are excluded (a clean bake must hold until
-     Recover + Publish), cross-update and different-code copies are excluded by
-     the equality checks, unstamped local copies keep their number gate, and a
-     mid-edit desk still waits for its own publish. Staging follows the normal
-     path below (empty stays clean; words stage when present). */
-  try {
-    if (
-      (!cleanStageForNewCode || pendingSections().length === 0) &&
-      (res as any).seeded !== true &&
-      deployFromMeta && currentDeployId &&
-      publishedDeployId !== currentDeployId &&
-      typeof res.notes === "number" && Math.floor(res.notes) === BUILD_NOTES &&
-      typeof (res as any).code === "string" && (res as any).code && (res as any).code === runningCode
-    ) {
-      setPublishedNotes(BUILD_NOTES);
-      markDeployPublished();
-      try {
-        lastReleaseBy = "server-word-witness-empty";
-      } catch {}
-    }
-  } catch {}
 /** Host-file attestation (one click clears every device): version.json names
     the code the host serves — when it names this bundle's word, the host runs
     this build, so a same-update server publish with real words releases this
@@ -6178,7 +6154,7 @@ async function relayFetch(url: string, body: string, ms = 8000): Promise<Respons
    live box actually serves, so a publish from an unstamped copy (local/dev)
    can still stamp the durable record with the deploy visitors run. Never
    throws; "" when unknown (words still ride without the witness). */
-async function fetchLiveDeployId(base: string, ms = 1500): Promise<string> {
+async function fetchLiveDeployId(base: string, ms = 8000): Promise<string> {
   try {
     if (!base || !/^https?:\/\/[^/\s]+$/i.test(base)) return "";
     const ctrl = typeof AbortController !== "undefined" ? new AbortController() : null;
@@ -6214,7 +6190,7 @@ async function deployStampForOfficePublish(): Promise<string> {
     if (currentDeployId && deployFromMeta && !ownDeployIsDevBoot()) return "";
     const base = await relayLiveBase().catch(() => "");
     if (!base) return "";
-    return await fetchLiveDeployId(base, 1200);
+    return await fetchLiveDeployId(base, 8000);
   } catch {
     return "";
   }
@@ -6255,7 +6231,7 @@ async function relayPublishWordsToLive(
      sleep-wake (Render naps take a while to answer). `bounded` caps an
      awaited click end to end; background attempts carry their own per-fetch
      bounds instead. Never throws. */
-  ms = 2500,
+  ms = 15000,
   bounded = true
 ): Promise<"landed" | "missed" | "unneeded"> {
   try {
@@ -6358,7 +6334,7 @@ async function relayPublishWordsToLive(
        wall clock arbitrates with a skew margin; an unreadable stamp never
        blocks delivery. */
     try {
-      const stampRes = await relayFetch(base + "/__cms/contentRev?conn=relay-stamp-" + encodeURIComponent(conn), "", Math.min(ms, 1500));
+      const stampRes = await relayFetch(base + "/__cms/contentRev?conn=relay-stamp-" + encodeURIComponent(conn), "", Math.min(ms, 8000));
       if (stampRes && (stampRes as any).ok) {
         const sj = await (stampRes as any).json().catch(() => null);
         const liveNotes = Math.floor(Number(sj && (sj as any).notes));
@@ -6458,7 +6434,7 @@ async function relayPublishWordsToLive(
     if (!bounded) return await run();
     return await Promise.race([
       run(),
-      new Promise<"missed">((res) => window.setTimeout(() => res("missed"), 3500)),
+      new Promise<"missed">((res) => window.setTimeout(() => res("missed"), 30000)),
     ]);
   } catch {
     return "missed";
@@ -6555,7 +6531,7 @@ async function attemptRelayRetry(): Promise<boolean> {
       /* Fast bound (very fast): each background attempt gets a short deadline
          so a miss fails fast and the 4s retry carries it — awake live lands
          in 1-2s, sleepy live lands via quick retries, never a long stall. */
-      outcome = await relayPublishWordsToLive(payload.sections, payload.changed, payload.note, payload.deploy, 12000, false);
+      outcome = await relayPublishWordsToLive(payload.sections, payload.changed, payload.note, payload.deploy, 20000, false);
     } catch {
       outcome = "missed";
     }
