@@ -91,7 +91,13 @@ export async function fetchLiveSeed(spec: FeedSpec, currentRev: number, timeoutM
 /** This copy's baked feed address (dist/feed.json), or null. Never throws. */
 export async function bakedFeedSpec(): Promise<FeedSpec | null> {
   try {
-    const res = await fetch(siteFile("feed.json"), { cache: "no-store" });
+    const ctrl = typeof AbortController !== "undefined" ? new AbortController() : null;
+    const timer = ctrl ? setTimeout(() => { try { ctrl.abort(); } catch {} }, 8000) : 0;
+    let res: Response | null = null;
+    try {
+      res = await fetch(siteFile("feed.json"), { cache: "no-store", signal: ctrl ? ctrl.signal : undefined });
+    } catch { return null; } finally { try { if (timer) clearTimeout(timer as any); } catch {} }
+    if (!res) return null;
     if (!res.ok) return null;
     const data = await res.json().catch(() => null);
     return parseFeedSpec(data && (data.feed || data.spec));
@@ -104,7 +110,13 @@ export async function bakedFeedSpec(): Promise<FeedSpec | null> {
     a public source repo) — "data/uploads" when no feed is baked. Never throws. */
 export async function bakedFeedUploadsDir(): Promise<string> {
   try {
-    const res = await fetch(siteFile("feed.json"), { cache: "no-store" });
+    const ctrl2 = typeof AbortController !== "undefined" ? new AbortController() : null;
+    const timer2 = ctrl2 ? setTimeout(() => { try { ctrl2.abort(); } catch {} }, 8000) : 0;
+    let res: Response | null = null;
+    try {
+      res = await fetch(siteFile("feed.json"), { cache: "no-store", signal: ctrl2 ? ctrl2.signal : undefined });
+    } catch { return "data/uploads"; } finally { try { if (timer2) clearTimeout(timer2 as any); } catch {} }
+    if (!res) return "data/uploads";
     if (!res.ok) return "data/uploads";
     const data = await res.json().catch(() => null);
     if (data && data.uploads === "uploads") return "uploads";

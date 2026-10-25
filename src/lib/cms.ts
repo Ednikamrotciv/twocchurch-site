@@ -39,6 +39,34 @@ const SESSION_DEPLOY_KEY = "wom.cms.sessionDeploy";
 const LAST_ADMIN_AT_KEY = "wom.cms.lastAdminAt";
 const SESSION_IDLE_MS = 15 * 60 * 1000;
 const REQUEST_TIMEOUT = 3500;
+/* Stuck-free bounds (nothing gets stuck): every network wait below carries its
+   own deadline, and every poll carries a re-entry guard — a hanging fetch or a
+   wedged flag can never strand boot, maintenance or a Publish click. */
+function withRpcTimeout<T>(p: Promise<T>, ms: number, label = "rpc"): Promise<T> {
+  let timer = 0;
+  try {
+    return (Promise.race([
+      p,
+      new Promise<T>((_, reject) => {
+        timer = window.setTimeout(() => reject(new Error(label + " timeout")), ms);
+      }),
+    ]) as Promise<T>).finally(() => {
+      try { if (timer) window.clearTimeout(timer); } catch {}
+    });
+  } catch { return p; }
+}
+function fetchWithTimeout(url: string, init: RequestInit, ms: number): Promise<Response> {
+  const ctrl = typeof AbortController !== "undefined" ? new AbortController() : null;
+  const timer = ctrl ? window.setTimeout(() => { try { ctrl.abort(); } catch {} }, ms) : 0;
+  try {
+    return fetch(url, { ...init, signal: ctrl ? ctrl.signal : undefined }).finally(() => {
+      try { if (timer) window.clearTimeout(timer as any); } catch {}
+    });
+  } catch (e) {
+    try { if (timer) window.clearTimeout(timer as any); } catch {}
+    throw e;
+  }
+}
 
 const NOTES_KEY = "wom.cms.notes";
 /* Which code update the browser's saved store belongs to (note 253). */
@@ -1040,11 +1068,11 @@ export function isDeployOnlyStale(): boolean {
 export async function peekFreshDeploy(): Promise<void> {
   try {
     const sep = siteFile("version.json").includes("?") ? "&" : "?";
-    const res = await fetch(siteFile("version.json") + sep + "t=" + Date.now(), {
+    const res = await fetchWithTimeout(siteFile("version.json") + sep + "t=" + Date.now(), {
       cache: "no-store",
       headers: { pragma: "no-cache", "cache-control": "no-cache" },
-    });
-    if (!res.ok) return;
+    }, 8000).catch(() => null);
+    if (!res || !res.ok) return;
     const data = await res.json().catch(() => null);
     const n = Number(data && (data as any).notes);
     const vDeploy = data && (data as any).deployId;
@@ -1108,11 +1136,11 @@ export function checkStaleBuild(): Promise<void> {
       /* Cache-buster + no-store headers: an intermediate cache must never
          answer this with the previous update's number. */
       const sep = siteFile("version.json").includes("?") ? "&" : "?";
-      const res = await fetch(siteFile("version.json") + sep + "t=" + Date.now(), {
+      const res = await fetchWithTimeout(siteFile("version.json") + sep + "t=" + Date.now(), {
         cache: "no-store",
         headers: { pragma: "no-cache", "cache-control": "no-cache" },
-      });
-      if (!res.ok) return;
+      }, 8000).catch(() => null);
+      if (!res || !res.ok) return;
       const data = await res.json().catch(() => null);
       const n = Number(data && (data as any).notes);
       const vDeploy = data && (data as any).deployId;
@@ -1181,9 +1209,10 @@ export function checkStaleBuild(): Promise<void> {
           sessionStorage.setItem(STALE_RELOAD_KEY, JSON.stringify({ notes: staleNewerNotes, at, tries }));
         } catch {}
       } catch {}
-      /* Warm the entry document past the HTTP cache, then reload onto it. */
+      /* Warm the entry document past the HTTP cache, then reload onto it —
+         never let a hanging warm fetch block the reload (stuck on old code). */
       try {
-        await fetch(window.location.href, { cache: "reload" } as RequestInit);
+        await withRpcTimeout(fetch(window.location.href, { cache: "reload" } as RequestInit).catch(() => null), 5000, "warm");
       } catch {}
       window.location.reload();
     } catch {
@@ -2359,7 +2388,8 @@ async function applySeedOnce() {
   if (seedApplied) return;
   seedApplied = true;
   try {
-    const res = await fetch(siteFile("seed.json"), { cache: "no-store" });
+    const res = await fetchWithTimeout(siteFile("seed.json"), { cache: "no-store" }, 8000).catch(() => null);
+    if (!res) return;
     if (res.ok) {
       const seed = await res.json();
       /* The baked recent-services list paints even when the words are not
@@ -2534,6 +2564,27 @@ async function syncFromFeed() {
         markDeployPublished();
       }
     } catch {}
+    /* Word-free twin of the rule above (bless-only first publish over the
+       mirror): the stamp carries notes + code + clock but no words, so the
+       word-gated rule cannot fire — yet on a live mirrored publish from this
+       same update and code it IS the review. Same guards (never across
+       updates, never another code, never over a mid-edit clean stage — the
+       block above already returned those), seeded fallback bakes excluded. */
+    try {
+      const seedCode2 = typeof (live as any).code === "string" ? (live as any).code : "";
+      if (
+        (!cleanStageForNewCode || pendingSections().length === 0) &&
+        (live as any).seeded !== true &&
+        deployFromMeta && currentDeployId &&
+        publishedDeployId !== currentDeployId &&
+        typeof live.notes === "number" && Math.floor(live.notes) === BUILD_NOTES &&
+        !!seedCode2 && !!runningCode && seedCode2 === runningCode &&
+        Object.keys(liveSections).length === 0
+      ) {
+        setPublishedNotes(BUILD_NOTES);
+        markDeployPublished();
+      }
+    } catch {}
     applyOverrides(liveSections);
     writeCache();
   } catch {
@@ -2635,10 +2686,10 @@ async function joinedBackendRoot(): Promise<string> {
 }
 async function liveBaseUrl(): Promise<string> {
   try {
-    const joined = await joinedBackendRoot();
+    const joined = await withRpcTimeout(joinedBackendRoot(), 3000, "live-root").catch(() => "");
     if (joined) {
       try {
-        const res = await fetch(joined + "/__live-url", { cache: "no-store" });
+        const res = await fetchWithTimeout(joined + "/__live-url", { cache: "no-store" }, 5000).catch(() => null);
         if (res.ok) {
           const data = await res.json().catch(() => null);
           const u = String((data && data.url) || "").trim().replace(/\/+$/, "");
@@ -2656,7 +2707,8 @@ async function liveBaseUrl(): Promise<string> {
   }
   let backend = "";
   try {
-    const res = await fetch("/__live-url", { cache: "no-store" });
+    const res = await fetchWithTimeout("/__live-url", { cache: "no-store" }, 5000).catch(() => null);
+    if (!res) throw 0;
     if (res.ok) {
       const data = await res.json().catch(() => null);
       const u = String((data && data.url) || "").trim().replace(/\/+$/, "");
@@ -2828,22 +2880,24 @@ async function backfillUploadsFrom(fromBase: string, content: Snapshot = overrid
   for (const name of localUploadNames(content)) {
     let here = false;
     try {
-      const res = await fetch("/data/uploads/" + name, { cache: "no-store" });
-      here = res.ok;
+      const res = await fetchWithTimeout("/data/uploads/" + name, { cache: "no-store" }, 8000).catch(() => null);
+      here = !!res && res.ok;
     } catch {
       here = false;
     }
     if (here) continue;
     try {
-      const res = await fetch(fromBase + "/data/uploads/" + name, { cache: "no-store" });
+      const res = await fetchWithTimeout(fromBase + "/data/uploads/" + name, { cache: "no-store" }, 10000).catch(() => null);
+      if (!res) throw 0;
       if (!res.ok) throw 0;
       const blob = await res.blob();
       if (!blob.size || blob.size > BACKUP_FILE_MAX_BYTES) throw 0;
-      const put = await fetch("/__restore-file?conn=" + encodeURIComponent(officeFileConn()) + "&name=" + encodeURIComponent(name), {
+      const put = await fetchWithTimeout("/__restore-file?conn=" + encodeURIComponent(officeFileConn()) + "&name=" + encodeURIComponent(name), {
         method: "POST",
         headers: { "content-type": blob.type || guessUploadType(name) },
         body: blob,
-      });
+      }, 15000).catch(() => null);
+      if (!put) throw 0;
       if (!put.ok) throw 0;
       restored++;
     } catch {
@@ -2866,7 +2920,8 @@ async function uploadNameMissing(name: string): Promise<boolean> {
      missing" and let the cached copy paint; the next online heal restores. */
   try {
     if (typeof navigator !== "undefined" && (navigator as any).onLine === false) return false;
-    const res = await fetch("/data/uploads/" + name, { cache: "no-store" });
+    const res = await fetchWithTimeout("/data/uploads/" + name, { cache: "no-store" }, 8000).catch(() => null);
+    if (!res) return false;
     if (!res.ok) return true;
     const type = String(res.headers.get("content-type") || "").toLowerCase();
     if (type.includes("text/html")) return true;
@@ -2907,7 +2962,8 @@ export async function healMissingUploads(): Promise<{ restored: number; checked:
         if (!blob || !(blob as any).size) {
           for (const u of await feedUrlsForUpload(name)) {
             try {
-              const r = await fetch(u, { cache: "no-store" });
+              const r = await fetchWithTimeout(u, { cache: "no-store" }, 10000).catch(() => null);
+              if (!r) continue;
               if (!r.ok) continue;
               const b = await r.blob();
               if (!b || !(b as any).size) continue;
@@ -2919,12 +2975,12 @@ export async function healMissingUploads(): Promise<{ restored: number; checked:
           }
         }
         if (!blob || !(blob as any).size) continue;
-        const put = await fetch("/__restore-file?conn=" + encodeURIComponent(officeFileConn()) + "&name=" + encodeURIComponent(name), {
+        const put = await fetchWithTimeout("/__restore-file?conn=" + encodeURIComponent(officeFileConn()) + "&name=" + encodeURIComponent(name), {
           method: "POST",
           headers: { "content-type": (blob as any).type || guessUploadType(name) },
           body: blob,
-        });
-        if (put.ok) restored++;
+        }, 15000).catch(() => null);
+        if (put && put.ok) restored++;
       } catch {}
     }
     return { restored, checked };
@@ -3487,7 +3543,10 @@ function stampTupleOf(r: any): string {
    — a public read, no session — which wakes a sleeping server like any HTTP
    request. Any same-update publish with real words releases this deploy at
    once, whatever deploy id it was stamped from. Best-effort, never throws. */
+let pollPublishRunning = false;
 async function pollPublishHttp(): Promise<void> {
+  if (pollPublishRunning) return;
+  pollPublishRunning = true;
   try {
     if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
     const urls: string[] = [];
@@ -3584,6 +3643,7 @@ async function pollPublishHttp(): Promise<void> {
       notify();
     }
   } catch {}
+  finally { pollPublishRunning = false; }
 }
 function startContentWatch() {
   if (contentWatchStarted) return;
@@ -3600,7 +3660,7 @@ function startContentWatch() {
       if (contentWatchRunning) return;
       contentWatchRunning = true;
       try {
-        const raw = await socket.rpc.contentRev("");
+        const raw = await withRpcTimeout(socket.rpc.contentRev(""), 8000, "contentRev");
         const r = typeof raw === "string" ? JSON.parse(raw) : raw;
         try {
           noteServerVerdict((r as any).notes, (r as any).words, (r as any).at, (r as any).publishDeploy, (r as any).code);
@@ -4440,7 +4500,7 @@ function scheduleReconnect() {
 }
 
 async function syncFromServer() {
-  const raw = await socket.rpc.getContent("");
+  const raw = await withRpcTimeout(socket.rpc.getContent(""), 10000, "getContent");
   const res = JSON.parse(raw);
   if (!res?.ok) return;
   /* A reload must not strand the live site: once per session, pick up any
@@ -4491,13 +4551,49 @@ async function syncFromServer() {
     notify();
     return;
   }
-  /* Note 301: a blank answer can never bless and never clear — the empty
-     guard runs BEFORE the publish stamp is adopted, so only a live answer
-     moves maintenance. */
+  /* Note 301: a blank answer can never clear — the paint stays, words are
+     stashed for the heal above. But a bless-only publish carries notes + code
+     + clock with no words, and that stamp IS the office review: when it names
+     this update and this code, adopt the stamps so the notice can lift while
+     the paint stays. Unattested empties (wiped box, wrong update/code) still
+     wait exactly as before. Never throws. */
   if (!Object.keys(server).length && Object.keys(overrides).length) {
     if (pending) pending = { ...clone(pending), ...clone(overrides) };
     else if (!plannedPublish()) pending = clone(overrides);
     if (pending) writeJSON(PENDING_KEY, pending);
+    try {
+      lastServerWitness = {
+        notes: typeof res.notes === "number" ? Math.floor(res.notes) : 0,
+        code: typeof (res as any).code === "string" ? (res as any).code : "",
+        deploy: typeof (res as any).publishDeploy === "string" ? (res as any).publishDeploy : "",
+        at: typeof res.at === "number" ? Math.floor(res.at) : 0,
+        words: 0,
+      };
+    } catch { lastServerWitness = null; }
+    try {
+      const nE = typeof res.notes === "number" ? Math.floor(res.notes) : 0;
+      const cE = typeof (res as any).code === "string" ? (res as any).code : "";
+      const aE = typeof res.at === "number" ? res.at : 0;
+      if (nE === BUILD_NOTES && !!cE && !!runningCode && cE === runningCode) {
+        setPublishedNotes(BUILD_NOTES);
+        try { if (aE > 0) notePublishAt(aE); } catch {}
+        try { noteDeployWitness((res as any).publishDeploy); } catch {}
+        try { noteCodeWitness(cE, nE); } catch {}
+        try {
+          if (deployFromMeta && currentDeployId && publishedDeployId !== currentDeployId &&
+            (!cleanStageForNewCode || pendingSections().length === 0)) {
+            markDeployPublished();
+            try { lastReleaseBy = "server-word-witness-empty-held"; } catch {}
+          }
+        } catch {}
+        try {
+          if (!deployFromMeta && (!cleanStageForNewCode || pendingSections().length === 0)) {
+            blessRunningCode();
+          }
+        } catch {}
+        version += 1;
+      }
+    } catch {}
     if (authed) {
       try {
         await healEmptyServer();
@@ -4629,6 +4725,32 @@ async function syncFromServer() {
       postDeployPublishWitnessed()
     ) {
       markDeployPublished();
+    }
+  } catch {}
+  /* Word-free release for a live same-update + same-code stamp (twin of the
+     poll fast-path below): a bless-only first publish attests notes + code +
+     clock but carries no words, so the word-gated rules above cannot fire —
+     yet the stamp IS the office review (only a bless-true publish moves the
+     code on a live answer; heals never bless, seeded bakes never reach this
+     branch as live). Seeded answers are excluded (a clean bake must hold until
+     Recover + Publish), cross-update and different-code copies are excluded by
+     the equality checks, unstamped local copies keep their number gate, and a
+     mid-edit desk still waits for its own publish. Staging follows the normal
+     path below (empty stays clean; words stage when present). */
+  try {
+    if (
+      (!cleanStageForNewCode || pendingSections().length === 0) &&
+      (res as any).seeded !== true &&
+      deployFromMeta && currentDeployId &&
+      publishedDeployId !== currentDeployId &&
+      typeof res.notes === "number" && Math.floor(res.notes) === BUILD_NOTES &&
+      typeof (res as any).code === "string" && (res as any).code && (res as any).code === runningCode
+    ) {
+      setPublishedNotes(BUILD_NOTES);
+      markDeployPublished();
+      try {
+        lastReleaseBy = "server-word-witness-empty";
+      } catch {}
     }
   } catch {}
 /** Host-file attestation (one click clears every device): version.json names
@@ -6991,7 +7113,7 @@ async function sendPatch(
     });
     let res: any;
     try {
-      res = JSON.parse(await socket.rpc.publish(raw));
+      res = JSON.parse(await withRpcTimeout(socket.rpc.publish(raw), 15000, "publish"));
     } catch (err: any) {
       return { ok: false, error: err?.message || "error", sent, failed: ids };
     }
