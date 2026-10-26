@@ -83,6 +83,13 @@ export function App() {
   const gathering = nextService(SERVICES, minute, churchTimezone());
   const expecting = !!gathering && (onAir(gathering) || gathering.msUntil < 45 * 60 * 1000);
   const onWatchPage = route.path === "/watch-live" || route.path.startsWith("/watch-live/");
+  /* Fast live open: prefetch the Watch chunk while a service is near so the
+     first open paints at once instead of fetching the chunk after the tap. */
+  useEffect(() => {
+    try {
+      if (expecting || onWatchPage) import("./pages/WatchLive").catch(() => {});
+    } catch {}
+  }, [expecting, onWatchPage]);
   useLiveStream(expecting || onWatchPage, false, onWatchPage);
 
   // Load the published content once; the version counter then re-renders the

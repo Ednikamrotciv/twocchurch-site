@@ -1146,6 +1146,29 @@
   height: 62px;
 }
 
+/* Instant-live sound pill: self-started lives open muted so autoplay is never
+   blocked (unmuted autoplay needs a prior tap). One tap unmutes in place —
+   no reload, no navigation, stays on this site. */
+.player__sound {
+  position: absolute;
+  left: 50%;
+  bottom: 1rem;
+  transform: translateX(-50%);
+  z-index: 3;
+  border: 0;
+  border-radius: 999px;
+  padding: 0.55rem 1.1rem;
+  font-weight: 800;
+  font-size: 0.85rem;
+  background: rgba(8, 8, 10, 0.82);
+  color: #f4e7c8;
+  border: 1px solid rgba(227, 183, 92, 0.65);
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+}
+.player__sound:hover { background: rgba(227, 183, 92, 0.92); color: #241a05; }
+
 .player__label {
   position: absolute;
   left: 1.1rem;

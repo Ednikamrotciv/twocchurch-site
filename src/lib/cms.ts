@@ -1702,6 +1702,7 @@ function objectPending(def: SectionDef, before: any, after: any): PendingLine[] 
       { key: "liveSince", label: "Session start" },
       { key: "liveCut", label: "Session end" },
       { key: "liveCommandAt", label: "Play/pause/stop press" },
+      { key: "liveReloadAt", label: "Reload press" },
       { key: "liveEndedBy", label: "Ended by" },
       { key: "guestIsLive", label: "Guest on-air switch" },
       { key: "guestCommandAt", label: "Guest press" },
@@ -1716,6 +1717,7 @@ function objectPending(def: SectionDef, before: any, after: any): PendingLine[] 
       if (fieldPaths.has(key)) continue;
       if (gatedOnAir.has(key) && !liveClicked) continue;
       if (gatedGuest.has(key) && !guestClicked) continue;
+      if (key === "liveReloadAt" && !liveClicked && !guestClicked) continue;
       if (!sameJSON((before as any)[key], (after as any)[key])) {
         const b = (before as any)[key];
         const a = (after as any)[key];
@@ -2023,6 +2025,12 @@ export function gateLiveCommand(live: any, publishedLive: any): any {
   const gpub = Number((publishedLive as any)?.guestCommandAt) || 0;
   if (at > pub && gat > gpub) return live;
   const out = { ...(live as any) };
+  /* The Reload repair stamp travels only on a newer row press — an unclicked
+     Publish never remounts visitors. Either row's press carries it (the fix
+     covers both slots), so gate on the OR, not per-slot. */
+  try {
+    if (!(at > pub) && !(gat > gpub) && publishedLive && typeof publishedLive === "object") out.liveReloadAt = (publishedLive as any).liveReloadAt;
+  } catch {}
   if (publishedLive && typeof publishedLive === "object") {
     if (!(at > pub)) {
       for (const k of ["isLive", "liveSince", "liveCut", "liveCommandAt", "liveEndedBy"]) out[k] = (publishedLive as any)[k];
@@ -5507,6 +5515,11 @@ function healDraftLiveTransport() {
           if (!sameJSON((next as any)[k], (pub as any)[k])) { (next as any)[k] = clone((pub as any)[k]); moved = true; }
         } catch {}
       }
+    }
+    if (!(at > pat) && !(gat > gpat)) {
+      try {
+        if (!sameJSON((next as any).liveReloadAt, (pub as any).liveReloadAt)) { (next as any).liveReloadAt = clone((pub as any).liveReloadAt); moved = true; }
+      } catch {}
     }
     if (!moved) return;
     (draft as any).live = next;

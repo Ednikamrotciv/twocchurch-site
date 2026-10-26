@@ -9,7 +9,7 @@ import { sermonsNewestFirst, sermonSource, sermonThumb } from "../data/sermons";
 import { useLocalState, useNow, fireToast } from "../lib/hooks";
 import { KEYS, nextService, onAir, displayLive, to12h, DAY_NAMES, countdownParts, addToCalendar, mailto, clockHere, tidyCount, churchTimezone, visitorPlace, fmtDate, downloadText, serviceNoteKey, type NextServiceInfo } from "../lib/store";
 import { isFacebookVideoUrl, parseYoutubeId, platformLabel, watchUrl, youtubeThumb, type VideoPlatform, type VideoSource } from "../lib/embed";
-import { useLiveStream, liveTarget, guestTarget, isGuestTargetUrl, facebookTarget, useYoutubeVerdict, isStatusForTarget, designatedChannelIdForTarget, isDesignatedChannel, nextScreenShut, officeStopActive, type ScreenShut } from "../lib/livestatus";
+import { useLiveStream, liveTarget, guestTarget, isGuestTargetUrl, facebookTarget, useYoutubeVerdict, isStatusForTarget, designatedChannelIdForTarget, isDesignatedChannel, nextScreenShut, officeStopActive, recheckLiveNow, type ScreenShut } from "../lib/livestatus";
 import { useLibrary } from "../lib/collections";
 import { useRecentServices, designatedFallback } from "../lib/recentstreams";
 import { Badge, Btn, Icon, IconBtn, Modal, Notice, Reveal, Rich, Section, SectionHeading, Textarea } from "../components/ui";
@@ -41,7 +41,7 @@ export function WatchLive() {
      stream doors so the autoplay iframe opens with no DNS/TLS wait. */
   useEffect(() => {
     try {
-      if (!justNow && air.state !== "live") return;
+      if (!justNow && air.state !== "live" && !LIVE.isLive && !(LIVE as any).guestIsLive) return;
       for (const href of ["https://www.youtube.com", "https://i.ytimg.com", "https://noembed.com"]) {
         if (document.querySelector('link[rel="preconnect"][href="' + href + '"]')) continue;
         const l = document.createElement("link");
@@ -52,6 +52,23 @@ export function WatchLive() {
       }
     } catch {}
   }, [justNow, air.state]);
+  /* Instant-live repair (no reload ever): the office pressing Live/Stop, the
+     tab waking, or the network returning re-asks at once — a YouTube start
+     shows in seconds and the waiting clock vanishes with it. Stays on site. */
+  useEffect(() => {
+    try {
+      const onVis = () => { if (document.visibilityState === "visible") { try { recheckLiveNow(); } catch {} } };
+      const onNet = () => { try { recheckLiveNow(); } catch {} };
+      document.addEventListener("visibilitychange", onVis);
+      window.addEventListener("online", onNet);
+      window.addEventListener("focus", onNet);
+      return () => {
+        document.removeEventListener("visibilitychange", onVis);
+        window.removeEventListener("online", onNet);
+        window.removeEventListener("focus", onNet);
+      };
+    } catch { return; }
+  }, []);
   /* Only the handle's own answer ever reaches the screen (note 350): an
      answer stamped for another address (the office moved the channel since
      the check) reads as unknown until the fresh check lands — it never
@@ -133,15 +150,27 @@ export function WatchLive() {
      broadcast that was already on air — so `true` OR `null` opens the player,
      which verifies behind the frame itself. Only a proven-dead id is held
      back, and it still reaches the player below for its fallback. */
+  /* Published verified broadcast (office stamped it at Play time): the real video +
+     real headline travel in the publish itself — open them at once with sound,
+     no scrape wait, no reload. The scrape refines behind when it lands. */
+  const publishedMainId = !!LIVE.isLive && hasChannel && !officeStopped && !shutNow ? parseYoutubeId(String((LIVE as any).liveVideoId || "")) : "";
+  const publishedGuestId = !!(LIVE as any).guestIsLive && !!guestUrl && !shutNow ? parseYoutubeId(String((LIVE as any).guestVideoId || "")) : "";
+  const publishedIsGuest = guestLive || (!!((LIVE as any).guestIsLive && guestUrl) && !((LIVE as any).isLive && hasChannel && !guestLive));
+  const publishedPlayId = publishedIsGuest ? (publishedGuestId || publishedMainId) : (publishedMainId || publishedGuestId);
+  const publishedVerdict = useYoutubeVerdict(publishedPlayId && !detectedId ? publishedPlayId : "");
+  const publishedOk = !publishedPlayId || publishedVerdict === true || publishedVerdict === null;
   const idOk = idVerdict === true || idVerdict === null;
-  const playableId = detectedId && idOk && (isDesignatedChannel(airForTarget.channelId, designatedId) || (guestLive && isGuestTargetUrl(screenAir.target, guestUrl))) ? detectedId : "";
+  const playableId = (detectedId && idOk && (isDesignatedChannel(airForTarget.channelId, designatedId) || (guestLive && isGuestTargetUrl(screenAir.target, guestUrl))) ? detectedId : "") || ((publishedPlayId && publishedOk && !officeStopped && !shutNow && (((LIVE as any).isLive && hasChannel) || ((LIVE as any).guestIsLive && !!guestUrl) || screenAir.state === "live")) ? publishedPlayId : "");
   const verifiedFallbackId = fallbackId && (fallbackVerdict === true || fallbackVerdict === null) ? fallbackId : "";
   /* A named id YouTube says is gone still reaches the player (note 420): the
      player's own dead fallback names it and offers the platform link — never
      the black "unavailable" frame, and never the ticking clock for a live
      that is already on air. */
   const deadLiveId = detectedId && idVerdict === false && (isDesignatedChannel(airForTarget.channelId, designatedId) || (guestLive && isGuestTargetUrl(screenAir.target, guestUrl))) ? detectedId : "";
-  const watchable = !!playableId || !!deadLiveId || !!detectedChannel || fbLive || !!verifiedFallbackId;
+  /* Instant-live: an office-pressed MAIN/GUEST with a channel is watchable at
+     once, even before the scrape names a video — the channel embed plays. */
+  const pressedWatchable = (!!LIVE.isLive && hasChannel) || (!!(LIVE as any).guestIsLive && !!guestUrl);
+  const watchable = !!playableId || !!deadLiveId || !!detectedChannel || fbLive || !!verifiedFallbackId || pressedWatchable;
   /* Dead-video gate (note 413, opened note 420): a named id reaches the
      player while its verdict is still unknown — offline, probe down, still
      checking — and the player verifies behind the frame, swapping to its
@@ -158,8 +187,14 @@ export function WatchLive() {
      says unknown (a verified off stays on the clock), only the commanded
      slot, only with a known channel id — and a detected broadcast still wins
      first. */
-  const overrideMain = !!LIVE.isLive && hasChannel && !guestLive && screenAir.state !== "live" && airForTarget.state === "unknown" && !shutNow;
-  const overrideGuest = !!(LIVE as any).guestIsLive && !!guestUrl && !guestLive && screenAir.state !== "live" && guestAir.state === "unknown" && !shutNow;
+  /* Instant-live (no reload, no waiting for the scrape): the office pressed Live
+     and published it — the screen opens at once on the channel, even if the
+     scrape still reads unknown OR off through the bot wall. The scrape keeps
+     refining behind it (verified id/title); the screen already plays. */
+  const pressedMain = !!LIVE.isLive && hasChannel && !guestLive && !officeStopped && !shutNow;
+  const pressedGuest = !!(LIVE as any).guestIsLive && !!guestUrl && !guestLive && !shutNow;
+  const overrideMain = pressedMain && screenAir.state !== "live" && (airForTarget.state === "unknown" || airForTarget.state === "off");
+  const overrideGuest = pressedGuest && screenAir.state !== "live" && (guestAir.state === "unknown" || guestAir.state === "off");
   const overrideId = overrideMain ? designatedChannelIdForTarget(targetUrl) : overrideGuest ? designatedChannelIdForTarget(guestUrl) : "";
   /* Anywhere for the check to look — channel, stream link or Facebook page. */
   const configured = !!liveTarget() || !!facebookTarget();
@@ -174,7 +209,10 @@ export function WatchLive() {
      until Play. Press alone never autoplays — autoplay only works once the
      main livestream has started live on the channel. */
   const mainDetected = screenAir.state === "live" && !guestLive && !fbLive;
-  const streaming = screenAir.state === "live" && !shutNow && (guestLive || fbLive || (mainDetected && !officeStopped));
+  /* Office-pressed counts as streaming at once (instant-live): no waiting for
+     the scrape, no reload, stays on this site — the channel embed plays
+     immediately and the scrape refines it behind the frame. */
+  const streaming = (!shutNow && !officeStopped && (pressedMain || pressedGuest)) || (screenAir.state === "live" && !shutNow && (guestLive || fbLive || (mainDetected && !officeStopped)));
 
   /* The two lists under the screen: recent services (read off the channel) and previous sermons (the office's write-ups). */
   const limit = recentLimit();
@@ -225,7 +263,7 @@ export function WatchLive() {
     if (detectedId || detectedChannel || overrideId || (!hasChannel && parseYoutubeId(LIVE.youtubeId))) list.push("youtube");
     if (isFacebookVideoUrl(LIVE.facebookUrl)) list.push("facebook");
     return list;
-  }, [detectedId, detectedChannel, hasChannel, LIVE.youtubeId, LIVE.facebookUrl, fbLive]);
+  }, [detectedId, detectedChannel, overrideId, hasChannel, LIVE.youtubeId, LIVE.facebookUrl, fbLive]);
   const preferred: VideoPlatform = fbLive ? "facebook" : detectedId || detectedChannel || overrideId ? "youtube" : LIVE.provider === "facebook" ? "facebook" : "youtube";
   const [chosen, setChosen] = useState<VideoPlatform>(preferred);
   /* The service notepad behind the *Service notes* arrow (note 223). */
@@ -236,7 +274,7 @@ export function WatchLive() {
       ? { platform: "facebook", facebookUrl: LIVE.facebookUrl }
       : platform === "facebook"
       ? { platform: "facebook", facebookUrl: LIVE.facebookUrl }
-      : { platform: "youtube", youtubeId: playableId || deadLiveId || verifiedFallbackId || (fallbackVerdict === null ? fallbackId : ""), youtubeChannelId: detectedChannel || (!streaming && overrideId) || undefined };
+      : { platform: "youtube", youtubeId: playableId || deadLiveId || verifiedFallbackId || (fallbackVerdict === null ? fallbackId : ""), youtubeChannelId: detectedChannel || overrideId || undefined };
   const youtubeLink =
     watchUrl({ platform: "youtube", youtubeId: playableId }) ||
     (guestLive && guestUrl ? guestUrl : hasChannel ? targetUrl : watchUrl({ platform: "youtube", youtubeId: LIVE.youtubeId }) || targetUrl);
@@ -257,7 +295,16 @@ export function WatchLive() {
      office's standing headline; a forced guest with no detected title keeps
      the headline, since the church schedule never names a guest event. */
   const guestForcedOnly = (guestLive || !!(LIVE as any).guestIsLive) && !LIVE.isLive && airForTarget.state !== "live";
-  const liveName = tx(air.title || (guestForcedOnly ? LIVE.liveTitle : info?.slot.name || LIVE.liveTitle) || "");
+  /* Published verified headline travels with the press — show it at once (no scrape wait). */
+  const publishedHeadline = (() => { try {
+    if ((LIVE as any).guestIsLive && guestUrl && String((LIVE as any).guestVideoTitle || "").trim()) return String((LIVE as any).guestVideoTitle);
+    if ((LIVE as any).isLive && String((LIVE as any).liveVideoTitle || "").trim()) return String((LIVE as any).liveVideoTitle);
+    return "";
+  } catch { return ""; } })();
+  /* Office Reload repair press (published liveReloadAt): both live players
+     remount + rejoin sound on it — any error, incl. blocked autoplay. */
+  const reloadSignal = Number((LIVE as any).liveReloadAt) || 0;
+  const liveName = tx(air.title || publishedHeadline || (guestForcedOnly ? LIVE.liveTitle : info?.slot.name || LIVE.liveTitle) || "");
   const streamCountdown = info ? countdownParts(info.msUntil) : null;
 
 
@@ -382,6 +429,7 @@ export function WatchLive() {
                      live from a channel is ever muted, and the audio opens by
                      itself the moment the broadcast starts. */
                   autoPlay
+                  reloadSignal={reloadSignal}
                 />
               ) : overrideGuest && overrideId ? (
                 <VideoPlayer
@@ -400,6 +448,7 @@ export function WatchLive() {
                      verified off still waits; a detected broadcast still
                      wins. */
                   autoPlay
+                  reloadSignal={reloadSignal}
                 />
               ) : !onAirNow && !waitingForClick ? (
                 /* Nobody is broadcasting: the screen says so, and promises what

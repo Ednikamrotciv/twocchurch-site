@@ -1,5 +1,22 @@
 # Putting the site on the internet
 
+## FAST PATH (2 min, do this)
+Frontend (Netlify/Cloudflare/GitHub Pages): upload the *contents* of `dist/` after `npm run build`. No settings needed. Or connect the repo with:
+- Install: `npm ci --no-audit --no-fund` (cached, fast — not plain `npm install`)
+- Build: `npm run build` (vite + bake; skips YouTube reads on the farm so it never hangs)
+- Publish dir: `dist`
+- Node: 24 (`.nvmrc` — Render reads it automatically)
+
+Backend (Render, only if you edit away from your computer): use `render.yaml` in this repo as-is —
+- Build: `npm ci --no-audit --no-fund && npm run build`
+- Start: `node scripts/serve.mjs`
+- Health check: `/healthz` (answers instantly; the YouTube/mirror warm-up runs AFTER listen so deploys never look stuck)
+- Then put the Render URL alone in `cms-server.txt`, commit, rebuild the frontend once.
+
+Keep-awake ping (free tier only, optional): UptimeRobot every 5 min to `https://xxx.onrender.com/version.json` — skips the 30–60s cold boot after a sleep. Nothing depends on it.
+
+---
+
 ```sh
 npm install   # once
 npm run build # → dist/

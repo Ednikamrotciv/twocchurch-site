@@ -21,7 +21,7 @@ import {
 import { PageHead } from "../components/layout";
 import { SearchBox, eventDate } from "../components/blocks";
 import { fireToast, useNow } from "../lib/hooks";
-import { readLiveStatus, recheckLiveNow, guestTarget, isGuestTargetUrl, useLiveStream, liveTarget, isStatusForTarget, clearGuestOnStop } from "../lib/livestatus";
+import { readLiveStatus, recheckLiveNow, checkLiveStream, guestTarget, isGuestTargetUrl, useLiveStream, liveTarget, isStatusForTarget, clearGuestOnStop, forgetVerified } from "../lib/livestatus";
 import { SITE, SERVICES, img } from "../data/site";
 import { recentLimit } from "../data/live";
 import { ytWatch } from "../data/sermons";
@@ -900,12 +900,42 @@ export function LiveTransportButtons() {
      one at the current time — either way the click stamps the command, and
      Publish sends it. */
   const play = () => {
+    /* Stamp the verified broadcast into the draft at press time so Publish
+       carries the real video + real headline — visitors open them at once
+       with sound, no scrape wait, no reload. */
+    const stampKnown = () => {
+      try {
+        const s = readLiveStatus();
+        const mainUrl = liveTarget()?.url || "";
+        if (s && s.state === "live" && s.videoId && mainUrl && isStatusForTarget(s, mainUrl)) {
+          const latest = cms.getDraft().live || {};
+          cms.setSectionValue("live", { ...latest, liveVideoId: s.videoId, liveVideoTitle: s.title || (latest as any).liveTitle || "", liveVideoChannelId: s.channelId || (latest as any).liveVideoChannelId || "", liveVideoAt: Date.now() });
+        }
+      } catch {}
+    };
+    const refineInBackground = () => {
+      try {
+        checkLiveStream().then((s) => {
+          try {
+            const mainUrl = liveTarget()?.url || "";
+            if (s && (s as any).state === "live" && (s as any).videoId && mainUrl && isStatusForTarget(s as any, mainUrl)) {
+              const latest = cms.getDraft().live || {};
+              if ((latest as any).isLive) cms.setSectionValue("live", { ...latest, liveVideoId: (s as any).videoId, liveVideoTitle: (s as any).title || (latest as any).liveTitle || "", liveVideoChannelId: (s as any).channelId || "", liveVideoAt: Date.now() });
+            }
+          } catch {}
+        }).catch(() => {});
+      } catch {}
+    };
     if (heldSession) {
       write({ isLive: true, liveCut: 0, liveEndedBy: "office", liveCommandAt: Date.now() });
+      stampKnown();
+      refineInBackground();
       recheckLiveNow();
       return;
     }
     write({ isLive: true, liveSince: Date.now(), liveCut: 0, liveEndedBy: "office", liveCommandAt: Date.now() });
+    stampKnown();
+    refineInBackground();
     /* A new session: read the channel now, so a service that has just been
        published shows up without waiting for the ten-minute timer. */
     askForRecentServices();
@@ -927,7 +957,7 @@ export function LiveTransportButtons() {
      with the stop — and the unsaved change with it. */
   const stop = () => {
     const at = Date.now();
-    write(clearGuestOnStop({ ...cms.getDraft().live, isLive: false, liveSince: 0, liveCut: at, liveEndedBy: "office", liveCommandAt: at }));
+    write(clearGuestOnStop({ ...cms.getDraft().live, isLive: false, liveSince: 0, liveCut: at, liveEndedBy: "office", liveCommandAt: at, liveVideoId: "", liveVideoTitle: "", liveVideoChannelId: "", liveVideoAt: 0 }));
     recheckLiveNow();
     /* An ended service seeds Recent services now; every open page re-reads the channel.
        A temporary guest never seeds (note 379): its ending leaves the main
@@ -935,6 +965,52 @@ export function LiveTransportButtons() {
     const aired = readLiveStatus();
     const airedGuest = isGuestTargetUrl(aired.target || "", guestTarget()?.url || "");
     askForRecentServices(!airedGuest && aired.videoId ? { videoId: aired.videoId, title: aired.title } : undefined);
+  };
+  /* Reload repairs both slots at once (the general fix, same manual press as
+     play/pause/stop): drops every poisoned verdict, stamps a reload press so
+     Publish carries the fix, refreshes the verified video + headline for both
+     slots behind, and re-asks the on-air check. Visitors remount + rejoin
+     sound on the published press — any error, incl. blocked autoplay — with
+     no page reload, staying on this site. */
+  const reload = () => {
+    const at = Date.now();
+    try {
+      const cur = cms.getDraft().live || {};
+      for (const raw of [String((cur as any).liveVideoId || ""), String((cur as any).guestVideoId || "")]) {
+        try { if (raw) forgetVerified(raw); } catch {}
+      }
+      try {
+        const s = readLiveStatus();
+        if (s && (s as any).videoId) { try { forgetVerified((s as any).videoId); } catch {} }
+      } catch {}
+    } catch {}
+    write({ liveReloadAt: at, liveCommandAt: at });
+    try {
+      const stampBoth = (s: any) => {
+        try {
+          const mUrl = liveTarget()?.url || "";
+          if (s && s.state === "live" && s.videoId && mUrl && isStatusForTarget(s, mUrl)) {
+            const cur = cms.getDraft().live || {};
+            cms.setSectionValue("live", { ...cur, liveVideoId: s.videoId, liveVideoTitle: s.title || (cur as any).liveTitle || "", liveVideoChannelId: s.channelId || "", liveVideoAt: Date.now() });
+          }
+        } catch {}
+        try {
+          const gUrl = guestTarget(String((cms.getDraft().live as any)?.externalYoutubeChannel || ""))?.url || "";
+          if (s && s.state === "live" && s.videoId && gUrl && isStatusForTarget(s, gUrl)) {
+            const cur2 = cms.getDraft().live || {};
+            cms.setSectionValue("live", { ...cur2, guestVideoId: s.videoId, guestVideoTitle: s.title || (cur2 as any).liveTitle || "", guestVideoChannelId: s.channelId || "", guestVideoAt: Date.now() });
+          }
+        } catch {}
+      };
+      try {
+        const s = readLiveStatus();
+        if (s && (s as any).state === "live") stampBoth(s);
+      } catch {}
+      checkLiveStream().then((s) => { try { stampBoth(s); } catch {} }).catch(() => {});
+    } catch {}
+    recheckLiveNow();
+    askForRecentServices();
+    fireToast("Livestream reloaded — press Publish to send the fix to everyone watching.", "success");
   };
 
   return (
@@ -952,6 +1028,9 @@ export function LiveTransportButtons() {
           )}
           <Btn size="sm" variant="ghost" icon="stop" onClick={stop} title="Stop the livestream" ariaLabel="Stop the livestream">
             Stop
+          </Btn>
+          <Btn size="sm" variant="ghost" icon="refresh" onClick={reload} title="Reload the livestream — fixes sound, picture and errors on both channels" ariaLabel="Reload the livestream">
+            Reload
           </Btn>
           {mainLive && (
             <span className="live-badge transport-row__live" role="status">
@@ -1006,6 +1085,23 @@ export function GuestTransportButtons() {
       return;
     }
     write({ guestIsLive: true, guestCommandAt: Date.now() });
+    try {
+      const s = readLiveStatus();
+      const gUrl = guestTarget(String((cms.getDraft().live as any)?.externalYoutubeChannel || ""))?.url || "";
+      if (s && s.state === "live" && s.videoId && gUrl && isStatusForTarget(s, gUrl)) {
+        const cur = cms.getDraft().live || {};
+        cms.setSectionValue("live", { ...cur, guestVideoId: s.videoId, guestVideoTitle: s.title || (cur as any).liveTitle || "", guestVideoChannelId: s.channelId || "", guestVideoAt: Date.now() });
+      }
+      checkLiveStream().then((ns) => {
+        try {
+          const gU = guestTarget(String((cms.getDraft().live as any)?.externalYoutubeChannel || ""))?.url || "";
+          if (ns && (ns as any).state === "live" && (ns as any).videoId && gU && isStatusForTarget(ns as any, gU)) {
+            const cur2 = cms.getDraft().live || {};
+            if ((cur2 as any).guestIsLive) cms.setSectionValue("live", { ...cur2, guestVideoId: (ns as any).videoId, guestVideoTitle: (ns as any).title || (cur2 as any).liveTitle || "", guestVideoChannelId: (ns as any).channelId || "", guestVideoAt: Date.now() });
+          }
+        } catch {}
+      }).catch(() => {});
+    } catch {}
     recheckLiveNow();
   };
   /* Guest pause holds the override off without clearing the slot. */
@@ -1018,8 +1114,52 @@ export function GuestTransportButtons() {
   const stop = () => {
     const latest = cms.getDraft().live || {};
     const hadGuest = String((latest as any).externalYoutubeChannel || "").trim() !== "";
-    write({ guestIsLive: false, guestCommandAt: Date.now(), ...(hadGuest ? { externalYoutubeChannel: "" } : {}) });
+    write({ guestIsLive: false, guestCommandAt: Date.now(), guestVideoId: "", guestVideoTitle: "", guestVideoChannelId: "", guestVideoAt: 0, ...(hadGuest ? { externalYoutubeChannel: "" } : {}) });
     recheckLiveNow();
+  };
+  /* Guest Reload repairs the guest slot the same manual way (stamping the
+     guest press so Publish carries it); poisoned verdicts for both slots are
+     dropped and both slots restamp behind, so one press fixes whichever side
+     is misbehaving. Visitors remount + rejoin sound on the published press. */
+  const reload = () => {
+    const at = Date.now();
+    try {
+      const cur = cms.getDraft().live || {};
+      for (const raw of [String((cur as any).liveVideoId || ""), String((cur as any).guestVideoId || "")]) {
+        try { if (raw) forgetVerified(raw); } catch {}
+      }
+      try {
+        const s = readLiveStatus();
+        if (s && (s as any).videoId) { try { forgetVerified((s as any).videoId); } catch {} }
+      } catch {}
+    } catch {}
+    write({ liveReloadAt: at, guestCommandAt: at });
+    try {
+      const stampBoth = (s: any) => {
+        try {
+          const mUrl = liveTarget()?.url || "";
+          if (s && s.state === "live" && s.videoId && mUrl && isStatusForTarget(s, mUrl)) {
+            const cur = cms.getDraft().live || {};
+            cms.setSectionValue("live", { ...cur, liveVideoId: s.videoId, liveVideoTitle: s.title || (cur as any).liveTitle || "", liveVideoChannelId: s.channelId || "", liveVideoAt: Date.now() });
+          }
+        } catch {}
+        try {
+          const gUrl = guestTarget(String((cms.getDraft().live as any)?.externalYoutubeChannel || ""))?.url || "";
+          if (s && s.state === "live" && s.videoId && gUrl && isStatusForTarget(s, gUrl)) {
+            const cur2 = cms.getDraft().live || {};
+            cms.setSectionValue("live", { ...cur2, guestVideoId: s.videoId, guestVideoTitle: s.title || (cur2 as any).liveTitle || "", guestVideoChannelId: s.channelId || "", guestVideoAt: Date.now() });
+          }
+        } catch {}
+      };
+      try {
+        const s = readLiveStatus();
+        if (s && (s as any).state === "live") stampBoth(s);
+      } catch {}
+      checkLiveStream().then((s) => { try { stampBoth(s); } catch {} }).catch(() => {});
+    } catch {}
+    recheckLiveNow();
+    askForRecentServices();
+    fireToast("Guest stream reloaded — press Publish to send the fix to everyone watching.", "success");
   };
 
   return (
@@ -1037,6 +1177,9 @@ export function GuestTransportButtons() {
           )}
           <Btn size="sm" variant="ghost" icon="stop" onClick={stop} title="Stop the livestream" ariaLabel="Stop the livestream">
             Stop
+          </Btn>
+          <Btn size="sm" variant="ghost" icon="refresh" onClick={reload} title="Reload the guest stream — fixes sound, picture and errors" ariaLabel="Reload the guest stream">
+            Reload
           </Btn>
           {guestLiveNow && (
             <span className="live-badge transport-row__live" role="status">

@@ -1,0 +1,12 @@
+services:
+  - type: web
+    name: church-backend
+    runtime: node
+    plan: starter
+    buildCommand: npm ci --no-audit --no-fund && npm run build
+    startCommand: node scripts/serve.mjs
+    healthCheckPath: /healthz
+    autoDeploy: true
+    envVars:
+      - key: NODE_VERSION
+        value: 24
