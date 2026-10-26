@@ -23,7 +23,9 @@ Uploading `dist/` by hand needs nothing, but if the host builds from the repo
 itself, enter these same values in its dashboard (every host calls them
 something similar — build command, output / publish directory):
 
-- Install command: `npm install` (usually already the default)
+- Install command: `npm install` (usually already the default). If you committed
+  a `package-lock.json`, `npm ci --no-audit --no-fund` installs faster and
+  reproducibly — use it wherever the host lets you change the command.
 - Build command: `npm run build` — the full command, not just the bundler, so
   the content, the server pointer, and the route pages all get baked in
 - Output / publish directory: `dist`
@@ -127,8 +129,17 @@ Never expose the server over plain http.
 
 A Render Web Service works as the always-on backend:
 
-- Build command: `npm install && npm run build`
+- Build command: `npm ci --no-audit --no-fund && npm run build` (fast: clean
+  install off the lockfile, no audit/fund passes, and the build skips the
+  duplicate seed bake + the datacenter YouTube read). First run `npm install`
+  once on your own computer and commit the generated `package-lock.json` —
+  without it `npm ci` fails and you must use `npm install` in the build
+  command instead (slower, resolves every version fresh on each deploy).
 - Start command: `node scripts/serve.mjs`
+- Health Check Path: `/healthz` (answers instantly, so the deploy reports
+  healthy the moment the port opens instead of waiting out the old YouTube /
+  mirror warm-up — that warm-up now runs in the background after listen).
+- Node version: Render reads `.nvmrc` (Node 24) automatically.
 - No disk needed: every restart the server re-serves its last deployed words
   and uploads from the build itself (note 290) — it never comes back blank.
   A persistent disk mounted at `data` is still a fine optimization (it keeps

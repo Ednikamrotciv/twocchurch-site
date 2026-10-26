@@ -150,9 +150,9 @@ try {
    only, never a secret. */
 try {
   const { execFile: gitExec } = await import("node:child_process");
-  const gitOut = (args) => new Promise((res) => gitExec("git", args, { cwd: ROOT, timeout: 4000 }, (err, stdout) => res(err ? "" : String(stdout || "").trim())));
-  const [remote, branchRaw] = await Promise.all([gitOut(["config", "--get", "remote.origin.url"]), gitOut(["rev-parse", "--abbrev-ref", "HEAD"])]);
-  let branch = branchRaw;
+  const gitOut = (args) => new Promise((res) => gitExec("git", args, { cwd: ROOT, timeout: 2500 }, (err, stdout) => res(err ? "" : String(stdout || "").trim())));
+  const remote = await gitOut(["config", "--get", "remote.origin.url"]);
+  let branch = await gitOut(["rev-parse", "--abbrev-ref", "HEAD"]);
   if (!branch || branch === "HEAD") branch = "main";
   let gm = /^https?:\/\/github\.com\/([A-Za-z0-9_.-]+)\/([A-Za-z0-9_.-]+?)(?:\.git)?\/?$/i.exec(remote);
   if (!gm) gm = /^git@github\.com:([A-Za-z0-9_.-]+)\/([A-Za-z0-9_.-]+?)(?:\.git)?\/?$/i.exec(remote);
@@ -221,16 +221,20 @@ try {
 
 /* String-URL files the app points at (photos are plain "src/assets/…" strings,
    never imports, so `vite build` skips them) plus the office's own uploads. */
-/* Fast copies: photos + uploads ride together, not one after the other. */
 try {
-  const copyPhotos = cp(path.join(ROOT, "src", "assets"), path.join(OUT, "src", "assets"), { recursive: true })
-    .then(() => console.log("photos copied to dist/src/assets"));
-  const copyUploads = stat(path.join(ROOT, "data", "uploads")).catch(() => null)
-    .then((st) => st && st.isDirectory() ? cp(path.join(ROOT, "data", "uploads"), path.join(OUT, "data", "uploads"), { recursive: true }) : null)
-    .then((r) => { if (r) console.log("uploads copied to dist/data/uploads"); });
-  await Promise.all([copyPhotos, copyUploads]);
+  await cp(path.join(ROOT, "src", "assets"), path.join(OUT, "src", "assets"), { recursive: true });
+  console.log("photos copied to dist/src/assets");
 } catch (err) {
-  console.warn("asset copy skipped:", err?.message || err);
+  console.warn("photos not copied:", err?.message || err);
+}
+try {
+  const st = await stat(path.join(ROOT, "data", "uploads")).catch(() => null);
+  if (st && st.isDirectory()) {
+    await cp(path.join(ROOT, "data", "uploads"), path.join(OUT, "data", "uploads"), { recursive: true });
+    console.log("uploads copied to dist/data/uploads");
+  }
+} catch (err) {
+  console.warn("uploads not copied:", err?.message || err);
 }
 
 /* Clean addresses on hosts with no rewrite rules: /admin, /sermons, … each
@@ -249,11 +253,11 @@ try {
     await mkdir(path.join(OUT, dir), { recursive: true });
     await writeFile(path.join(OUT, dir, "index.html"), shell);
   };
-  await Promise.all([
-    ...pages.map((page) => writePage(page)),
-    ...pages.map((page) => writePage(path.join("admin", page))),
-    writeFile(path.join(OUT, "404.html"), shell),
-  ]);
+  for (const page of pages) {
+    await writePage(page);
+    await writePage(path.join("admin", page));
+  }
+  await writeFile(path.join(OUT, "404.html"), shell);
   console.log(`route pages written for: ${pages.join(", ")} (+ admin/*, 404.html)`);
 } catch (err) {
   console.warn("route pages skipped:", err?.message || err);

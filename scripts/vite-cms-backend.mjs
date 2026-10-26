@@ -232,7 +232,14 @@ export function cmsBackend() {
        a snapshot of the published content (data/cms-state.bin) as seed.json so
        the static site opens on the office's words with no backend to ask. */
     async closeBundle() {
-      if (process.env.VITE_WOM_SKIP_STATIC === "1") return;
+      /* Fast frontend deploys: `npm run build` runs build-static.mjs right
+         after this, which bakes seed.json + copies assets itself — doing it
+         here too doubles the disk work and the YouTube read (bakeRecent's
+         network timeout) on every deploy. So under `npm run build` (or an
+         explicit VITE_WOM_SKIP_STATIC=1) this step stands down and lets
+         build-static.mjs do the single bake. Direct `vite build` calls and
+         `npm run dev` keep the old behavior. */
+      if (process.env.VITE_WOM_SKIP_STATIC === "1" || process.env.npm_lifecycle_event === "build") return;
       try {
         await mkdir(outDir, { recursive: true });
         await cp(path.join(ROOT, "src", "assets"), path.join(outDir, "src", "assets"), { recursive: true });
@@ -780,6 +787,7 @@ export function cmsBackend() {
                     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36",
                   "accept-language": "en-US,en;q=0.9",
                 },
+                signal: typeof AbortSignal !== "undefined" && typeof AbortSignal.timeout === "function" ? AbortSignal.timeout(10000) : undefined,
               });
               const text = await upstream.text();
               if (!upstream.ok || !text) {

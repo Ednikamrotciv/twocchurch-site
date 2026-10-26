@@ -13,6 +13,14 @@ export default defineConfig({
   server: { port: 5173, strictPort: true },
   resolve: { dedupe: ["react", "react-dom"] },
   build: {
+    /* Fast deploys: skip the bundle-size gzip pass and sourcemaps (both are
+       pure build-time cost on the huge three.js chunk — runtime caching is
+       already handled by the hashed names + manualChunks below). */
+    sourcemap: false,
+    reportCompressedSize: false,
+    minify: "esbuild",
+    target: "es2019",
+    cssCodeSplit: true,
     chunkSizeWarningLimit: 1200,
     rollupOptions: {
       output: {

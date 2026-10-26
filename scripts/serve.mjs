@@ -214,9 +214,9 @@ try {
 } catch {
   secLog.log({ level: "info", kind: "shield-on", ip: "-", route: "-", detail: "WAF + session-anomaly shield active (PROD, strict) — malicious traffic is filtered before the server", hint: "watch this terminal for [SEC] lines; breaches auto-write data/security-report-latest.pdf; admin PDF at /__security/report.pdf", source: "local" });
 }
-// 7-area posture board in the production terminal too (info only — backgrounded so boot never waits).
-void import("./security-checks.mjs").then(async ({ runSecurityChecks }) => {
-  try {
+// 7-area posture board in the production terminal too (info only).
+try {
+  const { runSecurityChecks } = await import("./security-checks.mjs");
   const rows = await runSecurityChecks(ROOT);
   const useColor = !process.env.NO_COLOR;
   const C = { redBg: "\x1b[41m\x1b[37m", yellow: "\x1b[33m", green: "\x1b[32m", grey: "\x1b[90m", reset: "\x1b[0m" };
@@ -225,8 +225,7 @@ void import("./security-checks.mjs").then(async ({ runSecurityChecks }) => {
     const c = r.status === "RED ALERT" ? C.redBg : r.status === "WARNING" ? C.yellow : r.status === "SECURE" ? C.green : C.grey;
     console.log(`  ${(useColor ? c : "")}${String(r.area).slice(0, 42).padEnd(42)} | ${r.status}${(useColor ? C.reset : "")}${r.status === "RED ALERT" ? "  <-- RED ALERT" : ""} — ${String(r.detail).slice(0, 160)}`);
   }
-  } catch {}
-}).catch(() => {});
+} catch {}
 
 /* HIGH fix — file-door guard: /__upload, /__restore-file and /__delete-file
    take effect only for a signed-in admin connection (the same conn id the
@@ -251,16 +250,19 @@ async function isAdminConn(id) {
    mirrors the seed, so a waking box primes its fallback from the pushed
    mirror — pushed words serve within seconds instead of waiting out the
    feed-follow minute on the deploy-time bake. Best effort and silent when
-   there is no feed, no network, or nothing newer to serve. */
-/* Backgrounded: the deploy bake serves instantly; the mirror primes behind it. */
+   there is no feed, no network, or nothing newer to serve. Backgrounded on
+   purpose: priming does network reads and must never hold up listen() —
+   holding it is what made backend deploys look stuck on hosts with health
+   checks (the port stays closed until YouTube answers). */
 primeMirrorSeed(ROOT, DIST).catch(() => { /* the deploy bake stands */ });
 
 /* The recent-services list stays fresh by itself: every 20 minutes the channel
    is re-read and the bake in seed.json refreshed, and a changed list rides the
    normal auto-deploy out to every copy (git + live feed), with no publish and
-   no command. A Sunday's service lands on the deployed sites on its own. */
-try {
-  const [{ bakeRecent }, { notePublished }] = await Promise.all([import("./bake-recent.mjs"), import("./auto-push.mjs")]);
+   no command. A Sunday's service lands on the deployed sites on its own.
+   Backgrounded like the prime above: the first refresh runs 30s after boot,
+   off the cold-start path, so the port opens at once. */
+import("./bake-recent.mjs").then(({ bakeRecent }) => import("./auto-push.mjs").then(({ notePublished }) => {
   const refreshRecent = async () => {
     try {
       const r = await bakeRecent(ROOT);
@@ -273,11 +275,10 @@ try {
     }
   };
   setInterval(refreshRecent, 20 * 60 * 1000);
-  /* Deferred: boot serves instantly; the first refresh lands a minute later. */
-  setTimeout(refreshRecent, 60 * 1000);
-} catch {
+  setTimeout(refreshRecent, 30_000);
+})).catch(() => {
   /* a bake that cannot load never stops the server */
-}
+});
 
 /* Attached sharing: with sharing on (auto-share.txt, see scripts/expose.mjs),
    this machine joins every deployed copy to itself on every boot — tunnel,
@@ -345,6 +346,14 @@ const server = http.createServer(async (req, res) => {
   try {
     const url = new URL(req.url || "/", "http://localhost");
     const pathname = url.pathname;
+
+    /* Health check (Render/host probes): answers at once, before the WAF and
+       every other door, so deploys report healthy the moment the port opens. */
+    if (pathname === "/healthz" && req.method === "GET") {
+      res.writeHead(200, { "content-type": "text/plain; charset=utf-8", "cache-control": "no-store" });
+      res.end("ok");
+      return;
+    }
 
     /* The office server doubles as the deployed site's backend: browsers from
        anywhere may read it (the published content is public; writes take the
@@ -514,6 +523,8 @@ const server = http.createServer(async (req, res) => {
             "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36",
             "accept-language": "en-US,en;q=0.9",
           },
+          /* A hung YouTube fetch must never hold the backend: 10s, then 502. */
+          signal: typeof AbortSignal !== "undefined" && typeof AbortSignal.timeout === "function" ? AbortSignal.timeout(10000) : undefined,
         });
         const YT_MAX_BYTES = 3 * 1024 * 1024;
         let ytBytes = 0;
