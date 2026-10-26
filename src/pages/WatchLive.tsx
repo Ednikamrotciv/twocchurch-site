@@ -36,6 +36,7 @@ export function WatchLive() {
      or no — so a YouTube start shows in seconds and the waiting clock vanishes
      with it, on live and on local alike. */
   const air = useLiveStream(true, false, true);
+  const justNow = !!info && (onAir(info) || info.msUntil < 45 * 60 * 1000);
   /* Instant-open warm-up: while a gathering is on (or near), pre-connect to the
      stream doors so the autoplay iframe opens with no DNS/TLS wait. */
   useEffect(() => {
@@ -51,7 +52,6 @@ export function WatchLive() {
       }
     } catch {}
   }, [justNow, air.state]);
-  const justNow = !!info && (onAir(info) || info.msUntil < 45 * 60 * 1000);
   /* Only the handle's own answer ever reaches the screen (note 350): an
      answer stamped for another address (the office moved the channel since
      the check) reads as unknown until the fresh check lands — it never
