@@ -47,16 +47,16 @@ export const LIVE_STATUS_KEY = "wom.livestatus";
 
 /** A status younger than this is trusted on mount instead of re-checked —
     unless a watcher asks urgent (the Watch page does: it checks at once). */
-const FRESH_MS = 45_000;
+const FRESH_MS = 12_000;
 /** Give the proxy this long before calling the check a failure. */
-const CHECK_TIMEOUT_MS = 15_000;
+const CHECK_TIMEOUT_MS = 7_000;
 /** Poll cadence (note 310): fast while a broadcast is expected or the Watch
     page is open — a YouTube start shows in seconds and the waiting clock
     vanishes with it — slower in the quiet week. Live and local share this
     poller; only the fetch door differs (same-origin /__yt on local runs, the
     office server when joined, else the public proxy). */
-export const SOON_MS = 20_000;
-export const IDLE_MS = 90_000;
+export const SOON_MS = 8_000;
+export const IDLE_MS = 35_000;
 
 const EMPTY: LiveStatus = { state: "unset", platform: "", videoId: "", title: "", channelId: "", target: "", checkedAt: 0, endedAt: 0 };
 
@@ -509,14 +509,16 @@ function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
   });
 }
 
-/** Page HTML via a same-origin / office-server proxy, else public CORS proxy. */
+/** Page HTML via a same-origin / office-server proxy, else public CORS proxy.
+    Fast path: same-origin + office race in parallel (was 4 sequential timeouts). */
 async function fetchPage(url: string): Promise<string | null> {
-  const sameOrigin = await fetchPageSameOrigin(url);
-  if (sameOrigin) return sameOrigin;
+  try {
+    const [sameOrigin, office] = await Promise.all([fetchPageSameOrigin(url), fetchPageOffice(url)]);
+    if (sameOrigin) return sameOrigin;
+    if (office) return office;
+  } catch { /* fall through */ }
   const local = await fetchPageLocal(url);
   if (local) return local;
-  const office = await fetchPageOffice(url);
-  if (office) return office;
   return fetchPageRemote(url);
 }
 
@@ -597,7 +599,7 @@ export type LiveReport = { target: string; state: "live" | "off"; videoId: strin
 const REPORT_FRESH_MS = 150_000;
 /* Reports ride the same door as content — tiny and fast; a slow door must
    never hold up the scrape behind it. */
-const REPORT_TIMEOUT_MS = 6_000;
+const REPORT_TIMEOUT_MS = 2_500;
 
 /** Same-update reporters only (note 333), pure for the verifier: an old bundle
     still open in some office tab reports the old code's answers (once a wrong
@@ -668,7 +670,10 @@ export async function checkLiveStream(opts: { facebook?: boolean } = {}): Promis
   /* The guest's own report, matched the same way (note 380): only an answer
      stamped for the guest address may stand for the guest. */
   const officeGuest = guest && officeRep && officeRep.target === guest.url && reportCarriesVideo(officeRep) ? officeRep : null;
-  const guestHtml = guest && !officeGuest ? await fetchPage(guest.url) : null;
+  /* Fast path: guest + main pages fetch in parallel (were sequential). */
+  const guestHtmlP: Promise<string | null> = guest && !officeGuest ? fetchPage(guest.url) : Promise.resolve(null);
+  const mainHtmlP: Promise<string | null> = target && !officeHit ? fetchPage(target.url) : Promise.resolve(null);
+  const guestHtml = guest && !officeGuest ? await guestHtmlP : null;
   const guestAns: { state: LiveState; videoId: string; title: string; channelId: string } = !guest
     ? { state: "unset", videoId: "", title: "", channelId: "" }
     : officeGuest
@@ -678,7 +683,7 @@ export async function checkLiveStream(opts: { facebook?: boolean } = {}): Promis
     : guestHtml === null
     ? { state: "unknown", videoId: "", title: "", channelId: "" }
     : await resolveYoutube(guest, guestHtml);
-  const html = target && !officeHit ? await fetchPage(target.url) : null;
+  const html = target && !officeHit ? await mainHtmlP : null;
   const youtube: { state: LiveState; videoId: string; title: string; channelId: string } = !target
     ? { state: "unset", videoId: "", title: "", channelId: "" }
     : officeHit
@@ -973,7 +978,7 @@ export function noteLiveTargetMayHaveChanged() {
     } catch {
       /* keep the standing timer */
     }
-  }, 800);
+  }, 150);
 }
 
 function onLiveTargetEvent() {
@@ -1018,7 +1023,7 @@ async function run() {
 
 function onWake() {
   if (document.visibilityState !== "visible") return;
-  if (Date.now() - lastCheckAt < 15_000) return;
+  if (Date.now() - lastCheckAt < 4_000) return;
   schedule(0);
 }
 
@@ -1034,14 +1039,14 @@ function startPolling() {
      the freshness window. Everyone else waits for a fresh cached answer and
      re-checks behind it, or checks at once when the answer is stale. */
   if (wantsUrgent()) {
-    schedule(600);
+    schedule(0);
     return;
   }
   /* Wait for the first answer within the freshness window (a cached answer
      paints at once and is re-checked behind it), but not long for an answer
      that has never been made or is already stale. */
   const sinceCheck = Date.now() - (lastCheckAt || 0);
-  schedule(sinceCheck < FRESH_MS ? FRESH_MS - sinceCheck : 800);
+  schedule(sinceCheck < FRESH_MS ? FRESH_MS - sinceCheck : 250);
 }
 
 function stopPolling() {
@@ -1066,8 +1071,8 @@ export function watchLiveStream(opts: { soon?: boolean; facebook?: boolean; urge
      cadence once a service comes on the clock, or the at-once check on the
      Watch page) has this second asked rather than waiting out the timer —
      and a retyped channel (or a landed publish) jumps the queue. */
-  else if (watcher.urgent || watcher.facebook || targetSignature() !== lastTarget) schedule(600);
-  else if (watcher.soon && Date.now() - lastCheckAt > SOON_MS) schedule(600);
+  else if (watcher.urgent || watcher.facebook || targetSignature() !== lastTarget) schedule(0);
+  else if (watcher.soon && Date.now() - lastCheckAt > SOON_MS) schedule(150);
   return () => {
     watchers.delete(watcher);
     if (!watchers.size) stopPolling();
@@ -1102,7 +1107,7 @@ export function useLiveStream(soon = false, watchFacebook = false, urgent = fals
    fetch (no proxy door needed); cached 5 minutes; in-flight asks shared. */
 
 const VERIFY_TTL_MS = 5 * 60_000;
-const VERIFY_TIMEOUT_MS = 8_000;
+const VERIFY_TIMEOUT_MS = 4_000;
 const verifyCache = new Map<string, { ok: boolean; at: number }>();
 const verifyInflight = new Map<string, Promise<boolean | null>>();
 

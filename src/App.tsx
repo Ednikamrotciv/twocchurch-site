@@ -103,12 +103,24 @@ export function App() {
     };
     const poll = window.setInterval(() => {
       void checkStaleBuild().catch(() => {});
-    }, 30_000);
+    }, 15_000);
     document.addEventListener("visibilitychange", onVis);
     window.addEventListener("online", onOnline);
     startVisitorClock();
-    const unmountShader = mountShaderBackground();
+    /* Shader deferred: first paint first, eye-candy after (skipped on reduced-motion/save-data). */
+    let unmountShader: (() => void) | void;
+    let cancelled = false;
+    try {
+      const reduce = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+      const save = (navigator as any)?.connection?.saveData;
+      if (!reduce && !save) {
+        const start = () => { if (!cancelled) { try { unmountShader = mountShaderBackground(); } catch {} } };
+        if ("requestIdleCallback" in window) (window as any).requestIdleCallback(start, { timeout: 2500 });
+        else window.setTimeout(start, 800);
+      }
+    } catch { try { if (!cancelled) unmountShader = mountShaderBackground(); } catch {} }
     return () => {
+      cancelled = true;
       document.removeEventListener("visibilitychange", onVis);
       window.removeEventListener("online", onOnline);
       window.clearInterval(poll);

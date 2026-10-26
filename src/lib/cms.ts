@@ -2051,7 +2051,7 @@ function gateLiveSnapshot(snap: Snapshot): Snapshot {
    there. Copies with no server anywhere (pure static, nothing configured)
    skip the wait — there is nothing to join. True when the server can be
    reached (or already is). Never throws. */
-const JOIN_BEFORE_PUBLISH_MS = 800;
+const JOIN_BEFORE_PUBLISH_MS = 150;
 async function joinBeforePublish(): Promise<boolean> {
   try {
     if (socket && status === "online") return true;
@@ -2084,7 +2084,8 @@ export async function publishSection(sectionId: string, note: string): Promise<P
      deploy, so the office record carries the build visitors run. Fetched
      alongside the fold; "" when stamped or unreachable. */
   const sectionStampP: Promise<string> = deployStampForOfficePublish().catch(() => "");
-  const sectionFoldP = foldLiveInto(draft, sectionId, 800);
+  const fastSectionStampP: Promise<string> = Promise.race([sectionStampP, new Promise<string>((res) => window.setTimeout(() => res(""), 150))]);
+  const sectionFoldP = foldLiveInto(draft, sectionId, 300);
   const sectionJoinP: Promise<boolean> = joinBeforePublish().catch(() => false);
   await sectionFoldP;
   let value = clone(draft[sectionId]);
@@ -2092,7 +2093,7 @@ export async function publishSection(sectionId: string, note: string): Promise<P
      pause or stop newer than what is published, the on-air state stays out of
      the patch — a natural end stamps nothing and needs no publish. */
   if (sectionId === "live") value = gateLiveCommand(value, publishedSection("live"));
-  const sectionStamp = await sectionStampP.catch(() => "");
+  const sectionStamp = await fastSectionStampP.catch(() => "");
   if (sameJSON(value, publishedSection(sectionId))) {
     delete dirty[sectionId];
     persistDraft();
@@ -2573,7 +2574,7 @@ function startFeed() {
   /* Publish-at-once: server-less copies read the mirror every minute, so a
      publish rides out without a rebuild and without a tap. While visitors
      wait on maintenance, re-read every 10s so one click lands in seconds. */
-  window.setInterval(() => syncFromFeed().catch(() => {}), 8 * 1000);
+  window.setInterval(() => syncFromFeed().catch(() => {}), 4 * 1000);
   window.setInterval(() => {
     try {
       if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
@@ -3535,7 +3536,7 @@ async function pollPublishHttp(): Promise<void> {
     for (const u of urls) {
       try {
         const ctrl = typeof AbortController !== "undefined" ? new AbortController() : null;
-        const timer = ctrl ? window.setTimeout(() => ctrl.abort(), 8000) : 0;
+        const timer = ctrl ? window.setTimeout(() => ctrl.abort(), 3500) : 0;
         try {
           const res = await fetch(u + "?conn=http-poll-" + Math.random().toString(36).slice(2), {
             method: "POST",
@@ -3661,7 +3662,7 @@ function startContentWatch() {
   };
   window.setInterval(() => {
     tick().catch(() => {});
-  }, 5000);
+  }, 3000);
   /* Waiting copies hurry (publish reaches everywhere): while this copy holds
      on maintenance, re-ask the stamp every 10s instead of only on the loop
      above — the moment the server learns the publish, the notice lifts with
@@ -3676,7 +3677,7 @@ function startContentWatch() {
       try { checkStaleBuild().catch(() => {}); } catch {}
       try { syncFromFeed().catch(() => {}); } catch {}
     } catch {}
-  }, 10_000);
+  }, 5_000);
   document.addEventListener("visibilitychange", () => {
     if (document.visibilityState === "visible") {
       tick().catch(() => {});
@@ -3712,15 +3713,15 @@ function startLivePull() {
          of after the first minute. */
       try {
         if (maintenanceShouldWait()) tick();
-        else window.setTimeout(() => tick(), 3000);
+        else window.setTimeout(() => tick(), 1200);
       } catch {
-        window.setTimeout(() => tick(), 3000);
+        window.setTimeout(() => tick(), 1200);
       }
     }).catch(() => {});
   } catch {
-    window.setTimeout(() => tick(), 3000);
+    window.setTimeout(() => tick(), 1200);
   }
-  window.setInterval(() => tick(), 8 * 1000);
+  window.setInterval(() => tick(), 5 * 1000);
   /* Waiting copies hurry (publish reaches everywhere): while the notice
      shows, re-read live every 10s instead of only on the loop above — a
      Publish clicked on live/admin lands on local/admin within seconds, with
@@ -4361,7 +4362,7 @@ export function setOfficeServerOverride(url: string) {
   setServerOverride(url);
 }
 /* Join the shared server on demand (bounded wait); a sign-in always tries live first. */
-export async function ensureOnline(timeoutMs = 20000): Promise<boolean> {
+export async function ensureOnline(timeoutMs = 8000): Promise<boolean> {
   if (socket && status === "online") return true;
   await retryNow();
   if (!socket) return false;
@@ -6078,8 +6079,8 @@ function rememberHistory() {
   writeJSON(HISTORY_KEY, history);
 }
 
-const BATCH_CHARS = 20000;
-const BATCH_SECTIONS = 4;
+const BATCH_CHARS = 120000;
+const BATCH_SECTIONS = 24;
 
 /* Publish-at-once convergence, run after every deliberate publish: pull live's
    concurrent words, the feed mirror and the Tools numbers right away instead
@@ -6131,7 +6132,7 @@ async function relayLiveBase(): Promise<string> {
 }
 /* One relay fetch with its own deadline, so awaiting the relay can never
    hold a Publish click hostage on a stalled network. */
-async function relayFetch(url: string, body: string, ms = 8000): Promise<Response> {
+async function relayFetch(url: string, body: string, ms = 4000): Promise<Response> {
   const ctrl = typeof AbortController !== "undefined" ? new AbortController() : null;
   const timer = ctrl ? window.setTimeout(() => ctrl.abort(), ms) : 0;
   try {
@@ -6154,7 +6155,7 @@ async function relayFetch(url: string, body: string, ms = 8000): Promise<Respons
    live box actually serves, so a publish from an unstamped copy (local/dev)
    can still stamp the durable record with the deploy visitors run. Never
    throws; "" when unknown (words still ride without the witness). */
-async function fetchLiveDeployId(base: string, ms = 8000): Promise<string> {
+async function fetchLiveDeployId(base: string, ms = 2500): Promise<string> {
   try {
     if (!base || !/^https?:\/\/[^/\s]+$/i.test(base)) return "";
     const ctrl = typeof AbortController !== "undefined" ? new AbortController() : null;
@@ -6190,7 +6191,7 @@ async function deployStampForOfficePublish(): Promise<string> {
     if (currentDeployId && deployFromMeta && !ownDeployIsDevBoot()) return "";
     const base = await relayLiveBase().catch(() => "");
     if (!base) return "";
-    return await fetchLiveDeployId(base, 8000);
+    return await fetchLiveDeployId(base, 2500);
   } catch {
     return "";
   }
@@ -6231,7 +6232,7 @@ async function relayPublishWordsToLive(
      sleep-wake (Render naps take a while to answer). `bounded` caps an
      awaited click end to end; background attempts carry their own per-fetch
      bounds instead. Never throws. */
-  ms = 15000,
+  ms = 6000,
   bounded = true
 ): Promise<"landed" | "missed" | "unneeded"> {
   try {
@@ -6334,7 +6335,7 @@ async function relayPublishWordsToLive(
        wall clock arbitrates with a skew margin; an unreadable stamp never
        blocks delivery. */
     try {
-      const stampRes = await relayFetch(base + "/__cms/contentRev?conn=relay-stamp-" + encodeURIComponent(conn), "", Math.min(ms, 8000));
+      const stampRes = await relayFetch(base + "/__cms/contentRev?conn=relay-stamp-" + encodeURIComponent(conn), "", Math.min(ms, 3000));
       if (stampRes && (stampRes as any).ok) {
         const sj = await (stampRes as any).json().catch(() => null);
         const liveNotes = Math.floor(Number(sj && (sj as any).notes));
@@ -6531,7 +6532,7 @@ async function attemptRelayRetry(): Promise<boolean> {
       /* Fast bound (very fast): each background attempt gets a short deadline
          so a miss fails fast and the 4s retry carries it — awake live lands
          in 1-2s, sleepy live lands via quick retries, never a long stall. */
-      outcome = await relayPublishWordsToLive(payload.sections, payload.changed, payload.note, payload.deploy, 20000, false);
+      outcome = await relayPublishWordsToLive(payload.sections, payload.changed, payload.note, payload.deploy, 8000, false);
     } catch {
       outcome = "missed";
     }
@@ -7071,7 +7072,7 @@ async function sendPatch(
   if (bless) {
     if (awaitRelay) {
       try {
-        relay = await relayPublishWordsToLive(sections, changed, note, relayDeploy || durableDeploy);
+        relay = await relayPublishWordsToLive(sections, changed, note, relayDeploy || durableDeploy, 2500);
       } catch {
         relay = "missed";
       }
@@ -7133,7 +7134,9 @@ export async function publish(note: string, content?: Snapshot): Promise<Publish
      alongside the fold so the click waits for no extra round trip; "" when
      stamped or unreachable (words still ride without the witness). */
   const officeStampP: Promise<string> = deployStampForOfficePublish().catch(() => "");
-  const foldP = foldLiveInto(content || draft, undefined, 800);
+  /* Fast stamp: never hold the click for a slow live read (healed behind). */
+  const fastStampP: Promise<string> = Promise.race([officeStampP, new Promise<string>((res) => window.setTimeout(() => res(""), 150))]);
+  const foldP = foldLiveInto(content || draft, undefined, 300);
   const joinP: Promise<boolean> = joinBeforePublish().catch(() => false);
   const fold = await foldP;
   /* The transport arms the send (notes 390, 392, 394): without a clicked play,
@@ -7141,7 +7144,7 @@ export async function publish(note: string, content?: Snapshot): Promise<Publish
      the patch — a natural end stamps nothing and needs no publish. */
   const snapshot = gateLiveSnapshot(fold.snapshot || applied);
   const { sections, changed } = buildPatch(snapshot);
-  const officeStamp = await officeStampP.catch(() => "");
+  const officeStamp = await fastStampP.catch(() => "");
 
   if (!changed.length) {
     draft = null;

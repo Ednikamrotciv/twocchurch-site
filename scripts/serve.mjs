@@ -307,9 +307,10 @@ function sendSse(res, text) {
 const COMPRESSIBLE = /^(text\/|application\/(javascript|json)|image\/svg)/;
 function sendBody(req, res, body, mime, tag, extra) {
   const etag = '"' + tag + '"';
+  const extraCache = extra && extra["cache-control"];
   const baseHeaders = { "x-content-type-options": "nosniff", ...(extra || {}) };
   if (req.headers["if-none-match"] === etag) {
-    res.writeHead(304, { etag, "cache-control": "no-cache", ...baseHeaders });
+    res.writeHead(304, { etag, "cache-control": extraCache || "no-cache", ...baseHeaders });
     res.end();
     return;
   }
@@ -904,7 +905,14 @@ const server = http.createServer(async (req, res) => {
     }
     /* Uploads are office files, not app code: sandbox them so even a stored
        document type can never run script on this origin. */
-    const uploadExtra = rel.startsWith("data/uploads/") ? { "content-security-policy": "sandbox" } : undefined;
+    /* Hashed Vite assets (/assets/index-[hash].js/css, fonts, images) are
+       content-addressed: a new build mints new names, so cache them hard. */
+    const isHashedAsset = rel.startsWith("assets/") && /-[A-Za-z0-9_-]{6,}\.[A-Za-z0-9]+$/.test(rel);
+    const uploadExtra = rel.startsWith("data/uploads/")
+      ? { "content-security-policy": "sandbox" }
+      : isHashedAsset
+      ? { "cache-control": "public, max-age=31536000, immutable" }
+      : undefined;
     sendBody(req, res, body, mime, st.size + "-" + Math.round(st.mtimeMs), uploadExtra);
   } catch {
     res.writeHead(500);

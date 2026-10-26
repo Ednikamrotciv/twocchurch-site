@@ -36,6 +36,21 @@ export function WatchLive() {
      or no — so a YouTube start shows in seconds and the waiting clock vanishes
      with it, on live and on local alike. */
   const air = useLiveStream(true, false, true);
+  /* Instant-open warm-up: while a gathering is on (or near), pre-connect to the
+     stream doors so the autoplay iframe opens with no DNS/TLS wait. */
+  useEffect(() => {
+    try {
+      if (!justNow && air.state !== "live") return;
+      for (const href of ["https://www.youtube.com", "https://i.ytimg.com", "https://noembed.com"]) {
+        if (document.querySelector('link[rel="preconnect"][href="' + href + '"]')) continue;
+        const l = document.createElement("link");
+        l.rel = "preconnect";
+        l.href = href;
+        l.crossOrigin = "anonymous";
+        document.head.appendChild(l);
+      }
+    } catch {}
+  }, [justNow, air.state]);
   const justNow = !!info && (onAir(info) || info.msUntil < 45 * 60 * 1000);
   /* Only the handle's own answer ever reaches the screen (note 350): an
      answer stamped for another address (the office moved the channel since
@@ -221,7 +236,7 @@ export function WatchLive() {
       ? { platform: "facebook", facebookUrl: LIVE.facebookUrl }
       : platform === "facebook"
       ? { platform: "facebook", facebookUrl: LIVE.facebookUrl }
-      : { platform: "youtube", youtubeId: playableId || deadLiveId || verifiedFallbackId, youtubeChannelId: detectedChannel || (!streaming && overrideId) || undefined };
+      : { platform: "youtube", youtubeId: playableId || deadLiveId || verifiedFallbackId || (fallbackVerdict === null ? fallbackId : ""), youtubeChannelId: detectedChannel || (!streaming && overrideId) || undefined };
   const youtubeLink =
     watchUrl({ platform: "youtube", youtubeId: playableId }) ||
     (guestLive && guestUrl ? guestUrl : hasChannel ? targetUrl : watchUrl({ platform: "youtube", youtubeId: LIVE.youtubeId }) || targetUrl);
@@ -354,9 +369,7 @@ export function WatchLive() {
                 </div>
               )}
 
-              {(checkingLiveId || checkingFallbackId) && !playableId && !deadLiveId && !verifiedFallbackId && !shutNow && !officeStopped ? (
-                <LiveWaiting cover={cover} />
-              ) : streaming && watchable ? (
+              {streaming && (watchable || checkingLiveId || checkingFallbackId || detectedId || fallbackId) ? (
                 <VideoPlayer
                   hideEscape
                   source={liveSource}
@@ -368,7 +381,7 @@ export function WatchLive() {
                      or the stream link all open with no tap, WITH SOUND: no
                      live from a channel is ever muted, and the audio opens by
                      itself the moment the broadcast starts. */
-                  autoPlay={streaming && watchable}
+                  autoPlay
                 />
               ) : overrideGuest && overrideId ? (
                 <VideoPlayer

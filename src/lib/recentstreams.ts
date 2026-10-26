@@ -41,9 +41,9 @@ const KEEP = 24;
 /** Two uploads this close together — with the same headline — are one message. */
 const SAME_MESSAGE_MS = 20 * 60 * 60 * 1000;
 /** The channel is re-read this often in the quiet week… */
-const IDLE_MS = 10 * 60_000;
+const IDLE_MS = 4 * 60_000;
 /** …and this often while a service is on the clock or on air. */
-const SOON_MS = 90_000;
+const SOON_MS = 30_000;
 /** …and how long the short cadence is kept after a service comes off air. */
 const BURST_MS = 6 * 60_000;
 /** How long a just-ended service waits for YouTube to publish it. */
@@ -51,7 +51,7 @@ const SEED_MAX_MS = 12 * 60 * 60 * 1000;
 /** Give the proxy this long before calling a read a failure (note 372:
     three doors at the old 20 seconds each held the deployed feed up to a
     minute past a dead proxy — eight is plenty for YouTube to answer). */
-const TIMEOUT_MS = 8_000;
+const TIMEOUT_MS = 5_000;
 
 const EMPTY: RecentServices = { items: [], at: 0, channelId: "" };
 

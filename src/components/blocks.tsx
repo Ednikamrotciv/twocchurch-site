@@ -293,15 +293,12 @@ export function VideoPlayer({
   const ytId = source?.platform === "facebook" || source?.platform === "upload" ? "" : parseYoutubeId(source?.youtubeId || "");
   const followId = live && source?.platform !== "facebook" && source?.platform !== "upload" ? String(source?.youtubeChannelId || "") : "";
   const [playing, setPlaying] = useState(() => {
+    /* Instant autoplay (speed pass): open at once with sound — verify behind
+       the frame instead of waiting. Only a proven-dead id is held back; an
+       unknown verdict plays immediately and swaps to the fallback if it later
+       proves dead. */
     if (!autoPlay) return false;
-    /* Livestream screen: play the broadcast by itself WITH SOUND — a verified
-       id, an unverified-but-not-dead id, or the live channel follow all open
-       with no tap. Only a proven-dead id is held back (the fallback below
-       still offers the platform link, never the black "unavailable" frame). */
-    if (ytId && peekVerified(ytId) !== true) return false;
-    /* A channel follow never opens blind: it verifies first, so an offline
-       channel shows the waiting poster, never the black "unavailable" frame. */
-    if (!ytId && followId) return false;
+    if (ytId && peekVerified(ytId) === false) return false;
     return true;
   });
   /* A channel with no video id cannot be asked of oEmbed (note 342): tapping
@@ -443,46 +440,29 @@ export function VideoPlayer({
      Note 413: autoplay verifies first — an unverified id waits (poster +
      "Checking…") and a dead id falls to the fallback instead of the black frame. */
   useEffect(() => {
-    if (!autoPlay || playing) return;
+    /* Instant autoplay: a live screen opens at once even while the verdict is
+       still unknown (offline, probe down, still checking) — the behind-player
+       verifier below swaps to the fallback if it proves dead. */
+    if (!autoPlay || playing) {
+      if (autoPlay && !playing && ytId && peekVerified(ytId) === false) setDead(true);
+      return;
+    }
+    /* Instant live open: id or channel-follow both play at once with sound.
+       Unknown verdicts (offline, probe down, still checking) play immediately;
+       the behind-player verifier below swaps to the fallback if the id later
+       proves dead. Taps still verify first via open()/checkChannelThenPlay. */
     if (!ytId) {
-      /* Id-less autoplay (channel follow) verifies first: an offline channel
-         must show the waiting poster, never the "unavailable" frame. */
-      if (source?.platform === "facebook") {
-        setPlaying(true);
-        return;
-      }
-      if (followId) {
-        checkChannelThenPlay();
-        return;
-      }
       setPlaying(true);
       return;
     }
     const peek = peekVerified(ytId);
-    if (peek === true) {
-      setPlaying(true);
-      return;
-    }
     if (peek === false) {
       setDead(true);
       return;
     }
-    let alive = true;
-    setChecking(true);
-    verifyYoutubeId(ytId)
-      .then((v) => {
-        if (!alive) return;
-        setChecking(false);
-        if (v === false) setDead(true);
-        else setPlaying(true);
-      })
-      .catch(() => {
-        if (!alive) return;
-        setChecking(false);
-      });
-    return () => {
-      alive = false;
-    };
+    /* Play at once — verify behind the frame. */
+    setPlaying(true);
+    return;
   }, [autoPlay, ytId, sourceKey]);
 
   /* Autoplay verifies behind the player: a dead id swaps to the fallback
