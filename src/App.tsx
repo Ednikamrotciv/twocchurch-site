@@ -1,7 +1,7 @@
 import React, { useEffect } from "react";
 import { useRoute, navigate, ADMIN_PREFIX } from "./lib/router";
 import { Header, Footer, ScrollTop, SkipLink, MaintenanceSite, PreviewBanner } from "./components/layout";
-import { Toaster } from "./components/ui";
+import { Toaster, PageLoader } from "./components/ui";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import { startCms, useCmsVersion, useCmsReady, useMaintenance, usePreviewingWhileWaiting, useStaleBuild, checkStaleBuild, isCurrentDeployPublishedSync } from "./lib/cms";
 import { mountShaderBackground } from "./lib/shaderbg";
@@ -146,9 +146,13 @@ export function App() {
   if (route.editing)
     return (
       <>
-        <React.Suspense fallback={null}>
-          <Admin />
-        </React.Suspense>
+        {/* Never a blank screen: the admin chunk loads behind a loader, and a
+            crash inside it lands on the error card — not a white page. */}
+        <ErrorBoundary>
+          <React.Suspense fallback={<PageLoader />}>
+            <Admin />
+          </React.Suspense>
+        </ErrorBoundary>
         <LangAsk />
       </>
     );
@@ -251,7 +255,7 @@ function SiteApp() {
       <Header />
       <main id="main" key={to}>
         <ErrorBoundary>
-          <React.Suspense fallback={null}>{page}</React.Suspense>
+          <React.Suspense fallback={<PageLoader compact />}>{page}</React.Suspense>
         </ErrorBoundary>
       </main>
       <Footer />

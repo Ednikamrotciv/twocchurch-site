@@ -456,11 +456,18 @@ async function resolveYoutube(
      cannot. */
   const designatedId = designatedChannelIdForTarget(target.url);
   const liveTabId = channelLiveVideoId(html);
-  for (const vid of cands) {
-    const watchUrl = `https://www.youtube.com/watch?v=${vid}`;
-    const watchHtml = await fetchPage(watchUrl);
+  /* Asked in parallel (were sequential): on a walled network each read can
+     burn a full timeout, so three candidates in a row kept the screen on the
+     clock for half a minute. Judgment below stays best-first, as before. */
+  const reads = await Promise.all(
+    cands.map(async (vid) => {
+      const url = `https://www.youtube.com/watch?v=${vid}`;
+      return { vid, url, watchHtml: await fetchPage(url) };
+    })
+  );
+  for (const { vid, url, watchHtml } of reads) {
     if (watchHtml === null) continue;
-    const watch = parseLivePage(watchHtml, watchUrl);
+    const watch = parseLivePage(watchHtml, url);
     if (watch.live && (watch.videoId || vid)) {
       if (!ownerAllowsCandidate(owner, watchChannelId(watchHtml))) continue;
       if (!candidateStandsForDesignated(watchChannelId(watchHtml), designatedId, vid === liveTabId)) continue;
@@ -517,8 +524,6 @@ async function fetchPage(url: string): Promise<string | null> {
     if (sameOrigin) return sameOrigin;
     if (office) return office;
   } catch { /* fall through */ }
-  const local = await fetchPageLocal(url);
-  if (local) return local;
   return fetchPageRemote(url);
 }
 
@@ -555,20 +560,8 @@ async function fetchPageRemote(url: string): Promise<string | null> {
   }
 }
 
-/** Same-origin YouTube read for local runs. Only attempted on a local host, so
-    the live site never pays for the detour. */
-async function fetchPageLocal(url: string): Promise<string | null> {
-  try {
-    const host = window.location?.hostname || "";
-    if (host !== "localhost" && host !== "127.0.0.1" && host !== "") return null;
-    const res = await withTimeout(fetch(`/__yt?url=${encodeURIComponent(url)}`, { cache: "no-store" }), CHECK_TIMEOUT_MS);
-    if (!res || !res.ok) return null;
-    const text = await res.text();
-    return typeof text === "string" && text.length > 0 ? text : null;
-  } catch {
-    return null;
-  }
-}
+/* Local runs read through the same same-origin door above (identical endpoint),
+   so no second local attempt — it only ever burned another full timeout. */
 
 /** Office-server YouTube read for deployed copies joined to it. Skipped when
     this copy stands alone (the public proxy below covers that). */
@@ -997,7 +990,16 @@ async function run() {
   }
   const facebook = wantsFacebook();
   publish({ checking: true });
-  const next = await checkLiveStream({ facebook });
+  let next: LiveStatus;
+  try {
+    next = await checkLiveStream({ facebook });
+  } catch {
+    /* A throw must never stop the poll — that froze the screen until a
+       reload with no way back. Treat it like a hiccup and keep the timer. */
+    publish({ checking: false });
+    schedule(delay());
+    return;
+  }
   if (!watchers.size) return;
   publish({ checking: false });
   lastTarget = targetSignature();
@@ -1154,6 +1156,15 @@ export function peekVerified(videoId: string): boolean | null {
   const hit = verifyCache.get(id);
   if (!hit || Date.now() - hit.at >= VERIFY_TTL_MS) return null;
   return hit.ok;
+}
+
+/** Drop what the verifier learned about one video (the player's Try-again):
+    the next ask reads YouTube fresh instead of replaying the cached answer. */
+export function forgetVerified(videoId: string) {
+  const id = parseYoutubeId(videoId);
+  if (!id) return;
+  verifyCache.delete(id);
+  verifyInflight.delete(id);
 }
 
 /** Is this video playable right now? true = plays, false = gone, null = could

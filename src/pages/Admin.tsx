@@ -5,7 +5,7 @@ import React, { cloneElement, useEffect, useLayoutEffect, useMemo, useRef, useSt
 import { navigate, useRoute } from "../lib/router";
 import { resolvePath } from "../lib/routes";
 import { Header, Footer, ScrollTop, SkipLink } from "../components/layout";
-import { Btn, Card, Icon, Input, Modal, Select, Toaster } from "../components/ui";
+import { Btn, Card, Icon, Input, Modal, Select, Toaster, PageLoader } from "../components/ui";
 import { ErrorBoundary } from "../components/ErrorBoundary";
 import {
   ConfirmIcon,
@@ -385,7 +385,15 @@ export function Admin() {
   /* The page behind re-renders on applied changes only, never remounts (note 61); office clock too (note 85). */
   const visitorClock = useVisitorClock();
   const pageNode = useMemo(
-    () => <ErrorBoundary>{cloneElement(resolved.element as ReactElement)}</ErrorBoundary>,
+    () => (
+      <ErrorBoundary>
+        {/* The lazy page loads behind its own loader: header, footer and edit
+            bar stay on screen while it compiles — never a white page. */}
+        <React.Suspense fallback={<PageLoader compact />}>
+          {cloneElement(resolved.element as ReactElement)}
+        </React.Suspense>
+      </ErrorBoundary>
+    ),
     [resolved.to, state.version, visitorClock?.tz]
   );
 
