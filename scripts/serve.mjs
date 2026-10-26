@@ -214,9 +214,9 @@ try {
 } catch {
   secLog.log({ level: "info", kind: "shield-on", ip: "-", route: "-", detail: "WAF + session-anomaly shield active (PROD, strict) — malicious traffic is filtered before the server", hint: "watch this terminal for [SEC] lines; breaches auto-write data/security-report-latest.pdf; admin PDF at /__security/report.pdf", source: "local" });
 }
-// 7-area posture board in the production terminal too (info only).
-try {
-  const { runSecurityChecks } = await import("./security-checks.mjs");
+// 7-area posture board in the production terminal too (info only — backgrounded so boot never waits).
+void import("./security-checks.mjs").then(async ({ runSecurityChecks }) => {
+  try {
   const rows = await runSecurityChecks(ROOT);
   const useColor = !process.env.NO_COLOR;
   const C = { redBg: "\x1b[41m\x1b[37m", yellow: "\x1b[33m", green: "\x1b[32m", grey: "\x1b[90m", reset: "\x1b[0m" };
@@ -225,7 +225,8 @@ try {
     const c = r.status === "RED ALERT" ? C.redBg : r.status === "WARNING" ? C.yellow : r.status === "SECURE" ? C.green : C.grey;
     console.log(`  ${(useColor ? c : "")}${String(r.area).slice(0, 42).padEnd(42)} | ${r.status}${(useColor ? C.reset : "")}${r.status === "RED ALERT" ? "  <-- RED ALERT" : ""} — ${String(r.detail).slice(0, 160)}`);
   }
-} catch {}
+  } catch {}
+}).catch(() => {});
 
 /* HIGH fix — file-door guard: /__upload, /__restore-file and /__delete-file
    take effect only for a signed-in admin connection (the same conn id the
@@ -251,9 +252,8 @@ async function isAdminConn(id) {
    mirror — pushed words serve within seconds instead of waiting out the
    feed-follow minute on the deploy-time bake. Best effort and silent when
    there is no feed, no network, or nothing newer to serve. */
-try {
-  await primeMirrorSeed(ROOT, DIST);
-} catch { /* the deploy bake stands */ }
+/* Backgrounded: the deploy bake serves instantly; the mirror primes behind it. */
+primeMirrorSeed(ROOT, DIST).catch(() => { /* the deploy bake stands */ });
 
 /* The recent-services list stays fresh by itself: every 20 minutes the channel
    is re-read and the bake in seed.json refreshed, and a changed list rides the
@@ -272,8 +272,9 @@ try {
       console.warn("recent services refresh skipped:", err?.message || err);
     }
   };
-  setInterval(refreshRecent, 2 * 60 * 1000);
-  refreshRecent();
+  setInterval(refreshRecent, 20 * 60 * 1000);
+  /* Deferred: boot serves instantly; the first refresh lands a minute later. */
+  setTimeout(refreshRecent, 60 * 1000);
 } catch {
   /* a bake that cannot load never stops the server */
 }

@@ -37,21 +37,6 @@ export function WatchLive() {
      with it, on live and on local alike. */
   const air = useLiveStream(true, false, true);
   const justNow = !!info && (onAir(info) || info.msUntil < 45 * 60 * 1000);
-  /* Instant-open warm-up: while a gathering is on (or near), pre-connect to the
-     stream doors so the autoplay iframe opens with no DNS/TLS wait. */
-  useEffect(() => {
-    try {
-      if (!justNow && air.state !== "live") return;
-      for (const href of ["https://www.youtube.com", "https://i.ytimg.com", "https://noembed.com"]) {
-        if (document.querySelector('link[rel="preconnect"][href="' + href + '"]')) continue;
-        const l = document.createElement("link");
-        l.rel = "preconnect";
-        l.href = href;
-        l.crossOrigin = "anonymous";
-        document.head.appendChild(l);
-      }
-    } catch {}
-  }, [justNow, air.state]);
   /* Only the handle's own answer ever reaches the screen (note 350): an
      answer stamped for another address (the office moved the channel since
      the check) reads as unknown until the fresh check lands — it never
@@ -106,6 +91,22 @@ export function WatchLive() {
      below is main-owned as ever). A pause holds rather than ends, and a fresh
      copy ships no cut, so neither ever lands here. */
   const officeStopped = officeStopActive(LIVE);
+  /* Instant-open warm-up (placed after all Declarations: never reads before init):
+     while a gathering is on (or near), pre-connect so the autoplay iframe
+     opens with no DNS/TLS wait. Idempotent — safe to re-run. */
+  useEffect(() => {
+    try {
+      if (!justNow && air.state !== "live") return;
+      for (const href of ["https://www.youtube.com", "https://i.ytimg.com", "https://noembed.com"]) {
+        if (document.querySelector('link[rel="preconnect"][href="' + href + '"]')) continue;
+        const l = document.createElement("link");
+        l.rel = "preconnect";
+        l.href = href;
+        l.crossOrigin = "anonymous";
+        document.head.appendChild(l);
+      }
+    } catch {}
+  }, [justNow, air.state]);
   /* A Facebook live is not a YouTube id (note 398): its numeric video id must
      never enter the YouTube path — it would open as a broken YouTube embed
      instead of the Facebook broadcast. */
