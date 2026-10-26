@@ -1,7 +1,7 @@
 import React, { useEffect } from "react";
 import { useRoute, navigate, ADMIN_PREFIX } from "./lib/router";
 import { Header, Footer, ScrollTop, SkipLink, MaintenanceSite, PreviewBanner } from "./components/layout";
-import { Toaster, PageLoader } from "./components/ui";
+import { Toaster } from "./components/ui";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import { startCms, useCmsVersion, useCmsReady, useMaintenance, usePreviewingWhileWaiting, useStaleBuild, checkStaleBuild, isCurrentDeployPublishedSync } from "./lib/cms";
 import { mountShaderBackground } from "./lib/shaderbg";
@@ -13,7 +13,7 @@ import { useLiveStream } from "./lib/livestatus";
 import { nextService, onAir, churchTimezone } from "./lib/store";
 import { useNow } from "./lib/hooks";
 import { SERVICES } from "./data/site";
-import { resolvePath } from "./lib/routes";
+import { resolvePath, warmPageChunks } from "./lib/routes";
 import { ADMIN_RETURN_MS, readAdminReturn } from "./lib/adminReturn";
 import { ct } from "./data/copy";
 import { SITE } from "./data/site";
@@ -114,6 +114,15 @@ export function App() {
     document.addEventListener("visibilitychange", onVis);
     window.addEventListener("online", onOnline);
     startVisitorClock();
+    /* No-loader navigation: warm every page chunk (+ the admin chunk) behind
+       the first paint, so taps land on the ready page instead of a Loading
+       screen — the website stays on screen throughout. */
+    try { warmPageChunks(); } catch {}
+    try {
+      const ric = (window as any).requestIdleCallback;
+      if (typeof ric === "function") ric(() => { import("./pages/Admin").catch(() => {}); }, { timeout: 3000 });
+      else window.setTimeout(() => { import("./pages/Admin").catch(() => {}); }, 2000);
+    } catch {}
     /* Shader deferred: first paint first, eye-candy after (skipped on reduced-motion/save-data). */
     let unmountShader: (() => void) | void;
     let cancelled = false;
@@ -153,10 +162,11 @@ export function App() {
   if (route.editing)
     return (
       <>
-        {/* Never a blank screen: the admin chunk loads behind a loader, and a
-            crash inside it lands on the error card — not a white page. */}
+        {/* Never a loader page: nothing flashes while the admin chunk arrives —
+            the site shell stays on screen, and a crash inside it lands on the
+            error card — not a white page. */}
         <ErrorBoundary>
-          <React.Suspense fallback={<PageLoader />}>
+          <React.Suspense fallback={null}>
             <Admin />
           </React.Suspense>
         </ErrorBoundary>
@@ -262,7 +272,7 @@ function SiteApp() {
       <Header />
       <main id="main" key={to}>
         <ErrorBoundary>
-          <React.Suspense fallback={<PageLoader compact />}>{page}</React.Suspense>
+          <React.Suspense fallback={null}>{page}</React.Suspense>
         </ErrorBoundary>
       </main>
       <Footer />

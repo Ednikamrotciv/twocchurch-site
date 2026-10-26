@@ -5,7 +5,7 @@ import React, { cloneElement, useEffect, useLayoutEffect, useMemo, useRef, useSt
 import { navigate, useRoute } from "../lib/router";
 import { resolvePath } from "../lib/routes";
 import { Header, Footer, ScrollTop, SkipLink } from "../components/layout";
-import { Btn, Card, Icon, Input, Modal, Select, Toaster, PageLoader } from "../components/ui";
+import { Btn, Card, Icon, Input, Modal, Select, Toaster } from "../components/ui";
 import { ErrorBoundary } from "../components/ErrorBoundary";
 import {
   ConfirmIcon,
@@ -387,9 +387,9 @@ export function Admin() {
   const pageNode = useMemo(
     () => (
       <ErrorBoundary>
-        {/* The lazy page loads behind its own loader: header, footer and edit
-            bar stay on screen while it compiles — never a white page. */}
-        <React.Suspense fallback={<PageLoader compact />}>
+        {/* No loader page: header, footer and edit bar stay on screen while the
+            lazy page arrives — never a white page, never a Loading screen. */}
+        <React.Suspense fallback={null}>
           {cloneElement(resolved.element as ReactElement)}
         </React.Suspense>
       </ErrorBoundary>

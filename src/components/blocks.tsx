@@ -275,6 +275,7 @@ export function VideoPlayer({
   live,
   autoPlay,
   hideEscape,
+  reloadSignal,
 }: {
   source: VideoSource;
   title: string;
