@@ -37,12 +37,12 @@ export function WatchLive() {
      with it, on live and on local alike. */
   const air = useLiveStream(true, false, true);
   const justNow = !!info && (onAir(info) || info.msUntil < 45 * 60 * 1000);
-  /* Instant-open warm-up: while a gathering is on (or near), pre-connect to the
-     stream doors so the autoplay iframe opens with no DNS/TLS wait. */
+  /* Instant-open warm-up: the page is open because someone came to watch, so
+     pre-connect to the stream doors at once (player assets included) — the
+     autoplay iframe opens with no DNS/TLS wait. */
   useEffect(() => {
     try {
-      if (!justNow && air.state !== "live" && !LIVE.isLive && !(LIVE as any).guestIsLive) return;
-      for (const href of ["https://www.youtube.com", "https://i.ytimg.com", "https://noembed.com"]) {
+      for (const href of ["https://www.youtube.com", "https://s.ytimg.com", "https://i.ytimg.com", "https://noembed.com"]) {
         if (document.querySelector('link[rel="preconnect"][href="' + href + '"]')) continue;
         const l = document.createElement("link");
         l.rel = "preconnect";
