@@ -23,7 +23,7 @@ import {
   type VideoPlatform,
   type VideoSource,
 } from "../lib/embed";
-import { checkLiveStream, isStatusForTarget, liveTarget, guestTarget, isGuestTargetUrl, peekVerified, verifyYoutubeId, forgetVerified, recheckLiveNow, isDesignatedChannel, designatedChannelIdForTarget } from "../lib/livestatus";
+import { checkLiveStream, isStatusForTarget, liveTarget, guestTarget, isGuestTargetUrl, peekVerified, verifyYoutubeId, forgetVerified, noteIdDead, recheckLiveNow, isDesignatedChannel, designatedChannelIdForTarget } from "../lib/livestatus";
 import {
   KEYS,
   fmtDate,
@@ -653,6 +653,7 @@ export function VideoPlayer({
   useEffect(() => {
     if (!playing || !showingNamedId || dead || deadAll) return;
     if (peekVerified(showingNamedId) === false) {
+      try { noteIdDead(showingNamedId); } catch {}
       setDead(true);
       /* The screen's answer may have moved on while this id died — ask at
          once so a fresh broadcast opens by itself, no reload. */
@@ -665,26 +666,25 @@ export function VideoPlayer({
     }
     if (peekVerified(showingNamedId) === null) {
       let alive = true;
-      /* First paint wins: the re-ask waits a beat so verification traffic
-         never contends with the iframe load. */
-      const t = window.setTimeout(() => {
-        if (!alive) return;
-        verifyYoutubeId(showingNamedId)
-          .then((v) => {
-            if (alive && v === false) {
-              setDead(true);
-              if (live) {
-                try {
-                  recheckLiveNow();
-                } catch {}
-              }
+      /* Dead ids are reported the instant they prove dead (never a lingering
+         "unavailable" frame): the re-ask is tiny next to the iframe load, and
+         a proven-dead id is banned for the session so no repair loop replays
+         it — the loop rechecks for a NEW broadcast instead. */
+      verifyYoutubeId(showingNamedId)
+        .then((v) => {
+          if (alive && v === false) {
+            try { noteIdDead(showingNamedId); } catch {}
+            setDead(true);
+            if (live) {
+              try {
+                recheckLiveNow();
+              } catch {}
             }
-          })
-          .catch(() => {});
-      }, 2500);
+          }
+        })
+        .catch(() => {});
       return () => {
         alive = false;
-        try { window.clearTimeout(t); } catch {}
       };
     }
   }, [playing, showingNamedId, dead, deadAll, src]);
@@ -704,6 +704,7 @@ export function VideoPlayer({
       verifyYoutubeId(showingNamedId)
         .then((v) => {
           if (v === false) {
+            try { noteIdDead(showingNamedId); } catch {}
             setDead(true);
             if (live) {
               try {
@@ -765,6 +766,9 @@ export function VideoPlayer({
                    101/105/150 embedding disabled or blocked) leaves the black
                    frame — swap at once to the auto-connecting view instead. */
                 if (code === 2 || code === 5 || code === 100 || code === 101 || code === 105 || code === 150) {
+                  /* YouTube itself refused the frame — ban the id for the
+                     session so no repair loop replays this "unavailable". */
+                  try { noteIdDead(showingNamedId || ytId || liveVideoId || ""); } catch {}
                   try {
                     /* The channel net failed too — say so with a way back,
                        never the black frame. */
@@ -933,6 +937,16 @@ export function VideoPlayer({
           )}
           <span className="player__scrim" />
           <span className="player__reload-label">{tx("Connecting the live stream…")}</span>
+          {(liveVideoId || ytId) && (
+            <a
+              className="player__escape"
+              href={watchUrl({ platform: "youtube", youtubeId: liveVideoId || ytId }) || ""}
+              target="_blank"
+              rel="noreferrer"
+            >
+              {tx("Can't see the video? Watch on YouTube")}
+            </a>
+          )}
           <span className="player__live">
             <span className="live-dot" /> {ct("live.player.badge")}
           </span>
@@ -980,6 +994,16 @@ export function VideoPlayer({
           )}
           <span className="player__scrim" />
           <span className="player__reload-label">{tx("Connecting the live stream…")}</span>
+          {(liveVideoId || ytId) && (
+            <a
+              className="player__escape"
+              href={watchUrl({ platform: "youtube", youtubeId: liveVideoId || ytId }) || ""}
+              target="_blank"
+              rel="noreferrer"
+            >
+              {tx("Can't see the video? Watch on YouTube")}
+            </a>
+          )}
           <span className="player__live">
             <span className="live-dot" /> {ct("live.player.badge")}
           </span>

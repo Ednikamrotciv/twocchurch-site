@@ -1210,6 +1210,55 @@ export function forgetVerified(videoId: string) {
   verifyInflight.delete(id);
 }
 
+/* Session dead-id ban: an id YouTube itself refused (embed onError) or the
+   verifier proved gone is never optimistically mounted again this session —
+   no "unavailable" frame, no repair loop replaying the same dead id. The
+   repair loop rechecks for a NEW broadcast instead. Bans expire after
+   30 minutes (a restored video plays again); the office Reload press clears
+   them at once (`clearIdBans`, called on the published reload press), and a
+   banned id the answers still point at re-verifies itself (`unbanId` on a
+   pass) — so a ban is never the last word on a working broadcast. */
+const deadBan = new Map<string, number>();
+const DEAD_BAN_MS = 30 * 60_000;
+export function noteIdDead(videoId: string) {
+  try {
+    const id = parseYoutubeId(videoId);
+    if (id) deadBan.set(id, Date.now());
+  } catch {}
+}
+export function isIdBanned(videoId: string): boolean {
+  try {
+    const id = parseYoutubeId(videoId);
+    if (!id) return false;
+    const at = deadBan.get(id);
+    if (!at) return false;
+    if (Date.now() - at > DEAD_BAN_MS) {
+      try { deadBan.delete(id); } catch {}
+      return false;
+    }
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** The office Reload press clears every dead-id ban at once (note above):
+    the total fixer — a banned id mounts again on the published press. */
+export function clearIdBans(): void {
+  try {
+    deadBan.clear();
+  } catch {}
+}
+
+/** Lift the ban on one id (the self-heal below): only ever called after
+    YouTube itself just said the id plays. Never throws. */
+export function unbanId(videoId: string): void {
+  try {
+    const id = parseYoutubeId(videoId);
+    if (id) deadBan.delete(id);
+  } catch {}
+}
+
 /** Is this video playable right now? true = plays, false = gone, null = could
     not tell (offline, proxy/probe down — play anyway). Never throws. */
 export async function verifyYoutubeId(videoId: string): Promise<boolean | null> {
