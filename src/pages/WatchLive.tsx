@@ -184,40 +184,19 @@ export function WatchLive() {
   const publishedOk = !publishedPlayId || publishedVerdict === true || publishedVerdict === null;
   const idOk = idVerdict === true || idVerdict === null;
   const playableId = (detectedId && idOk && (isDesignatedChannel(airForTarget.channelId, designatedId) || (guestLive && isGuestTargetUrl(screenAir.target, guestUrl))) ? detectedId : "") || ((publishedPlayId && publishedOk && !officeStopped && !shutNow && (((LIVE as any).isLive && hasChannel) || ((LIVE as any).guestIsLive && !!guestUrl) || screenAir.state === "live")) ? publishedPlayId : "");
-  /* Verified-only mount (the "video unavailable" frame can never show): the screen
-     mounts a YouTube iframe ONLY for an id YouTube itself just confirmed plays
-     (verdict === true). Unknown (null: still checking, offline, probe down) waits on
-     the ticking clock below and mounts by itself the moment the verifier says true.
-     Dead (false) never mounts. In particular NO lone channel embed is ever mounted:
-     a live_stream?channel= embed for a channel with no running broadcast is exactly
-     what opens YouTube's black "This video is unavailable" frame, so a press alone,
-     a walled read alone, or a stale id alone all wait instead of mounting. */
-  const detectedVerifiedId = detectedId && idVerdict === true && (isDesignatedChannel(airForTarget.channelId, designatedId) || (guestLive && isGuestTargetUrl(screenAir.target, guestUrl))) ? detectedId : "";
-  const publishedVerifiedId = publishedPlayId && publishedVerdict === true && !officeStopped && !shutNow && ((((LIVE as any).isLive && hasChannel) || ((LIVE as any).guestIsLive && !!guestUrl)) || screenAir.state === "live") ? publishedPlayId : "";
-  const playableVerifiedId = detectedVerifiedId || publishedVerifiedId;
-  const verifiedFallbackStrict = fallbackId && !isIdBanned(fallbackId) && fallbackVerdict === true ? fallbackId : "";
-  const watchableStrict = !!playableVerifiedId || fbLive || !!verifiedFallbackStrict;
-  const watchable = !!playableId || !!detectedChannel || fbLive || !!playableVerifiedId || !!verifiedFallbackStrict;
-  /* While any candidate id still verifies, the screen waits on the ticking clock
-     (never a blind iframe): the verifier settles in about a second and the player
-     mounts by itself the moment it says true. */
-  const checkingLiveId = !!detectedId && idVerdict === null;
-  const checkingPublishedId = !!publishedPlayId && publishedVerdict === null;
-  const checkingFallbackId = !!fallbackId && !playableVerifiedId && !fbLive && fallbackVerdict === null;
-  const checkingAnyId = checkingLiveId || checkingPublishedId || checkingFallbackId;
-  /* Play means play for the guest, patience for the main (notes 404, 410):
-     the office pressed Play for a slot and published it, yet the read cannot
-     confirm a broadcast (bot wall) — so the commanded GUEST channel opens by
-     itself instead of sitting on the waiting clock, while a pressed MAIN with
-     no detected broadcast waits on the clock below (autoplay only works once
-     the main livestream has started live on the channel). Only while the read
-     says unknown (a verified off stays on the clock), only the commanded
-     slot, only with a known channel id — and a detected broadcast still wins
-     first. */
-  /* Instant-live (no reload, no waiting for the scrape): the office pressed Live
-     and published it — the screen opens at once on the channel, even if the
-     scrape still reads unknown OR off through the bot wall. The scrape keeps
-     refining behind it (verified id/title); the screen already plays. */
+  /* Mount-now, masked player (fixes both the stuck clock AND the black frame):
+     the screen mounts the player as soon as there is anything to play — a detected
+     id, the published video id, the live channel follow, or the named link — while
+     its verdict is anything but proven-dead (true OR unknown both mount; only a
+     false verdict or a session ban blocks). Unknown never shows raw: the masked
+     player covers the frame with the warm still until the frame itself reports
+     PLAYING, then swaps to the fallback card if the id later proves dead. Nothing
+     ever waits on the verifier, so a slow pre-check can never wedge the screen. */
+  const detectedMountId = detectedId && idVerdict !== false && !isIdBanned(detectedId) && (isDesignatedChannel(airForTarget.channelId, designatedId) || (guestLive && isGuestTargetUrl(screenAir.target, guestUrl))) ? detectedId : "";
+  const publishedMountId = publishedPlayId && publishedVerdict !== false && !isIdBanned(publishedPlayId) && !officeStopped && !shutNow && ((((LIVE as any).isLive && hasChannel) || ((LIVE as any).guestIsLive && !!guestUrl)) || screenAir.state === "live") ? publishedPlayId : "";
+  const playableMountId = detectedMountId || publishedMountId;
+  const verifiedFallbackId = fallbackId && !isIdBanned(fallbackId) && fallbackVerdict !== false ? fallbackId : "";
+  const watchable = !!playableMountId || !!detectedChannel || fbLive || !!verifiedFallbackId;
   const pressedMain = !!LIVE.isLive && hasChannel && !guestLive && !officeStopped && !shutNow;
   const pressedGuest = !!(LIVE as any).guestIsLive && !!guestUrl && !guestLive && !shutNow;
   const overrideMain = pressedMain && screenAir.state !== "live" && airForTarget.state === "unknown";
@@ -243,9 +222,7 @@ export function WatchLive() {
      channel embed, which is what showed "unavailable" when the channel had no
      running broadcast). The muted-first player (src/components/blocks.tsx) paints
      instantly and rejoins sound by itself, so an autoplay block never reads as slow. */
-  const hasPublishedVideo = !!publishedPlayId && publishedVerdict === true;
-  const pressedWithVideo = hasPublishedVideo && !officeStopped && !shutNow && (pressedMain || pressedGuest);
-  const streamingStrict = pressedWithVideo || (screenAir.state === "live" && !shutNow && (guestLive || fbLive || (mainDetected && !officeStopped)));
+  const pressedWithVideo = !!publishedPlayId && publishedVerdict !== false && !isIdBanned(publishedPlayId) && !officeStopped && !shutNow && (pressedMain || pressedGuest);
   const streaming = pressedWithVideo || (screenAir.state === "live" && !shutNow && (guestLive || fbLive || (mainDetected && !officeStopped)));
 
   /* The two lists under the screen: recent services (read off the channel) and previous sermons (the office's write-ups). */
@@ -308,7 +285,7 @@ export function WatchLive() {
       ? { platform: "facebook", facebookUrl: LIVE.facebookUrl }
       : platform === "facebook"
       ? { platform: "facebook", facebookUrl: LIVE.facebookUrl }
-      : { platform: "youtube", youtubeId: playableVerifiedId || verifiedFallbackStrict, youtubeChannelId: undefined };
+      : { platform: "youtube", youtubeId: playableMountId || verifiedFallbackId, youtubeChannelId: detectedChannel || undefined };
   const youtubeLink =
     watchUrl({ platform: "youtube", youtubeId: playableId }) ||
     (guestLive && guestUrl ? guestUrl : hasChannel ? targetUrl : watchUrl({ platform: "youtube", youtubeId: LIVE.youtubeId }) || targetUrl);
@@ -496,22 +473,20 @@ export function WatchLive() {
                 </div>
               )}
 
-              {(checkingAnyId && !playableVerifiedId && !fbLive && !shutNow && !officeStopped) || (streamingStrict && !watchableStrict && !shutNow && !officeStopped && (checkingAnyId || screenAir.state === "live" || pressedMain || pressedGuest)) ? (
-                <LiveWaiting cover={cover} />
-              ) : streamingStrict && watchableStrict ? (
+              {streaming && watchable ? (
                 <VideoPlayer
                   hideEscape
                   source={liveSource}
                   title={liveName || ct("auto.live.bc108377bb47f9e6")}
                   compact
                   live
-                  /* First-build behaviour, immediate: a verified broadcast, a live
-                     channel follow, or the published video id opens by itself with
-                     no tap. Muted-first paint (blocks.tsx) + auto-unmute means the
-                     picture is instant and sound rejoins by itself — autoplay only
-                     works once the main livestream has actually started live, and a
-                     bare press with no video waits on the clock above instead of
-                     opening the black "unavailable" frame. */
+                  /* Mount-now, masked: a detected broadcast, the published video id,
+                     or the live channel follow opens by itself with no tap. The
+                     masked paint (blocks.tsx) covers the frame with the warm still
+                     until it reports PLAYING — instant picture, sound rejoins by
+                     itself, and YouTube's black frame can never show, not even
+                     for a frame. A bare press with nothing behind it waits on the
+                     clock below. */
                   autoPlay
                   reloadSignal={reloadSignal}
                 />

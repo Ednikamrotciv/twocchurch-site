@@ -1,35 +1,32 @@
-Merged build v2 — second (fixed_7_) retained + first (old) livestream gating, verified-only mount.
+Merged build v3 — second (fixed_7_) retained + first (old) livestream gating, masked player.
 
 Base: church-site-fixed_7_.zip (all security + everything else retained).
-Livestream: src/pages/WatchLive.tsx ONLY.
+Changed: src/pages/WatchLive.tsx + src/components/blocks.tsx (VideoPlayer) ONLY.
 
-Why "This video is unavailable" showed: the screen mounted a YouTube iframe with nothing
-actually playable — a lone live_stream?channel= embed for a channel with no running
-broadcast (bare office press, walled read, or stale id), or a video id mounted before
-YouTube confirmed it (verdict unknown) that later proved dead/private/embedding-disabled.
-YouTube answers all of those with its black "This video is unavailable" frame, and the
-embed-time failure is invisible to the pre-check (oEmbed), so the frame stuck.
+Two complaints, one root design: v2 waited for the verifier before mounting.
+- Slow/blocked verifier -> stuck on the ticking clock even though live started.
+- Every re-verify flipped clock <-> player ("keeps stopping").
+- And any blind mount risked YouTube's black "This video is unavailable".
 
-v2 fix (verified-only mount):
-- A YouTube iframe mounts ONLY for an id YouTube itself just confirmed plays (verdict === true):
-  detected broadcast id, published liveVideoId/guestVideoId, or named stream-link id.
-- Unknown (still checking / offline / probe down) shows the ticking clock (LiveWaiting)
-  with the last-stream still — and mounts BY ITSELF the moment the verifier says true
-  (about a second, no tap, no reload). Dead never mounts.
-- NO lone channel embed is ever mounted (youtubeChannelId always undefined on the live
-  screen). A press alone, a walled read alone, or a stale id alone all wait on the
-  clock instead of opening the black frame.
-- Autoplay immediate + with sound kept: muted-first paint + auto-unmute loop
-  (blocks.tsx + embed.ts untouched from fixed_7_), published video id opens at once
-  with no scrape wait, detected live opens at once with no Play press.
-- Safety nets kept (livestatus.ts + blocks.tsx untouched): session dead-id ban,
-  IFrame API onError swap, auto-repair loop, Reload-press unban.
-- Guest one-off: verified guest video plays immediately; a guest press with no verified
-  video waits on the clock (no lone guest-channel embed anymore).
-- Everything else byte-identical to fixed_7_.
+v3 fix (mount-now, masked, capped repair):
+1. The screen mounts the player the moment there is anything to play (detected id,
+   published liveVideoId/guestVideoId, live channel follow, named link). Only a
+   proven-dead verdict (false) or a session ban blocks a mount. Unknown (checking /
+   offline / probe down) mounts too — nothing ever waits on the verifier.
+2. The raw frame NEVER shows: the live player stays covered by the warm still until
+   the frame itself reports PLAYING. Slow frames get a "Connecting…" label only
+   after 4s. Dead/refused frames swap to a card, never the black frame.
+3. No more endless "Connecting…": after ~6 silent auto-tries (~20s) on the SAME
+   frame the screen rests on "This broadcast isn't playing here right now." +
+   Watch on YouTube + Try again. A NEW broadcast (new video id) still opens by
+   itself; Try again retries by hand; the office Reload press clears all bans.
+4. Autoplay immediate + with sound kept: muted-first paint + auto-unmute loop, so
+   the picture is instant and sound rejoins by itself (no tap, no reload).
+5. Guest one-off: verified or unverified-but-live guest video plays at once; a guest
+   press with nothing behind it waits on the clock (never a blind channel frame).
 
-Office checklist (if it now waits instead of playing):
-1. Start the broadcast on YouTube FIRST, then press Play/Live in the console (Play captures
-   the live video id at press time — pressing before going live captures nothing).
+Office checklist (if it waits instead of playing while YouTube is live):
+1. Start the YouTube broadcast FIRST, then press Play/Live in the console (Play
+   captures the live video id at press time — pressing early captures nothing).
 2. If you pressed early, press Play again (or Reload) once YouTube is actually live.
-3. The Watch page picks it up by itself in seconds — no visitor reload needed.
+3. Visitors pick it up by itself in seconds — no reload needed.
