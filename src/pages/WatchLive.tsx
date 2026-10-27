@@ -190,11 +190,14 @@ export function WatchLive() {
      the black "unavailable" frame, and never the ticking clock for a live
      that is already on air. */
   const deadLiveId = detectedId && idVerdict === false && (isDesignatedChannel(airForTarget.channelId, designatedId) || (guestLive && isGuestTargetUrl(screenAir.target, guestUrl))) ? detectedId : "";
-  /* Instant-live: an office-pressed MAIN/GUEST with a channel is watchable at
-     once, even before the scrape names a video — the channel embed plays. */
-  const mainPressedOpen = !!LIVE.isLive && hasChannel && airForTarget.state !== "off";
-  const pressedWatchable = mainPressedOpen || (!!(LIVE as any).guestIsLive && !!guestUrl);
-  const watchable = !!playableId || !!deadLiveId || !!detectedChannel || fbLive || !!verifiedFallbackId || pressedWatchable;
+  /* First-build rule (no "video unavailable"): a bare office press with no verified
+     video never counts as watchable by itself. The channel embed only plays once
+     the scrape proves that channel is actually live (detectedChannel) or the
+     publish carries a real verified video id (playableId below). A press alone
+     waits on the ticking clock — never a lone channel embed for a channel with
+     no running broadcast (that lone embed is what opened YouTube's black
+     "This video is unavailable" frame). */
+  const watchable = !!playableId || !!deadLiveId || !!detectedChannel || fbLive || !!verifiedFallbackId;
   /* Dead-video gate (note 413, opened note 420): a named id reaches the
      player while its verdict is still unknown — offline, probe down, still
      checking — and the player verifies behind the frame, swapping to its
@@ -233,10 +236,16 @@ export function WatchLive() {
      until Play. Press alone never autoplays — autoplay only works once the
      main livestream has started live on the channel. */
   const mainDetected = screenAir.state === "live" && !guestLive && !fbLive;
-  /* Office-pressed counts as streaming at once (instant-live): no waiting for
-     the scrape, no reload, stays on this site — the channel embed plays
-     immediately and the scrape refines it behind the frame. */
-  const streaming = (!shutNow && !officeStopped && (pressedMain || pressedGuest)) || (screenAir.state === "live" && !shutNow && (guestLive || fbLive || (mainDetected && !officeStopped)));
+  /* First-build gating + immediate autoplay: the screen plays the moment the scrape
+     proves live (main/guest/facebook) OR the moment the office press carries a real
+     verified video id (publishedPlayId) — no scrape wait, no reload, no tap.
+     A bare press with no video id waits on the ticking clock below (never a lone
+     channel embed, which is what showed "unavailable" when the channel had no
+     running broadcast). The muted-first player (src/components/blocks.tsx) paints
+     instantly and rejoins sound by itself, so an autoplay block never reads as slow. */
+  const hasPublishedVideo = !!publishedPlayId && publishedOk;
+  const pressedWithVideo = hasPublishedVideo && !officeStopped && !shutNow && (pressedMain || pressedGuest);
+  const streaming = pressedWithVideo || (screenAir.state === "live" && !shutNow && (guestLive || fbLive || (mainDetected && !officeStopped)));
 
   /* The two lists under the screen: recent services (read off the channel) and previous sermons (the office's write-ups). */
   const limit = recentLimit();
@@ -298,7 +307,7 @@ export function WatchLive() {
       ? { platform: "facebook", facebookUrl: LIVE.facebookUrl }
       : platform === "facebook"
       ? { platform: "facebook", facebookUrl: LIVE.facebookUrl }
-      : { platform: "youtube", youtubeId: playableId || deadLiveId || verifiedFallbackId || (fallbackVerdict === null ? fallbackId : ""), youtubeChannelId: detectedChannel || overrideId || undefined };
+      : { platform: "youtube", youtubeId: playableId || deadLiveId || verifiedFallbackId || (fallbackVerdict === null ? fallbackId : ""), youtubeChannelId: detectedChannel || undefined };
   const youtubeLink =
     watchUrl({ platform: "youtube", youtubeId: playableId }) ||
     (guestLive && guestUrl ? guestUrl : hasChannel ? targetUrl : watchUrl({ platform: "youtube", youtubeId: LIVE.youtubeId }) || targetUrl);
@@ -486,18 +495,22 @@ export function WatchLive() {
                 </div>
               )}
 
-              {streaming && (watchable || checkingLiveId || checkingFallbackId || detectedId || fallbackId) ? (
+              {(checkingLiveId || checkingFallbackId) && !playableId && !deadLiveId && !verifiedFallbackId && !shutNow && !officeStopped ? (
+                <LiveWaiting cover={cover} />
+              ) : streaming && watchable ? (
                 <VideoPlayer
                   hideEscape
                   source={liveSource}
                   title={liveName || ct("auto.live.bc108377bb47f9e6")}
                   compact
                   live
-                  /* The check says live, so the screen plays by itself (notes
-                     384, 388) — a verified broadcast, a walled channel follow,
-                     or the stream link all open with no tap, WITH SOUND: no
-                     live from a channel is ever muted, and the audio opens by
-                     itself the moment the broadcast starts. */
+                  /* First-build behaviour, immediate: a verified broadcast, a live
+                     channel follow, or the published video id opens by itself with
+                     no tap. Muted-first paint (blocks.tsx) + auto-unmute means the
+                     picture is instant and sound rejoins by itself — autoplay only
+                     works once the main livestream has actually started live, and a
+                     bare press with no video waits on the clock above instead of
+                     opening the black "unavailable" frame. */
                   autoPlay
                   reloadSignal={reloadSignal}
                 />
