@@ -23,7 +23,7 @@ import {
   type VideoPlatform,
   type VideoSource,
 } from "../lib/embed";
-import { checkLiveStream, isStatusForTarget, liveTarget, guestTarget, isGuestTargetUrl, peekVerified, verifyYoutubeId, forgetVerified, noteIdDead, recheckLiveNow, isDesignatedChannel, designatedChannelIdForTarget } from "../lib/livestatus";
+import { checkLiveStream, isStatusForTarget, liveTarget, guestTarget, isGuestTargetUrl, peekVerified, verifyYoutubeId, forgetVerified, noteIdDead, unbanId, recheckLiveNow, isDesignatedChannel, designatedChannelIdForTarget } from "../lib/livestatus";
 import {
   KEYS,
   fmtDate,
@@ -328,6 +328,8 @@ export function VideoPlayer({
    try {
      if (ytId) forgetVerified(ytId);
    } catch {}
+   try { if (ytId) unbanId(ytId); } catch {}
+   try { if (liveVideoId) { forgetVerified(liveVideoId); unbanId(liveVideoId); } } catch {}
    setDead(false);
    setDeadAll(false);
    setFailed(false);
@@ -461,10 +463,10 @@ export function VideoPlayer({
      through the self-heal loop. */
   const retryLive = () => {
     try {
-      if (ytId) forgetVerified(ytId);
+      if (ytId) { forgetVerified(ytId); unbanId(ytId); }
     } catch {}
     try {
-      if (liveVideoId) forgetVerified(liveVideoId);
+      if (liveVideoId) { forgetVerified(liveVideoId); unbanId(liveVideoId); }
     } catch {}
     try {
       if (showingNamedId && showingNamedId !== ytId && showingNamedId !== liveVideoId) forgetVerified(showingNamedId);
@@ -499,6 +501,22 @@ export function VideoPlayer({
   const still = poster && !failed ? poster : posterFor(source);
   const platform: VideoPlatform = source?.platform === "facebook" ? "facebook" : source?.platform === "upload" ? "upload" : "youtube";
   const shell = "player" + (compact ? " player--compact" : "") + (playing ? " player--playing" : "");
+  /* The error-reset button (grey circle, arrow): rendered ONLY while viewing is in
+     an error state — hidden otherwise. It centers itself over the player
+     (absolute, inset 0 + auto margins, like .player__reload) so it sits at the
+     center of the screen wherever it appears. One tap reloads the frame and
+     clears every viewing error (verdicts, bans, stuck frame) with no page reload. */
+  const retryCircle = (
+    <button
+      type="button"
+      onClick={retry}
+      aria-label={tx("Reload livestream")}
+      title={tx("Reload livestream")}
+      style={{ position: "absolute", inset: 0, margin: "auto", width: 56, height: 56, borderRadius: "50%", background: "#6b7280", color: "#fff", display: "inline-flex", alignItems: "center", justifyContent: "center", border: "2px solid rgba(255,255,255,0.4)", boxShadow: "0 2px 12px rgba(0,0,0,0.45)", cursor: "pointer", zIndex: 2 }}
+    >
+      <Icon name="refresh" size={24} />
+    </button>
+  );
 
   /* A new video/channel starts unjudged (mute toggles must NOT clear the
      verified id — unmuting would otherwise drop the real broadcast). */
@@ -994,6 +1012,7 @@ export function VideoPlayer({
           )}
           <span className="player__scrim" />
           <span className="player__reload-label">{tx("Connecting the live stream…")}</span>
+          {retryCircle}
           {(liveVideoId || ytId) && (
             <a
               className="player__escape"
@@ -1083,6 +1102,7 @@ export function VideoPlayer({
           )}
           <span className="player__scrim" />
           <span className="player__reload-label">{tx("Connecting the live stream…")}</span>
+          {retryCircle}
           {(liveVideoId || ytId) && (
             <a
               className="player__escape"

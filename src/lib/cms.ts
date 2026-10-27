@@ -1533,6 +1533,18 @@ function publishedSection(id: string): any {
   return mergeSection(id, defaults[id], value);
 }
 
+/** The live section as published (office-only helper for the early-press
+    self-heal): the transport auto-fill compares the draft against this so it
+    only auto-sends the video stamp — never a half-edited field or a click. */
+export function publishedLive(): any {
+  try {
+    const v = publishedSection("live");
+    return v && typeof v === "object" ? clone(v) : {};
+  } catch {
+    return {};
+  }
+}
+
 /** The section ids the office has changed but not published yet. */
 export function pendingSections(): string[] {
   if (!draft) return [];

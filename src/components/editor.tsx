@@ -21,7 +21,7 @@ import {
 import { PageHead } from "../components/layout";
 import { SearchBox, eventDate } from "../components/blocks";
 import { fireToast, useNow } from "../lib/hooks";
-import { readLiveStatus, recheckLiveNow, checkLiveStream, guestTarget, isGuestTargetUrl, useLiveStream, liveTarget, isStatusForTarget, clearGuestOnStop, forgetVerified } from "../lib/livestatus";
+import { readLiveStatus, recheckLiveNow, checkLiveStream, guestTarget, isGuestTargetUrl, useLiveStream, liveTarget, isStatusForTarget, clearGuestOnStop, forgetVerified, isIdBanned, peekVerified, clearIdBans } from "../lib/livestatus";
 import { SITE, SERVICES, img } from "../data/site";
 import { recentLimit } from "../data/live";
 import { ytWatch } from "../data/sermons";
@@ -56,6 +56,7 @@ import {
 import * as cms from "../lib/cms";
 import { cacheUploadBlob, uploadNameOf, useCachedUploadUrl, useFeedUploadUrl } from "../lib/uploadCache";
 import { siteFile } from "../lib/livefeed";
+import { parseYoutubeId } from "../lib/embed";
 import { serverUrl } from "../lib/remoteserver";
 
 /* -------------------------------------------------------------- status pill */
@@ -826,6 +827,34 @@ export function draftLive(): any {
   return cms.getDraft().live || {};
 }
 
+/* Keys the transport self-heal may write by itself (video stamp). On-air command
+   keys travel only on the paths the spec allows (main auto, guest auto-stop). */
+const AUTO_VIDEO_KEYS = ["liveVideoId", "liveVideoTitle", "liveVideoChannelId", "liveVideoAt", "guestVideoId", "guestVideoTitle", "guestVideoChannelId", "guestVideoAt"];
+const MAIN_CMD_KEYS = ["isLive", "liveSince", "liveCut", "liveCommandAt", "liveEndedBy"];
+const GUEST_CMD_KEYS = ["guestIsLive", "guestCommandAt"];
+
+/* Auto-send just the live section when every pending change is one this path may
+   send by itself (video stamp + allowed command keys). Anything else pending —
+   a half-typed field, the other slot's business — holds for a manual Publish, so
+   an auto-send never pushes unreviewed words or another slot's press. */
+export async function autoSendLiveSection(note: string, extraAllowed: string[] = []): Promise<boolean> {
+  try {
+    const draft = (((cms.getDraft() as any) || {}).live || {}) as any;
+    let pub: any = {};
+    try { pub = cms.publishedLive() || {}; } catch { pub = {}; }
+    const allowed = new Set([...AUTO_VIDEO_KEYS, ...extraAllowed]);
+    const keys = new Set([...Object.keys(draft), ...Object.keys(pub)]);
+    for (const k of keys) {
+      if (allowed.has(k)) continue;
+      try {
+        if (JSON.stringify((draft as any)[k]) !== JSON.stringify((pub as any)[k])) return false;
+      } catch { return false; }
+    }
+    const r = await cms.publishSection("live", note);
+    return !!(r && (r as any).ok);
+  } catch { return false; }
+}
+
 export function LiveEndingPanel({ onOpen, children }: { onOpen: (id: string) => void; children?: React.ReactNode }) {
   return (
     <Card className="admin__archive">
@@ -896,6 +925,98 @@ export function LiveTransportButtons() {
     const latest = cms.getDraft().live || {};
     cms.setSectionValue("live", { ...latest, ...patch });
   };
+  /* Early-press self-heal (no second press needed): Play pressed before YouTube
+     was live captures no video — instead of asking the office to press again,
+     this loop fills the broadcast video + headline by itself the moment the
+     check names it, then sends just the live section when there is nothing else
+     pending. A half-edited live section is never auto-sent: then the draft is
+     stamped and the office is asked to press Publish. */
+  const autoMainRef = useRef({ busy: false, sent: "", lastTry: 0 });
+  useEffect(() => {
+    if (!live.isLive) return;
+    if (!mainUrl) return;
+    let s: any = null;
+    try { s = readLiveStatus(); } catch { return; }
+    if (!s || s.state !== "live" || !(s as any).videoId) return;
+    try { if (!isStatusForTarget(s, mainUrl)) return; } catch { return; }
+    const freshId = parseYoutubeId((s as any).videoId || "");
+    if (!freshId) return;
+    const curId = parseYoutubeId(String((live as any).liveVideoId || ""));
+    if (curId && curId === freshId) return;
+    /* A present id that still verifies (or is still checking) stands — replace
+       only an empty, banned, or proven-dead one. */
+    if (curId && !isIdBanned(curId)) {
+      try { if (peekVerified(curId) !== false) return; } catch {}
+    }
+    if (autoMainRef.current.busy) return;
+    const nowMs = Date.now();
+    if (nowMs - autoMainRef.current.lastTry < 30000) return;
+    autoMainRef.current.busy = true;
+    autoMainRef.current.lastTry = nowMs;
+    (async () => {
+      try {
+        const latest = cms.getDraft().live || {};
+        if (!(latest as any).isLive) return;
+        cms.setSectionValue("live", { ...latest, liveVideoId: freshId, liveVideoTitle: (s as any).title || (latest as any).liveTitle || "", liveVideoChannelId: (s as any).channelId || (latest as any).liveVideoChannelId || "", liveVideoAt: Date.now() });
+        /* Main needs no Publish: the stamp — and any pending main press — sends
+           itself. Guest business or other edits hold for a manual Publish. */
+        const sent = await autoSendLiveSection("Livestream connected automatically", MAIN_CMD_KEYS);
+        if (sent) {
+          if (autoMainRef.current.sent !== freshId) {
+            autoMainRef.current.sent = freshId;
+            fireToast("Livestream connected automatically — visitors join in seconds.", "success");
+          }
+        } else if (autoMainRef.current.sent !== freshId + ":held") {
+          autoMainRef.current.sent = freshId + ":held";
+          fireToast("Live video found — press Publish to send it to everyone watching.", "info");
+        }
+      } catch {} finally {
+        autoMainRef.current.busy = false;
+      }
+    })().catch(() => { try { autoMainRef.current.busy = false; } catch {} });
+  }, [live.isLive, (live as any).liveVideoId, (live as any).liveCommandAt, mainUrl, (airNow as any).state, (airNow as any).videoId, now]);
+  /* Main stop is automatic (no Publish, no press): once this press actually went
+     live, the moment the check reads the broadcast ended the slot takes itself
+     off air — same shape as a manual Stop, minus the guest wipe — files the
+     finished service, and sends itself when the rest of the section is untouched.
+     Only fires after seen live (a Play pressed early never stops itself before
+     the broadcast starts); unknown reads never stop anything. Manual
+     Stop/Publish still work exactly as before. */
+  const seenMainLiveRef = useRef(false);
+  const autoMainStopRef = useRef({ busy: false, lastStop: 0 });
+  useEffect(() => {
+    try {
+      if (!!mainUrl && airNow.state === "live" && isStatusForTarget(airNow, mainUrl)) seenMainLiveRef.current = true;
+      if (!live.isLive) seenMainLiveRef.current = false;
+    } catch {}
+  }, [airNow.state, (airNow as any).videoId, (airNow as any).target, mainUrl, live.isLive]);
+  useEffect(() => {
+    if (!live.isLive || !mainUrl || !seenMainLiveRef.current) return;
+    let s: any = null;
+    try { s = readLiveStatus(); } catch { return; }
+    if (!s) return;
+    try { if (s.state === "live" && isStatusForTarget(s, mainUrl)) return; } catch { return; }
+    if (s.state !== "off") return;
+    try { if (!isStatusForTarget(s, mainUrl)) return; } catch { return; }
+    if (autoMainStopRef.current.busy) return;
+    if (Date.now() - autoMainStopRef.current.lastStop < 60000) return;
+    autoMainStopRef.current.busy = true;
+    autoMainStopRef.current.lastStop = Date.now();
+    (async () => {
+      try {
+        const latest = cms.getDraft().live || {};
+        if (!(latest as any).isLive) return;
+        const at = Date.now();
+        const airedId = parseYoutubeId(String((s as any).videoId || ""));
+        cms.setSectionValue("live", { ...latest, isLive: false, liveSince: 0, liveCut: at, liveEndedBy: "channel", liveCommandAt: at, liveVideoId: "", liveVideoTitle: "", liveVideoChannelId: "", liveVideoAt: 0 });
+        try { if (airedId) askForRecentServices({ videoId: airedId, title: (s as any).title || "" }); } catch {}
+        const sent = await autoSendLiveSection("Main livestream ended", MAIN_CMD_KEYS);
+        try { fireToast(sent ? "Livestream ended — taken off air." : "Livestream ended — press Publish to send.", sent ? "success" : "info"); } catch {}
+      } catch {} finally {
+        autoMainStopRef.current.busy = false;
+      }
+    })().catch(() => { try { autoMainStopRef.current.busy = false; } catch {} });
+  }, [live.isLive, mainUrl, airNow.state, (airNow as any).videoId, (airNow as any).target, now]);
   /* Play picks a held session back up where it paused, else begins a fresh
      one at the current time — either way the click stamps the command, and
      Publish sends it. */
@@ -931,11 +1052,19 @@ export function LiveTransportButtons() {
       stampKnown();
       refineInBackground();
       recheckLiveNow();
+      /* Main needs no Publish: the press sends itself when the rest of the live
+         section is untouched — guest business or other edits hold for Publish. */
+      autoSendLiveSection("Main livestream on air", MAIN_CMD_KEYS).then((sent) => {
+        try { fireToast(sent ? "On air — visitors join in seconds." : "Saved — press Publish to send.", sent ? "success" : "info"); } catch {}
+      }).catch(() => {});
       return;
     }
     write({ isLive: true, liveSince: Date.now(), liveCut: 0, liveEndedBy: "office", liveCommandAt: Date.now() });
     stampKnown();
     refineInBackground();
+    autoSendLiveSection("Main livestream on air", MAIN_CMD_KEYS).then((sent) => {
+      try { fireToast(sent ? "On air — visitors join in seconds." : "Saved — press Publish to send.", sent ? "success" : "info"); } catch {}
+    }).catch(() => {});
     /* A new session: read the channel now, so a service that has just been
        published shows up without waiting for the ten-minute timer. */
     askForRecentServices();
@@ -949,6 +1078,9 @@ export function LiveTransportButtons() {
   const pause = () => {
     write({ isLive: false, liveCut: Date.now(), liveEndedBy: "office", liveCommandAt: Date.now() });
     recheckLiveNow();
+    autoSendLiveSection("Main livestream paused", MAIN_CMD_KEYS).then((sent) => {
+      try { fireToast(sent ? "Paused." : "Saved — press Publish to send.", sent ? "success" : "info"); } catch {}
+    }).catch(() => {});
   };
   /* Stop ends the session straight (note 414): the live stops — the start is
      cleared, so the next play begins fresh — and the finished service files
@@ -958,6 +1090,9 @@ export function LiveTransportButtons() {
   const stop = () => {
     const at = Date.now();
     write(clearGuestOnStop({ ...cms.getDraft().live, isLive: false, liveSince: 0, liveCut: at, liveEndedBy: "office", liveCommandAt: at, liveVideoId: "", liveVideoTitle: "", liveVideoChannelId: "", liveVideoAt: 0 }));
+    autoSendLiveSection("Main livestream stopped", MAIN_CMD_KEYS).then((sent) => {
+      try { fireToast(sent ? "Livestream off the air." : "Saved — press Publish to send.", sent ? "success" : "info"); } catch {}
+    }).catch(() => {});
     recheckLiveNow();
     /* An ended service seeds Recent services now; every open page re-reads the channel.
        A temporary guest never seeds (note 379): its ending leaves the main
@@ -984,6 +1119,7 @@ export function LiveTransportButtons() {
         if (s && (s as any).videoId) { try { forgetVerified((s as any).videoId); } catch {} }
       } catch {}
     } catch {}
+    try { clearIdBans(); } catch { /* visitors clear theirs on the published press */ }
     write({ liveReloadAt: at, liveCommandAt: at });
     try {
       const stampBoth = (s: any) => {
@@ -1077,6 +1213,105 @@ export function GuestTransportButtons() {
     const latest = cms.getDraft().live || {};
     cms.setSectionValue("live", { ...latest, ...patch });
   };
+  /* Guest early-press self-heal (same as the main slot above): a guest Play
+     pressed before the guest was live captures no video — fill it by itself the
+     moment the check names the guest broadcast, then send just the live section
+     when there is nothing else pending. */
+  const autoGuestRef = useRef({ busy: false, sent: "", lastTry: 0 });
+  const nowGuest = useNow(20000);
+  useEffect(() => {
+    if (!(live as any).guestIsLive) return;
+    const gUrl = guestTarget(String((live as any).externalYoutubeChannel || ""))?.url || "";
+    if (!gUrl) return;
+    let s: any = null;
+    try { s = readLiveStatus(); } catch { return; }
+    if (!s || s.state !== "live" || !(s as any).videoId) return;
+    try { if (!isStatusForTarget(s, gUrl)) return; } catch { return; }
+    const freshId = parseYoutubeId((s as any).videoId || "");
+    if (!freshId) return;
+    const curId = parseYoutubeId(String((live as any).guestVideoId || ""));
+    if (curId && curId === freshId) return;
+    if (curId && !isIdBanned(curId)) {
+      try { if (peekVerified(curId) !== false) return; } catch {}
+    }
+    if (autoGuestRef.current.busy) return;
+    const nowMs = Date.now();
+    if (nowMs - autoGuestRef.current.lastTry < 30000) return;
+    autoGuestRef.current.busy = true;
+    autoGuestRef.current.lastTry = nowMs;
+    (async () => {
+      try {
+        const latest = cms.getDraft().live || {};
+        if (!(latest as any).guestIsLive) return;
+        cms.setSectionValue("live", { ...latest, guestVideoId: freshId, guestVideoTitle: (s as any).title || (latest as any).liveTitle || "", guestVideoChannelId: (s as any).channelId || "", guestVideoAt: Date.now() });
+/* Guest START still needs Publish: only the bare video stamp may travel
+           here — a pending guest press holds everything for a manual Publish. */
+        const sent = await autoSendLiveSection("Guest video connected automatically", []);
+        if (sent) {
+          if (autoGuestRef.current.sent !== freshId) {
+            autoGuestRef.current.sent = freshId;
+            fireToast("Guest video connected automatically — visitors join in seconds.", "success");
+          }
+        } else if (autoGuestRef.current.sent !== freshId + ":held") {
+          autoGuestRef.current.sent = freshId + ":held";
+          fireToast("Guest video found — press Publish to send it to everyone watching.", "info");
+        }
+      } catch {} finally {
+        autoGuestRef.current.busy = false;
+      }
+    })().catch(() => { try { autoGuestRef.current.busy = false; } catch {} });
+  }, [(live as any).guestIsLive, (live as any).guestVideoId, (live as any).guestCommandAt, (live as any).externalYoutubeChannel, (guestAirNow as any).state, (guestAirNow as any).videoId, nowGuest]);
+  /* Guest stop is automatic (no Publish): once the guest was actually live under
+     this press, the moment it ends the slot takes itself off air — switch and
+     video cleared, typed channel kept for next time — and sends itself when the
+     rest of the section is untouched. Guest START still needs Publish (never
+     auto-sent). Fires only on a confirmed read — a fresh re-check dodges a
+     hiccup, and unknown never stops anything. Manual guest Stop/Publish still
+     work exactly as before. */
+  const seenGuestLiveRef = useRef(false);
+  const autoGuestStopRef = useRef({ busy: false, lastStop: 0 });
+  useEffect(() => {
+    try {
+      const gU = guestTarget(String((live as any).externalYoutubeChannel || ""))?.url || "";
+      if (!!gU && guestAirNow.state === "live" && isStatusForTarget(guestAirNow, gU)) seenGuestLiveRef.current = true;
+      if (!(live as any).guestIsLive) seenGuestLiveRef.current = false;
+    } catch {}
+  }, [guestAirNow.state, (guestAirNow as any).videoId, (guestAirNow as any).target, (live as any).externalYoutubeChannel, (live as any).guestIsLive]);
+  useEffect(() => {
+    if (!(live as any).guestIsLive) return;
+    const gUrl = guestTarget(String((live as any).externalYoutubeChannel || ""))?.url || "";
+    if (!gUrl || !seenGuestLiveRef.current) return;
+    let s: any = null;
+    try { s = readLiveStatus(); } catch { return; }
+    if (s && s.state === "live") {
+      try { if (isStatusForTarget(s, gUrl)) return; } catch { return; }
+    }
+    if (autoGuestStopRef.current.busy) return;
+    if (Date.now() - autoGuestStopRef.current.lastStop < 60000) return;
+    autoGuestStopRef.current.busy = true;
+    autoGuestStopRef.current.lastStop = Date.now();
+    (async () => {
+      try {
+        let fresh: any = null;
+        try { fresh = await checkLiveStream(); } catch { fresh = null; }
+        if (fresh && fresh.state === "live") {
+          try { if (isStatusForTarget(fresh, gUrl)) { seenGuestLiveRef.current = true; return; } } catch { return; }
+        } else if (!fresh || fresh.state === "unknown" || !(fresh as any).state) {
+          return;
+        } else if ((fresh as any).state !== "off" && (fresh as any).state !== "live") {
+          return;
+        }
+        const latest = cms.getDraft().live || {};
+        if (!(latest as any).guestIsLive) return;
+        const at = Date.now();
+        cms.setSectionValue("live", { ...latest, guestIsLive: false, guestCommandAt: at, guestVideoId: "", guestVideoTitle: "", guestVideoChannelId: "", guestVideoAt: 0 });
+        const sent = await autoSendLiveSection("Guest stream ended", GUEST_CMD_KEYS);
+        try { fireToast(sent ? "Guest stream ended — back to the main channel." : "Guest stream ended — press Publish to send.", sent ? "success" : "info"); } catch {}
+      } catch {} finally {
+        autoGuestStopRef.current.busy = false;
+      }
+    })().catch(() => { try { autoGuestStopRef.current.busy = false; } catch {} });
+  }, [(live as any).guestIsLive, (live as any).externalYoutubeChannel, guestAirNow.state, (guestAirNow as any).videoId, (guestAirNow as any).target, nowGuest]);
   /* Guest play arms the guest override — main untouched. */
   const play = () => {
     const latest = cms.getDraft().live || {};
@@ -1133,6 +1368,7 @@ export function GuestTransportButtons() {
         if (s && (s as any).videoId) { try { forgetVerified((s as any).videoId); } catch {} }
       } catch {}
     } catch {}
+    try { clearIdBans(); } catch { /* visitors clear theirs on the published press */ }
     write({ liveReloadAt: at, guestCommandAt: at });
     try {
       const stampBoth = (s: any) => {
