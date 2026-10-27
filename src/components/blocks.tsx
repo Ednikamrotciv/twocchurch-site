@@ -365,10 +365,6 @@ export function VideoPlayer({
   const [iframeKey, setIframeKey] = useState(0);
   const [frameStuck, setFrameStuck] = useState(false);
   const [autoTried, setAutoTried] = useState(0);
-  /* Instant-show: the warm still covers the iframe until its first frame
-     actually plays, so the screen shows the broadcast at once instead of a
-     blank/black box while YouTube loads. */
-  const [frameLive, setFrameLive] = useState(false);
   /* Auto-repair pacing: fast retries first, then a slow poll while the page
      stays open (a started broadcast is picked up by itself). */
   const repairTries = useRef(0);
@@ -498,10 +494,8 @@ export function VideoPlayer({
     setAutoplayBlocked(false);
     setLiveVideoId("");
   }, [ytId, followId]);
-  /* A new frame/remount starts covered: the warm still shows until the first
-     frame plays. */
+  /* A new frame/remount restarts repair pacing. */
   useEffect(() => {
-    setFrameLive(false);
     repairTries.current = 0;
   }, [src, iframeKey]);
 
@@ -759,9 +753,6 @@ export function VideoPlayer({
                 } catch {}
                 try { unmuteFrame(); } catch {}
               },
-              onStateChange: (e: any) => {
-                try { if (e && Number(e.data) === 1) setFrameLive(true); } catch {}
-              },
               onAutoplayBlocked: () => {
                 /* Fresh-browser block is NOT an error: no repair circle, no
                    remount — the muted picture keeps playing and the
@@ -960,14 +951,7 @@ export function VideoPlayer({
             referrerPolicy={EMBED_REFERRER_POLICY}
             allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; fullscreen"
             allowFullScreen
-            onLoad={() => { try { setFrameLive(true); } catch {} }}
           />
-          {!frameLive && (
-            <span className="player__warmstill" aria-hidden="true">
-              {still ? <img src={still} alt="" /> : null}
-              <span className="player__scrim" />
-            </span>
-          )}
           {live && (
             <span className="player__live">
               <span className="live-dot" /> {ct("live.player.badge")}
@@ -1046,14 +1030,7 @@ export function VideoPlayer({
             referrerPolicy={EMBED_REFERRER_POLICY}
             allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; fullscreen"
             allowFullScreen
-            onLoad={() => { try { setFrameLive(true); } catch {} }}
           />
-          {!frameLive && (
-            <span className="player__warmstill" aria-hidden="true">
-              {still ? <img src={still} alt="" /> : null}
-              <span className="player__scrim" />
-            </span>
-          )}
 
           {/* The frame itself never reports a failure (note 344): a video
               YouTube refuses to embed, blocks in this country, or takes down
