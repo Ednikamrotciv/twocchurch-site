@@ -56,7 +56,7 @@ export function Testimonies() {
         eyebrow={ct("testimonies.head.eyebrow")}
         title={<Rich text={ct("testimonies.head.title")} />}
         lede={ct("testimonies.head.lede", { count: all.length, amens: totalAmens.toLocaleString(siteLocale()) })}
-        image={img("testimonies")}
+        image={img("worshipband")}
         crumbs={[{ label: ct("auto.testimonies.97608bdbefee81ea"), to: "/" }, { label: ct("auto.testimonies.02391ef47eadc21d") }]}
         actions={
           <>

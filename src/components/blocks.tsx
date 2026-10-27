@@ -23,7 +23,7 @@ import {
   type VideoPlatform,
   type VideoSource,
 } from "../lib/embed";
-import { checkLiveStream, isStatusForTarget, liveTarget, guestTarget, isGuestTargetUrl, peekVerified, verifyYoutubeId, forgetVerified, noteIdDead, unbanId, recheckLiveNow, isDesignatedChannel, designatedChannelIdForTarget } from "../lib/livestatus";
+import { checkLiveStream, isStatusForTarget, liveTarget, guestTarget, isGuestTargetUrl, peekVerified, verifyYoutubeId, forgetVerified, noteIdDead, recheckLiveNow, isDesignatedChannel, designatedChannelIdForTarget } from "../lib/livestatus";
 import {
   KEYS,
   fmtDate,
@@ -328,18 +328,12 @@ export function VideoPlayer({
    try {
      if (ytId) forgetVerified(ytId);
    } catch {}
-   try { if (ytId) unbanId(ytId); } catch {}
-   try { if (liveVideoId) { forgetVerified(liveVideoId); unbanId(liveVideoId); } } catch {}
    setDead(false);
    setDeadAll(false);
    setFailed(false);
    setNotLive(false);
    setFrameStuck(false);
    setChecking(false);
-   setMaskLifted(false);
-   setSlowMask(false);
-   setGiveUp(false);
-   try { repairTries.current = 0; } catch {}
    setIframeKey((k) => k + 1);
    try {
      recheckLiveNow();
@@ -371,16 +365,6 @@ export function VideoPlayer({
   const [iframeKey, setIframeKey] = useState(0);
   const [frameStuck, setFrameStuck] = useState(false);
   const [autoTried, setAutoTried] = useState(0);
-  /* Masked paint (no raw YouTube frame ever shows): a live YouTube iframe stays
-     covered by the warm still until the frame itself reports PLAYING. A slow or
-     refused frame keeps the still (never the black "unavailable"), then the
-     connecting / resting card below. */
-  const [maskLifted, setMaskLifted] = useState(false);
-  const [slowMask, setSlowMask] = useState(false);
-  /* Give-up: after several failed auto-repairs on the SAME frame the screen rests
-     on a clear card (still + Watch on YouTube + Try again) instead of spinning on
-     "Connecting…" forever. A new broadcast (new video) resets it and plays by itself. */
-  const [giveUp, setGiveUp] = useState(false);
   /* Auto-repair pacing: fast retries first, then a slow poll while the page
      stays open (a started broadcast is picked up by itself). */
   const repairTries = useRef(0);
@@ -426,10 +410,6 @@ export function VideoPlayer({
     setChecking(false);
     setAutoplayBlocked(false);
     setAutoTried(0);
-    setMaskLifted(false);
-    setSlowMask(false);
-    setGiveUp(false);
-    try { repairTries.current = 0; } catch {}
     setIframeKey((k) => k + 1);
     try { recheckLiveNow(); } catch {}
     if (autoPlay || live) {
@@ -463,10 +443,10 @@ export function VideoPlayer({
      through the self-heal loop. */
   const retryLive = () => {
     try {
-      if (ytId) { forgetVerified(ytId); unbanId(ytId); }
+      if (ytId) forgetVerified(ytId);
     } catch {}
     try {
-      if (liveVideoId) { forgetVerified(liveVideoId); unbanId(liveVideoId); }
+      if (liveVideoId) forgetVerified(liveVideoId);
     } catch {}
     try {
       if (showingNamedId && showingNamedId !== ytId && showingNamedId !== liveVideoId) forgetVerified(showingNamedId);
@@ -501,22 +481,6 @@ export function VideoPlayer({
   const still = poster && !failed ? poster : posterFor(source);
   const platform: VideoPlatform = source?.platform === "facebook" ? "facebook" : source?.platform === "upload" ? "upload" : "youtube";
   const shell = "player" + (compact ? " player--compact" : "") + (playing ? " player--playing" : "");
-  /* The error-reset button (grey circle, arrow): rendered ONLY while viewing is in
-     an error state — hidden otherwise. It centers itself over the player
-     (absolute, inset 0 + auto margins, like .player__reload) so it sits at the
-     center of the screen wherever it appears. One tap reloads the frame and
-     clears every viewing error (verdicts, bans, stuck frame) with no page reload. */
-  const retryCircle = (
-    <button
-      type="button"
-      onClick={retry}
-      aria-label={tx("Reload livestream")}
-      title={tx("Reload livestream")}
-      style={{ position: "absolute", inset: 0, margin: "auto", width: 56, height: 56, borderRadius: "50%", background: "#6b7280", color: "#fff", display: "inline-flex", alignItems: "center", justifyContent: "center", border: "2px solid rgba(255,255,255,0.4)", boxShadow: "0 2px 12px rgba(0,0,0,0.45)", cursor: "pointer", zIndex: 2 }}
-    >
-      <Icon name="refresh" size={24} />
-    </button>
-  );
 
   /* A new video/channel starts unjudged (mute toggles must NOT clear the
      verified id — unmuting would otherwise drop the real broadcast). */
@@ -529,19 +493,11 @@ export function VideoPlayer({
     setAutoTried(0);
     setAutoplayBlocked(false);
     setLiveVideoId("");
-    setMaskLifted(false);
-    setSlowMask(false);
-    setGiveUp(false);
   }, [ytId, followId]);
   /* A new frame/remount restarts repair pacing. */
   useEffect(() => {
-    setMaskLifted(false);
-    setSlowMask(false);
-  }, [src, iframeKey]);
-  useEffect(() => {
     repairTries.current = 0;
-    setGiveUp(false);
-  }, [src]);
+  }, [src, iframeKey]);
 
   /* A click never opens a known-dead video: unknown ids are asked first
      (a beat of "checking"), dead ones go straight to the fallback below. */
@@ -804,18 +760,6 @@ export function VideoPlayer({
                    self-heal loop below joins sound by itself. */
                 try { setAutoplayBlocked(true); } catch {}
               },
-              onStateChange: (e: any) => {
-                try {
-                  const st = Number(e && (e as any).data);
-                  /* PLAYING (1) is the only proof the frame is real: lift the mask.
-                     Anything else (unstarted, cued, ended, buffering) keeps the still. */
-                  if (st === 1) {
-                    try { setMaskLifted(true); } catch {}
-                    try { setSlowMask(false); } catch {}
-                    try { setFrameStuck(false); } catch {}
-                  }
-                } catch {}
-              },
               onError: (e: any) => {
                 const code = Number(e && (e as any).data);
                 /* Any YouTube refusal (2 invalid, 5 HTML5, 100 gone/private,
@@ -908,16 +852,6 @@ export function VideoPlayer({
     };
   }, [live, playing, platform, muted, autoplayBlocked, iframeKey]);
 
-  /* Slow-frame label: the still covers at once; the "Connecting…" words only
-     appear if the first frame takes more than a few seconds, so a healthy live
-     never flashes alarming text. */
-  useEffect(() => {
-    if (!live || !playing || platform !== "youtube" || maskLifted || dead || deadAll || giveUp) return;
-    setSlowMask(false);
-    const id = window.setTimeout(() => { try { setSlowMask(true); } catch {} }, 4000);
-    return () => window.clearTimeout(id);
-  }, [live, playing, platform, maskLifted, dead, deadAll, giveUp, src, iframeKey]);
-
   /* Hung-load watchdog (fully automatic, never the black frame): a live frame
      that errors or still shows nothing after a few seconds repairs itself —
      one silent auto-retry first, then the auto-repair loop below keeps
@@ -927,8 +861,6 @@ export function VideoPlayer({
     if (frameStuck) return;
     // An autoplay block is not a failure: picture plays muted while sound heals — never repair for it.
     if (autoplayBlocked) return;
-    if (maskLifted) return;
-    if (giveUp) return;
     setFrameStuck(false);
     const id = window.setTimeout(() => {
       try {
@@ -949,7 +881,7 @@ export function VideoPlayer({
       } catch {}
     }, 9000);
     return () => window.clearTimeout(id);
-  }, [live, playing, dead, deadAll, src, iframeKey, platform, maskLifted, giveUp]);
+  }, [live, playing, dead, deadAll, src, iframeKey, platform]);
   /* Fully automatic repair (the circle button is gone): a live that is stuck
      or dead repairs by itself — fast retries first, then a slow poll while
      the page stays open, so a broadcast that starts late opens on its own.
@@ -958,20 +890,13 @@ export function VideoPlayer({
     if (!live || platform !== "youtube" || !playing) return;
     if (!frameStuck && !dead && !deadAll) return;
     const tries = repairTries.current || 0;
-    /* Give up on THIS frame after several silent tries (~20s): rest on the clear
-       card below instead of "Connecting…" forever. A new broadcast (new src)
-       resets and plays by itself; Try again retries by hand. */
-    if (tries >= 6) {
-      try { setGiveUp(true); } catch {}
-      return;
-    }
-    const delay = 3500;
+    const delay = tries < 8 ? 3500 : 45000;
     const id = window.setTimeout(() => {
       try { repairTries.current = tries + 1; } catch {}
       try { retryLive(); } catch {}
     }, delay);
     return () => window.clearTimeout(id);
-  }, [live, playing, platform, frameStuck, dead, deadAll, src, iframeKey, giveUp]);
+  }, [live, playing, platform, frameStuck, dead, deadAll, src, iframeKey]);
   if (file) {
     /* A video the office uploaded plays in the browser itself. */
     return (
@@ -1012,7 +937,6 @@ export function VideoPlayer({
           )}
           <span className="player__scrim" />
           <span className="player__reload-label">{tx("Connecting the live stream…")}</span>
-          {retryCircle}
           {(liveVideoId || ytId) && (
             <a
               className="player__escape"
@@ -1057,39 +981,7 @@ export function VideoPlayer({
  if (dead || deadAll) {
     /* Live never shows the black "unavailable" frame: the still stays dimmed
        with an auto-connecting view that repairs by itself (forget + recheck +
-       reopen, sound rejoining on its own). Non-live keeps the dead card below. After several silent tries it rests
-       on a clear card instead of spinning forever — a new broadcast still opens
-       by itself. */
-    if (live && giveUp) {
-      const openHref = watchUrl({ platform: "youtube", youtubeId: liveVideoId || ytId }) || watchUrl(source);
-      return (
-        <div className={shell + " player--dead player--dead-live"}>
-          {still ? (
-            <img src={still} alt="" loading="lazy" onError={() => setFailed(true)} />
-          ) : (
-            <span className={"player__still player__still--" + platform}>
-              <Icon name={platform === "upload" ? "play" : platform} size={54} />
-            </span>
-          )}
-          <span className="player__scrim" />
-          <div className="player__deadbody">
-            <p className="player__deadtitle">{shown}</p>
-            <p className="player__deadtext">{tx("This broadcast isn't playing here right now.")}</p>
-            {openHref && (
-              <Btn size="sm" variant="gold" href={openHref} icon="youtube" iconRight="external">
-                {tx("Watch on YouTube")}
-              </Btn>
-            )}
-            <Btn size="sm" variant={openHref ? "ghost" : "gold"} icon="refresh" onClick={retry}>
-              {tx("Try again")}
-            </Btn>
-          </div>
-          <span className="player__live">
-            <span className="live-dot" /> {ct("live.player.badge")}
-          </span>
-        </div>
-      );
-    }
+       reopen, sound rejoining on its own). Non-live keeps the dead card below. */
     if (live) {
       return (
         <div className={shell + " player--dead player--dead-live"}>
@@ -1102,7 +994,6 @@ export function VideoPlayer({
           )}
           <span className="player__scrim" />
           <span className="player__reload-label">{tx("Connecting the live stream…")}</span>
-          {retryCircle}
           {(liveVideoId || ytId) && (
             <a
               className="player__escape"
@@ -1150,9 +1041,8 @@ export function VideoPlayer({
       </div>
     );
   }
-  const maskedLive = !!live && platform === "youtube" && !maskLifted && !dead && !deadAll && !giveUp;
   return (
-    <div className={shell} style={maskedLive ? { position: "relative" } : undefined}>
+    <div className={shell}>
       {playing ? (
         <>
           <iframe
@@ -1165,26 +1055,6 @@ export function VideoPlayer({
             allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; fullscreen"
             allowFullScreen
           />
-          {/* Masked paint: the raw frame never shows until it proves itself with
-              PLAYING — visitors see the warm still (never YouTube's black frame). */}
-          {maskedLive && (
-            <div aria-hidden="true" style={{ position: "absolute", inset: 0, zIndex: 5, overflow: "hidden", background: "#0c0a08" }}>
-              {still ? (
-                <img src={still} alt="" loading="lazy" onError={() => setFailed(true)} style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "cover" }} />
-              ) : (
-                <span className={"player__still player__still--" + platform}>
-                  <Icon name={platform === "upload" ? "play" : platform} size={54} />
-                </span>
-              )}
-              <span className="player__scrim" />
-              {slowMask && <span className="player__reload-label">{tx("Connecting the live stream…")}</span>}
-              {live && (
-                <span className="player__live">
-                  <span className="live-dot" /> {ct("live.player.badge")}
-                </span>
-              )}
-            </div>
-          )}
 
           {/* The frame itself never reports a failure (note 344): a video
               YouTube refuses to embed, blocks in this country, or takes down

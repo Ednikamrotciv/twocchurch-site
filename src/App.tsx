@@ -1,9 +1,9 @@
 import React, { useEffect } from "react";
 import { useRoute, navigate, ADMIN_PREFIX } from "./lib/router";
-import { Header, Footer, ScrollTop, SkipLink, MaintenanceSite, PreviewBanner } from "./components/layout";
+import { Header, Footer, ScrollTop, SkipLink, MaintenanceSite, PreviewBanner, BootSplash } from "./components/layout";
 import { Toaster } from "./components/ui";
 import { ErrorBoundary } from "./components/ErrorBoundary";
-import { startCms, useCmsVersion, useCmsReady, useMaintenance, usePreviewingWhileWaiting, useStaleBuild, checkStaleBuild, isCurrentDeployPublishedSync } from "./lib/cms";
+import { startCms, useCmsVersion, useCmsReady, useMaintenance, usePreviewingWhileWaiting, useStaleBuild, checkStaleBuild } from "./lib/cms";
 import { mountShaderBackground } from "./lib/shaderbg";
 import { startVisitorClock, useVisitorClock, useVisitorClockRefresh } from "./lib/visitor";
 import { useI18nTick, ensureI18n, setProtectedValues, i18nAsk, chooseLang, dismissAsk } from "./lib/i18n";
@@ -13,7 +13,7 @@ import { useLiveStream } from "./lib/livestatus";
 import { nextService, onAir, churchTimezone } from "./lib/store";
 import { useNow } from "./lib/hooks";
 import { SERVICES } from "./data/site";
-import { resolvePath, warmPageChunks } from "./lib/routes";
+import { resolvePath } from "./lib/routes";
 import { ADMIN_RETURN_MS, readAdminReturn } from "./lib/adminReturn";
 import { ct } from "./data/copy";
 import { SITE } from "./data/site";
@@ -21,22 +21,6 @@ import { BRANCHES, HQ } from "./data/branches";
 import { EVENTS } from "./data/content";
 
 const Admin = React.lazy(() => import("./pages/Admin").then((m) => ({ default: m.Admin })));
-
-/* Explicit local preview only (?maintenance=1): the office's way to see the
-   notice on demand. Visitors on a fresh deploy see it until Publish clears it. */
-function forcedMaintenancePreview(): boolean {
-  try {
-    const q = new URLSearchParams(window.location.search || "");
-    if (q.get("maintenance") === "1" || q.get("showMaintenance") === "1") return true;
-    const h = String(window.location.hash || "");
-    const qi = h.indexOf("?");
-    if (qi !== -1) {
-      const hq = new URLSearchParams(h.slice(qi + 1));
-      if (hq.get("maintenance") === "1" || hq.get("showMaintenance") === "1") return true;
-    }
-  } catch {}
-  return false;
-}
 
 export function App() {
   const route = useRoute();
@@ -83,13 +67,6 @@ export function App() {
   const gathering = nextService(SERVICES, minute, churchTimezone());
   const expecting = !!gathering && (onAir(gathering) || gathering.msUntil < 45 * 60 * 1000);
   const onWatchPage = route.path === "/watch-live" || route.path.startsWith("/watch-live/");
-  /* Fast live open: prefetch the Watch chunk while a service is near so the
-     first open paints at once instead of fetching the chunk after the tap. */
-  useEffect(() => {
-    try {
-      if (expecting || onWatchPage) import("./pages/WatchLive").catch(() => {});
-    } catch {}
-  }, [expecting, onWatchPage]);
   useLiveStream(expecting || onWatchPage, false, onWatchPage);
 
   // Load the published content once; the version counter then re-renders the
@@ -110,33 +87,12 @@ export function App() {
     };
     const poll = window.setInterval(() => {
       void checkStaleBuild().catch(() => {});
-    }, 15_000);
+    }, 30_000);
     document.addEventListener("visibilitychange", onVis);
     window.addEventListener("online", onOnline);
     startVisitorClock();
-    /* No-loader navigation: warm every page chunk (+ the admin chunk) behind
-       the first paint, so taps land on the ready page instead of a Loading
-       screen — the website stays on screen throughout. */
-    try { warmPageChunks(); } catch {}
-    try {
-      const ric = (window as any).requestIdleCallback;
-      if (typeof ric === "function") ric(() => { import("./pages/Admin").catch(() => {}); }, { timeout: 3000 });
-      else window.setTimeout(() => { import("./pages/Admin").catch(() => {}); }, 2000);
-    } catch {}
-    /* Shader deferred: first paint first, eye-candy after (skipped on reduced-motion/save-data). */
-    let unmountShader: (() => void) | void;
-    let cancelled = false;
-    try {
-      const reduce = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-      const save = (navigator as any)?.connection?.saveData;
-      if (!reduce && !save) {
-        const start = () => { if (!cancelled) { try { unmountShader = mountShaderBackground(); } catch {} } };
-        if ("requestIdleCallback" in window) (window as any).requestIdleCallback(start, { timeout: 2500 });
-        else window.setTimeout(start, 800);
-      }
-    } catch { try { if (!cancelled) unmountShader = mountShaderBackground(); } catch {} }
+    const unmountShader = mountShaderBackground();
     return () => {
-      cancelled = true;
       document.removeEventListener("visibilitychange", onVis);
       window.removeEventListener("online", onOnline);
       window.clearInterval(poll);
@@ -162,41 +118,24 @@ export function App() {
   if (route.editing)
     return (
       <>
-        {/* Never a loader page: nothing flashes while the admin chunk arrives —
-            the site shell stays on screen, and a crash inside it lands on the
-            error card — not a white page. */}
-        <ErrorBoundary>
-          <React.Suspense fallback={null}>
-            <Admin />
-          </React.Suspense>
-        </ErrorBoundary>
+        <React.Suspense fallback={null}>
+          <Admin />
+        </React.Suspense>
         <LangAsk />
       </>
     );
 
-  /* Published deploy fast-path: after this deploy's own Publish (or its 1h
-     total clear, which implies published) never flash notice/splash again —
-     paint the website at once on reload/loading while the sync settles in the
-     background. Unpublished deploys still hold below (splash until settled,
-     then notice until Publish); a newer deploy landing later still takes via
-     the stale gate. /admin never waits (returned above). */
-  /* No blank loading page: paint website or notice at once (sync decision),
-     sync settles in the background. Unpublished deploys show the notice at
-     once until Publish; published deploys show the website at once on every
-     reload/loading with no flash. A newer deploy landing later still takes via
-     the stale gate + reload. */
+  /* Visitors wait on maintenance until the office publishes (notes 249, 302) —
+     logo and notice only, nothing else. Nothing renders until boot + first
+     sync AND the first version check settle, so a published site never flashes
+     the notice on launch — and a stale bundle never flashes live before it
+     reloads onto the update. */
+  const ready = useCmsReady();
   const stale = useStaleBuild();
-  useCmsReady();
-  let publishedHere = false;
-  try {
-    publishedHere = isCurrentDeployPublishedSync();
-  } catch {}
-  if (publishedHere && !stale.waiting) return (
-    <>
-      <SiteApp key={version} />
-      <LangAsk />
-    </>
-  );
+  /* Local preview (?maintenance=1): the notice shows at once, even before boot
+     settles — otherwise the splash covers the very page asked for. */
+  if (maintenance && !ready) return <MaintenanceSite />;
+  if (!ready || !stale.settled) return <BootSplash />;
   if (stale.waiting || maintenance) return <MaintenanceSite />;
 
   return (

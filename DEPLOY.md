@@ -1,22 +1,5 @@
 # Putting the site on the internet
 
-## FAST PATH (2 min, do this)
-Frontend (Netlify/Cloudflare/GitHub Pages): upload the *contents* of `dist/` after `npm run build`. No settings needed. Or connect the repo with:
-- Install: `npm ci --no-audit --no-fund` (cached, fast — not plain `npm install`)
-- Build: `npm run build` (vite + bake; skips YouTube reads on the farm so it never hangs)
-- Publish dir: `dist`
-- Node: 24 (`.nvmrc` — Render reads it automatically)
-
-Backend (Render, only if you edit away from your computer): use `render.yaml` in this repo as-is —
-- Build: `npm ci --no-audit --no-fund && npm run build`
-- Start: `node scripts/serve.mjs`
-- Health check: `/healthz` (answers instantly; the YouTube/mirror warm-up runs AFTER listen so deploys never look stuck)
-- Then put the Render URL alone in `cms-server.txt`, commit, rebuild the frontend once.
-
-Keep-awake ping (free tier only, optional): UptimeRobot every 5 min to `https://xxx.onrender.com/version.json` — skips the 30–60s cold boot after a sleep. Nothing depends on it.
-
----
-
 ```sh
 npm install   # once
 npm run build # → dist/
@@ -40,9 +23,7 @@ Uploading `dist/` by hand needs nothing, but if the host builds from the repo
 itself, enter these same values in its dashboard (every host calls them
 something similar — build command, output / publish directory):
 
-- Install command: `npm install` (usually already the default). If you committed
-  a `package-lock.json`, `npm ci --no-audit --no-fund` installs faster and
-  reproducibly — use it wherever the host lets you change the command.
+- Install command: `npm install` (usually already the default)
 - Build command: `npm run build` — the full command, not just the bundler, so
   the content, the server pointer, and the route pages all get baked in
 - Output / publish directory: `dist`
@@ -62,7 +43,16 @@ publishing from the admin console releases them on the spot, with no rebuild.
 Delete the file when holding should stop — it never leaves your computer
 (git-ignored), so hosts rebuilding from git always ship clean.
 
-## Clean new deploys (option A)
+## Clean new deploys (option A — RETIRED: do not re-add the flag)
+
+Update 423 retires `clean-deploy.txt`: a present flag made every rebuild park
+the backend store aside and ship a wordless bake, so each redeploy re-stranded
+devices on maintenance until somebody published again. No update ships the
+file anymore; if your folder or repo still has it from an older zip, delete it
+once (`git rm --quiet -- clean-deploy.txt`, commit, push). A new code arrival
+still stages the office copy clean client-side until Recover or Publish.
+
+Original notes (kept for history):
 
 To open a NEW deploy fresh, new and clean — no retained words until you say
 so — the update ships an empty file named `clean-deploy.txt` beside
@@ -91,13 +81,10 @@ Publish from the admin console on your own computer and you are done — with
 the live feed below, every copy catches up within minutes with no rebuild.
 Without the feed, rebuild and re-upload after publishing
 (`npm run build`, upload `dist/`).
-Live/admin is the general control, both directions: a publish clicked on
-live/admin paints itself on the office copy too (while an office tab is open
-— signed in or not, mid-edit or not), and a publish clicked on local/admin
-relays itself straight to the live box — even if that side never published
-on the running code. Gates still take an explicit Publish for brand-new code
-arrivals, and the office record still waits for a clean desk and a sign-in —
-but the notice and the words never wait: no second click, ever.
+Live/admin is the general control: a publish clicked on live/admin records
+itself on the office copy too (while an office tab is open and signed in),
+even if the office never published on the running code — gates still take an
+explicit Publish, and mid-edit desks wait rather than adopt under.
 
 ## The live feed (content without rebuilds)
 
@@ -146,17 +133,8 @@ Never expose the server over plain http.
 
 A Render Web Service works as the always-on backend:
 
-- Build command: `npm ci --no-audit --no-fund && npm run build` (fast: clean
-  install off the lockfile, no audit/fund passes, and the build skips the
-  duplicate seed bake + the datacenter YouTube read). First run `npm install`
-  once on your own computer and commit the generated `package-lock.json` —
-  without it `npm ci` fails and you must use `npm install` in the build
-  command instead (slower, resolves every version fresh on each deploy).
+- Build command: `npm install && npm run build`
 - Start command: `node scripts/serve.mjs`
-- Health Check Path: `/healthz` (answers instantly, so the deploy reports
-  healthy the moment the port opens instead of waiting out the old YouTube /
-  mirror warm-up — that warm-up now runs in the background after listen).
-- Node version: Render reads `.nvmrc` (Node 24) automatically.
 - No disk needed: every restart the server re-serves its last deployed words
   and uploads from the build itself (note 290) — it never comes back blank.
   A persistent disk mounted at `data` is still a fine optimization (it keeps
@@ -164,34 +142,6 @@ A Render Web Service works as the always-on backend:
   one the worst a restart does is return to the last deploy, never to empty.
   Either way, keep taking Tools backups: they are the way back if words are
   ever deleted by hand.
-- Administrator *accounts* need the disk (note 433): the main-password change,
-  sub-admins, invites and two-factor live in `data/cms-state.bin` beside the
-  words, so on a diskless service every sleep/restart keeps the words but
-  returns sign-in to the shipped default password and forgets sub-admins —
-  nobody is locked out (the default password still works), but the office
-  signs sub-admins up again. Mount a persistent disk at `data` to keep
-  accounts across sleeps exactly like words. Either way a code deploy never
-  resets accounts: clean deploys clear words only, never the roster.
-- **Without a disk, keep the office password anyway:** set
-  `ADMIN_HASH_OVERRIDE` in the Render dashboard (Service → Environment) to
-  the 64-hex SHA-256 of the office password (compute locally with
-  `node -e "console.log(require('crypto').createHash('sha256').update('YOUR-PASSWORD','utf8').digest('hex'))"` —
-  never commit the password or the hash to git). Diskless sleeps then keep
-  the real password instead of falling back to the shipped default.
-  With a disk mounted at `data`, this is unnecessary.
-- **Security evidence without a disk is ephemeral:** `data/security-events.jsonl`
-  and the PDFs live on the local disk, which Render wipes on sleep/restart
-  unless a disk is mounted. The server logs this at boot and
-  `npm run security:report` states it. To keep evidence across sleeps: mount
-  a disk at `data/`, or set `SECURITY_LOG_DIR` (e.g. `/var/data/security`)
-  to a mounted path. The live terminal + admin JSON/PDF doors work either way.
-- Security note: the WAF, anomaly detector, login throttles and admin-door
-  checks all run server-side in `scripts/serve.mjs` — the deployed site is
-  protected even though the dev shield line only ever described the laptop.
-  If the service sits behind another proxy (non-Render), set `TRUST_PROXY=1`
-  so client IPs (and per-IP limits) stay correct. Keep a single instance
-  unless sticky sessions or a shared rate-limit store are added — in-memory
-  buckets are per-process (see `scripts/waf.mjs`).
 - Use the paid (non-sleeping) instance type, or the service sleeps and every
   copy works from its last baked words until it wakes.
 - Free tier sleeps — and that is fine now (notes 303–309): sleep wipes the live

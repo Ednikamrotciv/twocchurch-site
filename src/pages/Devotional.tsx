@@ -29,7 +29,7 @@ export function Devotional() {
         eyebrow={ct("devotional.head.eyebrow")}
         title={<Rich text={ct("devotional.head.title")} />}
         lede={ct("devotional.head.lede")}
-        image={img("devotional")}
+        image={img("bible")}
         crumbs={[{ label: ct("auto.devotional.37a970f2b73c673b"), to: "/" }, { label: ct("auto.devotional.c7cf3f7e79eecc37") }]}
         actions={
           <>

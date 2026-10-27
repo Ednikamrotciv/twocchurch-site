@@ -15,10 +15,6 @@ scratch/
 Thumbs.db
 server.json
 feed.json
-# Security evidence stays on the office machine (IPs are personal data).
-data/security-events.jsonl
-data/security-report-latest.pdf
-data/security-report-*.pdf
 
 # seed.json ALWAYS ships (note 366): the bake, the words, the recents. The
 # negation beats any *.json rule here or in a parent config — without the

@@ -97,7 +97,7 @@ export function Visit() {
         eyebrow={ct("visit.head.eyebrow")}
         title={<Rich text={ct("visit.head.title")} />}
         lede={ct("visit.head.lede")}
-        image={img("visit")}
+        image={img("building")}
         crumbs={[{ label: ct("auto.visit.1c320bac4a59d325"), to: "/" }, { label: ct("auto.visit.439eae8c075b2d25") }]}
         actions={
           <>

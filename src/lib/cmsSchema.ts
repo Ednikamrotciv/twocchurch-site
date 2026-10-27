@@ -103,7 +103,6 @@ export function applyToList<T extends any[]>(target: T, incoming: any, idKey?: s
 /* ------------------------------------------------------------------ photos */
 
 const PHOTO_BLURBS: Record<string, string> = {
-  "Page banners": "",
   "Ministries & programmes":
     "The photos on the ministries, prayer, devotional and giving pages.",
   "Leadership photos": "The photos of the leadership team on the About page.",
@@ -111,7 +110,6 @@ const PHOTO_BLURBS: Record<string, string> = {
 
 /* Photo sections hide from the Update tab (notes 51, 58, 62); the Photos card still opens them. */
 const PHOTO_SECTION_IDS: Record<string, string> = {
-  "Page banners": "photos-banners",
   "Ministries & programmes": "photos-ministries",
   "Leadership photos": "photos-leadership",
 };
@@ -123,7 +121,9 @@ const photoSections: SectionDef[] = PHOTO_GROUPS.map((group) => {
     label: group,
     group: "Photos & covers",
     icon: "camera",
-    blurb: PHOTO_BLURBS[group] || "",
+    blurb:
+      (PHOTO_BLURBS[group] || "") +
+      " Leave a photo empty to go back to the original one. A branch, ministry or person that has been given its own photo keeps it.",
     kind: "object" as const,
     everythingHidden: true,
     fields: slots.map((slot) => ({
@@ -383,7 +383,7 @@ const CORE_SECTIONS: SectionDef[] = [
     blurb: "Mission, contact details, office hours and social links.",
     kind: "object",
     fields: [
-      { path: "short", label: "Short name", type: "text" },
+      { path: "short", label: "Short name", type: "text", hint: "Used where space is tight, e.g. \u201cWorld Overcomers\u201d." },
       { path: "initials", label: "Initials", type: "text" },
       { path: "tagline", label: "Tagline", type: "text" },
       { path: "founded", label: "Founded (year)", type: "number", min: 1800, max: 2100 },
@@ -1350,7 +1350,7 @@ export function sectionIsEverythingHidden(id: string): boolean {
   return !!def && (!!def.hidden || !!def.everythingHidden);
 }
 
-/** Which photo section holds a given bundled photo, e.g. "worshipband" → "photos-banners". */
+/** Which photo section holds a given bundled photo, e.g. "worshipband" → "photos-ministries". */
 export function photoSectionId(slotKey: string): string {
   const slot = PHOTO_SLOTS.find((s) => s.key === slotKey);
   return slot ? PHOTO_SECTION_IDS[slot.group] || "" : "";

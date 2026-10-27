@@ -11,11 +11,6 @@ import { answerWithSeedFallback } from "./seed-fallback.mjs";
 import { guardAtBoot } from "./backup-data.mjs";
 import { createGeoProxy } from "./geo-proxy.mjs";
 import { MIME } from "./mime.mjs";
-import { createSecurityLog } from "./security-log.mjs";
-import { createWaf, getClientIp, isSafePath, endpointCategory, ipClass, normalizeIp } from "./waf.mjs";
-import { createSessionAnomaly } from "./session-anomaly.mjs";
-import { createPublishWatch } from "./publish-watch.mjs";
-import { createHash } from "node:crypto";
 
 /* index.html points straight at the source entry — no prebuilt bundle involved. */
 const ENTRY_TAG = '<script type="module" src="/src/main.tsx"></script>';
@@ -40,103 +35,6 @@ export function cmsBackend() {
     "dev-" + Date.now().toString(36) + "-" + Math.random().toString(36).slice(2, 8);
   const geoProxy = createGeoProxy();
   let cms = null;
-  /* Security shield for `npm run dev` (same as scripts/serve.mjs): WAF in
-     front of every request, session anomaly detection, and a real-time
-     terminal log with severity + IP + hint. Zero deps — dev stays fast and
-     deploys stay short. Maintenance / clean-deploy / live-relay untouched. */
-  let secLog = null;
-  let waf = null;
-  let anomaly = null;
-  const lastIpByConn = new Map();
-  try {
-    secLog = createSecurityLog({ rootDir: ROOT, service: "dev" });
-    waf = createWaf();
-    anomaly = createSessionAnomaly({ log: (e) => secLog.log(e) });
-  } catch {
-    secLog = null;
-    waf = null;
-    anomaly = null;
-  }
-  function devClientIp(req) {
-    // Same spoof-safe rule as production (see scripts/serve.mjs): forwarded
-    // headers count only behind a trusted proxy or a loopback/private remote.
-    // In local dev the remote IS the loopback client, so ::1/127.0.0.1 is
-    // used verbatim and normalized to one spelling.
-    try {
-      return getClientIp(req, !!process.env.RENDER || process.env.TRUST_PROXY === "1");
-    } catch {
-      return "-";
-    }
-  }
-  function devReqId() {
-    try {
-      return Math.random().toString(36).slice(2, 10);
-    } catch {
-      return "r0";
-    }
-  }
-  function devIpNetNum(ip) {
-    try {
-      return createHash("sha256").update("wom-net|" + normalizeIp(ip)).digest().readUInt32BE(0);
-    } catch {
-      return 0;
-    }
-  }
-  function devRpcAnomaly({ connId, rpc, ok, err }) {
-    try {
-      if (anomaly) anomaly.observeRpc({ connId, ip: lastIpByConn.get(String(connId || "")) || "-", rpc, ok, err });
-    } catch {}
-  }
-  async function devLiveUrl() {
-    try {
-      const raw = await readFile(path.join(ROOT, "cms-server.txt"), "utf8").catch(() => "");
-      const first = String(raw).split(/\r?\n/).map((l) => l.trim()).filter((l) => l && !l.startsWith("#"))[0] || "";
-      const clean = first.replace(/\/+$/, "");
-      if (/^https?:\/\/[^/\s]+$/i.test(clean)) return clean;
-    } catch {}
-    return "";
-  }
-  /* First-Publish proof in dev too (same as serve.mjs): after every successful
-     local publish, confirm the live box has it — or say exactly why others
-     still wait. Runtime only, never the build. */
-  let publishWatch = null;
-  try {
-    publishWatch = createPublishWatch({
-      getOfficeStamp: async () => {
-        try {
-          if (!cms) return null;
-          const r = await cms.call("contentRev", "publish-watch", "");
-          if (!r || r.status !== 200) return null;
-          const d = JSON.parse(r.body);
-          if (!d || d.ok !== true) return null;
-          return { rev: Math.floor(Number(d.rev)) || 0, notes: Math.floor(Number(d.notes)) || 0, at: Number(d.at) || 0 };
-        } catch {
-          return null;
-        }
-      },
-      getLiveUrl: devLiveUrl,
-      log: (e) => {
-        try {
-          if (secLog) secLog.log(e);
-        } catch {}
-      },
-    });
-  } catch {
-    publishWatch = null;
-  }
-  /* HIGH fix — file-door guard (same as scripts/serve.mjs): uploads,
-     restores and deletes take a signed-in admin connection (?conn=). */
-  async function isAdminConn(id) {
-    try {
-      if (!id || !cms) return false;
-      const r = await cms.call("checkAdmin", id, "");
-      if (!r || r.status !== 200) return false;
-      const data = JSON.parse(r.body);
-      return !!(data && data.ok === true && data.admin === true);
-    } catch {
-      return false;
-    }
-  }
   let siteVersion = "vite";
   let outDir = path.join(ROOT, "dist");
   return {
@@ -162,52 +60,7 @@ export function cmsBackend() {
       /* Follow live only while serving (note 378): this hook also runs for
          `vite build`, where a minute loop would hold the build process open
          forever — exactly how the Vercel deploy got stuck. */
-      const serving = !!(config && config.command === "serve");
-      cms = await createCmsHost(ROOT, serving
-        ? {
-          follow: true,
-          onRpc: ({ method, id, status, body }) => {
-            try {
-              const m = String(method || "");
-              const b = typeof body === "string" ? body : "";
-              const ok = status === 200 && !/"ok"\s*:\s*false/.test(b.slice(0, 4000));
-              let err = "";
-              const em = /"err"\s*:\s*"([^"]{1,40})"/.exec(b.slice(0, 4000));
-              if (em) err = em[1];
-              devRpcAnomaly({ connId: id, rpc: m, ok, err });
-              if (m === "publish" && ok && publishWatch) publishWatch.noteOfficePublish();
-            } catch {}
-          },
-        }
-        : undefined);
-      try {
-        if (serving && secLog) {
-          // Dev shield line: the SAME module as production, but this line is
-          // honest that it runs in dev (vite-safe paths exempt from rate
-          // counting; every signature scan still applies). Production is
-          // guarded by scripts/serve.mjs — never assume this dev line covers
-          // the deployed site.
-          let persistNote = "";
-          try {
-            const p = secLog.getPersistence();
-            persistNote = p.persistent ? `evidence PERSISTENT at ${p.dir}` : `evidence EPHEMERAL (${p.reason})`;
-          } catch {}
-          secLog.log({ level: "info", kind: "shield-on", ip: "-", route: "-", detail: `WAF + session-anomaly shield active in DEV (same server-side module as prod; Vite dev paths exempt from rate counting, all signature scans apply) — ${persistNote}`, hint: "every [SEC] line below is also saved to data/security-events.jsonl; unique incidents auto-write data/security-report-latest.pdf", source: "local" });
-          // 7-area posture board in this terminal too (info only — never a PDF trigger).
-          try {
-            const { runSecurityChecks } = await import("./security-checks.mjs");
-            const rows = await runSecurityChecks(ROOT);
-            const useColor = !process.env.NO_COLOR;
-            const C = { redBg: "\x1b[41m\x1b[37m", yellow: "\x1b[33m", green: "\x1b[32m", grey: "\x1b[90m", reset: "\x1b[0m" };
-            console.log(" SECURITY POSTURE — 7 areas (RED ALERT = attack; WARNING/NOTICE = operational, not an attack)");
-            for (const r of rows) {
-              const c = r.status === "RED ALERT" ? C.redBg : r.status === "WARNING" ? C.yellow : r.status === "SECURE" ? C.green : C.grey;
-              console.log(`  ${(useColor ? c : "")}${String(r.area).slice(0, 42).padEnd(42)} | ${r.status}${(useColor ? C.reset : "")}${r.status === "RED ALERT" ? "  <-- RED ALERT" : ""} — ${String(r.detail).slice(0, 160)}`);
-            }
-          } catch {}
-          secLog.startLiveWatch({ getLiveUrl: devLiveUrl, intervalMs: 60000 });
-        }
-      } catch {}
+      cms = await createCmsHost(ROOT, config && config.command === "serve" ? { follow: true } : undefined);
       outDir = path.resolve(config.root || ROOT, (config.build && config.build.outDir) || "dist");
     },
     /* Dev only: the shim connects the page to this backend (sign-in, publish,
@@ -232,14 +85,7 @@ export function cmsBackend() {
        a snapshot of the published content (data/cms-state.bin) as seed.json so
        the static site opens on the office's words with no backend to ask. */
     async closeBundle() {
-      /* Fast frontend deploys: `npm run build` runs build-static.mjs right
-         after this, which bakes seed.json + copies assets itself — doing it
-         here too doubles the disk work and the YouTube read (bakeRecent's
-         network timeout) on every deploy. So under `npm run build` (or an
-         explicit VITE_WOM_SKIP_STATIC=1) this step stands down and lets
-         build-static.mjs do the single bake. Direct `vite build` calls and
-         `npm run dev` keep the old behavior. */
-      if (process.env.VITE_WOM_SKIP_STATIC === "1" || process.env.npm_lifecycle_event === "build") return;
+      if (process.env.VITE_WOM_SKIP_STATIC === "1") return;
       try {
         await mkdir(outDir, { recursive: true });
         await cp(path.join(ROOT, "src", "assets"), path.join(outDir, "src", "assets"), { recursive: true });
@@ -311,83 +157,9 @@ export function cmsBackend() {
           res.setHeader("Access-Control-Allow-Origin", "*");
           res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
           res.setHeader("Access-Control-Allow-Headers", "content-type");
-          res.setHeader("X-Frame-Options", "SAMEORIGIN");
-          res.setHeader("Referrer-Policy", "strict-origin-when-cross-origin");
           if (req.method === "OPTIONS") {
             res.writeHead(204);
             res.end();
-            return;
-          }
-
-          // --- WAF front door (dev): same shield as serve.mjs.
-          const client = devClientIp(req);
-          const rid = devReqId();
-          const connId = url.searchParams.get("conn") || "anon";
-          try {
-            lastIpByConn.set(String(connId || "anon"), client);
-          } catch {}
-          try {
-            if (cms && typeof cms.setConnNet === "function") cms.setConnNet(connId, devIpNetNum(client));
-          } catch {}
-          const quiet = isSafePath(pathname, req.method);
-          try {
-            if (anomaly) anomaly.observe({ connId, ip: client, route: pathname, method: req.method, ua: String((req.headers && req.headers["user-agent"]) || "").slice(0, 120), quiet, netClass: ipClass(client) });
-          } catch {}
-          try {
-            if (waf) {
-              const verdict = waf.checkRequest({ method: req.method, pathname, search: url.search || "", headers: req.headers, ip: client });
-              if (!verdict.allow) {
-                const cont = !!verdict.continuation;
-                const status = Number(verdict.status) || (cont ? 429 : 403);
-                if (secLog) secLog.log({ level: cont ? "info" : verdict.severity || "high", kind: cont ? "rate-throttle" : status === 429 ? "rate-limit" : "waf-block", ip: client, route: pathname, detail: verdict.reason, hint: verdict.hint, category: verdict.category || endpointCategory(pathname, req.method), status, reqId: rid, source: "local" });
-                const headers = { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" };
-                if (verdict.retryAfter) headers["retry-after"] = String(verdict.retryAfter);
-                res.writeHead(status, headers);
-                res.end(JSON.stringify({ ok: false, err: status === 429 ? "rate-limited" : "forbidden" }));
-                return;
-              }
-            }
-          } catch {
-            /* fail-open */
-          }
-
-          // --- Security evidence doors (signed-in admin only, server-side check).
-          if (pathname === "/__security/events.json" && req.method === "GET") {
-            if (!(await isAdminConn(String(url.searchParams.get("conn") || "")))) {
-              try {
-                if (anomaly) anomaly.observeFileDeny({ connId, ip: client, route: pathname });
-              } catch {}
-              try {
-                if (secLog) secLog.log({ level: "low", kind: "file-deny", ip: client, route: pathname, detail: "unauthenticated /__security/events.json attempt denied (403)", hint: "one-offs are mistyped links; repeats escalate automatically.", category: "security", status: 403, reqId: rid, source: "local" });
-              } catch {}
-              res.writeHead(403, { "cache-control": "no-store" });
-              res.end("denied");
-              return;
-            }
-            const body = JSON.stringify({ ok: true, events: secLog ? secLog.getEvents(200) : [], incidents: secLog ? secLog.getIncidents(100) : [] });
-            res.writeHead(200, { "content-type": "application/json; charset=utf-8", "content-length": Buffer.byteLength(body), "cache-control": "no-store" });
-            res.end(body);
-            return;
-          }
-          if (pathname === "/__security/report.pdf" && req.method === "GET") {
-            if (!(await isAdminConn(String(url.searchParams.get("conn") || "")))) {
-              try {
-                if (anomaly) anomaly.observeFileDeny({ connId, ip: client, route: pathname });
-              } catch {}
-              try {
-                if (secLog) secLog.log({ level: "low", kind: "file-deny", ip: client, route: pathname, detail: "unauthenticated /__security/report.pdf attempt denied (403)", hint: "report PDFs need a signed-in admin conn (?conn=).", category: "security", status: 403, reqId: rid, source: "local" });
-              } catch {}
-              res.writeHead(403, { "cache-control": "no-store" });
-              res.end("denied");
-              return;
-            }
-            const evts = secLog ? secLog.getEvents(1000).reverse() : [];
-            const pdf = secLog ? secLog.buildPdf() : Buffer.from("%PDF-1.4\n%EOF", "latin1");
-            try {
-              if (secLog) secLog.log({ level: "info", kind: "pdf-download", ip: client, route: pathname, detail: `admin downloaded security PDF (${evts.length} events)`, category: "security", status: 200, reqId: rid, source: "local" });
-            } catch {}
-            res.writeHead(200, { "content-type": "application/pdf", "content-length": pdf.length, "cache-control": "no-store", "content-disposition": 'attachment; filename="security-report.pdf"' });
-            res.end(pdf);
             return;
           }
 
@@ -407,8 +179,6 @@ export function cmsBackend() {
               "content-type": MIME[path.extname(file).toLowerCase()] || "application/octet-stream",
               "content-length": body.length,
               "cache-control": "no-cache",
-              "x-content-type-options": "nosniff",
-              "content-security-policy": "sandbox",
             });
             res.end(body);
             return;
@@ -430,8 +200,6 @@ export function cmsBackend() {
               "content-type": MIME[path.extname(file).toLowerCase()] || "application/octet-stream",
               "content-length": body.length,
               "cache-control": "no-cache",
-              "x-content-type-options": "nosniff",
-              "content-security-policy": "sandbox",
             });
             res.end(body);
             return;
@@ -500,17 +268,8 @@ export function cmsBackend() {
           const rpcMatch = pathname.match(/^\/__cms\/([A-Za-z0-9_]+)$/);
           if (rpcMatch && req.method === "POST") {
             const id = url.searchParams.get("conn") || "anon";
-            try {
-              lastIpByConn.set(String(id || "anon"), client);
-            } catch {}
-            try {
-              if (cms && typeof cms.setConnNet === "function") cms.setConnNet(id, devIpNetNum(client));
-            } catch {}
             /* Live-follow adoption (note 344) opens to this machine only. */
             if (rpcMatch[1] === "adoptLive" && !isLoopbackAddr(req.socket && req.socket.remoteAddress)) {
-              try {
-                if (secLog) secLog.log({ level: "high", kind: "privilege-escalation", ip: client, route: pathname, detail: "non-loopback adoptLive rejected (dev)", hint: "adoptLive is loopback + per-boot token only.", category: "api-publish", status: 403, reqId: rid, source: "local" });
-              } catch {}
               res.writeHead(403, { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" });
               res.end(JSON.stringify({ ok: false, err: "denied" }));
               return;
@@ -522,31 +281,7 @@ export function cmsBackend() {
               if (body.length > 8 * 1024 * 1024) req.destroy();
             });
             req.on("end", async () => {
-              try {
-                if (waf) {
-                  const bv = waf.checkBody({ rpc: rpcMatch[1], body, ip: client });
-                  if (!bv.allow) {
-                    const cont = !!bv.continuation;
-                    const status = Number(bv.status) || (cont ? 429 : 403);
-                    if (secLog) secLog.log({ level: cont ? "info" : bv.severity || "high", kind: cont ? "rate-throttle" : status === 429 ? "rate-limit" : "waf-block", ip: client, route: pathname, detail: bv.reason, hint: bv.hint, category: bv.category || "api", status, reqId: rid, source: "local" });
-                    const headers = { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" };
-                    if (bv.retryAfter) headers["retry-after"] = String(bv.retryAfter);
-                    res.writeHead(status, headers);
-                    res.end(JSON.stringify({ ok: false, err: status === 429 ? "rate-limited" : "forbidden" }));
-                    return;
-                  }
-                }
-              } catch {}
               const r = await cms.call(rpcMatch[1], id, body);
-              try {
-                const preview = typeof r.body === "string" ? r.body.slice(0, 2000) : "";
-                const denied = /"ok"\s*:\s*false/.test(preview);
-                if ((rpcMatch[1] === "login" || rpcMatch[1] === "login2fa") && denied && secLog) {
-                  secLog.log({ level: "low", kind: "auth-fail", ip: client, route: pathname, detail: `${rpcMatch[1]} denied in dev (session ${id})`, hint: "a few is mistyping; a burst escalates via auth-probing (already rate-limited).", category: "api-auth", status: 200, reqId: rid, source: "local" });
-                } else if (rpcMatch[1] === "publish" && !denied && secLog) {
-                  secLog.log({ level: "info", kind: "publish", ip: client, route: pathname, detail: `dev publish accepted (session ${id}) — maintenance clears on this boot`, hint: "no action — the deploy witness carries it to fresh browsers.", category: "api-publish", status: 200, reqId: rid, source: "local" });
-                }
-              } catch {}
               /* Same no-disk net as scripts/serve.mjs (note 290): an emptied
                  live store answers getContent from the baked seed. */
               const outBody = await answerWithSeedFallback(rpcMatch[1], r.body, ROOT, outDir);
@@ -562,24 +297,8 @@ export function cmsBackend() {
           /* File uploads: the office's photos and videos are kept on their own
              disk (data/uploads/). */
           if (pathname === "/__upload" && req.method === "POST") {
-            /* HIGH fix: writes take a signed-in admin connection. */
-            if (!(await isAdminConn(String(url.searchParams.get("conn") || "")))) {
-              try {
-                if (anomaly) anomaly.observeFileDeny({ connId, ip: client, route: pathname });
-                if (secLog) secLog.log({ level: "low", kind: "file-deny", ip: client, route: pathname, detail: "anonymous /__upload attempt denied (403, dev) — likely an expired tab", hint: "uploads need a signed-in admin; sustained hits escalate automatically.", category: "upload", status: 403, reqId: rid, source: "local" });
-              } catch {}
-              res.writeHead(403, { "cache-control": "no-store" });
-              res.end("denied");
-              return;
-            }
             const ctype = String(req.headers["content-type"] || "").split(";")[0].trim().toLowerCase();
             if (!ctype.startsWith("image/") && !ctype.startsWith("video/")) {
-              res.writeHead(400, { "cache-control": "no-store" });
-              res.end("bad filetype");
-              return;
-            }
-            const askedUploadName = String(url.searchParams.get("name") || "file");
-            if (ctype === "image/svg+xml" || /\.svgz?$/i.test(askedUploadName) || /\.html?$/i.test(askedUploadName)) {
               res.writeHead(400, { "cache-control": "no-store" });
               res.end("bad filetype");
               return;
@@ -606,12 +325,6 @@ export function cmsBackend() {
                   const ext = { "image/jpeg": ".jpg", "image/png": ".png", "image/webp": ".webp", "image/gif": ".gif", "video/mp4": ".mp4", "video/webm": ".webm", "video/quicktime": ".mov" }[ctype] || "";
                   safe += ext;
                 }
-                /* Belt and braces: the stored name decides the served type. */
-                if (!/\.(jpg|jpeg|png|webp|gif|avif|mp4|webm|mov|m4v|ogv)$/i.test(safe)) {
-                  res.writeHead(400, { "cache-control": "no-store" });
-                  res.end("bad filetype");
-                  return;
-                }
                 const dir = path.join(ROOT, "data", "uploads");
                 await mkdir(dir, { recursive: true });
                 const fname = Date.now().toString(36) + "-" + safe;
@@ -635,16 +348,6 @@ export function cmsBackend() {
              same as scripts/serve.mjs — puts one embedded upload back under
              its exact stored name. */
           if (pathname === "/__restore-file" && req.method === "POST") {
-            /* HIGH fix: writes take a signed-in admin connection. */
-            if (!(await isAdminConn(String(url.searchParams.get("conn") || "")))) {
-              try {
-                if (anomaly) anomaly.observeFileDeny({ connId, ip: client, route: pathname });
-                if (secLog) secLog.log({ level: "low", kind: "file-deny", ip: client, route: pathname, detail: "anonymous /__restore-file attempt denied (403, dev) — likely an expired tab", hint: "restores need a signed-in admin; sustained hits escalate automatically.", category: "upload", status: 403, reqId: rid, source: "local" });
-              } catch {}
-              res.writeHead(403, { "cache-control": "no-store" });
-              res.end("denied");
-              return;
-            }
             const ctype = String(req.headers["content-type"] || "").split(";")[0].trim().toLowerCase();
             /* Restored backups carry every upload kind the office uses (note 346). */
             if (!ctype.startsWith("image/") && !ctype.startsWith("video/") && !ctype.startsWith("audio/")) {
@@ -656,11 +359,6 @@ export function cmsBackend() {
             if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,99}$/.test(asked) || asked.includes("..")) {
               res.writeHead(400, { "cache-control": "no-store" });
               res.end("bad name");
-              return;
-            }
-            if (ctype === "image/svg+xml" || !/\.(jpg|jpeg|png|webp|gif|avif|mp4|webm|mov|m4v|ogv|mp3|wav|ogg|oga|opus|m4a|aac|flac|mid|midi)$/i.test(asked)) {
-              res.writeHead(400, { "cache-control": "no-store" });
-              res.end("bad filetype");
               return;
             }
             const chunks = [];
@@ -700,16 +398,6 @@ export function cmsBackend() {
           /* Delete an upload for good (note 307; ported to this line in note
              346): same as scripts/serve.mjs. */
           if (pathname === "/__delete-file" && req.method === "POST") {
-            /* HIGH fix: deletes take a signed-in admin connection. */
-            if (!(await isAdminConn(String(url.searchParams.get("conn") || "")))) {
-              try {
-                if (anomaly) anomaly.observeFileDeny({ connId, ip: client, route: pathname });
-                if (secLog) secLog.log({ level: "low", kind: "file-deny", ip: client, route: pathname, detail: "anonymous /__delete-file attempt denied (403, dev) — likely an expired tab", hint: "deletes need a signed-in admin; sustained hits escalate automatically.", category: "upload", status: 403, reqId: rid, source: "local" });
-              } catch {}
-              res.writeHead(403, { "cache-control": "no-store" });
-              res.end("denied");
-              return;
-            }
             const asked = String(url.searchParams.get("name") || "");
             if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,99}$/.test(asked) || asked.includes("..")) {
               res.writeHead(400, { "cache-control": "no-store" });
@@ -787,7 +475,6 @@ export function cmsBackend() {
                     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36",
                   "accept-language": "en-US,en;q=0.9",
                 },
-                signal: typeof AbortSignal !== "undefined" && typeof AbortSignal.timeout === "function" ? AbortSignal.timeout(10000) : undefined,
               });
               const text = await upstream.text();
               if (!upstream.ok || !text) {

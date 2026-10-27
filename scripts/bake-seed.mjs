@@ -121,20 +121,12 @@ export async function bakeSeed(rootDir, outPath) {
   console.log(`bake-seed: baked ${ids.length} sections into ${path.relative(rootDir, target)}`);
   /* The recent-services list ships in the same file, so every copy paints the
      same services as the preview (see bake-recent.mjs). Best effort — a missed
-     read keeps the previous bake. Skipped on deploy farms (Render/Netlify/
-     Vercel/CI): datacenter YouTube reads usually hit the bot wall and burn the
-     full fetch timeout per build for nothing — the carried list above already
-     ships, and the running server refreshes it after boot. */
-  const onDeployFarm = !!(process.env.RENDER || process.env.NETLIFY || process.env.VERCEL || process.env.CI);
-  if (onDeployFarm) {
-    console.log("bake-seed: deploy farm — carrying baked recent services, no YouTube read during build");
-  } else {
-    try {
-      const { bakeRecent } = await import("./bake-recent.mjs");
-      await bakeRecent(rootDir);
-    } catch (err) {
-      console.warn("recent services not re-baked:", err?.message || err);
-    }
+     read keeps the previous bake. */
+  try {
+    const { bakeRecent } = await import("./bake-recent.mjs");
+    await bakeRecent(rootDir);
+  } catch (err) {
+    console.warn("recent services not re-baked:", err?.message || err);
   }
   /* The refresh above writes the repo seed only (note 366): copy its list
      into this bake too, so dist ships the same services as the preview. */

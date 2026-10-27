@@ -30,15 +30,7 @@ const AFTER_SAVE_KEY = "wom.cms.publishAfterSave";
 const AFTER_SAVE_MAX_AGE_MS = 15 * 60 * 1000;
 const NAME_KEY = "wom.cms.editor";
 const SESSION_KEY = "wom.cms.session";
-/* Deploy-bound, idle-expiring sessions (note 433): the saved session belongs
-   to the deploy it signed in on — a new deploy signs in again — and 15
-   minutes without an admin action ends it, so a publish then fails until the
-   office signs in again. Accounts persist server-side across deploys; only
-   the session is per-deploy and per-activity. */
-const SESSION_DEPLOY_KEY = "wom.cms.sessionDeploy";
-const LAST_ADMIN_AT_KEY = "wom.cms.lastAdminAt";
-const SESSION_IDLE_MS = 15 * 60 * 1000;
-const REQUEST_TIMEOUT = 3500;
+const REQUEST_TIMEOUT = 9000;
 
 const NOTES_KEY = "wom.cms.notes";
 /* Which code update the browser's saved store belongs to (note 253). */
@@ -120,70 +112,6 @@ const PUBLISH_AT_KEY = "wom.cms.publishAt";
 /* Clock-skew tolerance: a server clock a few seconds behind the browser must
    not strand a publish that just landed. */
 const PUBLISH_AT_SKEW_MS = 15000;
-/* Maintenance auto-clear, deploy-scoped (office request: an hour after the
-   FIRST publish the notice clears totally from code — but every NEW deploy
-   still holds until its own Publish). The old global timer lifted every
-   future deploy once the first publish aged an hour, so new deploys never
-   held. Now a deploy that never published never auto-clears; only a deploy
-   that already lifted via its own Publish expires an hour after that publish
-   (lastPublishAt / server stamp — never the ever-first stamp, which would
-   expire a fresh Publish at once). */
-const MAINTENANCE_AUTO_CLEAR_MS = 60 * 60 * 1000;
-const FIRST_PUBLISH_KEY = "wom.cms.firstPublishAt";
-let firstPublishAt = 0;
-try {
-  const raw = localStorage.getItem(FIRST_PUBLISH_KEY);
-  const n = raw === null ? 0 : Number(JSON.parse(raw));
-  if (Number.isFinite(n) && (n as number) > 0) firstPublishAt = Math.floor(n as number);
-} catch {
-  /* storage may be blocked — startCms re-reads later */
-}
-function noteFirstPublishAt(at: unknown): void {
-  try {
-    const n = Math.floor(Number(at));
-    if (!Number.isFinite(n) || n <= 0 || firstPublishAt > 0) return;
-    firstPublishAt = n;
-    try {
-      localStorage.setItem(FIRST_PUBLISH_KEY, JSON.stringify(firstPublishAt));
-    } catch {}
-  } catch {}
-}
-/** True an hour after THIS deploy's own publish: the notice clears totally
-    from code. A deploy that never published never auto-clears — so every new
-    deploy still holds until its own Publish — and the ever-first stamp is
-    ignored (it would expire a fresh Publish at once). Never throws. */
-function maintenanceAutoCleared(): boolean {
-  try {
-    const hour = MAINTENANCE_AUTO_CLEAR_MS;
-    const now = Date.now();
-    if (deployFromMeta && currentDeployId) {
-      /* Stamped build: only a deploy that already lifted expires. */
-      if (publishedDeployId !== currentDeployId) return false;
-      if (lastPublishAt > 0 && now - lastPublishAt > hour) return true;
-      try {
-        const v = serverVerdict;
-        if (v && v.notes >= BUILD_NOTES && v.words > 0 && v.at > 0 && now - v.at > hour) return true;
-      } catch {}
-      return false;
-    }
-    /* Local dev (no stamped deploy): only blessed code expires. */
-    try {
-      if (!codeBlessedMatches()) return false;
-    } catch { return false; }
-    try {
-      const held = typeof publishedNotes === "number" && Number.isFinite(publishedNotes) ? Math.floor(publishedNotes) : 0;
-      if (!(held >= BUILD_NOTES)) return false;
-    } catch { return false; }
-    if (lastPublishAt > 0 && now - lastPublishAt > hour) return true;
-    try {
-      const v2 = serverVerdict;
-      if (v2 && v2.notes >= BUILD_NOTES && v2.words > 0 && v2.at > 0 && now - v2.at > hour) return true;
-    } catch {}
-    return false;
-  } catch {
-    return false;
-  }
-}
 let lastPublishAt = 0;
 try {
   const raw = localStorage.getItem(PUBLISH_AT_KEY);
@@ -197,7 +125,6 @@ function notePublishAt(at: unknown): boolean {
     const n = Math.floor(Number(at));
     if (!Number.isFinite(n) || n <= 0 || n <= lastPublishAt) return false;
     lastPublishAt = n;
-    noteFirstPublishAt(n);
     try {
       localStorage.setItem(PUBLISH_AT_KEY, JSON.stringify(lastPublishAt));
     } catch {}
@@ -210,126 +137,12 @@ function notePublishAt(at: unknown): boolean {
   }
 }
 /** True when a publish from the running update landed after this deploy was first seen. */
-/* Last live server answer, for the office console only: a stuck visitor's
-   `window.__maintState()` shows the exact notes, code word, deploy and clock
-   the notice is deciding on, plus which release fired last. Never leaves the
-   browser — it only names the stamp, never words. */
-let lastServerWitness: { notes: number; code: string; deploy: string; at: number; words: number } | null = null;
-let lastReleaseBy = "";
-/* Server-authoritative release (notes 427–428): the freshest verdict from the
-   shared backend — the same answer every copy on this host reads. The notice
-   lifts on it only with proof: this update (or newer) with real words PLUS an
-   attestation — the running code word (one Publish from any admin lifts every
-   copy together), this deploy's own stamp, or a same-update publish clock
-   newer than this deploy was first seen. The per-device stamps only ever ADD
-   faster local lifts, so two copies on the same host can never disagree. A
-   genuinely new code release (new word) holds even when the backend moved on
-   numbers alone; empty and unreviewed backends still wait exactly as before.
-   Refreshed by every content answer, every stamp poll and the feed mirror;
-   the 10s waiting cadence keeps it fresh while the notice shows. */
-let serverVerdict: { notes: number; words: number; at: number; deploy: string; code: string } | null = null;
-let serverVerdictAt = 0;
-const SERVER_VERDICT_FRESH_MS = 120 * 1000;
-function noteServerVerdict(notes: unknown, words: unknown, at?: unknown, deploy?: unknown, code?: unknown): void {
-  try {
-    const n = Math.floor(Number(notes));
-    if (!Number.isFinite(n) || n < 0) return;
-    /* A stamp with no word count (an older server door) proves nothing new —
-       keep the previous verdict; the next full sync learns the words. */
-    if (words === undefined || words === null) return;
-    const w = Math.floor(Number(words));
-    if (!Number.isFinite(w) || w < 0) return;
-    let a = 0;
-    try {
-      const an = Math.floor(Number(at));
-      if (Number.isFinite(an) && an > 0) a = an;
-    } catch {}
-    let d = "";
-    try {
-      if (typeof deploy === "string" && /^[A-Za-z0-9_-]{1,80}$/.test(deploy)) d = deploy;
-    } catch {}
-    let c = "";
-    try {
-      if (typeof code === "string" && /^[A-Za-z0-9_-]{1,40}$/.test(code)) c = code;
-    } catch {}
-    /* Live-relay fix (one Publish clears all browsers/devices): polling multiple
-       backends (office new, live old) must never let a stale answer clobber a
-       fresh publish verdict. Raise-only: a good verdict (this update+ with real
-       words) sticks until a same-or-newer update replaces it. */
-    try {
-      const cur = serverVerdict;
-      if (cur && cur.notes >= BUILD_NOTES && cur.words > 0) {
-        const newGood = n >= BUILD_NOTES && w > 0;
-        if (!newGood) return;
-        if (n < cur.notes) return;
-        if (n === cur.notes && w <= 0 && cur.words > 0) return;
-        if (n === cur.notes && a > 0 && cur.at > 0 && a < cur.at) return;
-      }
-    } catch {}
-    serverVerdict = { notes: n, words: w, at: a, deploy: d, code: c };
-    serverVerdictAt = Date.now();
-  } catch {}
-}
-function serverHoldsPublish(): boolean {
-  try {
-    const v = serverVerdict;
-    if (!v) return false;
-    if (Date.now() - serverVerdictAt > SERVER_VERDICT_FRESH_MS) return false;
-    /* Real words from this update or newer — numbers alone never lift. */
-    if (!(v.words > 0)) return false;
-    if (!(v.notes >= BUILD_NOTES)) return false;
-    /* Same code, same review: one Publish from any admin lifts every copy on
-       this host together — the late joiner, the rebuilt copy and the
-       publishing copy all read the same word and agree. A new word still
-       waits for its own publish even when the numbers moved. */
-    try {
-      if (!!v.code && !!runningCode && v.code === runningCode) return true;
-    } catch {}
-    /* The host serves this build (version.json attestation, same rule). */
-    try {
-      if (hostFileAttestsSameCode()) return true;
-    } catch {}
-    /* This deploy's own stamp (also witnessed beside this; kept so the
-       verdict alone suffices). */
-    try {
-      if (deployFromMeta && !!currentDeployId && !!v.deploy && v.deploy === currentDeployId) return true;
-    } catch {}
-    /* Fresh clock: a same-update publish that landed after this deploy was
-       first seen — the post-deploy witness in verdict form. */
-    try {
-      if (v.notes === BUILD_NOTES && v.at > 0 && deployFirstSeenAt > 0 && v.at + PUBLISH_AT_SKEW_MS > deployFirstSeenAt) return true;
-    } catch {}
-    /* Shared-backend release (live-relay, one click clears all devices): this
-       update (or newer) with real words on the backend this copy reads means
-       live, with no deploy/code/clock matching. A late device, a rebuilt
-       device and the publishing device read the same answer and agree.
-       Genuinely new code (server behind this update) and empty/unreviewed
-       backends still wait via the checks above. */
-    try {
-      if (v.notes >= BUILD_NOTES && v.words > 0) return true;
-    } catch {}
-    return false;
-  } catch {
-    return false;
-  }
-}
 function postDeployPublishWitnessed(): boolean {
   try {
     if (!(lastPublishAt > 0 && deployFirstSeenAt > 0)) return false;
-    if (!publishedNotesAtLeastBuild()) return false;
-    return lastPublishAt + PUBLISH_AT_SKEW_MS > deployFirstSeenAt;
-  } catch {
-    return false;
-  }
-}
-/* Adopted-publish guard for the carried click (note 429): the session flag
-   below proves this tab clicked, but only a witnessed publish for the running
-   update proves there is anything to open — a bare flag with a wiped store
-   must never lift the notice by itself. */
-function publishedNotesAtLeastBuild(): boolean {
-  try {
     const held = typeof publishedNotes === "number" && Number.isFinite(publishedNotes) ? Math.floor(publishedNotes) : 0;
-    return held >= BUILD_NOTES;
+    if (!(held >= BUILD_NOTES)) return false;
+    return lastPublishAt + PUBLISH_AT_SKEW_MS > deployFirstSeenAt;
   } catch {
     return false;
   }
@@ -396,11 +209,6 @@ function rereadPublishStamps(): void {
     const raw = localStorage.getItem(PUBLISH_AT_KEY);
     const n = raw === null ? 0 : Number(JSON.parse(raw));
     if (Number.isFinite(n) && (n as number) > lastPublishAt) lastPublishAt = Math.floor(n as number);
-  } catch {}
-  try {
-    const raw = localStorage.getItem(FIRST_PUBLISH_KEY);
-    const n = raw === null ? 0 : Number(JSON.parse(raw));
-    if (Number.isFinite(n) && (n as number) > 0 && firstPublishAt <= 0) firstPublishAt = Math.floor(n as number);
   } catch {}
 }
 let crossTabListening = false;
@@ -597,26 +405,6 @@ function deployProvesFreshDeploy(): boolean {
     return false;
   }
 }
-/* Old-wake wipe (note 428): unregister retired service workers and drop HTTP
-   caches so a new deploy can never paint the previous shell. Best-effort,
-   never throws; storage is untouched. Fires on every fresh deploy, and on a
-   proven new update even when the deploy proof could not be read. */
-function wipeOldWakes(): void {
-  try {
-    if (typeof navigator !== "undefined" && navigator.serviceWorker && navigator.serviceWorker.getRegistrations) {
-      navigator.serviceWorker.getRegistrations().then((rs) => {
-        for (const r of rs) r.unregister().catch(() => {});
-      }).catch(() => {});
-    }
-  } catch {}
-  try {
-    if (typeof caches !== "undefined" && caches.keys) {
-      caches.keys().then((ks) => {
-        for (const k of ks) caches.delete(k).catch(() => {});
-      }).catch(() => {});
-    }
-  } catch {}
-}
 function markDeploySeen(): void {
   try {
     const want = deployFromMeta && currentDeployId ? currentDeployId : "n" + BUILD_NOTES + "c" + (runningCode || "");
@@ -644,17 +432,12 @@ if (typeof window !== "undefined") {
     deployId: currentDeployId,
     publishedDeploy: publishedDeployId,
     publishAt: lastPublishAt,
-    firstPublishAt,
-    autoCleared: maintenanceAutoCleared(),
     postDeployWitness: postDeployPublishWitnessed(),
     justPublished: justPublishedRecently(),
     deployFirstSeenAt,
     deployLocked: deployFromMeta,
     buildNotes: BUILD_NOTES,
     code: runningCode,
-    serverWitness: lastServerWitness,
-    serverVerdict,
-    lastReleaseBy,
     liveSiteNotes,
     liveSiteBase,
     liveBakeNotes,
@@ -783,27 +566,6 @@ function maintenanceForced(): boolean {
     return false;
   }
 }
-/** Sync fast-path for a published deploy (no flash after Publish): true when THIS
-    copy already lifted — stamped builds when this deploy id is published,
-    local dev when the number gate plus code blessing both pass. Read
-    synchronously on first render so a reload after Publish paints the website
-    at once (no splash hold, no notice), syncing in the background. A deploy
-    that never published is never fast-pathed, so every new deploy still holds
-    until its own Publish; a newer deploy landing later still takes via the
-    stale gate. */
-export function isCurrentDeployPublishedSync(): boolean {
-  try {
-    if (deployFromMeta && currentDeployId) return publishedDeployId === currentDeployId;
-    try {
-      const held = typeof publishedNotes === "number" && Number.isFinite(publishedNotes) ? Math.floor(publishedNotes) : 0;
-      if (!(held >= BUILD_NOTES)) return false;
-    } catch { return false; }
-    try {
-      return codeBlessedMatches();
-    } catch { return false; }
-  } catch { return false; }
-}
-
 /** True while a server is (or was) in play: online, offline after contact, a
     socket waiting, or an address to reach. A copy that never had a server has
     no visitors to protect, so it never waits (note 250). */
@@ -828,27 +590,12 @@ export function maintenanceShouldWait(): boolean {
   try {
     if (maintenanceForced()) return true;
   } catch {}
-  /* One-hour auto-clear: an hour after the first publish the notice is gone
-     for every visitor, device and browser — never a flash of maintenance. */
-  try {
-    if (maintenanceAutoCleared()) return false;
-  } catch {}
   /* Deploy lock (no numbers): a built copy waits until a publish from its
      own deploy lands — or a publish from the running update landed after this
      deploy was first seen (one click lifts every deploy, even a stale tab's
      or a local copy's). Server-less copies never wait (no visitors). */
   if (deployFromMeta && currentDeployId) {
     if (publishedDeployId === currentDeployId) return false;
-    /* Server-authoritative release (note 427): one Publish from any admin —
-       this update (or newer) with real words on the shared backend — lifts
-       every copy on this host together. No deploy, code or clock matching, so
-       a late device, a rebuilt device and the publishing device itself read
-       the same answer and agree. Genuinely new code (server behind this
-       update) and empty/unreviewed answers still fall through to the holds
-       below. */
-    try {
-      if (serverHoldsPublish()) return false;
-    } catch {}
     /* Post-deploy publish witness: this copy was around for a publish from
        the running update, so visitors are released even though the publish
        came from a different deploy id. A deploy first seen AFTER the publish
@@ -857,12 +604,8 @@ export function maintenanceShouldWait(): boolean {
     try {
       if (postDeployPublishWitnessed()) return false;
     } catch {}
-    /* The carried click (note 429): this tab published, then reloaded onto the
-       new code — releases, but only with a witnessed publish for the running
-       update behind it. A bare session flag with no adopted publish (a wiped
-       store, a retired click) never lifts the notice by itself. */
     try {
-      if (justPublishedRecently() && publishedNotesAtLeastBuild()) return false;
+      if (justPublishedRecently()) return false;
     } catch {}
     /* Deploy lock: any copy whose words can move after deploy waits — server
        behind it, or a baked feed (note 416). Pure static never waits. */
@@ -895,11 +638,6 @@ export function useMaintenance(): boolean {
   try {
     if (maintenanceForced()) return true;
   } catch {}
-  /* One-hour auto-clear: an hour after the first publish the notice is gone
-     for every visitor, device and browser — never a flash of maintenance. */
-  try {
-    if (maintenanceAutoCleared()) return false;
-  } catch {}
   /* Note 302: a known newer update waits even on this (older) bundle — a
      stale tab never paints live from cached code while the host has moved on.
      Server-less copies still never wait (note 250): with no backend there is
@@ -913,23 +651,13 @@ export function useMaintenance(): boolean {
   /* Deploy lock (no numbers — same rule as maintenanceShouldWait). */
   if (deployFromMeta && currentDeployId) {
     if (publishedDeployId === currentDeployId) return false;
-    /* Server-authoritative release (note 427): one Publish from any admin
-       lifts every copy on this host together — same shared answer, no
-       per-device deploy, code or clock matching. */
-    try {
-      if (serverHoldsPublish()) return false;
-    } catch {}
     /* Post-deploy publish witness: one click lifts every deploy that was
        around for it, even when the click came from a stale tab or local. */
     try {
       if (postDeployPublishWitnessed()) return false;
     } catch {}
-    /* The carried click (note 429): this tab published, then reloaded onto the
-       new code — releases, but only with a witnessed publish for the running
-       update behind it. A bare session flag with no adopted publish (a wiped
-       store, a retired click) never lifts the notice by itself. */
     try {
-      if (justPublishedRecently() && publishedNotesAtLeastBuild()) return false;
+      if (justPublishedRecently()) return false;
     } catch {}
     /* Deploy lock: any copy whose words can move after deploy waits — server
        behind it, or a baked feed (note 416). Pure static never waits. */
@@ -961,37 +689,6 @@ export function usePreviewingWhileWaiting(): boolean {
   }
   return maintenanceShouldWait();
 }
-/* Why visitors wait, in plain office words (shown on the maintenance notice
-   itself, so the state is visible with no console): "live" (no wait),
-   "unreviewed" (nothing published yet — first publish opens the site),
-   "new-code" (a new update or code word the office has not published yet),
-   "waiting-proof" (the publish just landed — the site is opening by
-   itself). Never throws. */
-export function maintenanceWaitReason(): "live" | "unreviewed" | "new-code" | "waiting-proof" {
-  try {
-    if (!maintenanceShouldWait()) return "live";
-  } catch {
-    return "live";
-  }
-  try {
-    if (isStaleWaiting()) return "new-code";
-  } catch {}
-  try {
-    const held = typeof publishedNotes === "number" && Number.isFinite(publishedNotes) ? Math.floor(publishedNotes) : 0;
-    /* A witnessed stamp the running code cannot use: same number, older
-       word — a new update under review. */
-    if (held >= BUILD_NOTES) return "new-code";
-  } catch {}
-  try {
-    const w = lastServerWitness;
-    if (w && w.notes === BUILD_NOTES && w.code && w.code === runningCode && w.words > 0) return "waiting-proof";
-  } catch {}
-  try {
-    /* A returning browser on a new word: new code under review. */
-    if (codeChangedSinceBless()) return "new-code";
-  } catch {}
-  return "unreviewed";
-}
 /* A deployed host can serve a newer bundle than this tab runs (desktop cached
    the old JS while the phone fetched the new one): the two modes then decide
    maintenance from different BUILD_NOTES and disagree. When version.json names
@@ -1018,86 +715,6 @@ let hostFileCode = "";
 let staleCodeMismatch = false;
 let staleCheckSettled = false;
 let staleCheckRunning: Promise<void> | null = null;
-/* Fresh deploy id + notes version.json names (one-click publish fix): when a
-   new build lands with the SAME notes/code but a different deploy id, a stale
-   office tab publishes the FRESH id in one click instead of reloading + asking
-   for a second click. Cleared whenever version.json matches this bundle. */
-let staleHostDeploy = "";
-let staleHostNotes = 0;
-/* Publish in flight: while a publish click runs, skip the stale auto-reload
-   so the click finishes stamping instead of unloading mid-send. */
-let publishInFlight = false;
-export function beginPublishNoReload(): void {
-  try {
-    publishInFlight = true;
-  } catch {}
-}
-export function endPublishNoReload(): void {
-  try {
-    publishInFlight = false;
-  } catch {}
-}
-/** Fresh deploy id version.json names ("" when this bundle is current). */
-export function getFreshDeployId(): string {
-  try {
-    if (typeof staleHostDeploy === "string" && /^[A-Za-z0-9_-]{1,80}$/.test(staleHostDeploy) && staleHostDeploy !== currentDeployId) return staleHostDeploy;
-  } catch {}
-  return "";
-}
-/** True when only the deploy id is stale (same notes/code) — one click can
-    stamp the fresh id, no reload + second click needed. */
-export function isDeployOnlyStale(): boolean {
-  try {
-    if (!staleHostDeploy || staleHostDeploy === currentDeployId) return false;
-    if (!/^[A-Za-z0-9_-]{1,80}$/.test(staleHostDeploy)) return false;
-    if (staleCodeMismatch) return false;
-    if (Number.isFinite(staleHostNotes) && staleHostNotes > BUILD_NOTES) return false;
-    return true;
-  } catch {
-    return false;
-  }
-}
-/** Read version.json without reloading (publish path): learns the fresh
-    deploy/notes/code so one click stamps what visitors run. Never reloads,
-    never throws. */
-export async function peekFreshDeploy(): Promise<void> {
-  try {
-    const sep = siteFile("version.json").includes("?") ? "&" : "?";
-    const res = await fetch(siteFile("version.json") + sep + "t=" + Date.now(), {
-      cache: "no-store",
-      headers: { pragma: "no-cache", "cache-control": "no-cache" },
-    });
-    if (!res.ok) return;
-    const data = await res.json().catch(() => null);
-    const n = Number(data && (data as any).notes);
-    const vDeploy = data && (data as any).deployId;
-    const vCode = data && typeof (data as any).code === "string" ? (data as any).code : "";
-    try {
-      if (typeof vCode === "string" && vCode) hostFileCode = vCode;
-    } catch {}
-    if (typeof vDeploy === "string" && /^[A-Za-z0-9_-]{1,80}$/.test(vDeploy)) {
-      staleHostDeploy = vDeploy === currentDeployId ? "" : vDeploy;
-    } else {
-      staleHostDeploy = "";
-    }
-    staleHostNotes = Number.isFinite(n) ? Math.floor(n) : 0;
-    const deployIsNew = !!staleHostDeploy;
-    const codeIsNew = !!vCode && !!runningCode && vCode !== runningCode;
-    if (!deployIsNew && !codeIsNew && (!Number.isFinite(n) || n <= BUILD_NOTES)) {
-      if (staleNewerNotes || staleCodeMismatch) {
-        staleNewerNotes = 0;
-        staleCodeMismatch = false;
-        version += 1;
-        notify();
-      }
-      return;
-    }
-    staleNewerNotes = deployIsNew && !(Number.isFinite(n) && n > BUILD_NOTES) ? BUILD_NOTES + 1 : Math.floor(n) || BUILD_NOTES + 1;
-    if (codeIsNew && !deployIsNew) staleCodeMismatch = true;
-    version += 1;
-    notify();
-  } catch {}
-}
 function readStaleAttempts(): { notes: number; at: number; tries: number } | null {
   try {
     const raw = sessionStorage.getItem(STALE_RELOAD_KEY);
@@ -1165,31 +782,14 @@ export function checkStaleBuild(): Promise<void> {
           version += 1;
           notify();
         }
-        staleHostDeploy = "";
-        staleHostNotes = Number.isFinite(n) ? Math.floor(n) : 0;
         return;
       }
       staleNewerNotes = deployIsNew ? BUILD_NOTES + 1 : Math.floor(n);
       if (codeIsNew && !deployIsNew) staleCodeMismatch = true;
-      try {
-        staleHostDeploy = typeof vDeploy === "string" && /^[A-Za-z0-9_-]{1,80}$/.test(vDeploy) ? vDeploy : "";
-        if (staleHostDeploy === currentDeployId) staleHostDeploy = "";
-      } catch {
-        staleHostDeploy = "";
-      }
-      try {
-        staleHostNotes = Number.isFinite(n) ? Math.floor(n) : 0;
-      } catch {
-        staleHostNotes = 0;
-      }
       /* Bump so the maintenance notice re-evaluates at once instead of
          sticking with first paint — the old bundle waits, it never plays live. */
       version += 1;
       notify();
-      /* One-click publish: while a publish click runs, record the fresh deploy
-         but do NOT unload — the click stamps the fresh id below instead of
-         asking for a second click. */
-      if (publishInFlight) return;
       
       /* Retryable guard: a few attempts inside a few minutes, then stop
          reloading but KEEP waiting (maintenance stays, no live flash, no
@@ -1230,7 +830,7 @@ export function checkStaleBuild(): Promise<void> {
    the button carrying this says so before it arms. This is the explicit
    office delete (note 300) — the ONLY path that clears last-published. */
 export function resetLocalCopy(): void {
-  const keys = [CACHE_KEY, DRAFT_KEY, HISTORY_KEY, PENDING_KEY, NOTES_KEY, AFTER_SAVE_KEY, DEPLOY_KEY, DEPLOY_SEEN_KEY, CODE_BLESS_KEY, PUBLISH_AT_KEY, FIRST_PUBLISH_KEY, "wom.cms.slidesReset"];
+  const keys = [CACHE_KEY, DRAFT_KEY, HISTORY_KEY, PENDING_KEY, NOTES_KEY, AFTER_SAVE_KEY, DEPLOY_KEY, DEPLOY_SEEN_KEY, CODE_BLESS_KEY, PUBLISH_AT_KEY, "wom.cms.slidesReset"];
   for (const k of keys) {
     try {
       localStorage.removeItem(k);
@@ -1251,7 +851,6 @@ export function resetLocalCopy(): void {
   publishedNotes = 0;
   publishedDeployId = "";
   lastPublishAt = 0;
-  firstPublishAt = 0;
   try {
     window.location.reload();
   } catch {}
@@ -1312,13 +911,6 @@ let authed = false;
 let myRole: "main" | "sub" | null = null;
 let myName = "";
 let socket: any = null;
-/* HIGH fix: this tab's office-socket conn id, sent with file writes so the
-   server can tell the office apart from strangers. Empty until connected. */
-let officeConnId = "";
-/** This tab's office-socket conn id ("" while disconnected). */
-export function officeFileConn(): string {
-  return officeConnId;
-}
 let reconnectTimer = 0;
 let reconnectAttempt = 0;
 let starting = false;
@@ -1531,18 +1123,6 @@ function publishedSection(id: string): any {
   const value = overrides[id];
   if (value === undefined || value === null) return defaults[id];
   return mergeSection(id, defaults[id], value);
-}
-
-/** The live section as published (office-only helper for the early-press
-    self-heal): the transport auto-fill compares the draft against this so it
-    only auto-sends the video stamp — never a half-edited field or a click. */
-export function publishedLive(): any {
-  try {
-    const v = publishedSection("live");
-    return v && typeof v === "object" ? clone(v) : {};
-  } catch {
-    return {};
-  }
 }
 
 /** The section ids the office has changed but not published yet. */
@@ -2065,13 +1645,13 @@ function gateLiveSnapshot(snap: Snapshot): Snapshot {
   return { ...(snap as any), live: gated };
 }
 
-/* One click publishes to visitors: the offline publish below waits for the
-   join first (sleep wake, reconnect backoff, slow mobile network, Render
-   nap), instead of stranding as device-only when the server is right
+/* One click publishes to visitors: the offline publish below waits a few
+   seconds for the join first (sleep wake, reconnect backoff, slow mobile
+   network), instead of stranding as device-only when the server is right
    there. Copies with no server anywhere (pure static, nothing configured)
    skip the wait — there is nothing to join. True when the server can be
    reached (or already is). Never throws. */
-const JOIN_BEFORE_PUBLISH_MS = 150;
+const JOIN_BEFORE_PUBLISH_MS = 8000;
 async function joinBeforePublish(): Promise<boolean> {
   try {
     if (socket && status === "online") return true;
@@ -2087,9 +1667,6 @@ async function joinBeforePublish(): Promise<boolean> {
 }
 
 export async function publishSection(sectionId: string, note: string): Promise<PublishResult> {
-  /* One-click publish (attached 422 behavior): same as publish() above — the
-     click always runs, the branches below silently re-log-in, and offline
-     clicks publish device-locally for the queue + relay to carry over. */
   const def = sectionById(sectionId);
   if (!def || !draft) return { ok: false, error: "nothing-to-do" };
   /* A lapsed entry never survives a publish — expired slides and notices leave
@@ -2104,16 +1681,13 @@ export async function publishSection(sectionId: string, note: string): Promise<P
      deploy, so the office record carries the build visitors run. Fetched
      alongside the fold; "" when stamped or unreachable. */
   const sectionStampP: Promise<string> = deployStampForOfficePublish().catch(() => "");
-  const fastSectionStampP: Promise<string> = Promise.race([sectionStampP, new Promise<string>((res) => window.setTimeout(() => res(""), 150))]);
-  const sectionFoldP = foldLiveInto(draft, sectionId, 300);
-  const sectionJoinP: Promise<boolean> = joinBeforePublish().catch(() => false);
-  await sectionFoldP;
+  await foldLiveInto(draft, sectionId, 6000);
   let value = clone(draft[sectionId]);
   /* The transport arms the send (notes 390, 392, 394): without a clicked play,
      pause or stop newer than what is published, the on-air state stays out of
      the patch — a natural end stamps nothing and needs no publish. */
   if (sectionId === "live") value = gateLiveCommand(value, publishedSection("live"));
-  const sectionStamp = await fastSectionStampP.catch(() => "");
+  const sectionStamp = await sectionStampP.catch(() => "");
   if (sameJSON(value, publishedSection(sectionId))) {
     delete dirty[sectionId];
     persistDraft();
@@ -2123,7 +1697,7 @@ export async function publishSection(sectionId: string, note: string): Promise<P
        leave a wiped server and the live box's own deploy unblessed while
        the office sees success. The bless-only send below carries the same
        server stamp, converge and live relay as every other publish. */
-    if (!(await sectionJoinP)) {
+    if (!(await joinBeforePublish())) {
       markDeployPublished();
       try {
         notePublishAt(Date.now());
@@ -2156,7 +1730,6 @@ export async function publishSection(sectionId: string, note: string): Promise<P
     if (!blessOnly.ok) return { ok: false, error: blessOnly.error };
     rev = blessOnly.rev ?? rev + 1;
     setPublishedNotes(BUILD_NOTES);
-    clearUnrecordedLive();
     writeCache();
     notify();
     return { ok: true, live: blessOnly.relay !== "missed" };
@@ -2165,7 +1738,7 @@ export async function publishSection(sectionId: string, note: string): Promise<P
      momentarily offline (sleep wake, reconnect backoff, slow mobile network)
      waits a few seconds for the join first, instead of stranding as
      device-only when the server is right there. */
-  if (!(await sectionJoinP)) {
+  if (!(await joinBeforePublish())) {
     rememberHistory();
     overrides = { ...overrides, [sectionId]: value };
     applyOverrides(overrides);
@@ -2221,7 +1794,6 @@ export async function publishSection(sectionId: string, note: string): Promise<P
   updatedAt = Date.now();
   updatedBy = editorName();
   setPublishedNotes(BUILD_NOTES);
-  clearUnrecordedLive();
   overrides[sectionId] = JSON.parse(payload);
   log = [{ rev, at: updatedAt, by: editorName(), role: myRole === "sub" ? "sub" : "main", note: note.slice(0, 160), changed: [sectionId] }, ...log].slice(0, 30);
   delete dirty[sectionId];
@@ -2439,10 +2011,10 @@ async function applySeedOnce() {
         noteDeployWitness((seed as any).publishedDeploy);
         /* Same-update baked publish (one click clears brand-new arrivals):
            the bake carries the office's last publish with real words, stamped
-           from this update or newer (note 427) — that IS the review, so this deploy
+           from this update AND this code — that IS the review, so this deploy
            releases at first paint even when the bake was built for a different
            deploy id (cross-built hosts, pre-stamp bakes, mirror seeds). Older
-           updates, empty words and unstamped bakes still hold.
+           updates, other codes, empty words and unstamped bakes still hold.
            Words were applied above; the clean-stage block below still stages
            returning browsers clean. */
         try {
@@ -2455,16 +2027,11 @@ async function applySeedOnce() {
           const seedSections = (seed as any).sections;
           const seedWords = seedSections && typeof seedSections === "object" ? Object.keys(seedSections).length : 0;
           const seedRev = typeof (seed as any).rev === "number" ? Math.floor((seed as any).rev) : 0;
-          /* Cross-deploy seed release needs the word, not just the number
-             (note 428): the bake stamps this deploy's own witness only for its
-             own code, so a same-number bake from older code can never lift a
-             new-code deploy at first paint — only a publish does. The
-             same-deploy stamp above already released (same build, same code by
-             construction). */
-          const seedCode = typeof (seed as any).code === "string" ? (seed as any).code : "";
+          const seedWord = typeof (seed as any).code === "string" ? (seed as any).code : "";
           if (
-            typeof (seed as any).notes === "number" && Math.floor((seed as any).notes) >= BUILD_NOTES &&
-            seedRev > 0 && seedWords > 0 && !!seedCode && !!runningCode && seedCode === runningCode
+            typeof (seed as any).notes === "number" && Math.floor((seed as any).notes) === BUILD_NOTES &&
+            seedRev > 0 && seedWords > 0 &&
+            !!seedWord && !!runningCode && seedWord === runningCode
           ) {
             setPublishedNotes(BUILD_NOTES);
             markDeployPublished();
@@ -2483,19 +2050,7 @@ let feedSpec: FeedSpec | null | undefined;
 let feedSyncing = false;
 async function syncFromFeed() {
   if (feedSyncing) return;
-  /* While visitors wait, the mirror hurries the click even on connected tabs:
-     the office backend may not have followed live yet (its minute loop), and
-     the browser pull may be staring at a sleeping live box — the static mirror
-     has no cold boot. Guards below still decide (never across updates, never
-     empty, never over queued office work), so this can only hurry a publish,
-     never release new code by itself. */
-  if (typeof socket !== "undefined" && socket && status === "online") {
-    try {
-      if (!maintenanceShouldWait()) return;
-    } catch {
-      return;
-    }
-  }
+  if (typeof socket !== "undefined" && socket && status === "online") return;
   feedSyncing = true;
   try {
     if (feedSpec === undefined) feedSpec = await bakedFeedSpec();
@@ -2509,10 +2064,7 @@ async function syncFromFeed() {
        empty bake. Fresh profiles (never blessed, no clean stage) still adopt
        live words normally, so a new device joining the live site is never
        clobbered. */
-    /* Copies with nothing unsaved (visitors) still adopt the mirrored
-       publish while staged clean — only a mid-edit desk holds its clean stage
-       against the mirror. */
-    if (cleanStageForNewCode && pendingSections().length > 0) {
+    if (cleanStageForNewCode) {
       const cand = seed as FeedSeed;
       const seedDeploy = typeof (cand as any).publishedDeploy === "string" ? (cand as any).publishedDeploy : "";
       const ownFirst = !!deployFromMeta && !!currentDeployId && seedDeploy === currentDeployId &&
@@ -2538,13 +2090,6 @@ async function syncFromFeed() {
     try {
       noteCodeWitness((live as any).code, live.notes);
     } catch {}
-    /* Mirror verdict (note 428): a server-less copy lifts on the mirrored
-       publish proof exactly like a server answer — the same attestation rule
-       decides, so the mirror can hurry one click but never release new code
-       by itself. */
-    try {
-      noteServerVerdict(live.notes, Object.keys(liveSections).length, (live as any).at, (live as any).publishedDeploy, (live as any).code);
-    } catch {}
     /* Publish clock over the feed: a mirrored same-update publish newer than
        this deploy's first sighting releases it, even across deploy ids. */
     try {
@@ -2562,22 +2107,6 @@ async function syncFromFeed() {
         blessRunningCode();
       }
     } catch {}
-    /* Late-join release over the mirror: a same-update feed seed attested to
-       this code, carrying real words, IS the office review — release this
-       deploy even when it first opened after the click. */
-    try {
-      const seedCode = typeof (live as any).code === "string" ? (live as any).code : "";
-      if (
-        deployFromMeta && currentDeployId &&
-        publishedDeployId !== currentDeployId &&
-        typeof live.notes === "number" && Math.floor(live.notes) === BUILD_NOTES &&
-        !!seedCode && !!runningCode && seedCode === runningCode &&
-        Object.keys(liveSections).length > 0
-      ) {
-        setPublishedNotes(BUILD_NOTES);
-        markDeployPublished();
-      }
-    } catch {}
     applyOverrides(liveSections);
     writeCache();
   } catch {
@@ -2592,40 +2121,27 @@ function startFeed() {
   feedStarted = true;
   syncFromFeed().catch(() => {});
   /* Publish-at-once: server-less copies read the mirror every minute, so a
-     publish rides out without a rebuild and without a tap. While visitors
-     wait on maintenance, re-read every 10s so one click lands in seconds. */
-  window.setInterval(() => syncFromFeed().catch(() => {}), 4 * 1000);
-  window.setInterval(() => {
-    try {
-      if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
-      if (!maintenanceShouldWait()) return;
-      syncFromFeed().catch(() => {});
-    } catch {}
-  }, 2000);
+     publish rides out without a rebuild and without a tap. */
+  window.setInterval(() => syncFromFeed().catch(() => {}), 60 * 1000);
   document.addEventListener("visibilitychange", () => {
     if (document.visibilityState === "visible") syncFromFeed().catch(() => {});
   });
   window.addEventListener("online", () => syncFromFeed().catch(() => {}));
 }
 
-/* ------------------------- two-way sync with live (notes 308–309, 437):
-   live → local AND local → live, both automatic. Local → live rides the
-   instant relay below plus the auto-deploy (bake → commit → push → rebuild,
-   a few minutes). Live → local is pulled by every open office tab by itself
-   (note 437): stamps, words and the notice follow a live publish within
-   seconds — no session, no clean desk, no second click — while the durable
-   record on the office backend waits for a session and a clean desk. Nothing
-   published in either place is ever lost.
-   - AUTOMATIC: while an office tab is open, a live publish newer
-     than this copy's is painted here at once (same bless and notice-lift as
-     a hand publish) with its uploads fetched home, and recorded onto the
-     office backend the moment the desk allows (signed in, clean desk).
+/* ------------------------- two-way sync with live (notes 308–309): live → local.
+   Local → live already rides the auto-deploy (bake → commit → push → rebuild,
+   a few minutes). This is the other half, so nothing published in either place
+   is ever lost: anything published on live is saved on the office copy by
+   itself, anything published on local reaches live through the deploy.
+   - AUTOMATIC: while an office tab is open and signed in, a live publish newer
+     than this copy's is published straight onto the office backend (same
+     bless, history and log as a hand publish) with its uploads fetched home.
      Conservative by design: never across a newer update (apply the zip
-     first), never over a clean stage with queued office work, never from a
-     fallback bake (only a fresh copy may be restored from the bake, and
-     only by hand), and ties go to the durable path (rev counters are
-     per-store, so the wall clock arbitrates — live wins only when its
-     publish is strictly newer).
+     first), never over unsaved draft work, never from a fallback bake (only
+     a fresh copy may be restored from the bake, and only by hand), and ties
+     go to the durable path (rev counters are per-store, so the wall clock
+     arbitrates — live wins only when its publish is strictly newer).
    - ON PUBLISH (note 309): pressing Publish first folds live's newer words
      into what goes out — sections the office did not touch take live's words
      (uploads fetched home), sections the office edited keep the office's. The
@@ -2740,7 +2256,7 @@ export function liveSiteBaseUrl(): string {
 }
 export async function refreshLiveSiteNotes(): Promise<number | null> {
   try {
-    if (Date.now() - liveSiteCheckedAt < 10 * 1000) return liveSiteNotes;
+    if (Date.now() - liveSiteCheckedAt < 60 * 1000) return liveSiteNotes;
     const base = await liveBaseUrl();
     liveSiteBase = base;
     if (!base) {
@@ -2793,7 +2309,7 @@ export function liveBakeSectionCount(): number {
 }
 export async function refreshLiveBake(): Promise<void> {
   try {
-    if (Date.now() - liveBakeCheckedAt < 10 * 1000) return;
+    if (Date.now() - liveBakeCheckedAt < 60 * 1000) return;
     liveBakeCheckedAt = Date.now();
     const base = liveSiteBase || (await liveBaseUrl());
     if (!base) return;
@@ -2828,7 +2344,7 @@ type LivePullResult = { ok: boolean; error?: string; pulled?: string[]; filesRes
 async function fetchLiveContent(base: string): Promise<any | null> {
   try {
     const ctrl = typeof AbortController !== "undefined" ? new AbortController() : null;
-    const timer = ctrl ? setTimeout(() => ctrl.abort(), 8000) : 0;
+    const timer = ctrl ? setTimeout(() => ctrl.abort(), 15000) : 0;
     try {
       const res = await fetch(base + "/__cms/getContent?conn=livepull-" + Math.random().toString(36).slice(2), {
         method: "POST",
@@ -2883,7 +2399,7 @@ async function backfillUploadsFrom(fromBase: string, content: Snapshot = overrid
       if (!res.ok) throw 0;
       const blob = await res.blob();
       if (!blob.size || blob.size > BACKUP_FILE_MAX_BYTES) throw 0;
-      const put = await fetch("/__restore-file?conn=" + encodeURIComponent(officeFileConn()) + "&name=" + encodeURIComponent(name), {
+      const put = await fetch("/__restore-file?name=" + encodeURIComponent(name), {
         method: "POST",
         headers: { "content-type": blob.type || guessUploadType(name) },
         body: blob,
@@ -2963,7 +2479,7 @@ export async function healMissingUploads(): Promise<{ restored: number; checked:
           }
         }
         if (!blob || !(blob as any).size) continue;
-        const put = await fetch("/__restore-file?conn=" + encodeURIComponent(officeFileConn()) + "&name=" + encodeURIComponent(name), {
+        const put = await fetch("/__restore-file?name=" + encodeURIComponent(name), {
           method: "POST",
           headers: { "content-type": (blob as any).type || guessUploadType(name) },
           body: blob,
@@ -2987,36 +2503,8 @@ function scheduleUploadHeal(delayMs = 2500): void {
 /* Read live's publish without adopting anything: the shared front door for the
    automatic save and the publish-time fold. Null when there is nothing usable
    (no live address, live silent or empty) — never toasts, never throws. */
-/* Mirror fallback (note 438): when the live box sleeps, its backend needs a
-   30–60s cold boot and the 15s browser read times out — every time. The static
-   feed mirror (publish-feed.txt → seed.json on the public repo) has no boot
-   and answers in milliseconds, carrying the same stamp (notes, clock, deploy,
-   code word) and words. Same guards as the backend read decide below — never
-   across updates, never empty, never from a fallback bake on a used copy —
-   so this can only hurry a real publish, never invent one. */
-async function readLiveViaFeed(): Promise<{ base: string; sections: Snapshot; notes: number; at: number; seeded: boolean; publishDeploy: string; code: string } | null> {
-  try {
-    if (feedSpec === undefined) feedSpec = await bakedFeedSpec();
-    if (!feedSpec) return null;
-    const seed = (await peekSeed(feedSpec, 15000)) as any;
-    if (!seed || typeof seed !== "object") return null;
-    const secs = (seed as any).sections;
-    if (!secs || typeof secs !== "object" || !Object.keys(secs).length) return null;
-    return {
-      base: "feed",
-      sections: clone(secs),
-      notes: typeof (seed as any).notes === "number" ? Math.floor((seed as any).notes) : 0,
-      at: typeof (seed as any).at === "number" ? (seed as any).at : 0,
-      seeded: false,
-      publishDeploy: typeof (seed as any).publishedDeploy === "string" && /^[A-Za-z0-9_-]{1,80}$/.test((seed as any).publishedDeploy) ? (seed as any).publishedDeploy : "",
-      code: typeof (seed as any).code === "string" && /^[A-Za-z0-9_-]{1,40}$/.test((seed as any).code) ? (seed as any).code : "",
-    };
-  } catch {
-    return null;
-  }
-}
-async function readLivePublish(allowWhileRunning = false): Promise<{ base: string; sections: Snapshot; notes: number; at: number; seeded: boolean; publishDeploy: string; code: string } | null> {
-  if (!allowWhileRunning && livePullRunning) return null;
+async function readLivePublish(): Promise<{ base: string; sections: Snapshot; notes: number; at: number; seeded: boolean; publishDeploy: string } | null> {
+  if (livePullRunning) return null;
   const base = await liveBaseUrl();
   if (!base) return null;
   const live = await fetchLiveContent(base);
@@ -3038,10 +2526,6 @@ async function readLivePublish(allowWhileRunning = false): Promise<{ base: strin
        office record on pull so the durable seed (bake, origin push, rebuild)
        names the live deploy — wakes then serve its release, not just words. */
     publishDeploy: typeof live.publishDeploy === "string" && /^[A-Za-z0-9_-]{1,80}$/.test(live.publishDeploy) ? live.publishDeploy : "",
-    /* The code word the live publish was blessed from (note 437): the public
-       adoption below attests on it, so a same-update, same-code publish
-       releases this copy with no sign-in and no second click. */
-    code: typeof live.code === "string" && /^[A-Za-z0-9_-]{1,40}$/.test(live.code) ? live.code : "",
   };
 }
 
@@ -3062,194 +2546,37 @@ function liveNewerThanHere(liveNotes: number, liveAt: number, seeded: boolean): 
   return "newer";
 }
 
-/* Live-adopted words still owed to this copy's own backend (note 437): a
-   live publish painted here while this tab was signed out (or mid-edit) is
-   newer than the office store — the next server sync must not paint the
-   older store over it. Persisted, so it survives the reload between the
-   adoption and the sign-in that records it. Same update + real words only;
-   cleared the moment the office record catches up (durable pull, any explicit
-   publish) or the server proves newer. */
-const LIVE_UNRECORDED_KEY = "wom.cms.liveUnrecorded";
-function readUnrecordedLive(): { at: number; notes: number; words: number; hash: string } | null {
-  try {
-    const raw = localStorage.getItem(LIVE_UNRECORDED_KEY);
-    if (!raw) return null;
-    const o = JSON.parse(raw);
-    if (!o || typeof o.at !== "number" || !(o.at > 0)) return null;
-    if (Math.floor(Number(o.notes)) !== BUILD_NOTES) return null;
-    if (!(o.words > 0) || typeof o.hash !== "string" || !o.hash) return null;
-    return { at: Math.floor(o.at), notes: BUILD_NOTES, words: Math.floor(o.words), hash: o.hash };
-  } catch {
-    return null;
-  }
-}
-function noteUnrecordedLive(at: number, notes: number, words: number, hash: string): void {
-  try {
-    if (!(at > 0) || Math.floor(Number(notes)) !== BUILD_NOTES || !(words > 0) || !hash) return;
-    localStorage.setItem(LIVE_UNRECORDED_KEY, JSON.stringify({ at: Math.floor(at), notes: BUILD_NOTES, words: Math.floor(words), hash }));
-  } catch {}
-}
-function clearUnrecordedLive(): void {
-  try {
-    localStorage.removeItem(LIVE_UNRECORDED_KEY);
-  } catch {}
-}
-/* Cheap fingerprint of adopted words, so the keep-paint guard below only
-   holds while the paint still IS the adoption (an explicit publish or a
-   newer sync moves on by itself). */
-function fingerprintSections(sections: Snapshot): string {
-  try {
-    const s = stableStringify(sections);
-    let h = 0x811c9dc5;
-    for (let i = 0; i < s.length; i++) {
-      h ^= s.charCodeAt(i);
-      h = Math.imul(h, 0x01000193);
-    }
-    return (h >>> 0).toString(36);
-  } catch {
-    return "";
-  }
-}
-/* True when this tab paints live-adopted words the office server below does
-   not know yet: the server answer is older than the adoption, so painting it
-   would regress the site by itself. The live tick records the words durably
-   once the desk allows; until then the paint stands. Same update only, real
-   words only, never in a clean stage with queued office work. */
-function liveAdoptBeatsServer(serverAt: unknown, serverNotes: unknown): boolean {
-  try {
-    const u = readUnrecordedLive();
-    if (!u) return false;
-    if (typeof serverNotes === "number" && Number.isFinite(serverNotes) && Math.floor(serverNotes) !== BUILD_NOTES) return false;
-    const sAt = Math.floor(Number(serverAt));
-    if (!(u.at > (Number.isFinite(sAt) && sAt > 0 ? sAt : 0))) return false;
-    if (cleanStageForNewCode && pendingSections().length > 0) return false;
-    if (!u.hash || fingerprintSections(overrides) !== u.hash) return false;
-    return true;
-  } catch {
-    return false;
-  }
-}
-
 export async function pullFromLive(): Promise<LivePullResult> {
+  if ((!socket || status !== "online") && !(await ensureOnline())) {
+    return { ok: false, error: "offline" };
+  }
+  if (!authed) {
+    const saved = sessionPassword();
+    const res = saved ? await login(saved, true) : ({ ok: false as const });
+    if (!res.ok) {
+      if ((res as any).error === "denied") clearSession();
+      return { ok: false, error: "unauthorized" };
+    }
+  }
+  const read = await readLivePublish();
+  if (!read) {
+    return { ok: false, error: "unreachable" };
+  }
+  const verdict = liveNewerThanHere(read.notes, read.at, read.seeded);
+  if (verdict === "newer-update") {
+    const msg = `Live is on update ${read.notes} — apply the new update on this copy first.`;
+    lastLivePullAt = Date.now();
+    lastLivePullMsg = msg;
+    return { ok: false, error: "newer-update" };
+  }
+  if (verdict === "stale") {
+    return { ok: true, pulled: [] };
+  }
   if (livePullRunning) return { ok: false, error: "busy" };
   livePullRunning = true;
   try {
-    /* Never adopt-and-stamp from a stale bundle: reload onto the new build
-       instead, so the stamp never moves backwards to an old word. */
-    if (await stopIfStale()) return { ok: false, error: "stale-reload" };
-    /* The public read needs no session and no socket (note 437: a Publish
-       clicked on live/admin takes effect on local/admin by itself, and vice
-       versa through the relay that already runs). The durable record on this
-       copy's backend follows once the desk allows — signed in, clean desk —
-       but the notice and the words never wait for it. */
-   let read = await readLivePublish(true);
-    /* Sleeping live box (note 438): the backend read above times out on a
-       cold boot, but the static mirror answers at once — same publish, same
-       guards below. */
-    if (!read) {
-      try {
-        const fb = await readLiveViaFeed();
-        if (fb) read = fb;
-      } catch {}
-    }
-    if (!read) {
-      return { ok: false, error: "unreachable" };
-    }
-    const verdict = liveNewerThanHere(read.notes, read.at, read.seeded);
-    if (verdict === "newer-update") {
-      const msg = `Live is on update ${read.notes} — apply the new update on this copy first.`;
-      lastLivePullAt = Date.now();
-      lastLivePullMsg = msg;
-      return { ok: false, error: "newer-update" };
-    }
-    if (verdict === "stale") {
-      return { ok: true, pulled: [] };
-    }
-    /* A live box that moved backwards (note 437): this tab already paints a
-       newer live publish it has not recorded yet — never paint the older
-       answer over it. The office record still catches up once the desk
-       allows. */
-    try {
-      const owed = readUnrecordedLive();
-      if (owed && read.notes === BUILD_NOTES && read.at < owed.at) {
-        return { ok: true, pulled: [] };
-      }
-    } catch {}
-    /* Session-free stamps (note 437): the publish clock, the deploy witness
-       and the code word move on the live answer alone — a live publish lifts
-       this copy's notice within seconds, signed in or not, draft or not. The
-       comparisons are the guard: only a same-update publish, only with real
-       words. Raise-only, like every other witness. */
-    const liveWords = read.sections && typeof read.sections === "object" ? Object.keys(read.sections).length : 0;
-    const sameUpdate = read.notes === BUILD_NOTES;
-    try {
-      if (sameUpdate && read.at > 0) notePublishAt(read.at);
-    } catch {}
-    try {
-      noteDeployWitness(read.publishDeploy);
-    } catch {}
-    let liveCodeWitnessed = false;
-    try {
-      if (sameUpdate && liveWords > 0) liveCodeWitnessed = noteCodeWitness(read.code, read.notes);
-    } catch {}
-    /* Late-join release over the live answer (note 437 — same rule as the
-       server twin): a same-update publish attested to this code, carrying
-       real words, IS the office review — release this deploy even when it
-       first opened after the click. Never across updates, never for a
-       different word, never on an empty answer, and never with this copy's
-       own unsaved work pending in a clean stage. */
-    try {
-      if (
-        (!cleanStageForNewCode || pendingSections().length === 0) &&
-        deployFromMeta && currentDeployId &&
-        publishedDeployId !== currentDeployId &&
-        sameUpdate && liveCodeWitnessed && liveWords > 0
-      ) {
-        setPublishedNotes(BUILD_NOTES);
-        markDeployPublished();
-      }
-      /* Unstamped copies (note 438 — no deploy meta, e.g. a static preview):
-         the same attested publish still raises the number gate and blesses the
-         code, so local previews replicate live with no second click. Staging
-         untouched. */
-      if (
-        (!cleanStageForNewCode || pendingSections().length === 0) &&
-        (!deployFromMeta || !currentDeployId) &&
-        sameUpdate && liveCodeWitnessed && liveWords > 0
-      ) {
-        setPublishedNotes(BUILD_NOTES);
-        blessRunningCode();
-      }
-    } catch {}
     const { ids, patch } = diffAgainstLive(read.sections);
-    /* An adoption the office record never learned (note 437): the paint
-       below already speaks live, so the words ride the full set, not the
-       empty diff — a bless-only send would stamp the server without its
-       words. Superseded when live moves on (the fresh diff takes over). */
-    let unrec = readUnrecordedLive();
-    try {
-      if (unrec && (!sameUpdate || !(read.at >= unrec.at))) {
-        clearUnrecordedLive();
-        unrec = null;
-      }
-    } catch {}
-    let sendIds = ids;
-    let sendMap = patch;
-    if (!ids.length && unrec && sameUpdate && liveWords > 0) {
-      sendIds = [];
-      sendMap = {};
-      for (const def of SECTION_DEFS) {
-        const v = read.sections[def.id];
-        if (v === undefined || v === null) continue;
-        sendIds.push(def.id);
-        sendMap[def.id] = JSON.stringify(clone(v));
-      }
-      if (!sendIds.length) {
-        clearUnrecordedLive();
-        unrec = null;
-      }
-    }
-    if (!sendIds.length) {
+    if (!ids.length) {
       lastLivePullAt = Date.now();
       lastLivePullMsg = "Live matches this copy — nothing to pull.";
       /* No words to carry, but the stamp still counts (note 420): live holds
@@ -3258,13 +2585,12 @@ export async function pullFromLive(): Promise<LivePullResult> {
          somebody taps Publish here too. So adopt it: raise the stamp and
          bless the running code, exactly like a pull that carried words. Only
          outside a clean stage (a new code arrival still takes its explicit
-         Publish or Recover), only with no unsaved work of its own pending —
-         and a same-update publish attested to this code lifts even when it
-         landed before this deploy opened (one Publish clears every deploy,
-         no per-device click), while an unattested answer still needs to be
-         newer than this copy's first sighting — and never across updates.
-         Nothing here stages, moves or loses words. */
-      if (pendingSections().length === 0 && sameUpdate && liveWords > 0 && (liveCodeWitnessed || (read.at > 0 && deployFirstSeenAt > 0 && read.at > deployFirstSeenAt))) {
+         Publish or Recover), only with no unsaved work of its own pending,
+         only a publish NEWER than this copy's first sighting (a stale live
+         publish must not clear the notice by itself — same rule as the sync
+         twin), and never across updates — nothing here stages, moves or
+         loses words. */
+      if (!cleanStageForNewCode && pendingSections().length === 0 && read.notes === BUILD_NOTES && read.sections && Object.keys(read.sections).length > 0 && read.at > 0 && deployFirstSeenAt > 0 && read.at > deployFirstSeenAt) {
         setPublishedNotes(BUILD_NOTES);
         blessRunningCode();
         writeCache();
@@ -3278,107 +2604,27 @@ export async function pullFromLive(): Promise<LivePullResult> {
        running code — the words record on the office disk either way. Staging
        follows only outside a clean stage (a new code arrival stages nothing
        inbound until Recover or an explicit Publish); mid-edit desks still
-       wait, so unsaved work is never adopted under. The number/code gates DO
-       lift here on a same-update, same-code publish with real words (note
-       438) — that attested publish IS the office review — while a clean
-       stage with queued office work still stages nothing inbound. */
+       wait, so unsaved work is never adopted under. Nothing here blesses
+       code, deploy or number gates — those still take an explicit Publish. */
     const stageInbound = !cleanStageForNewCode;
-    /* The paint adopts by itself (note 437): visitors and the notice follow
-       a live publish within seconds — signed in or not, draft or not. Edits
-       in progress are rebased, never overwritten (rebaseDraft keeps dirty
-       sections); the durable record below still waits for a clean desk and a
-       session, so nothing is recorded behind the office's back. */
-    let painted = false;
-    if (ids.length && (stageInbound || pendingSections().length === 0)) {
-      try {
-        const paint: Snapshot = {};
-        for (const id of ids) {
-          try {
-            paint[id] = JSON.parse(patch[id]);
-          } catch {
-            continue;
-          }
-        }
-        const paintedIds = Object.keys(paint);
-        if (paintedIds.length) {
-          const merged = clone(overrides);
-          for (const id of paintedIds) (merged as Snapshot)[id] = (paint as Snapshot)[id];
-          applyOverrides(merged);
-          writeCache();
-          noteUnrecordedLive(read.at, read.notes, liveWords, fingerprintSections(overrides));
-          painted = true;
-          /* Number-gate twin (note 438): the paint already speaks live, so the
-             stamp rides with it even while the durable record waits below —
-             otherwise an unstamped/signed-out copy paints live yet keeps
-             waiting until its own click. Same guards, staging untouched. */
-          try {
-            if (sameUpdate && liveWords > 0 && liveCodeWitnessed && pendingSections().length === 0) {
-              setPublishedNotes(BUILD_NOTES);
-              blessRunningCode();
-            }
-          } catch {}
-        }
-      } catch {}
-    }
     if (pendingSections().length > 0 && stageInbound) {
-      /* A mid-edit desk records nothing (as before) — but the paint above
-         already follows live, so the publish is showing, not owed. */
-      if (painted) {
-        lastLivePullAt = Date.now();
-        lastLivePullMsg = `Live publish showing here — ${ids.length} ${ids.length === 1 ? "section" : "sections"} (records on your next Publish).`;
-        fireToast(lastLivePullMsg + ".", "success");
-        notify();
-        return { ok: true, pulled: ids };
-      }
       return { ok: false, error: "deferred" };
-    }
-    /* The durable record needs this copy's backend and a session (as
-       before): while signed out or unreachable it simply waits — the paint
-       above (and its owed-record flag) keeps visitors live meanwhile. */
-    if ((!socket || status !== "online") && !(await ensureOnline())) {
-      if (painted) {
-        lastLivePullAt = Date.now();
-        lastLivePullMsg = `Live publish showing here — ${ids.length} ${ids.length === 1 ? "section" : "sections"} (records itself when the server returns).`;
-        fireToast(lastLivePullMsg + ".", "success");
-        notify();
-        return { ok: true, pulled: ids };
-      }
-      return { ok: false, error: "offline" };
-    }
-    if (!authed) {
-      const saved = silentSessionUsable();
-      const res = saved ? await login(saved, true) : ({ ok: false as const });
-      if (!res.ok) {
-        /* A changed/retired password ends the session here (note 297) but
-           keeps every held word, queue entry and stamp — only an explicit
-           office delete may clear last-published (note 300). */
-        if ((res as any).error === "denied") clearSession();
-        if (painted) {
-          lastLivePullAt = Date.now();
-          lastLivePullMsg = `Live publish showing here — ${ids.length} ${ids.length === 1 ? "section" : "sections"} (records itself once you sign in).`;
-          fireToast(lastLivePullMsg + ".", "success");
-          notify();
-          return { ok: true, pulled: ids };
-        }
-        return { ok: false, error: "unauthorized" };
-      }
     }
     rememberHistory();
     /* Durable stamp: the office record names the live deploy these words were
        published from, so the seed, origin push and rebuild bake carry the
        build live visitors run — sleep-wakes serve its release. */
-    const res = await sendPatch(sendMap, sendIds, `Pulled from live (${sendIds.length} ${sendIds.length === 1 ? "section" : "sections"})`, true, false, read.publishDeploy);
+    const res = await sendPatch(patch, ids, `Pulled from live (${ids.length} ${ids.length === 1 ? "section" : "sections"})`, true, false, read.publishDeploy);
     if (!res.ok) return { ok: false, error: res.error };
     rev = res.rev ?? rev + 1;
     updatedAt = Date.now();
     updatedBy = editorName();
     setPublishedNotes(BUILD_NOTES);
-    clearUnrecordedLive();
     if (stageInbound) {
       applyOverrides(overrides, false);
       writeCache();
     }
-    log = [{ rev, at: updatedAt, by: updatedBy, role: myRole === "sub" ? "sub" : "main", note: "Pulled from live", changed: sendIds }, ...log].slice(0, 30);
+    log = [{ rev, at: updatedAt, by: updatedBy, role: myRole === "sub" ? "sub" : "main", note: "Pulled from live", changed: ids }, ...log].slice(0, 30);
     if (stageInbound) {
       draft = null;
       dirty = {};
@@ -3389,16 +2635,16 @@ export async function pullFromLive(): Promise<LivePullResult> {
         localStorage.removeItem(DRAFT_KEY);
       } catch {}
     }
-    const files = read.base && read.base !== "feed" ? await backfillUploadsFrom(read.base) : { restored: 0, failed: [] as string[] };
+    const files = await backfillUploadsFrom(read.base);
     lastLivePullAt = Date.now();
     const imgBit = files.restored ? ` and ${files.restored} uploaded ${files.restored === 1 ? "file" : "files"} came home` : "";
     const missBit = files.failed.length ? ` (${files.failed.length} uploaded ${files.failed.length === 1 ? "file is" : "files are"} missing on live: ${files.failed.slice(0, 3).join(", ")}${files.failed.length > 3 ? "…" : ""})` : "";
     lastLivePullMsg = stageInbound
-      ? `Live publish saved here — ${sendIds.length} ${sendIds.length === 1 ? "section" : "sections"}${imgBit}${missBit}`
-      : `Live publish recorded in the office — ${sendIds.length} ${sendIds.length === 1 ? "section" : "sections"}${imgBit}${missBit} (staged clean until Recover)`;
+      ? `Live publish saved here — ${ids.length} ${ids.length === 1 ? "section" : "sections"}${imgBit}${missBit}`
+      : `Live publish recorded in the office — ${ids.length} ${ids.length === 1 ? "section" : "sections"}${imgBit}${missBit} (staged clean until Recover)`;
     fireToast(lastLivePullMsg + ".", "success");
     notify();
-    return { ok: true, pulled: sendIds, filesRestored: files.restored, filesFailed: files.failed };
+    return { ok: true, pulled: ids, filesRestored: files.restored, filesFailed: files.failed };
   } finally {
     livePullRunning = false;
   }
@@ -3452,7 +2698,7 @@ async function foldLiveInto(target: Snapshot | null, onlyId?: string, boundedMs 
   if (liveNewerThanHere(read.notes, read.at, read.seeded) !== "newer") return { snapshot: target, folded: [] };
   if (!socket || status !== "online") return { snapshot: target, folded: [] };
   if (!authed) {
-    const saved = silentSessionUsable();
+    const saved = sessionPassword();
     const res = saved ? await login(saved, true) : ({ ok: false as const });
     if (!res.ok) {
       if ((res as any).error === "denied") clearSession();
@@ -3514,156 +2760,17 @@ async function foldLiveInto(target: Snapshot | null, onlyId?: string, boundedMs 
    the pull below is the same guarded path the shout itself takes. */
 let contentWatchStarted = false;
 let contentWatchRunning = false;
-/* Last stamp tuple seen by the freshness watch (note 427): any movement on
-   the shared backend while the notice shows pulls the full answer at once. */
-let lastStampTuple = "";
-function stampTupleOf(r: any): string {
-  try {
-    return [(r as any).rev, (r as any).notes, (r as any).at, (r as any).publishDeploy, (r as any).code, (r as any).words]
-      .map((v) => String(v))
-      .join("|");
-  } catch {
-    return "";
-  }
-}
-/* One-click publish reaches every browser (office request): the socket shout
-   misses sleeping/offline copies, so the stamp is also polled over plain HTTP
-   — a public read, no session — which wakes a sleeping server like any HTTP
-   request. Any same-update publish with real words releases this deploy at
-   once, whatever deploy id it was stamped from. Best-effort, never throws. */
-async function pollPublishHttp(): Promise<void> {
-  try {
-    if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
-    const urls: string[] = [];
-    try {
-      const remote = serverUrl();
-      if (remote) urls.push(remote + "/__cms/contentRev");
-    } catch {}
-    urls.push("/__cms/contentRev");
-    try {
-      const live = await liveBaseUrl().catch(() => "");
-      if (live) urls.push(live + "/__cms/contentRev");
-    } catch {}
-    let lifted = false;
-    /* Server-authoritative verdict (note 427): while the notice shows, the
-       stamp poll names the shared backend's words too, and any stamp movement
-       pulls the full answer at once — one admin Publish lifts every copy on
-       this host within one fast poll, with no per-device click. */
-    let holding = false;
-    try {
-      holding = maintenanceShouldWait();
-    } catch {}
-    for (const u of urls) {
-      try {
-        const ctrl = typeof AbortController !== "undefined" ? new AbortController() : null;
-        const timer = ctrl ? window.setTimeout(() => ctrl.abort(), 3500) : 0;
-        try {
-          const res = await fetch(u + "?conn=http-poll-" + Math.random().toString(36).slice(2), {
-            method: "POST",
-            headers: { "content-type": "text/plain;charset=utf-8" },
-            body: "",
-            cache: "no-store",
-            signal: ctrl ? ctrl.signal : undefined,
-          });
-          if (!res.ok) continue;
-          const r = await res.json().catch(() => null);
-          if (!r || (r as any).ok !== true) continue;
-          let synced = false;
-          try {
-            noteServerVerdict((r as any).notes, (r as any).words, (r as any).at, (r as any).publishDeploy, (r as any).code);
-          } catch {}
-          /* Any stamp movement while waiting pulls the full answer at once
-             (note 427) — even a stamp-only publish the rev check cannot see. */
-          try {
-            const key = stampTupleOf(r);
-            if (key && key !== lastStampTuple) {
-              lastStampTuple = key;
-              if (holding) {
-                await syncFromServer().catch(() => {});
-                synced = true;
-              }
-            }
-          } catch {}
-          const notes = Math.floor(Number((r as any).notes));
-          const at = Number((r as any).at);
-          const deploy = typeof (r as any).publishDeploy === "string" ? (r as any).publishDeploy : "";
-          const code = typeof (r as any).code === "string" ? (r as any).code : "";
-          if (Number.isFinite(notes) && notes > 0) setPublishedNotes(notes);
-          try { if (Number.isFinite(at) && at > 0) notePublishAt(at); } catch {}
-          try { noteDeployWitness(deploy); } catch {}
-          try { if (Number.isFinite(notes)) noteCodeWitness(code, notes); } catch {}
-          try {
-            if (Number.isFinite(notes) && notes === BUILD_NOTES && deploy && currentDeployId && deployFromMeta && deploy === currentDeployId) markDeployPublished();
-          } catch {}
-          /* Late-join release: a same-update publish attested to this code IS
-             the office review — release even when this deploy first opened
-             after the click (no second click needed). */
-          try {
-            if (Number.isFinite(notes) && notes === BUILD_NOTES && code && code === runningCode) {
-              setPublishedNotes(BUILD_NOTES);
-              blessRunningCode();
-              if (deployFromMeta && currentDeployId) markDeployPublished();
-              lifted = true;
-            }
-          } catch {}
-          if (postDeployPublishWitnessed()) {
-            try { markDeployPublished(); } catch {}
-            lifted = true;
-          }
-          if (r && typeof (r as any).rev === "number" && (r as any).rev !== rev) {
-            if (!synced) await syncFromServer().catch(() => {});
-          } else if (r && typeof (r as any).notes === "number" && (r as any).notes > publishedNotes) {
-            if (!synced) await syncFromServer().catch(() => {});
-          } else if (!socket || status !== "online") {
-            /* Socketless copies still need the words, not just the stamp. */
-            await syncFromFeed().catch(() => {});
-          }
-        } finally {
-          if (timer) window.clearTimeout(timer as ReturnType<typeof setTimeout>);
-        }
-      } catch { /* next door */ }
-    }
-    if (lifted) {
-      version += 1;
-      notify();
-    }
-  } catch {}
-}
 function startContentWatch() {
   if (contentWatchStarted) return;
   contentWatchStarted = true;
   const tick = async () => {
     try {
       if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
-      /* Socket down (sleeping server, offline visitor): the HTTP stamp poll
-         still reaches the publish — one click lifts every browser. */
-      if (!socket || status !== "online") {
-        await pollPublishHttp().catch(() => {});
-        return;
-      }
-      if (contentWatchRunning) return;
+      if (!socket || status !== "online" || contentWatchRunning) return;
       contentWatchRunning = true;
       try {
         const raw = await socket.rpc.contentRev("");
         const r = typeof raw === "string" ? JSON.parse(raw) : raw;
-        try {
-          noteServerVerdict((r as any).notes, (r as any).words, (r as any).at, (r as any).publishDeploy, (r as any).code);
-        } catch {}
-        /* Note 427: any stamp movement while the notice shows pulls the full
-           answer at once — a stamp-only publish moves no rev the chain below
-           can see. */
-        try {
-          const key = stampTupleOf(r);
-          if (r && (r as any).ok === true && key && key !== lastStampTuple) {
-            lastStampTuple = key;
-            try {
-              if (maintenanceShouldWait()) {
-                await syncFromServer().catch(() => {});
-                return;
-              }
-            } catch {}
-          }
-        } catch {}
         if (r && r.ok && typeof r.rev === "number" && r.rev !== rev) await syncFromServer().catch(() => {});
         else if (r && r.ok && deployFromMeta && currentDeployId && typeof r.publishDeploy === "string" && r.publishDeploy === currentDeployId && publishedDeployId !== currentDeployId) await syncFromServer().catch(() => {});
         /* A publish the rev stamp cannot see (note 420): the feed-follow
@@ -3682,7 +2789,7 @@ function startContentWatch() {
   };
   window.setInterval(() => {
     tick().catch(() => {});
-  }, 3000);
+  }, 30_000);
   /* Waiting copies hurry (publish reaches everywhere): while this copy holds
      on maintenance, re-ask the stamp every 10s instead of only on the loop
      above — the moment the server learns the publish, the notice lifts with
@@ -3692,36 +2799,30 @@ function startContentWatch() {
       if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
       if (!maintenanceShouldWait()) return;
       tick().catch(() => {});
-      /* A stale bundle must reload onto the update promptly while waiting —
-         otherwise the old code keeps deciding maintenance from old numbers. */
-      try { checkStaleBuild().catch(() => {}); } catch {}
-      try { syncFromFeed().catch(() => {}); } catch {}
     } catch {}
-  }, 5_000);
+  }, 10_000);
   document.addEventListener("visibilitychange", () => {
-    if (document.visibilityState === "visible") {
-      tick().catch(() => {});
-      try { checkStaleBuild().catch(() => {}); } catch {}
-      try { syncFromFeed().catch(() => {}); } catch {}
-    }
+    if (document.visibilityState === "visible") tick().catch(() => {});
   });
   window.addEventListener("online", () => {
     tick().catch(() => {});
-    try { checkStaleBuild().catch(() => {}); } catch {}
   });
 }
 
-/* The automatic half runs in every open office tab (note 437): the live read
-   is public, so no session is needed to notice — the durable record still
-   waits for one. Right after boot, every minute, and whenever the tab comes
-   back or the network returns; waiting copies hurry (a live publish lands
-   within seconds). Copies with no live address (the live box itself,
-   standalone copies) return at the first fetch. */
+/* The automatic half runs in any signed-in office tab: right after boot, every
+   minute, and whenever the tab comes back or the network returns. Visitors'
+   tabs never poll (no session, no sign-in) — and copies with no live address
+   (the live box itself, standalone copies) return at the first fetch. */
 function startLivePull() {
   if (livePullStarted) return;
   livePullStarted = true;
   const tick = () => {
     if (livePullRunning) return;
+    try {
+      if (!authed && !sessionPassword()) return;
+    } catch {
+      return;
+    }
     if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
     pullFromLive().catch(() => {});
     refreshLiveSiteNotes().catch(() => {});
@@ -3729,30 +2830,12 @@ function startLivePull() {
   };
   try {
     initialSyncDone.then(() => {
-      /* A copy that opens onto waiting visitors follows live at once instead
-         of after the first minute. */
-      try {
-        if (maintenanceShouldWait()) tick();
-        else window.setTimeout(() => tick(), 1200);
-      } catch {
-        window.setTimeout(() => tick(), 1200);
-      }
+      window.setTimeout(() => tick(), 15000);
     }).catch(() => {});
   } catch {
-    window.setTimeout(() => tick(), 1200);
+    window.setTimeout(() => tick(), 15000);
   }
-  window.setInterval(() => tick(), 5 * 1000);
-  /* Waiting copies hurry (publish reaches everywhere): while the notice
-     shows, re-read live every 10s instead of only on the loop above — a
-     Publish clicked on live/admin lands on local/admin within seconds, with
-     no tap here. Hidden tabs still skip; the 60s loop stays for every copy. */
-  window.setInterval(() => {
-    try {
-      if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
-      if (!maintenanceShouldWait()) return;
-      tick();
-    } catch {}
-  }, 2000);
+  window.setInterval(() => tick(), 60 * 1000);
   document.addEventListener("visibilitychange", () => {
     if (document.visibilityState === "visible") tick();
   });
@@ -3824,14 +2907,6 @@ export async function startCms() {
      words — the field and both guest keys — go once per update, dirty or
      not, so no unsaved guest row rides into the new update. */
   if (freshEyes) clearDraftGuestSlot();
-  /* A proven new update retires the carried click (note 428): the session flag
-     below carries a Publish across the stale-check reload onto the next deploy
-     — same update, same review. A new update is a new review, so a click from
-     before it must never lift the new code in this tab; the office publishes
-     again. Same-update reloads keep the carry (consumed below). */
-  try {
-    if (freshEyes) clearJustPublished();
-  } catch {}
   /* Every new deploy starts unsaved-clean (office request): draft + pending
      clear once per deploy ID, so the unsaved list opens fresh. Deploy IDs are
      fresh every build, so this runs on every deploy even when the update
@@ -3894,52 +2969,8 @@ export async function startCms() {
       try {
         sessionStorage.removeItem("wom.cms.lastAdminPage");
       } catch {}
-      /* One-click-everywhere carry from the old deploy never rides in: an owed
-         live-relay retry belongs to the old deploy's words, so the new deploy
-         opens with nothing owed. The saved sign-in ends here too on stamped
-         builds (note 433; dev-boot restarts keep it per note 436): accounts
-         persist, but every deploy is a fresh review — the office signs in
-         again. Password generation stays (it names the account, not
-         the session). */
-      try {
-        localStorage.removeItem("wom.cms.relayPending");
-      } catch {}
-      try {
-        relayRetryPayload = null;
-      } catch {}
-      /* New deploys end admin sessions (note 433): the administrator
-         accounts persist server-side, but every deploy is a fresh review —
-         the office signs in again. Only the session goes (clearSession
-         keeps words, queues and stamps by construction). Note 436: a
-         dev-boot restart is not a new review — `npm run dev` mints a fresh
-         dev-… id per boot, so ending the session here signed the office
-         out on every local restart and the next local Publish only opened
-         the sign-in instead of sending (the deployed copy kept working).
-         Dev sessions survive restarts; stamped deploys still sign in again. */
-      try {
-        if (!ownDeployIsDevBoot()) clearSession("deploy");
-      } catch {}
-      /* New deploy wipes old wakes (note 428): a retired service worker or
-         HTTP cache must never serve the previous deploy's shell (the classic
-         "stuck on old code" wake). Best-effort, never throws; storage
-         (sign-in, stamps) is untouched — only workers/caches go. */
-      try {
-        wipeOldWakes();
-      } catch {}
     } catch {}
   }
-  /* Proven new update without a readable deploy proof (note 428): the wipe
-     above keys on the deploy ID, which needs storage — when the store was
-     unreadable but the codegen proves newness, old wakes still go, and the
-     saved session ends like any new deploy (note 433). */
-  try {
-    if (freshEyes && !freshDeploy) {
-      wipeOldWakes();
-      try {
-        clearSession("deploy");
-      } catch {}
-    }
-  } catch {}
   try {
     markDeploySeen();
   } catch {}
@@ -4054,7 +3085,7 @@ export async function startCms() {
     window.addEventListener("offline", () => scheduleUploadHeal(800));
     window.setInterval(() => {
       healMissingUploads().catch(() => {});
-    }, 30 * 1000);
+    }, 5 * 60 * 1000);
   } catch {}
 
   if (!socketFactory()) {
@@ -4185,11 +3216,6 @@ function connect() {
     return;
   }
   socket = sock;
-  try {
-    officeConnId = (sock as any)?.connId || "";
-  } catch {
-    officeConnId = "";
-  }
   if ("binaryType" in sock) sock.binaryType = "arraybuffer";
 
   const opened = Promise.race([
@@ -4215,9 +3241,8 @@ function connect() {
       // Only an explicit denial ends it (note 296): a hiccup in the re-login
       // must never burn the saved session, or one bad minute logs the office
       // out for good. Anything else (offline, rate, transport error) keeps
-      // the session for the next attempt. Idle and new-deploy sessions never
-      // re-prove (note 433) — the office signs in again instead.
-      const saved = silentSessionUsable();
+      // the session for the next attempt.
+      const saved = sessionPassword();
       if (saved) {
         try {
           const res = await login(saved, true);
@@ -4263,12 +3288,7 @@ function startReturnJoin() {
   returnJoinStarted = true;
   const join = (fresh: boolean) => {
     try {
-      /* Any admin device controls every visitor (office request): a
-         device-only publish still owes its words to the shared backend, so
-         the return-join never skips a copy that went local — it joins and
-         flushes the queue instead of stranding per device. Connected copies
-         and standalone copies (no address) still no-op. */
-      if (socket || !socketFactory()) return;
+      if (socket || !socketFactory() || localOnly) return;
       if (status === "connecting") return;
       if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
       /* The network just returned: retry fast, not on the old backoff. A
@@ -4346,14 +3366,8 @@ function noteServerPwgen(pw: unknown): boolean {
        reports generation 0 with the default password back, and burning the
        saved session on that would log the office out on every restart — the
        re-login below would never even be attempted. The saved session
-       re-proves itself instead: only an explicit denial ends it. Idle and
-       new-deploy sessions never re-prove (note 433): the office signs in
-       again instead. */
+       re-proves itself instead: only an explicit denial ends it. */
     recordPwgen(pw, savedPwRole() || "main");
-    if (sessionIdle() || !sessionDeployMatches()) {
-      clearSession(sessionDeployMatches() ? "idle" : "deploy");
-      return false;
-    }
     const saved = sessionPassword();
     if (saved) {
       notify();
@@ -4382,7 +3396,7 @@ export function setOfficeServerOverride(url: string) {
   setServerOverride(url);
 }
 /* Join the shared server on demand (bounded wait); a sign-in always tries live first. */
-export async function ensureOnline(timeoutMs = 8000): Promise<boolean> {
+export async function ensureOnline(timeoutMs = 20000): Promise<boolean> {
   if (socket && status === "online") return true;
   await retryNow();
   if (!socket) return false;
@@ -4476,7 +3490,7 @@ function onClose(event: any) {
 
 function scheduleReconnect() {
   if (reconnectTimer) return;
-  const delay = Math.min(4000, 250 * Math.pow(1.7, reconnectAttempt++)) + Math.random() * 150;
+  const delay = Math.min(30000, 1400 * Math.pow(1.7, reconnectAttempt++)) + Math.random() * 600;
   reconnectTimer = window.setTimeout(() => {
     reconnectTimer = 0;
     connect();
@@ -4505,12 +3519,6 @@ async function syncFromServer() {
     return;
   }
   const serverRev = typeof res.rev === "number" ? res.rev : 0;
-  /* Server-authoritative verdict (note 427): recorded from EVERY live answer —
-     words or empty, seeded or live — before any guard returns, so the notice
-     below decides from the shared backend instead of this device's stamps. */
-  try {
-    noteServerVerdict(res.notes, Object.keys(server).length, (res as any).at, (res as any).publishDeploy, (res as any).code);
-  } catch {}
   /* The server's ~15-minute undo window rides every content answer (note 291). */
   const undoLeft = typeof res.undoLeft === "number" ? Math.max(0, Math.floor(res.undoLeft)) : 0;
   undoUntilAt = undoLeft > 0 ? Date.now() + undoLeft * 1000 : 0;
@@ -4552,21 +3560,8 @@ async function syncFromServer() {
   }
   /* The publish stamp alone can flip the maintenance notice (note 278): it
      must re-render even when the content itself is unchanged. Reaching here
-      means the answer is live (note 296) — the seeded + empty holds above
-      already returned. */
-  /* Remember what the server attested for the office console (`__maintState`
-     below): notes, code word, deploy, clock and word count. */
-  try {
-    lastServerWitness = {
-      notes: typeof res.notes === "number" ? Math.floor(res.notes) : 0,
-      code: typeof (res as any).code === "string" ? (res as any).code : "",
-      deploy: typeof (res as any).publishDeploy === "string" ? (res as any).publishDeploy : "",
-      at: typeof res.at === "number" ? Math.floor(res.at) : 0,
-      words: Object.keys(server).length,
-    };
-  } catch {
-    lastServerWitness = null;
-  }
+     means the answer is live (note 296) — the seeded + empty holds above
+     already returned. */
   const notesBefore = publishedNotes;
   if (typeof res.notes === "number") setPublishedNotes(res.notes);
   const notesLifted = publishedNotes > notesBefore;
@@ -4611,6 +3606,8 @@ async function syncFromServer() {
   try {
     if (
       !deployFromMeta &&
+      !cleanStageForNewCode &&
+      pendingSections().length === 0 &&
       (res as any).seeded !== true &&
       Object.keys(server).length > 0 &&
       typeof res.notes === "number" && Math.floor(res.notes) === BUILD_NOTES &&
@@ -4621,42 +3618,35 @@ async function syncFromServer() {
   } catch {}
   /* Same-code attestation rides the same answer: a backend running this code
      with this code published lifts the number gate headless — a live publish
-     clears the local notice with no tab open and no click needed. Timeless by
-     office request (one Publish clears every device, online or off, with no
-     per-device click): a same-update publish attested to this code with real
-     words IS the review, whenever this copy first saw its deploy — an old
-     publish can never qualify, because only a publish from this update and
-     this code attests, and anything older names a different update or a
-     different word. (The unstamped local twin above keeps its strictly-newer
-     rule: there an unsaved change showing means no Publish was clicked.) */
-  const codeWitnessed = noteCodeWitness((res as any).code, res.notes);
-  /* A publish from the running update releases its deploy (notes 420–421,
-     office request: one Publish click lifts every deploy — a stale phone, a
-     rebuild, a brand-new device or browser, any copy whose id differs — with
-     no second click, ever). The same-ID witness above only matches a publish
-     stamped from this exact deploy; the rule beside it releases on proof
-     instead of timing: a server publish stamped from the running update,
-     carrying real words and attested to this code, IS a publish for this
-     deploy, whenever this deploy first went live. Timing can no longer strand
-     a copy — a publish that landed before this deploy opened counts exactly
-     like one that landed after. Never across updates (a newer update names a
-     different stamp, an older one too), never on a different code word (new
-     code still waits for its own publish), never on an empty answer, and
-     never on a copy with no stamped deploy (local dev keeps its number
-     gate). A clean stage with queued office work still stages nothing
-     inbound until Recover or an explicit Publish — only the notice lifts. */
+     clears the local notice with no tab open and no click needed. Gated on
+     the same newness: an old publish attesting forever must not lift a copy
+     that never saw it happen (the deploy twin below re-checks the same
+     clock, so stamping it twice changes nothing there). */
+  const codeWitnessed = serverPublishIsNew && noteCodeWitness((res as any).code, res.notes);
+  /* A publish newer than this deploy releases it (note 420): the same-ID
+     witness above only matches a publish stamped from this exact deploy, so
+     one Publish on live/admin used to leave every other deploy — a stale
+     phone, a rebuild, any copy whose id differs — waiting until somebody
+     tapped Publish there too. A server publish stamped from the running
+     update, carrying real words and attested to this code, whose clock is
+     NEWER than this deploy first went live, IS a publish for this deploy —
+     while anything older predates it and still holds. Never in a clean stage
+     (a new code arrival stages nothing inbound until Recover or an explicit
+     Publish), never on seeded or empty answers (those returned above), never
+     across updates, and never on a copy with no stamped deploy (local dev
+     keeps its number gate). Strictly newer — no tolerance: on skewed clocks
+     the publish that missed just needs one more click, which always lands. */
+  const serverAt = typeof res.at === "number" ? res.at : 0;
   if (
-    (!cleanStageForNewCode || pendingSections().length === 0) &&
+    !cleanStageForNewCode &&
     deployFromMeta && currentDeployId &&
     publishedDeployId !== currentDeployId &&
     codeWitnessed &&
     typeof res.notes === "number" && Math.floor(res.notes) === BUILD_NOTES &&
-    Object.keys(server).length > 0
+    Object.keys(server).length > 0 &&
+    serverAt > 0 && deployFirstSeenAt > 0 && serverAt > deployFirstSeenAt
   ) {
     markDeployPublished();
-    try {
-      lastReleaseBy = "server-word-witness";
-    } catch {}
   }
   /* Skew-tolerant twin of the block above: the publish clock recorded a moment
      ago already encodes "a same-update publish landed after this deploy was
@@ -4696,10 +3686,11 @@ function hostFileAttestsSameCode(): boolean {
      real words (never empty — a fallback bake stamped from this update names
      a publish that really happened, so it releases too), IS that review —
      release this deploy with no second click. Never across updates (notes must
-     equal this bundle), never for a different code word, never with this
-     copy's own unsaved work pending (mid-edit desks still wait). Staging
-     follows the normal path below: the stamp moves first, so the words stage
-     in this same sync and visitors see the published site, not an empty shell. */
+     equal this bundle), never for a different code word. A local draft never
+     blocks the release (visitor pages always show the published words; the
+     draft is rebased underneath and the drawer keeps it). Staging follows the
+     normal path below: the stamp moves first, so the words stage in this
+     same sync and visitors see the published site, not an empty shell. */
   try {
     if (
       deployFromMeta && currentDeployId &&
@@ -4743,27 +3734,12 @@ function hostFileAttestsSameCode(): boolean {
       pending = clone(overrides);
       writeJSON(PENDING_KEY, pending);
     }
-    /* Clean-stage for a new code arrival stages nothing inbound while the
-       office has unsaved work (Recover or an explicit Publish stages it).
-       Copies with nothing unsaved (visitors) always take the published words,
-       so one Publish click paints every browser — never a clean shell. */
-    if (!cleanStageForNewCode || pendingSections().length === 0) {
-      /* A live adoption this tab already paints (note 437): the office
-         server below may not know it yet (signed-out tab, mid-edit desk) —
-         never paint the older store over the newer live words. The live tick
-         records them durably once the desk allows; until the server proves
-         newer, the paint stands. */
-      if (liveAdoptBeatsServer((res as any).at, (res as any).notes)) {
-        /* stamps above already moved; the paint stays live-adopted */
-      } else {
-        applyOverrides(server);
-        try {
-          if (typeof res.at === "number" && res.at > 0) {
-            const u = readUnrecordedLive();
-            if (u && res.at >= u.at) clearUnrecordedLive();
-          }
-        } catch {}
-      }
+    /* Clean-stage for a new code arrival stages nothing inbound (office
+       request): the server's retained words stay on the disk, but the staged
+       publishable set stays defaults until Recover or an explicit Publish.
+       Revision/stamp witnesses above still moved, so Publish bases correctly. */
+    if (!cleanStageForNewCode) {
+      applyOverrides(server);
       writeCache();
     }
   } else if (notesLifted || deployLifted || codeWitnessed) {
@@ -4815,92 +3791,13 @@ function sessionPassword(): string {
     return "";
   }
 }
-
-/* The deploy scope a session belongs to: the stamped deploy id on deployed
-   copies, the running update on unstamped local copies. Dev-boot ids
-   (npm run dev mints a fresh dev-… per boot for the maintenance ritual)
-   never name a served build, so they must not scope the session — else
-   every dev restart signs the office out and local Publish opens the
-   sign-in while the deployed copy (stable id) keeps working. */
-function sessionScope(): string {
-  try {
-    if (deployFromMeta && currentDeployId && currentDeployId.indexOf("dev-") === 0) return "notes-" + BUILD_NOTES;
-    if (deployFromMeta && currentDeployId) return currentDeployId;
-  } catch {}
-  return "notes-" + BUILD_NOTES;
-}
-
-/* True when the saved session belongs to this deploy. Sessions saved before
-   this rule (no scope recorded) do not carry over — a new deploy signs in. */
-function sessionDeployMatches(): boolean {
-  try {
-    const scope = sessionStorage.getItem(SESSION_DEPLOY_KEY) || "";
-    return !!scope && scope === sessionScope();
-  } catch {
-    return false;
-  }
-}
-
-/* Record an admin action (successful sign-in or admin write). Shared across
-   tabs, so activity anywhere keeps the office signed in everywhere. */
-function touchAdminActivity(): void {
-  try {
-    localStorage.setItem(LAST_ADMIN_AT_KEY, JSON.stringify(Date.now()));
-  } catch {}
-}
-
-/* True when no admin action is on record within the last 15 minutes. */
-function sessionIdle(): boolean {
-  try {
-    const raw = localStorage.getItem(LAST_ADMIN_AT_KEY);
-    const n = raw === null ? 0 : Number(JSON.parse(raw));
-    if (!Number.isFinite(n) || !(n > 0)) return true;
-    return Date.now() - Math.floor(n) > SESSION_IDLE_MS;
-  } catch {
-    return true;
-  }
-}
-
-/* The saved session's password when it may still prove itself, else "": the
-   session must belong to this deploy (a new deploy signs in again) and an
-   admin action must be on record within the last 15 minutes (idle sessions
-   fail until sign-in again). Anything else clears the saved session here,
-   so a silent re-login can never bypass the gate. */
-function silentSessionUsable(): string {
-  try {
-    const saved = sessionPassword();
-    if (!saved) return "";
-    if (!sessionDeployMatches()) {
-      clearSession("deploy");
-      return "";
-    }
-    if (sessionIdle()) {
-      clearSession("idle");
-      return "";
-    }
-    return saved;
-  } catch {
-    return "";
-  }
-}
-/* Last sign-out reason for the sign-in card (note 433): "idle" (15 minutes
-   without an admin action), "deploy" (a new deploy ended the session), or
-   "" (explicit sign-out, denied password, server refusal). */
-let signOutReason = "";
-export function lastSignOutReason(): string {
-  return signOutReason;
-}
-function clearSession(reason?: string) {
+function clearSession() {
   /* Sign-out ends the session only (note 297): the saved password goes, the
      admin flags drop, and the tab re-renders signed out. Held words, queued
      work and the publish stamp are untouched here — only an explicit office
      delete (resetLocalCopy) may clear them (note 300). */
-  signOutReason = reason === "idle" || reason === "deploy" ? reason : "";
   try {
     sessionStorage.removeItem(SESSION_KEY);
-  } catch {}
-  try {
-    sessionStorage.removeItem(SESSION_DEPLOY_KEY);
   } catch {}
   try {
     localStorage.removeItem(PWROLE_KEY);
@@ -4909,60 +3806,6 @@ function clearSession(reason?: string) {
   myRole = null;
   myName = "";
   notify();
-}
-
-/* Publish-shaped refusal for a dead session (note 433 fix): an idle timeout
-   reports idle-expired so the toast names the 15 minutes, anything else stays
-   unauthorized. Call only right after requireSignedIn() fails. */
-function authDenyReason(): string {
-  try {
-    return signOutReason === "idle" ? "idle-expired" : "unauthorized";
-  } catch {
-    return "unauthorized";
-  }
-}
-
-/* Sign-in gate (office request: nothing in the admin happens signed out —
-   not even a device-local publish). True when this tab holds a live admin
-   session: already signed in and active within the last 15 minutes, or the
-   saved session still proves on the server (note 433 — idle and
-   new-deploy sessions fail here until the office signs in again; a dead
-   saved session is cleared like any denied login). Never throws, never
-   touches content state on refusal. */
-async function requireSignedIn(): Promise<boolean> {
-  try {
-    if (authed) {
-      if (sessionIdle()) {
-        clearSession("idle");
-        return false;
-      }
-      return true;
-    }
-    const saved = silentSessionUsable();
-    if (!saved) return false;
-    const res = await login(saved, true).catch(() => ({ ok: false as const }));
-    if ((res as any)?.ok) return true;
-    if ((res as any)?.error === "denied") clearSession();
-    return false;
-  } catch {
-    return false;
-  }
-}
-
-/* Fresh-code gate (office request: everything automatic — a tab behind the
-   newest build must never stamp old words with an old word). checkStaleBuild
-   reloads onto the new build when it may (capped retries, then it only
-   waits); when this tab is still behind afterwards the publish refuses, so
-   no stale click can ever attest old code. True when the caller must stop. */
-async function stopIfStale(): Promise<boolean> {
-  try {
-    await checkStaleBuild().catch(() => {});
-  } catch {}
-  try {
-    return isStaleWaiting();
-  } catch {
-    return false;
-  }
 }
 
 /* ------------------------------------------------------------------- admin */
@@ -4990,12 +3833,7 @@ export async function login(
       try {
         sessionStorage.setItem(SESSION_KEY, password);
       } catch {}
-      try {
-        sessionStorage.setItem(SESSION_DEPLOY_KEY, sessionScope());
-      } catch {}
-      signOutReason = "";
       recordPwgen((res as any).pwgen, myRole);
-      touchAdminActivity();
       notify();
       await flushPending();
       /* A fresh unlock may be what the owed live carry waited for: the
@@ -5029,12 +3867,7 @@ export async function login2fa(code: string, password: string): Promise<{ ok: bo
       try {
         sessionStorage.setItem(SESSION_KEY, password);
       } catch {}
-      try {
-        sessionStorage.setItem(SESSION_DEPLOY_KEY, sessionScope());
-      } catch {}
-      signOutReason = "";
       recordPwgen((res as any).pwgen, "main");
-      touchAdminActivity();
       notify();
       await flushPending();
       try {
@@ -5094,13 +3927,7 @@ export function validSubName(name: string): boolean {
 async function adminRpc(method: string, payload?: any): Promise<any> {
   if ((!socket || status !== "online") && !(await ensureOnline())) return { ok: false, error: "offline" };
   try {
-    const out = JSON.parse(await socket.rpc[method](payload === undefined ? "" : JSON.stringify(payload)));
-    /* A successful admin write is activity (note 433): it re-stamps the
-       15-minute session. A refusal ("unauthorized"/"idle-expired") ends it. */
-    if (out?.ok) touchAdminActivity();
-    else if (out?.err === "idle-expired" || out?.error === "idle-expired") clearSession("idle");
-    else if (out?.err === "unauthorized" || out?.error === "unauthorized") clearSession();
-    return out;
+    return JSON.parse(await socket.rpc[method](payload === undefined ? "" : JSON.stringify(payload)));
   } catch (err: any) {
     return { ok: false, error: err?.message || "error" };
   }
@@ -5177,11 +4004,6 @@ export async function setMainPassword(password: string, proof: string): Promise<
         if (typeof res.pwgen === "number" && Number.isFinite(res.pwgen)) localStorage.setItem(PWGEN_KEY, String(res.pwgen));
         localStorage.setItem(PWROLE_KEY, "main");
       } catch {}
-      try {
-        sessionStorage.setItem(SESSION_DEPLOY_KEY, sessionScope());
-      } catch {}
-      signOutReason = "";
-      touchAdminActivity();
       return { ok: true };
     }
     return { ok: false, error: res?.err || res?.error || "denied" };
@@ -5206,12 +4028,7 @@ export async function redeemInvite(code: string, password: string): Promise<{ ok
       try {
         sessionStorage.setItem(SESSION_KEY, password);
       } catch {}
-      try {
-        sessionStorage.setItem(SESSION_DEPLOY_KEY, sessionScope());
-      } catch {}
-      signOutReason = "";
       recordPwgen((res as any).pwgen, "sub");
-      touchAdminActivity();
       notify();
       await flushPending();
       return { ok: true, name: myName };
@@ -6047,7 +4864,7 @@ export async function importBackup(text: string): Promise<ImportResult> {
           const type = typeof f?.type === "string" && f.type ? f.type : guessUploadType(name);
           const blob = base64ToBlob(f.data, type);
           if (!blob.size) throw 0;
-          const res = await fetch(`${base}/__restore-file?conn=${encodeURIComponent(officeFileConn())}&name=${encodeURIComponent(name)}`, {
+          const res = await fetch(`${base}/__restore-file?name=${encodeURIComponent(name)}`, {
             method: "POST",
             headers: { "content-type": type },
             body: blob,
@@ -6104,8 +4921,8 @@ function rememberHistory() {
   writeJSON(HISTORY_KEY, history);
 }
 
-const BATCH_CHARS = 120000;
-const BATCH_SECTIONS = 24;
+const BATCH_CHARS = 20000;
+const BATCH_SECTIONS = 4;
 
 /* Publish-at-once convergence, run after every deliberate publish: pull live's
    concurrent words, the feed mirror and the Tools numbers right away instead
@@ -6128,18 +4945,14 @@ function convergeNow(): void {
 
 /* Every publish reflects everywhere (office request: a Publish click saves to
    the visitors website from live/admin AND local/admin, and clears the
-   notice on live AND local — either direction, no second click): the office
-   copy's backend reaches the live box on its own (minute follow + instant
-   push), but the live box cannot reach a localhost office — so without a
-   public mirror an office publish only reached live after the rebuild,
-   minutes later. The publishing tab itself can reach BOTH (it reads live for
-   the fold already), so after every deliberate office publish it relays the
-   same words straight to the live backend with this tab's own session — live
-   visitors and live/admin land it in seconds via the live backend's own
-   shout, with no feed and no rebuild. The other way runs on the office tab
-   itself (note 437): every open tab re-reads live by itself — stamps, words
-   and notice follow a live publish within seconds with no session and no
-   clean desk, and the office record catches up once the desk allows.
+   notice on live AND local): the office copy's backend reaches the live box
+   on its own (minute follow + instant push), but the live box cannot reach a
+   localhost office — so without a public mirror an office publish only
+   reached live after the rebuild, minutes later. The publishing tab itself
+   can reach BOTH (it reads live for the fold already), so after every
+   deliberate office publish it relays the same words straight to the live
+   backend with this tab's own session — live visitors and live/admin land it
+   in seconds via the live backend's own shout, with no feed and no rebuild.
    Best-effort: a denied login (live password differs), 2FA on live, or an
    unreachable live box simply leaves the minute loops, the feed and the
    rebuild to carry the publish as before — and the click now SAYS so instead
@@ -6157,7 +4970,7 @@ async function relayLiveBase(): Promise<string> {
 }
 /* One relay fetch with its own deadline, so awaiting the relay can never
    hold a Publish click hostage on a stalled network. */
-async function relayFetch(url: string, body: string, ms = 4000): Promise<Response> {
+async function relayFetch(url: string, body: string, ms = 8000): Promise<Response> {
   const ctrl = typeof AbortController !== "undefined" ? new AbortController() : null;
   const timer = ctrl ? window.setTimeout(() => ctrl.abort(), ms) : 0;
   try {
@@ -6180,7 +4993,7 @@ async function relayFetch(url: string, body: string, ms = 4000): Promise<Respons
    live box actually serves, so a publish from an unstamped copy (local/dev)
    can still stamp the durable record with the deploy visitors run. Never
    throws; "" when unknown (words still ride without the witness). */
-async function fetchLiveDeployId(base: string, ms = 2500): Promise<string> {
+async function fetchLiveDeployId(base: string, ms = 6000): Promise<string> {
   try {
     if (!base || !/^https?:\/\/[^/\s]+$/i.test(base)) return "";
     const ctrl = typeof AbortController !== "undefined" ? new AbortController() : null;
@@ -6216,36 +5029,9 @@ async function deployStampForOfficePublish(): Promise<string> {
     if (currentDeployId && deployFromMeta && !ownDeployIsDevBoot()) return "";
     const base = await relayLiveBase().catch(() => "");
     if (!base) return "";
-    return await fetchLiveDeployId(base, 2500);
+    return await fetchLiveDeployId(base, 6000);
   } catch {
     return "";
-  }
-}
-/* Bless-only convergence (first-publish-clears-all): an explicit Publish with
-   no changed sections (a fresh deploy's first click, a no-change bless) still
-   promises every visitor the new content — so the live relay carries the words
-   this copy holds instead of an empty stamp. Without this the live box learns
-   the stamp but keeps no words, and its visitors wait on maintenance while the
-   clicking browser lifts. Overrides only (never defaults): a clean-staged copy
-   stages nothing, exactly like the office record. Never throws. */
-function fillBlessRelay(
-  sections: Record<string, string | null>,
-  changed: string[]
-): { sections: Record<string, string | null>; changed: string[] } {
-  try {
-    if (sections && Object.keys(sections).length) return { sections, changed };
-    const ids = Object.keys(overrides || {}).filter((id) => /^[a-zA-Z][a-zA-Z0-9-]{0,31}$/.test(id));
-    if (!ids.length) return { sections, changed };
-    const full: Record<string, string | null> = {};
-    for (const id of ids) {
-      try {
-        full[id] = JSON.stringify((overrides as any)[id]);
-      } catch {}
-    }
-    if (!Object.keys(full).length) return { sections, changed };
-    return { sections: full, changed: Object.keys(full) };
-  } catch {
-    return { sections, changed };
   }
 }
 async function relayPublishWordsToLive(
@@ -6257,14 +5043,9 @@ async function relayPublishWordsToLive(
      sleep-wake (Render naps take a while to answer). `bounded` caps an
      awaited click end to end; background attempts carry their own per-fetch
      bounds instead. Never throws. */
-  ms = 6000,
+  ms = 8000,
   bounded = true
 ): Promise<"landed" | "missed" | "unneeded"> {
-  try {
-    const filled = fillBlessRelay(sections, changed);
-    sections = filled.sections;
-    changed = filled.changed;
-  } catch {}
   const run = async (): Promise<"landed" | "missed" | "unneeded"> => {
     const base = await relayLiveBase();
     if (!base) return "unneeded";
@@ -6350,32 +5131,6 @@ async function relayPublishWordsToLive(
       return "missed";
     }
     relayNeedsLivePw = false;
-    try {
-      relayUploadConn = conn;
-    } catch {}
-    /* Live-newer guard: the live box may have published newer (a Publish on
-       live/admin, or a faster loop) while this carry waited — an older bless
-       must never regress it, not even its stamp. A newer UPDATE there is an
-       absolute stop (this copy is behind: apply the zip first). Otherwise the
-       wall clock arbitrates with a skew margin; an unreadable stamp never
-       blocks delivery. */
-    try {
-      const stampRes = await relayFetch(base + "/__cms/contentRev?conn=relay-stamp-" + encodeURIComponent(conn), "", Math.min(ms, 3000));
-      if (stampRes && (stampRes as any).ok) {
-        const sj = await (stampRes as any).json().catch(() => null);
-        const liveNotes = Math.floor(Number(sj && (sj as any).notes));
-        if (Number.isFinite(liveNotes) && liveNotes > BUILD_NOTES) {
-          noteRelay("Live site runs a newer update — kept the live words.");
-          return "landed";
-        }
-        const liveAt = Number(sj && (sj as any).at);
-        const officeAt = lastPublishAt || Date.now();
-        if (Number.isFinite(liveAt) && liveAt > 0 && Number.isFinite(officeAt) && officeAt > 0 && liveAt > officeAt + 30000) {
-          noteRelay("Live site published newer while this copy was shut — kept the live words.");
-          return "landed";
-        }
-      }
-    } catch {}
     /* The relay blesses LIVE's own deploy, never ours: our deploy id would
        name a build the live box never served, and its visitors would keep
        waiting. Unknown deploy still rides the words (old-deploys see them);
@@ -6415,12 +5170,6 @@ async function relayPublishWordsToLive(
             changed: batches[b],
             notes: BUILD_NOTES,
             deploy: liveDeploy,
-            /* The word this publish was blessed from (publish reaches
-               everywhere, note 430): the relay used to send words without it,
-               so the live box attested nothing — copies that opened after the
-               click held forever while earlier ones lifted on the clock. The
-               server stamps it like any publish (admin-only, format-checked). */
-            code: runningCode || "",
             first: b === 0,
             quiet: b < batches.length - 1,
           }),
@@ -6460,7 +5209,7 @@ async function relayPublishWordsToLive(
     if (!bounded) return await run();
     return await Promise.race([
       run(),
-      new Promise<"missed">((res) => window.setTimeout(() => res("missed"), 30000)),
+      new Promise<"missed">((res) => window.setTimeout(() => res("missed"), 25000)),
     ]);
   } catch {
     return "missed";
@@ -6485,7 +5234,7 @@ function relayUploadsToLive(sections: Record<string, string | null>): void {
           if (!got.ok) continue;
           const blob = await got.blob();
           if (!blob || !blob.size || blob.size > 90 * 1024 * 1024) continue;
-          await fetch(base + "/__restore-file?conn=" + encodeURIComponent(relayUploadConnId()) + "&name=" + encodeURIComponent(name), {
+          await fetch(base + "/__restore-file?name=" + encodeURIComponent(name), {
             method: "POST",
             headers: { "content-type": (blob as any).type || guessUploadType(name) },
             body: blob,
@@ -6521,13 +5270,6 @@ function relayInBackground(sections: Record<string, string | null>, changed: str
    (sleep wake, Render nap, slow mobile) until it lands or a newer publish
    supersedes it. Explicit clicks only — background sends already ride the
    minute loops. Never throws. */
-/* HIGH fix: the relay's own live-box conn id (logged in during the relay),
-   sent with the photo leg so live accepts it. Empty until a relay logs in. */
-let relayUploadConn = "";
-/** The relay's live-box conn id ("" until a relay logs in). */
-export function relayUploadConnId(): string {
-  return relayUploadConn;
-}
 let relayRetryTimer = 0;
 let relayAttemptRunning = false;
 let relayRetryPayload: { sections: Record<string, string | null>; changed: string[]; note: string; rev: number; deploy: string } | null = null;
@@ -6554,10 +5296,7 @@ async function attemptRelayRetry(): Promise<boolean> {
     } catch {}
     let outcome: string = "missed";
     try {
-      /* Fast bound (very fast): each background attempt gets a short deadline
-         so a miss fails fast and the 4s retry carries it — awake live lands
-         in 1-2s, sleepy live lands via quick retries, never a long stall. */
-      outcome = await relayPublishWordsToLive(payload.sections, payload.changed, payload.note, payload.deploy, 8000, false);
+      outcome = await relayPublishWordsToLive(payload.sections, payload.changed, payload.note, payload.deploy, 20000, false);
     } catch {
       outcome = "missed";
     }
@@ -6582,11 +5321,6 @@ async function attemptRelayRetry(): Promise<boolean> {
   }
 }
 function scheduleRelayRetry(sections: Record<string, string | null>, changed: string[], note: string, knownDeploy?: string): void {
-  try {
-    const filled = fillBlessRelay(sections, changed);
-    sections = filled.sections;
-    changed = filled.changed;
-  } catch {}
   try {
     relayRetryPayload = {
       sections: clone(sections),
@@ -6616,7 +5350,7 @@ function scheduleRelayRetry(sections: Record<string, string | null>, changed: st
       .catch(() => {});
   };
   try {
-    relayRetryTimer = window.setInterval(tick, 4000);
+    relayRetryTimer = window.setInterval(tick, 30_000);
   } catch {
     return;
   }
@@ -6702,7 +5436,7 @@ function ensureRetryLoop(): void {
           }
         })
         .catch(() => {});
-    }, 4000);
+    }, 30_000);
   } catch {}
 }
 /** Type the live box's own admin password once: saved in this browser only,
@@ -6870,7 +5604,7 @@ export function resumeRelayRetry(): void {
       try {
         window.setTimeout(() => {
           attemptRelayRetry().catch(() => {});
-        }, 1500);
+        }, 8000);
       } catch {}
     })().catch(() => {});
   } catch {}
@@ -6924,11 +5658,11 @@ function scheduleDeployStampHeal(): void {
       } catch {}
     };
     try {
-      deployHealTimer = window.setInterval(() => void tick(), 5000);
+      deployHealTimer = window.setInterval(() => void tick(), 30_000);
     } catch {
       return;
     }
-    window.setTimeout(() => void tick(), 1000);
+    window.setTimeout(() => void tick(), 5000);
     try {
       document.addEventListener("visibilitychange", () => {
         if (document.visibilityState === "visible") void tick();
@@ -6970,19 +5704,6 @@ async function sendPatch(
       if (currentDeployId && deployFromMeta && !ownDeployIsDevBoot()) {
         durableDeploy = currentDeployId;
         relayDeploy = currentDeployId;
-        /* One-click stale fix: same notes/code but a newer deploy id — stamp
-           the FRESH id visitors run so one Publish clears every browser/device
-           instead of blessing the old deploy and leaving the new one waiting
-           for a second click. Real updates (newer notes/code) still reload. */
-        try {
-          if (isDeployOnlyStale()) {
-            const fresh = getFreshDeployId();
-            if (fresh) {
-              durableDeploy = fresh;
-              relayDeploy = fresh;
-            }
-          }
-        } catch {}
       } else if (ownDeployIsDevBoot() && currentDeployId && deployFromMeta) {
         durableDeploy = currentDeployId;
         if (typeof deployStamp === "string" && /^[A-Za-z0-9_-]{1,80}$/.test(deployStamp)) relayDeploy = deployStamp;
@@ -7047,10 +5768,8 @@ async function sendPatch(
     if (!res?.ok) {
       /* A changed/retired password ends the session here too (note 297) —
          the held words stay; only an explicit office delete may clear
-         last-published (note 300). A 15-minute-idle session ends the same
-         way (note 433) — the next publish waits for a fresh sign-in. */
+         last-published (note 300). */
       if (res?.err === "unauthorized") clearSession();
-      else if (res?.err === "idle-expired") clearSession("idle");
       return { ok: false, error: res?.err || "failed", sent, failed: ids };
     }
     lastRev = res.rev;
@@ -7061,9 +5780,6 @@ async function sendPatch(
       else overrides[id] = JSON.parse(value);
     });
   }
-  /* A landed publish is admin activity (note 433): it re-stamps the
-     15-minute session, so an afternoon of publishing never signs out. */
-  touchAdminActivity();
   if (bless) {
     markDeployPublished();
     /* One click lifts every deploy (not just this tab): stamp the publish
@@ -7097,7 +5813,7 @@ async function sendPatch(
   if (bless) {
     if (awaitRelay) {
       try {
-        relay = await relayPublishWordsToLive(sections, changed, note, relayDeploy || durableDeploy, 2500);
+        relay = await relayPublishWordsToLive(sections, changed, note, relayDeploy || durableDeploy);
       } catch {
         relay = "missed";
       }
@@ -7135,13 +5851,6 @@ async function sendPatch(
 
 /** Put the draft live. `content` is only for the publish that waited on a save. */
 export async function publish(note: string, content?: Snapshot): Promise<PublishResult> {
-  /* One-click publish (attached 422 behavior): the click itself always runs —
-     no stale/sign-in refusal at the door. The dialog's pre-check still walks
-     a stale tab onto the new build first, and the branches below silently
-     re-log-in with the saved session; only a truly password-less tab reports
-     unauthorized. Signed-out/offline clicks publish device-locally and the
-     queue + relay carry the words to the other copy, so one click in live
-     lands in local and one click in local lands in live. */
   if (!content && draft) {
     dropLapsedSlides(true);
     migrateTestimonies();
@@ -7159,17 +5868,13 @@ export async function publish(note: string, content?: Snapshot): Promise<Publish
      alongside the fold so the click waits for no extra round trip; "" when
      stamped or unreachable (words still ride without the witness). */
   const officeStampP: Promise<string> = deployStampForOfficePublish().catch(() => "");
-  /* Fast stamp: never hold the click for a slow live read (healed behind). */
-  const fastStampP: Promise<string> = Promise.race([officeStampP, new Promise<string>((res) => window.setTimeout(() => res(""), 150))]);
-  const foldP = foldLiveInto(content || draft, undefined, 300);
-  const joinP: Promise<boolean> = joinBeforePublish().catch(() => false);
-  const fold = await foldP;
+  const fold = await foldLiveInto(content || draft, undefined, 6000);
   /* The transport arms the send (notes 390, 392, 394): without a clicked play,
      pause or stop newer than what is published, the on-air state stays out of
      the patch — a natural end stamps nothing and needs no publish. */
   const snapshot = gateLiveSnapshot(fold.snapshot || applied);
   const { sections, changed } = buildPatch(snapshot);
-  const officeStamp = await fastStampP.catch(() => "");
+  const officeStamp = await officeStampP.catch(() => "");
 
   if (!changed.length) {
     draft = null;
@@ -7184,7 +5889,7 @@ export async function publish(note: string, content?: Snapshot): Promise<Publish
        server anywhere keep the local bless below. */
     /* One click publishes to visitors: the join gets a few seconds first
        (see joinBeforePublish) before this copy settles for device-only. */
-    if (!(await joinP)) {
+    if (!(await joinBeforePublish())) {
       setPublishedNotes(BUILD_NOTES);
       blessRunningCode();
       /* An offline bless ends the clean stage on this copy too — the office
@@ -7228,7 +5933,6 @@ export async function publish(note: string, content?: Snapshot): Promise<Publish
     if (!bless.ok) return { ok: false, error: bless.error };
     rev = bless.rev ?? rev + 1;
     setPublishedNotes(BUILD_NOTES);
-    clearUnrecordedLive();
     writeCache();
     notify();
     return { ok: true, live: bless.relay !== "missed", relayMsg: relayStatus().msg };
@@ -7236,7 +5940,7 @@ export async function publish(note: string, content?: Snapshot): Promise<Publish
 
   /* One click publishes to visitors: the join gets a few seconds first
      (see joinBeforePublish) before this copy settles for device-only. */
-  if (!(await joinP)) {
+  if (!(await joinBeforePublish())) {
     // No server reachable: keep the site working locally and remember the
     // override set so it can be sent the moment the connection returns.
     // This still blesses the current update on this copy, so a local Publish
@@ -7310,7 +6014,6 @@ export async function publish(note: string, content?: Snapshot): Promise<Publish
   updatedAt = Date.now();
   updatedBy = editorName();
   setPublishedNotes(BUILD_NOTES);
-  clearUnrecordedLive();
   applyOverrides(overrides, false);
   writeCache();
   log = [{ rev, at: updatedAt, by: editorName(), role: myRole === "sub" ? "sub" : "main", note: payloadNote, changed }, ...log].slice(0, 20);
@@ -7327,16 +6030,10 @@ export async function publish(note: string, content?: Snapshot): Promise<Publish
 }
 
 export async function clearLog(): Promise<{ ok: boolean; error?: string }> {
-  /* Sign-in first (office request): history clears only signed in. */
-  if (!(await requireSignedIn())) return { ok: false, error: authDenyReason() };
   if ((!socket || status !== "online") && !(await ensureOnline())) return { ok: false, error: "offline" };
   try {
     const res = JSON.parse(await socket.rpc.clearLog(""));
-    if (!res?.ok) {
-      if (res?.err === "unauthorized") clearSession();
-      else if (res?.err === "idle-expired") clearSession("idle");
-      return { ok: false, error: res?.err || "failed" };
-    }
+    if (!res?.ok) return { ok: false, error: res?.err || "failed" };
   } catch (err: any) {
     return { ok: false, error: err?.message || "error" };
   }
@@ -7358,7 +6055,7 @@ function pick(snap: Snapshot, ids: string[]): Snapshot {
 /* ------------------------------------------------- saving the website itself */
 
 /** One-click publish (office request): the CMS publish never waits on the
- * outer editor save. Content publish and site save are independent —
+ * outer editor/Perchance save. Content publish and site save are independent —
  * either Publish button alone puts the words live for every visitor. */
 export function websiteIsUnsaved(): boolean {
   return false;
@@ -7405,11 +6102,8 @@ export async function finishPlannedPublish(): Promise<PublishResult | null> {
   /* Still unsaved (the save has not landed yet, or it was never allowed):
      keep the plan so the next reload can finish the job. */
   if (websiteIsUnsaved()) return null;
-  /* Never stamp from a stale bundle — and keep the plan: it rides the reload
-     in localStorage and finishes on the new build by itself. */
-  if (await stopIfStale()) return { ok: false, error: "stale-reload" };
   clearPlannedPublish();
-  if (!(await requireSignedIn())) return { ok: false, error: authDenyReason() };
+  if (!authed) return { ok: false, error: "unauthorized" };
   return await publish(plan.note || "", plan.content);
 }
 
@@ -7425,12 +6119,8 @@ async function resumePlannedPublish() {
         : "The website is saved, and your changes are live for everyone.",
       res.local ? "info" : "success"
     );
-  } else if (res.error === "unauthorized" || res.error === "idle-expired") {
+  } else if (res.error === "unauthorized") {
     fireToast("The website is saved. Sign in to the editor again, then press Publish.", "info");
-  } else if (res.error === "stale-reload") {
-    /* The tab is reloading onto the new build (or waiting on it): the plan
-       rides along in localStorage and finishes there by itself — stay quiet
-       instead of reporting a failure. */
   } else {
     fireToast(`The website is saved, but your changes did not go through (${res.error}). Press Publish again.`, "error");
   }
@@ -7495,10 +6185,6 @@ export async function flushPending(): Promise<boolean> {
     an undo from any signed-in device takes back the same publish — the local
     per-browser entry is only the fallback while it is still fresh. */
 export async function undoLastPublish(): Promise<PublishResult> {
-  /* Never stamp from a stale bundle: reload onto the new build instead. */
-  if (await stopIfStale()) return { ok: false, error: "stale-reload" };
-  /* Sign-in first (office request): an undo publishes the other way. */
-  if (!(await requireSignedIn())) return { ok: false, error: authDenyReason() };
   pruneHistory();
   if ((!socket || status !== "online") && !(await ensureOnline())) return { ok: false, error: "offline" };
 
@@ -7508,10 +6194,8 @@ export async function undoLastPublish(): Promise<PublishResult> {
       const res = JSON.parse(await socket.rpc.undoPublish(JSON.stringify({ by: editorName(), deploy: currentDeployId || "" })));
       /* A changed/retired password ends the session here too (note 297) —
          the held words stay; only an explicit office delete may clear
-         last-published (note 300). A 15-minute-idle session ends the same
-         way (note 433). */
+         last-published (note 300). */
       if (res?.err === "unauthorized") clearSession();
-      else if (res?.err === "idle-expired") clearSession("idle");
       if (res?.ok) {
         if (history.length) {
           history = history.slice(1);
@@ -7593,10 +6277,6 @@ export async function undoLastPublish(): Promise<PublishResult> {
 
 /** Drop every stored override, so the site shows exactly the shipped content. */
 export async function clearAllOverrides(): Promise<PublishResult> {
-  /* Never stamp from a stale bundle: reload onto the new build instead. */
-  if (await stopIfStale()) return { ok: false, error: "stale-reload" };
-  /* Sign-in first (office request): restoring the defaults publishes too. */
-  if (!(await requireSignedIn())) return { ok: false, error: authDenyReason() };
   const ids = Object.keys(overrides);
   if (!ids.length) return { ok: true };
   if (!socket || status !== "online") {
