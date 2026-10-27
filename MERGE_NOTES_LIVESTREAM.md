@@ -1,20 +1,35 @@
-Merged build — second (fixed_7_) retained + first (old) livestream gating restored.
+Merged build v2 — second (fixed_7_) retained + first (old) livestream gating, verified-only mount.
 
 Base: church-site-fixed_7_.zip (all security + everything else retained).
-Livestream: first-build gating restored in src/pages/WatchLive.tsx ONLY:
-- Bare office press with no verified video no longer mounts a lone channel embed
-  (that lone live_stream?channel= embed is what showed YouTube's black "This video
-  is unavailable" when the channel had no running broadcast).
-  Press alone now waits on the ticking clock (LiveWaiting); the screen plays the
-  moment the scrape proves live OR the publish carries a real verified video id.
-- Immediate autoplay kept: published liveVideoId/guestVideoId opens at once (no
-  scrape wait), detected live opens at once, muted-first paint + auto-unmute
-  (src/components/blocks.tsx + src/lib/embed.ts untouched from fixed_7_) so the
-  picture is instant and sound rejoins by itself (no tap, no reload, stays on site).
-- "Video unavailable" fix kept: verifier + session ban + IFrame API onError swap +
-  auto-repair loop (src/lib/livestatus.ts + blocks.tsx untouched from fixed_7_).
-  Dead ids never mount raw; channel safety net only when truly live; fallback
-  poster + Watch-on-YouTube instead of the black frame.
-- Guest one-off immediate channel (overrideGuest branch) kept as in first build.
-- Everything else byte-identical to fixed_7_ (security, publish, recent services,
-  admin, styles, assets).
+Livestream: src/pages/WatchLive.tsx ONLY.
+
+Why "This video is unavailable" showed: the screen mounted a YouTube iframe with nothing
+actually playable — a lone live_stream?channel= embed for a channel with no running
+broadcast (bare office press, walled read, or stale id), or a video id mounted before
+YouTube confirmed it (verdict unknown) that later proved dead/private/embedding-disabled.
+YouTube answers all of those with its black "This video is unavailable" frame, and the
+embed-time failure is invisible to the pre-check (oEmbed), so the frame stuck.
+
+v2 fix (verified-only mount):
+- A YouTube iframe mounts ONLY for an id YouTube itself just confirmed plays (verdict === true):
+  detected broadcast id, published liveVideoId/guestVideoId, or named stream-link id.
+- Unknown (still checking / offline / probe down) shows the ticking clock (LiveWaiting)
+  with the last-stream still — and mounts BY ITSELF the moment the verifier says true
+  (about a second, no tap, no reload). Dead never mounts.
+- NO lone channel embed is ever mounted (youtubeChannelId always undefined on the live
+  screen). A press alone, a walled read alone, or a stale id alone all wait on the
+  clock instead of opening the black frame.
+- Autoplay immediate + with sound kept: muted-first paint + auto-unmute loop
+  (blocks.tsx + embed.ts untouched from fixed_7_), published video id opens at once
+  with no scrape wait, detected live opens at once with no Play press.
+- Safety nets kept (livestatus.ts + blocks.tsx untouched): session dead-id ban,
+  IFrame API onError swap, auto-repair loop, Reload-press unban.
+- Guest one-off: verified guest video plays immediately; a guest press with no verified
+  video waits on the clock (no lone guest-channel embed anymore).
+- Everything else byte-identical to fixed_7_.
+
+Office checklist (if it now waits instead of playing):
+1. Start the broadcast on YouTube FIRST, then press Play/Live in the console (Play captures
+   the live video id at press time — pressing before going live captures nothing).
+2. If you pressed early, press Play again (or Reload) once YouTube is actually live.
+3. The Watch page picks it up by itself in seconds — no visitor reload needed.

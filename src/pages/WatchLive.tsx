@@ -180,31 +180,31 @@ export function WatchLive() {
   const publishedGuestId = rawPublishedGuestId && isIdBanned(rawPublishedGuestId) ? "" : rawPublishedGuestId;
   const publishedIsGuest = guestLive || (!!((LIVE as any).guestIsLive && guestUrl) && !((LIVE as any).isLive && hasChannel && !guestLive));
   const publishedPlayId = publishedIsGuest ? (publishedGuestId || publishedMainId) : (publishedMainId || publishedGuestId);
-  const publishedVerdict = useYoutubeVerdict(publishedPlayId && !detectedId ? publishedPlayId : "");
+  const publishedVerdict = useYoutubeVerdict(publishedPlayId);
   const publishedOk = !publishedPlayId || publishedVerdict === true || publishedVerdict === null;
   const idOk = idVerdict === true || idVerdict === null;
   const playableId = (detectedId && idOk && (isDesignatedChannel(airForTarget.channelId, designatedId) || (guestLive && isGuestTargetUrl(screenAir.target, guestUrl))) ? detectedId : "") || ((publishedPlayId && publishedOk && !officeStopped && !shutNow && (((LIVE as any).isLive && hasChannel) || ((LIVE as any).guestIsLive && !!guestUrl) || screenAir.state === "live")) ? publishedPlayId : "");
-  const verifiedFallbackId = fallbackId && !isIdBanned(fallbackId) && (fallbackVerdict === true || fallbackVerdict === null) ? fallbackId : "";
-  /* A named id YouTube says is gone still reaches the player (note 420): the
-     player's own dead fallback names it and offers the platform link — never
-     the black "unavailable" frame, and never the ticking clock for a live
-     that is already on air. */
-  const deadLiveId = detectedId && idVerdict === false && (isDesignatedChannel(airForTarget.channelId, designatedId) || (guestLive && isGuestTargetUrl(screenAir.target, guestUrl))) ? detectedId : "";
-  /* First-build rule (no "video unavailable"): a bare office press with no verified
-     video never counts as watchable by itself. The channel embed only plays once
-     the scrape proves that channel is actually live (detectedChannel) or the
-     publish carries a real verified video id (playableId below). A press alone
-     waits on the ticking clock — never a lone channel embed for a channel with
-     no running broadcast (that lone embed is what opened YouTube's black
-     "This video is unavailable" frame). */
-  const watchable = !!playableId || !!deadLiveId || !!detectedChannel || fbLive || !!verifiedFallbackId;
-  /* Dead-video gate (note 413, opened note 420): a named id reaches the
-     player while its verdict is still unknown — offline, probe down, still
-     checking — and the player verifies behind the frame, swapping to its
-     fallback when the id proves dead. A proven-dead id goes straight to that
-     fallback below. Dead never plays blind into the black frame. */
+  /* Verified-only mount (the "video unavailable" frame can never show): the screen
+     mounts a YouTube iframe ONLY for an id YouTube itself just confirmed plays
+     (verdict === true). Unknown (null: still checking, offline, probe down) waits on
+     the ticking clock below and mounts by itself the moment the verifier says true.
+     Dead (false) never mounts. In particular NO lone channel embed is ever mounted:
+     a live_stream?channel= embed for a channel with no running broadcast is exactly
+     what opens YouTube's black "This video is unavailable" frame, so a press alone,
+     a walled read alone, or a stale id alone all wait instead of mounting. */
+  const detectedVerifiedId = detectedId && idVerdict === true && (isDesignatedChannel(airForTarget.channelId, designatedId) || (guestLive && isGuestTargetUrl(screenAir.target, guestUrl))) ? detectedId : "";
+  const publishedVerifiedId = publishedPlayId && publishedVerdict === true && !officeStopped && !shutNow && ((((LIVE as any).isLive && hasChannel) || ((LIVE as any).guestIsLive && !!guestUrl)) || screenAir.state === "live") ? publishedPlayId : "";
+  const playableVerifiedId = detectedVerifiedId || publishedVerifiedId;
+  const verifiedFallbackStrict = fallbackId && !isIdBanned(fallbackId) && fallbackVerdict === true ? fallbackId : "";
+  const watchableStrict = !!playableVerifiedId || fbLive || !!verifiedFallbackStrict;
+  const watchable = !!playableId || !!detectedChannel || fbLive || !!playableVerifiedId || !!verifiedFallbackStrict;
+  /* While any candidate id still verifies, the screen waits on the ticking clock
+     (never a blind iframe): the verifier settles in about a second and the player
+     mounts by itself the moment it says true. */
   const checkingLiveId = !!detectedId && idVerdict === null;
-  const checkingFallbackId = !!fallbackId && !playableId && !detectedChannel && !fbLive && fallbackVerdict === null;
+  const checkingPublishedId = !!publishedPlayId && publishedVerdict === null;
+  const checkingFallbackId = !!fallbackId && !playableVerifiedId && !fbLive && fallbackVerdict === null;
+  const checkingAnyId = checkingLiveId || checkingPublishedId || checkingFallbackId;
   /* Play means play for the guest, patience for the main (notes 404, 410):
      the office pressed Play for a slot and published it, yet the read cannot
      confirm a broadcast (bot wall) — so the commanded GUEST channel opens by
@@ -243,8 +243,9 @@ export function WatchLive() {
      channel embed, which is what showed "unavailable" when the channel had no
      running broadcast). The muted-first player (src/components/blocks.tsx) paints
      instantly and rejoins sound by itself, so an autoplay block never reads as slow. */
-  const hasPublishedVideo = !!publishedPlayId && publishedOk;
+  const hasPublishedVideo = !!publishedPlayId && publishedVerdict === true;
   const pressedWithVideo = hasPublishedVideo && !officeStopped && !shutNow && (pressedMain || pressedGuest);
+  const streamingStrict = pressedWithVideo || (screenAir.state === "live" && !shutNow && (guestLive || fbLive || (mainDetected && !officeStopped)));
   const streaming = pressedWithVideo || (screenAir.state === "live" && !shutNow && (guestLive || fbLive || (mainDetected && !officeStopped)));
 
   /* The two lists under the screen: recent services (read off the channel) and previous sermons (the office's write-ups). */
@@ -307,7 +308,7 @@ export function WatchLive() {
       ? { platform: "facebook", facebookUrl: LIVE.facebookUrl }
       : platform === "facebook"
       ? { platform: "facebook", facebookUrl: LIVE.facebookUrl }
-      : { platform: "youtube", youtubeId: playableId || deadLiveId || verifiedFallbackId || (fallbackVerdict === null ? fallbackId : ""), youtubeChannelId: detectedChannel || undefined };
+      : { platform: "youtube", youtubeId: playableVerifiedId || verifiedFallbackStrict, youtubeChannelId: undefined };
   const youtubeLink =
     watchUrl({ platform: "youtube", youtubeId: playableId }) ||
     (guestLive && guestUrl ? guestUrl : hasChannel ? targetUrl : watchUrl({ platform: "youtube", youtubeId: LIVE.youtubeId }) || targetUrl);
@@ -495,9 +496,9 @@ export function WatchLive() {
                 </div>
               )}
 
-              {(checkingLiveId || checkingFallbackId) && !playableId && !deadLiveId && !verifiedFallbackId && !shutNow && !officeStopped ? (
+              {(checkingAnyId && !playableVerifiedId && !fbLive && !shutNow && !officeStopped) || (streamingStrict && !watchableStrict && !shutNow && !officeStopped && (checkingAnyId || screenAir.state === "live" || pressedMain || pressedGuest)) ? (
                 <LiveWaiting cover={cover} />
-              ) : streaming && watchable ? (
+              ) : streamingStrict && watchableStrict ? (
                 <VideoPlayer
                   hideEscape
                   source={liveSource}
@@ -514,26 +515,7 @@ export function WatchLive() {
                   autoPlay
                   reloadSignal={reloadSignal}
                 />
-              ) : overrideGuest && overrideId ? (
-                <VideoPlayer
-                  hideEscape
-                  source={{ platform: "youtube", youtubeId: "", youtubeChannelId: overrideId }}
-                  title={liveName || ct("auto.live.bc108377bb47f9e6")}
-                  compact
-                  live
-                  /* The office commanded the guest slot (notes 404, 410): the
-                     guest Play is published and the read is walled — so that
-                     commanded channel opens by itself instead of the waiting
-                     clock, WITH SOUND like every live. The MAIN slot never
-                     opens here: a pressed main with no detected broadcast
-                     waits on the clock below — autoplay only works once the
-                     main livestream has started live on the channel. A
-                     verified off still waits; a detected broadcast still
-                     wins. */
-                  autoPlay
-                  reloadSignal={reloadSignal}
-                />
-              ) : !onAirNow && !waitingForClick && !pressedMain ? (
+              ) : !onAirNow && !waitingForClick && !pressedMain && !pressedGuest ? (
                 /* Nobody is broadcasting: the screen says so, and promises what
                    happens next — over the last stream's own still, dimmed. The
                    player opens the service by itself once Play is published for the stream
