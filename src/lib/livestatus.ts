@@ -47,18 +47,18 @@ export const LIVE_STATUS_KEY = "wom.livestatus";
 
 /** A status younger than this is trusted on mount instead of re-checked —
     unless a watcher asks urgent (the Watch page does: it checks at once). */
-const FRESH_MS = 12_000;
+const FRESH_MS = 6_000;
 /** Give the proxy this long before calling the check a failure.
     Fast live: 3.5s is plenty for YouTube to answer; the old 15s held the
     Watch screen on the waiting clock past the moment the broadcast started. */
-const CHECK_TIMEOUT_MS = 3_500;
+const CHECK_TIMEOUT_MS = 2_500;
 /** Poll cadence (note 310): fast while a broadcast is expected or the Watch
     page is open — a YouTube start shows in seconds and the waiting clock
     vanishes with it — slower in the quiet week. Live and local share this
     poller; only the fetch door differs (same-origin /__yt on local runs, the
     office server when joined, else the public proxy). */
-export const SOON_MS = 5_000;
-export const IDLE_MS = 25_000;
+export const SOON_MS = 2_500;
+export const IDLE_MS = 15_000;
 
 const EMPTY: LiveStatus = { state: "unset", platform: "", videoId: "", title: "", channelId: "", target: "", checkedAt: 0, endedAt: 0 };
 
@@ -602,7 +602,7 @@ export type LiveReport = { target: string; state: "live" | "off"; videoId: strin
 const REPORT_FRESH_MS = 150_000;
 /* Reports ride the same door as content — tiny and fast; a slow door must
    never hold up the scrape behind it. */
-const REPORT_TIMEOUT_MS = 2_500;
+const REPORT_TIMEOUT_MS = 2_000;
 
 /** Same-update reporters only (note 333), pure for the verifier: an old bundle
     still open in some office tab reports the old code's answers (once a wrong
@@ -791,8 +791,9 @@ const watchers = new Set<Watcher>();
 const listeners = new Set<() => void>();
 let timer = 0;
 let polling = false;
-/** End debounce: consecutive "off" answers for the same address. A single
-    off never ends a watched broadcast (see run()). */
+/** End debounce: consecutive "off" answers for the same address. A lone off
+    (or two) never ends a watched broadcast — a walled read can blink off
+    and the screen must not end itself and come back on. */
 let offStreak = 0;
 let offTarget = "";
 /** When the last answer was fetched (ms) — the freshness clock. */
@@ -1021,7 +1022,7 @@ async function run() {
       offStreak = 0;
     }
     offStreak++;
-    if (offStreak < 2) {
+    if (offStreak < 3) {
       lastCheckAt = Date.now();
       schedule(delay());
       return;
@@ -1133,7 +1134,7 @@ export function useLiveStream(soon = false, watchFacebook = false, urgent = fals
    fetch (no proxy door needed); cached 5 minutes; in-flight asks shared. */
 
 const VERIFY_TTL_MS = 5 * 60_000;
-const VERIFY_TIMEOUT_MS = 2_500;
+const VERIFY_TIMEOUT_MS = 2_000;
 const verifyCache = new Map<string, { ok: boolean; at: number }>();
 const verifyInflight = new Map<string, Promise<boolean | null>>();
 

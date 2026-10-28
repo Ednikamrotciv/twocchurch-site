@@ -24,6 +24,18 @@ export class ErrorBoundary extends React.Component<{ children: React.ReactNode }
     this.setState({ route, stack });
     console.error("World Overcomers app error:", { route, error, stack });
   }
+  componentDidUpdate(_prevProps: { children: React.ReactNode }) {
+    /* Self-heal on navigation: leaving the page that broke clears the card,
+       so one bad frame can never trap the visitor — going home and back, or
+       the livestream remounting, paints fresh with no reload. */
+    if (this.state.error) {
+      let here = "";
+      try {
+        here = window.location.hash || window.location.pathname || "";
+      } catch {}
+      if (here && here !== this.state.route) this.setState({ error: null, route: "", stack: "" });
+    }
+  }
   render() {
     if (this.state.error) {
       return (
@@ -34,7 +46,7 @@ export class ErrorBoundary extends React.Component<{ children: React.ReactNode }
             We are sorry — this page failed to load. Reloading usually fixes it. If it keeps happening, please let the church office
             know exactly what you clicked.
           </p>
-          <pre className="error-detail">{String(this.state.error?.message || this.state.error)}{this.state.route ? `\nPage: ${this.state.route}` : ""}</pre>
+          <p className="muted">Nothing was lost — your place is saved. One tap brings the page back.</p>
           <div className="btn-row center">
             <Btn onClick={() => window.location.reload()} icon="refresh">
               Reload the page

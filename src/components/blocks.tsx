@@ -226,53 +226,11 @@ export function AnnouncementBanner() {
 
 /* ------------------------------------------------------------------ video player */
 
-/* YouTube's own unavailable frame (deleted, private, embedding disabled,
-   age-gate, region block) loads fine as an iframe — so the pre-play oEmbed
-   check alone cannot catch it. The IFrame Player API reports it as an error
-   (100 not found/private, 101/150 embedding disabled) — the player listens
-   for that and swaps to the dead fallback instead of sitting on YouTube's
-   black "unavailable" frame. Loaded once, shared by every player. */
-let ytApiPromise: Promise<any> | null = null;
-function loadYtPlayerApi(): Promise<any> {
-  try {
-    const w = window as any;
-    if (w.YT && w.YT.Player) return Promise.resolve(w.YT);
-    if (ytApiPromise) return ytApiPromise;
-    ytApiPromise = new Promise((resolve) => {
-      try {
-        const prev = w.onYouTubeIframeAPIReady;
-        w.onYouTubeIframeAPIReady = () => {
-          try {
-            if (typeof prev === "function") prev();
-          } catch {}
-          resolve(w.YT);
-        };
-        const tag = document.createElement("script");
-        tag.src = "https://www.youtube.com/iframe_api";
-        tag.async = true;
-        document.head.appendChild(tag);
-        /* If the API never loads (offline, blocked), give up quietly — the
-           pre-play check + escape link remain the net. */
-        window.setTimeout(() => resolve(w.YT || null), 10000);
-      } catch {
-        resolve(null);
-      }
-    });
-    return ytApiPromise;
-  } catch {
-    return Promise.resolve(null);
-  }
-}
+/* YouTube IFrame API removed (livestream hardening): the player renders a plain
+   React-managed iframe with no external API wrapping it, so no outside code
+   ever replaces or removes a node React owns — the whole removeChild crash
+   class is gone. Dead videos are caught by the verifier + fallback below. */
 
-/** Escape a string for use inside an HTML attribute (the player frame's
-    title runs through innerHTML, so quotes and brackets must not break it). */
-function escapeAttr(value: string): string {
-  return String(value || "")
-    .replace(/&/g, "&amp;")
-    .replace(/"/g, "&quot;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;");
-}
 
 export function VideoPlayer({
   source,
@@ -312,6 +270,10 @@ export function VideoPlayer({
   const [iframeKey, setIframeKey] = useState(0);
   const [playing, setPlaying] = useState(() => {
     if (!autoPlay) return false;
+    /* Live opens at once (no tap, no gold button, fast screen): the frame
+       mounts immediately and the verifier behind it swaps to the fallback
+       only if the id proves dead. */
+    if (live) return true;
     /* Livestream screen: play the broadcast by itself WITH SOUND — a verified
        id, an unverified-but-not-dead id, or the live channel follow all open
        with no tap. Only a proven-dead id is held back (the fallback below
@@ -384,17 +346,8 @@ export function VideoPlayer({
       onPlay?.();
     } catch {}
   };
-  /* Frame handle for YouTube's own error events (unavailable/dead inside
-     the iframe). The frame itself lives in a plain HTML string below (not a
-     React-managed iframe): YouTube's API *replaces* the element it is given
-     with its own iframe, and React removing a replaced node throws
-     "removeChild ... not a child" and takes the whole page down — exactly
-     the /admin/watch-live crash. React never tracks innerHTML children, so
-     the swap and every remount stay safe. */
-  const hostRef = useRef<HTMLDivElement | null>(null);
-  /* The visible frame, as a plain string for the host div above. `src` only
-     ever carries a verified video/channel id; the title is escaped. */
-  const iframeHtml = `<iframe class="player__frame" src="${src}" title="${escapeAttr(shown)}" referrerpolicy="${EMBED_REFERRER_POLICY}" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; fullscreen" allowfullscreen></iframe>`;
+  /* No host ref, no innerHTML: the frame below is a plain React iframe, so
+     nothing outside React ever replaces or removes a node it owns. */
   /* Sound on (note 388): every opening plays with its audio — a tap, or a
      broadcast the site starts by itself the moment it goes live. Every live
      from a channel carries its sound. */
@@ -607,47 +560,9 @@ export function VideoPlayer({
     return () => window.clearInterval(t);
   }, [playing, ytId, dead]);
 
-  /* YouTube's own failure signal: when the iframe loads YouTube's black
-     "unavailable" frame (deleted/private video, embedding disabled,
-     age-gate, region block, ended live), the API fires onError — swap to
-     the dead fallback (poster + Watch on YouTube) instead of leaving the
-     black frame on screen. Unknown/API-down keeps the frame as before. */
-  useEffect(() => {
-    if (!playing || dead || !src) return;
-    if (platform !== "youtube") return;
-    /* The API replaces whatever element it gets — so it gets the untracked
-       inner iframe, never a React-managed node (see hostRef above). */
-    const el = hostRef.current?.querySelector("iframe") || null;
-    if (!el) return;
-    let player: any = null;
-    let cancelled = false;
-    loadYtPlayerApi()
-      .then((api) => {
-        if (cancelled || !api || !api.Player) return;
-        try {
-          player = new api.Player(el, {
-            events: {
-              onError: (e: any) => {
-                const code = Number(e && (e as any).data);
-                /* 100 not found/private, 101/150 embedding disabled. */
-                if (code === 100 || code === 101 || code === 105 || code === 150) {
-                  try {
-                    setDead(true);
-                  } catch {}
-                }
-              },
-            },
-          });
-        } catch {}
-      })
-      .catch(() => {});
-    return () => {
-      cancelled = true;
-      try {
-        if (player && typeof player.destroy === "function") player.destroy();
-      } catch {}
-    };
-  }, [playing, dead, src, platform, iframeKey]);
+  /* No external player API: the frame is a plain React iframe (see render
+     below). Dead/unavailable videos are caught by the verifier effects above
+     + the dead fallback below — nothing outside React ever touches the DOM. */
 
   if (file) {
     /* A video the office uploaded plays in the browser itself. */
@@ -723,11 +638,14 @@ export function VideoPlayer({
     <div className={shell}>
       {playing ? (
         <>
-          <div
+          <iframe
             key={iframeKey}
-            ref={hostRef}
-            className="player__frame-host"
-            dangerouslySetInnerHTML={{ __html: iframeHtml }}
+            className="player__frame"
+            src={src}
+            title={shown}
+            referrerPolicy={EMBED_REFERRER_POLICY}
+            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; fullscreen"
+            allowFullScreen
           />
           {/* The frame itself never reports a failure (note 344): a video
               YouTube refuses to embed, blocks in this country, or takes down
@@ -745,6 +663,29 @@ export function VideoPlayer({
             </a>
           )}
         </>
+      ) : live ? (
+        /* Live has no play button at all (no gold circle, no tap): while the
+           broadcast is not yet open the still shows with a status line — the
+           frame opens by itself the moment it can. */
+        <div className="player__poster player__poster--live" aria-live="polite">
+          {still ? (
+            <img src={still} alt="" loading="lazy" onError={() => setFailed(true)} />
+          ) : (
+            <span className={"player__still player__still--" + platform}>
+              <Icon name={platform === "upload" ? "play" : platform} size={54} />
+            </span>
+          )}
+          <span className="player__scrim" />
+          <span className="player__label">{checking ? tx("Connecting to the broadcast…") : notLive ? tx("No broadcast right now — checking again…") : shown}</span>
+          <span className={"player__source player__source--" + platform}>
+            <Icon name={platform === "upload" ? "play" : platform} size={13} /> {platformLabel(platform)}
+          </span>
+          {live && (
+            <span className="player__live">
+              <span className="live-dot" /> {ct("live.player.badge")}
+            </span>
+          )}
+        </div>
       ) : (
         <button
           type="button"

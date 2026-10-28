@@ -1119,10 +1119,10 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  background: rgba(227, 183, 92, 0.96);
-  color: #241a05;
+  background: rgba(255, 255, 255, 0.96);
+  color: #1a1a1a;
   cursor: pointer;
-  box-shadow: 0 0 0 12px rgba(227, 183, 92, 0.16), 0 6px 24px rgba(0, 0, 0, 0.45);
+  box-shadow: 0 0 0 12px rgba(255, 255, 255, 0.16), 0 6px 24px rgba(0, 0, 0, 0.45);
   transition: transform 0.2s ease;
   z-index: 2;
   -webkit-tap-highlight-color: transparent;

@@ -109,6 +109,16 @@ export function WatchLive() {
      address lives in a ref, the latch in state, computed on the render so the
      player never flashes open for a single frame. */
   const shutPrevRef = useRef("");
+  /* Flap guard: the last broadcast the screen actually played + when it was
+     last seen live. A fresh off (<25s since live) keeps the frame open on the
+     last address instead of flashing the ended screen and reopening — the
+     livestream never ends itself and comes back on for a blip. */
+  const lastLiveRef = useRef({ src: "", at: 0 });
+  const liveSrcNow = screenAir.state === "live" ? String(screenAir.videoId || screenAir.channelId || "") : "";
+  useEffect(() => {
+    if (screenAir.state === "live" && liveSrcNow) lastLiveRef.current = { src: liveSrcNow, at: Date.now() };
+  });
+  const offFresh = screenAir.state === "off" && Date.now() - lastLiveRef.current.at < 25_000 && !!lastLiveRef.current.src;
   const [shut, setShut] = useState<ScreenShut>(null);
   const nowLiveTarget = screenAir.state === "live" ? String(screenAir.target || "") : "";
   const shutNext = nextScreenShut(shut, shutPrevRef.current, guestUrl, screenAir.state === "live", nowLiveTarget, screenAir.state === "off");
@@ -116,7 +126,9 @@ export function WatchLive() {
     shutPrevRef.current = nowLiveTarget;
     if (shutNext !== shut) setShut(shutNext);
   });
-  const shutNow = shutNext;
+  /* Fresh offs never shut (flap grace above): the latch only lands once the
+     broadcast has been quiet past the grace window, or the office stopped it. */
+  const shutNow = offFresh ? null : shutNext;
   /* Straight stop rule (note 414): the office pressed Stop and published it —
      the live is off, so the screen never sits on the ticking clock. It shows
      the main channel's previous livestream thumbnail instead (the cover chain
@@ -191,7 +203,7 @@ export function WatchLive() {
      until Play. Press alone never autoplays — autoplay only works once the
      main livestream has started live on the channel. */
   const mainDetected = screenAir.state === "live" && !guestLive && !fbLive;
-  const streaming = screenAir.state === "live" && !shutNow && (guestLive || fbLive || (mainDetected && !officeStopped));
+  const streaming = (screenAir.state === "live" || offFresh) && !shutNow && !officeStopped && (guestLive || fbLive || mainDetected || offFresh);
 
   /* The two lists under the screen: recent services (read off the channel) and previous sermons (the office's write-ups). */
   const limit = recentLimit();
@@ -248,12 +260,17 @@ export function WatchLive() {
   /* The service notepad behind the *Service notes* arrow (note 223). */
   const [notesOpen, setNotesOpen] = useState(false);
   const platform: VideoPlatform | null = available.includes(chosen) ? chosen : available[0] || null;
-  const liveSource: VideoSource =
+  const freshSource: VideoSource =
     fbLive
       ? { platform: "facebook", facebookUrl: LIVE.facebookUrl }
       : platform === "facebook"
       ? { platform: "facebook", facebookUrl: LIVE.facebookUrl }
       : { platform: "youtube", youtubeId: playableId || deadLiveId || verifiedFallbackId, youtubeChannelId: detectedChannel || (!streaming && overrideId) || undefined };
+  /* The grace window replays the last playable address: a fresh off keeps the
+     frame on exactly what was playing instead of an empty follow. */
+  const graceRef = useRef<VideoSource | null>(null);
+  if (streaming && watchable) graceRef.current = freshSource;
+  const liveSource: VideoSource = offFresh && graceRef.current ? graceRef.current : freshSource;
   const youtubeLink =
     watchUrl({ platform: "youtube", youtubeId: playableId }) ||
     (guestLive && guestUrl ? guestUrl : hasChannel ? targetUrl : watchUrl({ platform: "youtube", youtubeId: LIVE.youtubeId }) || targetUrl);
@@ -401,7 +418,9 @@ export function WatchLive() {
 
               {(checkingLiveId || checkingFallbackId) && !playableId && !deadLiveId && !verifiedFallbackId && !shutNow && !officeStopped ? (
                 <LiveWaiting cover={cover} />
-              ) : streaming && watchable ? (
+              /* Grace replay (flap guard): a fresh off replays the last playable
+                 address instead of flashing the ended screen or clock. */
+) : ((streaming && watchable) || (offFresh && !!graceRef.current)) ? (
                 <VideoPlayer
                   hideEscape
                   source={liveSource}
@@ -456,7 +475,7 @@ export function WatchLive() {
                       {(latest || recentItems.length > 0 || recentFallback.length > 0) && (
                         <Btn
                           size="sm"
-                          variant="gold"
+                          variant="crimson"
                           icon="play"
                           onClick={() => document.getElementById("recent-services")?.scrollIntoView({ behavior: "smooth" })}
                         >
