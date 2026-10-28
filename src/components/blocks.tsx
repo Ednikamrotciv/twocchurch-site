@@ -264,6 +264,16 @@ function loadYtPlayerApi(): Promise<any> {
   }
 }
 
+/** Escape a string for use inside an HTML attribute (the player frame's
+    title runs through innerHTML, so quotes and brackets must not break it). */
+function escapeAttr(value: string): string {
+  return String(value || "")
+    .replace(/&/g, "&amp;")
+    .replace(/"/g, "&quot;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+}
+
 export function VideoPlayer({
   source,
   title,
@@ -375,8 +385,16 @@ export function VideoPlayer({
     } catch {}
   };
   /* Frame handle for YouTube's own error events (unavailable/dead inside
-     the iframe). Attached below once the iframe plays. */
-  const frameRef = useRef<HTMLIFrameElement | null>(null);
+     the iframe). The frame itself lives in a plain HTML string below (not a
+     React-managed iframe): YouTube's API *replaces* the element it is given
+     with its own iframe, and React removing a replaced node throws
+     "removeChild ... not a child" and takes the whole page down — exactly
+     the /admin/watch-live crash. React never tracks innerHTML children, so
+     the swap and every remount stay safe. */
+  const hostRef = useRef<HTMLDivElement | null>(null);
+  /* The visible frame, as a plain string for the host div above. `src` only
+     ever carries a verified video/channel id; the title is escaped. */
+  const iframeHtml = `<iframe class="player__frame" src="${src}" title="${escapeAttr(shown)}" referrerpolicy="${EMBED_REFERRER_POLICY}" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; fullscreen" allowfullscreen></iframe>`;
   /* Sound on (note 388): every opening plays with its audio — a tap, or a
      broadcast the site starts by itself the moment it goes live. Every live
      from a channel carries its sound. */
@@ -597,7 +615,9 @@ export function VideoPlayer({
   useEffect(() => {
     if (!playing || dead || !src) return;
     if (platform !== "youtube") return;
-    const el = frameRef.current;
+    /* The API replaces whatever element it gets — so it gets the untracked
+       inner iframe, never a React-managed node (see hostRef above). */
+    const el = hostRef.current?.querySelector("iframe") || null;
     if (!el) return;
     let player: any = null;
     let cancelled = false;
@@ -703,15 +723,11 @@ export function VideoPlayer({
     <div className={shell}>
       {playing ? (
         <>
-          <iframe
+          <div
             key={iframeKey}
-            ref={frameRef}
-            className="player__frame"
-            src={src}
-            title={shown}
-            referrerPolicy={EMBED_REFERRER_POLICY}
-            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; fullscreen"
-            allowFullScreen
+            ref={hostRef}
+            className="player__frame-host"
+            dangerouslySetInnerHTML={{ __html: iframeHtml }}
           />
           {/* The frame itself never reports a failure (note 344): a video
               YouTube refuses to embed, blocks in this country, or takes down

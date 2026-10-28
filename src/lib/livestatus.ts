@@ -791,6 +791,10 @@ const watchers = new Set<Watcher>();
 const listeners = new Set<() => void>();
 let timer = 0;
 let polling = false;
+/** End debounce: consecutive "off" answers for the same address. A single
+    off never ends a watched broadcast (see run()). */
+let offStreak = 0;
+let offTarget = "";
 /** When the last answer was fetched (ms) — the freshness clock. */
 let lastCheckAt = snapshot.status.checkedAt;
 /** The address the last answer was about, so a new one is checked at once. */
@@ -1004,6 +1008,25 @@ async function run() {
   if (!watchers.size) return;
   publish({ checking: false });
   lastTarget = targetSignature();
+  /* End debounce: a single "off" never ends a watched broadcast — a walled
+     read can blink off for one poll and the screen would end itself and come
+     back on. Only two consecutive offs for the same address end it; anything
+     else (live, unknown, unset, or a moved address) resets the count. */
+  if (next.state !== "off") {
+    offStreak = 0;
+    offTarget = "";
+  } else if (snapshot.status.state === "live") {
+    if (offTarget !== next.target) {
+      offTarget = next.target;
+      offStreak = 0;
+    }
+    offStreak++;
+    if (offStreak < 2) {
+      lastCheckAt = Date.now();
+      schedule(delay());
+      return;
+    }
+  }
   /* Keep the last good answer when the check itself failed, so a hiccup never
      turns a live stream into an ended one. */
   if (next.state === "unknown" && snapshot.status.state === "live") {

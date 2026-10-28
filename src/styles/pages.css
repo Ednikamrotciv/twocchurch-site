@@ -1009,6 +1009,18 @@
   display: block;
 }
 
+/* Untracked host for the playing frame (see VideoPlayer): React owns this
+   div, YouTube's API owns whatever iframe ends up inside it — so swaps and
+   remounts never trip React's removeChild. */
+.player__frame-host {
+  width: 100%;
+  height: 100%;
+}
+.player__frame-host .player__frame {
+  width: 100%;
+  height: 100%;
+}
+
 /* The frame never reports a failure (note 344): this link sits over the
    corner while a video plays, so a refused/blocked/removed embed always
    has a way out that says why. */
@@ -1076,6 +1088,13 @@
 .player__poster:hover .player__play {
   transform: scale(1.07);
   box-shadow: 0 0 0 18px rgba(227, 183, 92, 0.18);
+}
+
+/* Live screen: no gold play button — the broadcast opens by itself, so the
+   circle never sits on the frame. The poster itself stays tappable as a
+   fallback, and replay cards below keep their own buttons. */
+.live-panel__frame .player__play {
+  display: none;
 }
 
 /* Live repair: the black "unavailable" frame never shows — a dimmed still
