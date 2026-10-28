@@ -796,6 +796,12 @@ let polling = false;
     and the screen must not end itself and come back on. */
 let offStreak = 0;
 let offTarget = "";
+/** When the last definitive (live/off) answer landed. An "unknown" that lasts
+    past the cap below stops preserving a stale live: a screen that can no
+    longer confirm its broadcast must not sit on its black frame forever. */
+let lastDefinitiveAt = 0;
+/** How long an unconfirmed live may stand before it is retired to ended. */
+const UNKNOWN_CAP_MS = 10 * 60_000;
 /** When the last answer was fetched (ms) — the freshness clock. */
 let lastCheckAt = snapshot.status.checkedAt;
 /** The address the last answer was about, so a new one is checked at once. */
@@ -1009,10 +1015,12 @@ async function run() {
   if (!watchers.size) return;
   publish({ checking: false });
   lastTarget = targetSignature();
-  /* End debounce: a single "off" never ends a watched broadcast — a walled
-     read can blink off for one poll and the screen would end itself and come
-     back on. Only two consecutive offs for the same address end it; anything
-     else (live, unknown, unset, or a moved address) resets the count. */
+  /* End debounce: a lone off (or two) never ends a watched broadcast — a
+     walled read can blink off and the screen must not end itself and come
+     back on. Only three consecutive offs for the same address end it;
+     anything else (live, unknown, unset, or a moved address) resets the
+     count. Definitive answers refresh the freshness clock below. */
+  if (next.state === "live" || next.state === "off") lastDefinitiveAt = Date.now();
   if (next.state !== "off") {
     offStreak = 0;
     offTarget = "";
@@ -1029,9 +1037,27 @@ async function run() {
     }
   }
   /* Keep the last good answer when the check itself failed, so a hiccup never
-     turns a live stream into an ended one. */
+     turns a live stream into an ended one — but only up to the cap: past
+     ten minutes without a single confirmable read, the stale live retires
+     to ended (with its last video, for the ended screen and recents) instead
+     of sitting on a black frame no arrow can reach. A fresh live edge after
+     that reopens by itself, with sound. */
   if (next.state === "unknown" && snapshot.status.state === "live") {
-    lastCheckAt = Date.now();
+    if (Date.now() - (lastDefinitiveAt || lastCheckAt) <= UNKNOWN_CAP_MS) {
+      lastCheckAt = Date.now();
+      schedule(delay());
+      return;
+    }
+    try { console.warn("church live: retiring stale live (no confirmable read for 10m)"); } catch {}
+    const checkedAt = Date.now();
+    const kept = inheritEnded(snapshot.status, snapshot.status.target || "", checkedAt, designatedChannelIdForTarget(snapshot.status.target || ""));
+    const retired: LiveStatus = { state: "off", platform: kept.platform, videoId: kept.videoId, title: kept.title, channelId: kept.channelId, target: snapshot.status.target || "", checkedAt, endedAt: kept.endedAt || checkedAt };
+    offStreak = 0;
+    offTarget = "";
+    saveLiveStatus(retired);
+    publish({ status: retired });
+    maybeReport(retired);
+    lastCheckAt = checkedAt;
     schedule(delay());
     return;
   }
@@ -1057,6 +1083,7 @@ function onWake() {
 function startPolling() {
   if (polling) return;
   polling = true;
+  if (!lastDefinitiveAt && snapshot.status.state === "live") lastDefinitiveAt = snapshot.status.checkedAt || Date.now();
   lastTarget = targetSignature();
   document.addEventListener("visibilitychange", onWake);
   window.addEventListener("online", onWake);

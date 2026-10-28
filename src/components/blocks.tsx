@@ -611,30 +611,46 @@ export function VideoPlayer({
     if (!host) return;
     let player: any = null;
     let cancelled = false;
+    /* Watchdog: a frame that reports neither ready nor error within 12s is
+       hung (blocked API, stalled load) — show the fallback with its arrow
+       instead of a silent black box. Normal loads settle far sooner. */
+    let settled = false;
+    const fail = (why: string, code?: number) => {
+      if (settled || cancelled) return;
+      settled = true;
+      try { console.warn("church player: showing fallback", { videoId: vid, why, code }); } catch {}
+      try { setDead(true); } catch {}
+    };
+    const watchdog = window.setTimeout(() => fail("watchdog"), 12_000);
     loadYtPlayerApi()
       .then((api) => {
         if (cancelled || !api || !api.Player) return;
         if (apiHostRef.current !== host) return;
         try {
           player = new api.Player(host, {
-            width: "100%",
-            height: "100%",
             videoId: vid,
             playerVars: { autoplay: 1, rel: 0, modestbranding: 1, playsinline: 1 },
             events: {
+              onReady: () => {
+                settled = true;
+                try { window.clearTimeout(watchdog); } catch {}
+              },
               onError: (e: any) => {
                 const code = Number(e && (e as any).data);
-                if (code === 100 || code === 101 || code === 105 || code === 150) {
-                  try { setDead(true); } catch {}
-                }
+                try { window.clearTimeout(watchdog); } catch {}
+                if (code === 100 || code === 101 || code === 105 || code === 150) fail("youtube-error", code);
+                else { settled = true; }
               },
             },
           });
-        } catch {}
+        } catch {
+          try { window.clearTimeout(watchdog); } catch {}
+        }
       })
       .catch(() => {});
     return () => {
       cancelled = true;
+      try { window.clearTimeout(watchdog); } catch {}
       try { if (player && typeof player.destroy === "function") player.destroy(); } catch {}
     };
   }, [playing, dead, liveVideoId, ytId, platform, iframeKey]);
