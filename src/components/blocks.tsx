@@ -226,10 +226,41 @@ export function AnnouncementBanner() {
 
 /* ------------------------------------------------------------------ video player */
 
-/* YouTube IFrame API removed (livestream hardening): the player renders a plain
-   React-managed iframe with no external API wrapping it, so no outside code
-   ever replaces or removes a node React owns — the whole removeChild crash
-   class is gone. Dead videos are caught by the verifier + fallback below. */
+/* In-frame failure signal (read-only API use): YouTube's own "video
+   unavailable" frame (deleted/private id, embedding disabled 101/150, an
+   age/region wall, an ended live) fires onError through the IFrame API — the
+   verifier alone cannot see it, so without this the black frame would sit
+   with no way out. The API is used the safe way: it gets an empty host div
+   and injects its own iframe as a child (it never replaces a React-managed
+   node), and the cleanup destroys the player before React touches the div —
+   so the old removeChild crash cannot happen. On a proven error the player
+   swaps to the dead fallback (centered arrow + Watch on YouTube). If the API
+   never loads (offline, blocked) everything behaves exactly as before. */
+let ytApiPromise: Promise<any> | null = null;
+function loadYtPlayerApi(): Promise<any> {
+  try {
+    const w = window as any;
+    if (w.YT && w.YT.Player) return Promise.resolve(w.YT);
+    if (ytApiPromise) return ytApiPromise;
+    ytApiPromise = new Promise((resolve) => {
+      try {
+        const prev = w.onYouTubeIframeAPIReady;
+        w.onYouTubeIframeAPIReady = () => {
+          try { if (typeof prev === "function") prev(); } catch {}
+          resolve(w.YT);
+        };
+        const tag = document.createElement("script");
+        tag.src = "https://www.youtube.com/iframe_api";
+        tag.async = true;
+        document.head.appendChild(tag);
+        /* If the API never loads (offline, blocked), give up quietly — the
+           verifier + escape link remain the net. */
+        window.setTimeout(() => resolve(w.YT || null), 10000);
+      } catch { resolve(null); }
+    });
+    return ytApiPromise;
+  } catch { return Promise.resolve(null); }
+}
 
 
 export function VideoPlayer({
@@ -297,11 +328,13 @@ export function VideoPlayer({
      livestream-screen error — dead frame, hung load, blocked autoplay. Drops
      what the verifier learned, remounts the frame, re-asks the on-air check
      and reopens. No page reload, stays on this site. */
-  const reloadSeen = useRef(typeof reloadSignal === "number" ? reloadSignal : 0);
-  useEffect(() => {
-    if (!live || !reloadSignal) return;
-    if (reloadSeen.current === reloadSignal) return;
-    reloadSeen.current = reloadSignal;
+  /* One-press repair (visitor arrow + office Reload share it): finds what's
+     live NOW and plays it — a restarted stream's new video, a stale
+     resolution, a hung frame. A channel follow re-asks the check and plays
+     the current broadcast by its own verified id; a bare id remounts and
+     replays (the verifier + in-frame error decide). Never replays a stale
+     dead id blind. */
+  const repair = () => {
     try {
       if (ytId) forgetVerified(ytId);
     } catch {}
@@ -312,39 +345,38 @@ export function VideoPlayer({
     setFailed(false);
     setNotLive(false);
     setChecking(false);
-    setIframeKey((k) => k + 1);
+    setLiveVideoId("");
     try {
       recheckLiveNow();
     } catch {}
-    if (autoPlay || live) {
+    /* A channel follow re-resolves (the fix for "unavailable" after the
+       office restarted the stream); anything else remounts and replays. */
+    if (live && followId) checkChannelThenPlay();
+    else {
+      setIframeKey((k) => k + 1);
       setPlaying(true);
       try {
         onPlay?.();
       } catch {}
     }
+  };
+  /* Office Reload repair (published liveReloadAt): the general fix for any
+     livestream-screen error — unavailable frame, dead id, hung load, blocked
+     autoplay. Runs the shared repair above: re-asks the on-air check and
+     reopens on what's live now. No page reload, stays on this site. */
+  const reloadSeen = useRef(typeof reloadSignal === "number" ? reloadSignal : 0);
+  useEffect(() => {
+    if (!live || !reloadSignal) return;
+    if (reloadSeen.current === reloadSignal) return;
+    reloadSeen.current = reloadSignal;
+    repair();
   }, [live, reloadSignal]);
   /* Visitor retry (error-only): the circular arrow in the center of the
-     screen, shown ONLY while the player reports an error. Drops the stale
-     verdict, remounts the frame and re-asks — no page reload, stays here. */
+     screen, shown ONLY while the player reports an error (unavailable + all
+     other failures) and hidden whenever the screen is fine. One tap runs the
+     shared repair above — it finds what's live now and plays it. */
   const retry = () => {
-    try {
-      if (ytId) forgetVerified(ytId);
-    } catch {}
-    try {
-      if (liveVideoId) forgetVerified(liveVideoId);
-    } catch {}
-    setDead(false);
-    setFailed(false);
-    setNotLive(false);
-    setChecking(false);
-    setIframeKey((k) => k + 1);
-    try {
-      recheckLiveNow();
-    } catch {}
-    setPlaying(true);
-    try {
-      onPlay?.();
-    } catch {}
+    repair();
   };
   /* No host ref, no innerHTML: the frame below is a plain React iframe, so
      nothing outside React ever replaces or removes a node it owns. */
@@ -376,6 +408,7 @@ export function VideoPlayer({
   const checkChannelThenPlay = () => {
     setNotLive(false);
     setChecking(true);
+    setIframeKey((k) => k + 1);
     checkLiveStream()
       .then((st) => {
         /* Only the handle's answer opens the player (note 350): a tap that
@@ -539,30 +572,72 @@ export function VideoPlayer({
     }
   }, [playing, ytId, dead, src]);
 
-  /* While a video plays, the verdict is re-asked every few minutes
-     (note 344): a broadcast taken down mid-play swaps to the fallback
-     instead of sitting on the black frame. Cached verdicts make each
-     re-ask free; hidden tabs skip it. */
+  /* While a video plays, the verdict is re-asked every minute (note 344):
+     a broadcast taken down mid-play swaps to the fallback — centered arrow
+     included — instead of sitting on the black frame. Cached verdicts make
+     each re-ask free; hidden tabs skip it. The in-frame error above usually
+     beats this; this is the net beneath it. */
   useEffect(() => {
-    if (!playing || !ytId || dead) return;
+    if (!playing || dead) return;
+    const vid = liveVideoId || ytId;
+    if (!vid) return;
     const t = window.setInterval(() => {
       try {
         if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
       } catch {
         /* visibility unreadable — ask anyway */
       }
-      verifyYoutubeId(ytId)
+      verifyYoutubeId(vid)
         .then((v) => {
           if (v === false) setDead(true);
         })
         .catch(() => {});
-    }, 5 * 60 * 1000);
+    }, 60 * 1000);
     return () => window.clearInterval(t);
-  }, [playing, ytId, dead]);
+  }, [playing, dead, liveVideoId, ytId]);
 
-  /* No external player API: the frame is a plain React iframe (see render
-     below). Dead/unavailable videos are caught by the verifier effects above
-     + the dead fallback below — nothing outside React ever touches the DOM. */
+  /* In-frame failure signal (see loader above): a bare video id plays
+     through the API's own host div, and YouTube's own onError (100 gone,
+     101/150 embedding disabled, 105) swaps to the dead fallback at once —
+     the centered arrow appears instead of the black "unavailable" frame.
+     Channel follows and files keep the plain frame + verifier below. */
+  const apiHostRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    if (!playing || dead) return;
+    if (platform !== "youtube") return;
+    const vid = liveVideoId || ytId;
+    if (!vid) return;
+    const host = apiHostRef.current;
+    if (!host) return;
+    let player: any = null;
+    let cancelled = false;
+    loadYtPlayerApi()
+      .then((api) => {
+        if (cancelled || !api || !api.Player) return;
+        if (apiHostRef.current !== host) return;
+        try {
+          player = new api.Player(host, {
+            width: "100%",
+            height: "100%",
+            videoId: vid,
+            playerVars: { autoplay: 1, rel: 0, modestbranding: 1, playsinline: 1 },
+            events: {
+              onError: (e: any) => {
+                const code = Number(e && (e as any).data);
+                if (code === 100 || code === 101 || code === 105 || code === 150) {
+                  try { setDead(true); } catch {}
+                }
+              },
+            },
+          });
+        } catch {}
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+      try { if (player && typeof player.destroy === "function") player.destroy(); } catch {}
+    };
+  }, [playing, dead, liveVideoId, ytId, platform, iframeKey]);
 
   if (file) {
     /* A video the office uploaded plays in the browser itself. */
@@ -638,6 +713,12 @@ export function VideoPlayer({
     <div className={shell}>
       {playing ? (
         <>
+          {(platform === "youtube" && (liveVideoId || ytId)) ? (
+            /* API-managed frame (bare video id): the API injects its own
+               iframe into this host div and reports its own errors; React
+               never touches what's inside it. */
+            <div key={iframeKey} ref={apiHostRef} className="player__frame-host" />
+          ) : (
           <iframe
             key={iframeKey}
             className="player__frame"
@@ -647,6 +728,7 @@ export function VideoPlayer({
             allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; fullscreen"
             allowFullScreen
           />
+          )}
           {/* The frame itself never reports a failure (note 344): a video
               YouTube refuses to embed, blocks in this country, or takes down
               mid-play would otherwise sit black with no way out. This link
