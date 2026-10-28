@@ -82,12 +82,15 @@ export async function createCmsHost(rootDir, opts) {
 
   /* Clean-deploy mode (office request: every new deploy opens fresh —
      welcome-home slide only — until Recover + Publish): with
-     clean-deploy.txt beside package.json the backend starts with no words,
-     even when a previous store file is still on disk (a fresh extract over
-     the folder, a Render sleep-wake, any unwiped disk). The boot guard above
-     already parked such a store aside; this is the belt behind it, so old
-     slides can never re-serve through the fallback on a clean deploy. The
-     first Publish saves its words normally (saveSoon below) and consumes
+     clean-deploy.txt beside package.json this boot opens with no words.
+     Administrator accounts are NOT code and are never reset by a deploy —
+     the previous store still loads below, and the server's clean boot
+     (see cms-server.js) clears only words, stamps, log, undo and history
+     while the main-password override, sub-admin roster, invites,
+     two-factor, main-off switch and password generation all survive, so no
+     administrator ever has to register again after an update. The boot guard
+     above already snapshotted the previous words; Recover restores them, and
+     the first Publish saves its words normally (saveSoon below) and consumes
      the flag, so normal serving resumes by itself. */
   let cleanDeploy = false;
   try {
@@ -111,15 +114,14 @@ export async function createCmsHost(rootDir, opts) {
   let saving = false;
   let dirtyAgain = false;
   if (cleanDeploy) {
-    console.log("cms backend: clean deploy (clean-deploy.txt) — starting with no words until Recover + Publish");
-  } else {
-    try {
-      const prev = await readFile(statePath);
-      state.set(prev.subarray(0, Math.min(prev.length, STATE_SIZE)));
-      if (prev.length) console.log(`cms backend: loaded ${prev.length} bytes from data/cms-state.bin`);
-    } catch {
-      console.log("cms backend: fresh state (data/cms-state.bin will be created on first publish)");
-    }
+    console.log("cms backend: clean deploy (clean-deploy.txt) — opening with no words until Recover + Publish; administrator accounts are kept");
+  }
+  try {
+    const prev = await readFile(statePath);
+    state.set(prev.subarray(0, Math.min(prev.length, STATE_SIZE)));
+    if (prev.length) console.log(`cms backend: loaded ${prev.length} bytes from data/cms-state.bin`);
+  } catch {
+    console.log("cms backend: fresh state (data/cms-state.bin will be created on first publish)");
   }
   if (prevHash && prevHash !== scriptHash) {
     if (clearPublishLog(state, scriptSrc)) {
@@ -188,6 +190,21 @@ export async function createCmsHost(rootDir, opts) {
     return c;
   }
 
+  // Real per-network login throttling (cms-server.js allowAttempt keys the
+  // network bucket off conn.net[2]). The http layers call this on every
+  // request with a hash of the normalized client IP — previously every conn
+  // carried net[2] = 0, so the "40 fails per network per 10 min" backstop was
+  // effectively one GLOBAL bucket shared by all visitors. Now it is per IP.
+  function setConnNet(id, netNum) {
+    try {
+      const c = getConn(String(id || "anon"));
+      const n = Number(netNum) >>> 0;
+      c.net = ["remote", 0, n];
+    } catch {
+      /* bookkeeping must never break serving */
+    }
+  }
+
   const pubsub = {
     publish(topic, msg) {
       const text = String(msg);
@@ -206,11 +223,30 @@ export async function createCmsHost(rootDir, opts) {
   const selfObj = {};
   const sandbox = { state, pubsub, self: selfObj, console };
   vm.createContext(sandbox);
+  // Admin-hash override from a protected environment variable (Render dashboard
+  // > Environment, never committed): when set to a 64-hex SHA-256, it becomes
+  // the main-password hash instead of the shipped default — so a diskless
+  // Render sleep/reset keeps the office's real password instead of falling
+  // back to the shipped one. The plaintext never appears anywhere; only the
+  // hash rides the env. Normal runs (and laptops) ignore this entirely.
+  let adminHashOverride = "";
+  try {
+    const raw = String(process.env.ADMIN_HASH_OVERRIDE || "").trim().toLowerCase();
+    if (/^[0-9a-f]{64}$/.test(raw)) adminHashOverride = raw;
+    else if (raw) console.warn("cms backend: ADMIN_HASH_OVERRIDE ignored (not 64-hex sha256)");
+  } catch { /* env unreadable — shipped hash stands */ }
   /* Live-follow token (note 344): minted fresh on every boot, handed to the
      server code through `self` — only this process's own minute loop below
      ever learns it (see the adoptLive rpc in cms-server.js). */
   const adoptToken = "adopt-" + createHash("sha256").update(String(Date.now()) + ":" + String(Math.random()) + ":" + String(process.pid || 0)).digest("hex");
-  vm.runInContext(scriptSrc + "\nself.__adoptToken = " + JSON.stringify(adoptToken) + ";\nself.__codeWord = " + JSON.stringify(codeWord) + ";", sandbox, { filename: "cms-server.js" });
+  /* Clean-deploy flag (note 433): read by the server's boot block BEFORE any
+     content loads, so it must ride ahead of the server source — appended
+     assignments run after the boot blocks and would arrive too late. */
+  // All host-provided flags ride AHEAD of the server source: the boot blocks
+  // read them at load time (cleanDeploy clears the store on boot; the hash
+  // override is consumed by the loadState-adjacent block). Runtime tokens
+  // (adopt, code word) are appended after — handlers read them per call.
+  vm.runInContext("self.__cleanDeploy = " + (cleanDeploy ? "true" : "false") + ";\nself.__adminHashOverride = " + JSON.stringify(adminHashOverride) + ";\n" + scriptSrc + "\nself.__adoptToken = " + JSON.stringify(adoptToken) + ";\nself.__codeWord = " + JSON.stringify(codeWord) + ";", sandbox, { filename: "cms-server.js" });
   const rpc = selfObj.rpc || {};
   console.log(`cms backend: running the site's own server code (${Object.keys(rpc).length} rpc methods)`);
   /* A publish tapped on live/admin reaches this copy by itself (note 344):
@@ -265,9 +301,20 @@ export async function createCmsHost(rootDir, opts) {
   }
 
   async function call(method, id, raw) {
+    /* Security hook (WAF/anomaly): the http layers pass onRpc to observe
+       privilege/volume signals. Best-effort — never breaks the rpc. */
+    const emitRpc = (status, body) => {
+      try {
+        if (opts && typeof opts.onRpc === "function") opts.onRpc({ method, id, rawLength: typeof raw === "string" ? raw.length : 0, status, body });
+      } catch {
+        /* observation never breaks serving */
+      }
+    };
     const fn = rpc[method];
     if (typeof fn !== "function") {
-      return { status: 404, body: JSON.stringify({ ok: false, err: "unknown-method" }) };
+      const res = { status: 404, body: JSON.stringify({ ok: false, err: "unknown-method" }) };
+      emitRpc(res.status, res.body);
+      return res;
     }
     const conn = getConn(id);
     let out;
@@ -275,7 +322,9 @@ export async function createCmsHost(rootDir, opts) {
       out = await fn({ conn }, raw);
     } catch (err) {
       console.error(`cms backend rpc ${method}:`, err?.message || err);
-      return { status: 500, body: JSON.stringify({ ok: false, err: "error" }) };
+      const res = { status: 500, body: JSON.stringify({ ok: false, err: "error" }) };
+      emitRpc(res.status, res.body);
+      return res;
     }
     saveSoon();
     /* A publish moves the words — the recents follow the channel on the same
@@ -288,7 +337,9 @@ export async function createCmsHost(rootDir, opts) {
     } catch {
       /* the publish itself already landed */
     }
-    return { status: 200, body: typeof out === "string" ? out : JSON.stringify(out === undefined ? { ok: true } : out) };
+    const res = { status: 200, body: typeof out === "string" ? out : JSON.stringify(out === undefined ? { ok: true } : out) };
+    emitRpc(res.status, res.body);
+    return res;
   }
 
   function attachSender(id, send) {
@@ -299,7 +350,7 @@ export async function createCmsHost(rootDir, opts) {
     senders.delete(id);
   }
 
-  return { openConn, closeConn, attachSender, detachSender, call };
+  return { openConn, closeConn, setConnNet, attachSender, detachSender, call };
 }
 
 /* This folder's own update number (BUILD_NOTES in src/lib/hooks.ts) — the
@@ -378,7 +429,7 @@ async function backfillUploadFiles(rootDir, names, baseUrls, where) {
    live publish in about a second; the tiny stamp round beside it lands one
    within seconds even with the stream down; the half-minute full round is
    the backstop for old hosts without the stamp answer. Never throws out. */
-const FOLLOW_MS = 30 * 1000;let followStarted = false;
+const FOLLOW_MS = 5 * 1000;let followStarted = false;
 function startLiveFollow({ rootDir, rpcCall, adoptToken, codeWord }) {
   if (followStarted) return;
   followStarted = true;
@@ -598,7 +649,7 @@ function startLiveFollow({ rootDir, rpcCall, adoptToken, codeWord }) {
    stays the feed's own, so the office never re-adopts what it just published
    and the two loops cannot chase each other. RENDER-only: anywhere else the
    office minute loop above already owns this direction. Never throws out. */
-const FEED_FOLLOW_MS = 30 * 1000;
+const FEED_FOLLOW_MS = 5 * 1000;
 let feedFollowStarted = false;
 function startFeedFollow({ rootDir, rpcCall, adoptToken, codeWord }) {
   if (feedFollowStarted) return;

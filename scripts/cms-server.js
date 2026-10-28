@@ -61,6 +61,18 @@ var MAX_LOG = 20;
 var LOG_GEN = 3;
 var AUTH_WINDOW = 600000;
 
+/* Admin sessions end after 15 minutes without an admin action (note 433):
+   every successful sign-in stamps the connection, and every admin-only door
+   below re-stamps it. Public reads never stamp, so an open tab still times
+   out. These live only in memory: a new deploy is a new process, and the
+   client's deploy-bound session (see cms.ts) signs the office back in.
+   The administrator ACCOUNTS themselves (main-password override, sub-admin
+   roster, invites, two-factor, main-off switch, password generation) persist
+   in the store across every deploy and are never reset by one. */
+var SESSION_MS = 15 * 60 * 1000;
+var adminLast = new Map();
+var seenAdmin = new Set();
+
 /* Sub-admins and one-time invite codes live in the meta blob beside the
    publish log (see writeMeta): a handful of tiny records, so every publish
    re-encodes them for free. Only SHA-256 hashes are ever stored — a password
@@ -88,6 +100,18 @@ var ADMIN_HASH = "ef797c8118f02dfb649607dd5d3f8c7623048c9c063d532cc95c5ed7a898a6
    the moment it hears a newer number — no reload, no confusion. */
 var PWGEN = 0;
 var MAIN_HASH = "";
+/* Protected-env override (set by the host from ADMIN_HASH_OVERRIDE, never
+   committed): when a valid 64-hex SHA-256 rides self, it becomes the
+   main-password hash instead of the shipped default above — so a diskless
+   host sleep/reset keeps the office's real password. Only a hash ever rides
+   here; the plaintext appears nowhere. Normal runs ignore this entirely. */
+try {
+  if (typeof self.__adminHashOverride === "string" && /^[0-9a-f]{64}$/.test(self.__adminHashOverride) && !MAIN_HASH) {
+    MAIN_HASH = self.__adminHashOverride;
+  }
+} catch (e) {
+  /* an unreadable override must never break boot — shipped hash stands */
+}
 
 /* ------------------------------------------------------------------- views */
 
@@ -907,6 +931,36 @@ try {
   /* a failed lock must never break boot — the console still stands */
 }
 
+/* Clean deploys keep accounts (note 433): with clean-deploy.txt beside
+   package.json the host boots this build fresh — welcome-home slide only, no
+   former publish staged, no former undo — but administrator accounts are
+   application data, not code: the main-password override, sub-admin roster,
+   invites, two-factor, main-off switch and password generation all survive.
+   Only the published words, stamps, log, undo and history reset. Set by the
+   host (cms-local.mjs) before this code runs; idempotent while the flag file
+   is present (cleared words stay cleared); normal boots never enter here.
+   The office Recover restores the words afterwards, and the first Publish
+   consumes the flag as before. */
+try {
+  if (typeof self.__cleanDeploy !== "undefined" && self.__cleanDeploy) {
+    INDEX = [];
+    SECTIONS = {};
+    SECTION_CHARS = 0;
+    REV = 0;
+    AT = 0;
+    BY = "";
+    LOG = [];
+    PREV = null;
+    NOTES = 0;
+    PUBLISH_DEPLOY = "";
+    PUBLISH_CODE = "";
+    writeMeta();
+    writeHeader();
+  }
+} catch (e) {
+  /* a failed clear must never break boot — the console still stands */
+}
+
 /* --------------------------------------------------------------- authority */
 
 var admins = new Set();
@@ -930,6 +984,65 @@ function isSub(conn) {
   if (!admins.has(conn.id)) return false;
   var ident = adminIds.get(conn.id);
   return !!ident && ident.role === "sub";
+}
+
+/* Re-stamp this conn's admin session (a successful sign-in or admin action).
+   Bookkeeping must never break auth. */
+function touchAdmin(conn) {
+  try {
+    adminLast.set(conn.id, Date.now());
+    seenAdmin.add(conn.id);
+    if (adminLast.size > 3000) adminLast.clear();
+    if (seenAdmin.size > 3000) seenAdmin.clear();
+  } catch (e) {
+    /* bookkeeping must never break auth */
+  }
+}
+
+/* True while this conn holds a live (unexpired) admin session. Read-only:
+   reports without stamping, so background polls never extend idleness. */
+function sessionLive(conn) {
+  try {
+    var last = adminLast.get(conn.id);
+    return admins.has(conn.id) && !!last && Date.now() - last <= SESSION_MS;
+  } catch (e) {
+    return false;
+  }
+}
+
+/* "" = this conn holds a live admin session (activity re-stamped); otherwise
+   the refusal to send. The first refusal after a 15-minute idle says
+   idle-expired so the office knows WHY the publish failed; later ones say
+   unauthorized like any stranger. */
+function sessionDeny(conn) {
+  try {
+    var last = adminLast.get(conn.id);
+    if (admins.has(conn.id) && last && Date.now() - last <= SESSION_MS) {
+      touchAdmin(conn);
+      return "";
+    }
+  } catch (e) {
+    /* fall through to the refusal */
+  }
+  if (admins.has(conn.id) || seenAdmin.has(conn.id)) {
+    var seen = false;
+    try {
+      seen = seenAdmin.has(conn.id);
+    } catch (e) {}
+    admins.delete(conn.id);
+    adminIds.delete(conn.id);
+    try {
+      adminLast.delete(conn.id);
+    } catch (e) {}
+    try {
+      pending2fa.delete(conn.id);
+    } catch (e) {}
+    try {
+      seenAdmin.delete(conn.id);
+    } catch (e) {}
+    return seen ? "idle-expired" : "unauthorized";
+  }
+  return "unauthorized";
 }
 
 function connectKey(conn) {
@@ -978,6 +1091,12 @@ self.onopen = function (info) {
 self.onclose = function (info) {
   admins.delete(info.conn.id);
   adminIds.delete(info.conn.id);
+  try {
+    adminLast.delete(info.conn.id);
+  } catch (e) {}
+  try {
+    seenAdmin.delete(info.conn.id);
+  } catch (e) {}
   pending2fa.delete(info.conn.id);
   connFails.delete(info.conn.id);
 };
@@ -1012,7 +1131,9 @@ self.rpc = {
       code: publishCodeWord(),
       sections: "{" + parts.join(",") + "}",
       log: LOG,
-      admin: admins.has(info.conn.id),
+      /* Live session only (note 433): background polls report, never stamp —
+         an idle tab reads signed out here even before its next publish. */
+      admin: sessionLive(info.conn),
       pwgen: PWGEN,
       undoLeft: left,
     });
@@ -1021,9 +1142,19 @@ self.rpc = {
   /* Freshness stamp (note 384): the tiny rev/notes/at answer every connected
      tab asks on the short cadence, so a publish whose socket shout was missed
      still lands within the half minute on every copy. Public read — it names
-     no words, only whether the words moved. */
+     no words, only whether the words moved. `words` counts the stored
+     sections (note 427: the server-authoritative notice), so a waiting copy
+     can lift on the stamp alone without pulling the whole content. */
   contentRev: function (info) {
-    return ok({ rev: REV, notes: NOTES, publishDeploy: PUBLISH_DEPLOY, at: AT, code: publishCodeWord() });
+    return ok({ rev: REV, notes: NOTES, publishDeploy: PUBLISH_DEPLOY, at: AT, code: publishCodeWord(), words: INDEX.length });
+  },
+
+  /* File-door guard (uploads, restores, deletes): true only for a live admin
+     session on this connection. A 15-minute-idle conn reports false, so the
+     file doors stop with the session. Public read — it names no words, only
+     whether this conn may write. Reads report, never stamp. */
+  checkAdmin: function (info) {
+    return ok({ admin: sessionLive(info.conn) });
   },
 
   /* Office-reported on-air answer (note 318): reads are public (visitors ask
@@ -1033,7 +1164,8 @@ self.rpc = {
      put words on the visitors' screen. */
   liveReport: function (info, raw) {
     if (!raw) return ok({ report: gatedReport() });
-    if (!admins.has(info.conn.id)) return fail("denied");
+    var liveDeny = sessionDeny(info.conn);
+    if (liveDeny) return fail(liveDeny === "unauthorized" ? "denied" : liveDeny);
     var rep;
     try {
       rep = JSON.parse(raw);
@@ -1276,11 +1408,13 @@ self.rpc = {
       }
       admins.add(info.conn.id);
       adminIds.set(info.conn.id, { role: "main", name: "" });
+      touchAdmin(info.conn);
       return ok({ role: "main", pwgen: PWGEN });
     };
     var openSub = function () {
       admins.add(info.conn.id);
       adminIds.set(info.conn.id, { role: "sub", name: SUBS[subIdx].name });
+      touchAdmin(info.conn);
       return ok({ role: "sub", name: SUBS[subIdx].name, pwgen: PWGEN });
     };
     if (wantSub && subIdx >= 0) return openSub();
@@ -1340,6 +1474,7 @@ self.rpc = {
     writeMeta();
     admins.add(info.conn.id);
     adminIds.set(info.conn.id, { role: "sub", name: name });
+    touchAdmin(info.conn);
     return ok({ role: "sub", name: name, pwgen: PWGEN });
   },
 
@@ -1375,6 +1510,7 @@ self.rpc = {
       pending2fa.delete(info.conn.id);
       admins.add(info.conn.id);
       adminIds.set(info.conn.id, { role: "main", name: "" });
+      touchAdmin(info.conn);
       return ok({ role: "main", pwgen: PWGEN });
     };
     var cleaned = cleanCode(raw);
@@ -1390,7 +1526,8 @@ self.rpc = {
   },
 
   totpStatus: function (info) {
-    if (!isMain(info.conn)) return fail("unauthorized");
+    var denySess = sessionDeny(info.conn);
+    if (denySess || !isMain(info.conn)) return fail(denySess || "unauthorized");
     return ok({ enabled: !!TOTP, hasQ: !!(TOTP && TOTP.qhash), q: TOTP && TOTP.q ? TOTP.q : "" });
   },
 
@@ -1398,7 +1535,8 @@ self.rpc = {
      from the app proves it was recorded right, and the security question is
      the way back in when the phone is lost. Only then is anything stored. */
   totpSetup: function (info, raw) {
-    if (!isMain(info.conn)) return fail("unauthorized");
+    var denySess = sessionDeny(info.conn);
+    if (denySess || !isMain(info.conn)) return fail(denySess || "unauthorized");
     var payload;
     try {
       payload = JSON.parse(raw);
@@ -1425,7 +1563,8 @@ self.rpc = {
      admin plus proof it is them: a current app code, the current answer, or
      one of the old spare codes. */
   setSecurityQA: function (info, raw) {
-    if (!isMain(info.conn)) return fail("unauthorized");
+    var denySess = sessionDeny(info.conn);
+    if (denySess || !isMain(info.conn)) return fail(denySess || "unauthorized");
     if (!TOTP) return fail("off");
     var payload;
     try {
@@ -1450,7 +1589,8 @@ self.rpc = {
   /* Switch two-factor back off. Takes the security answer only — the office
      proves it without needing the phone in hand. */
   totpDisable: function (info, raw) {
-    if (!isMain(info.conn)) return fail("unauthorized");
+    var denySess = sessionDeny(info.conn);
+    if (denySess || !isMain(info.conn)) return fail(denySess || "unauthorized");
     if (!TOTP) return fail("off");
     var payload;
     try {
@@ -1473,7 +1613,8 @@ self.rpc = {
      same trust as a password change — and the cleared state is saved the
      same way: TOTP = null + writeMeta, like MAIN_HASH + writeMeta. */
   totpOffNow: function (info) {
-    if (!isMain(info.conn)) return fail("unauthorized");
+    var denySess = sessionDeny(info.conn);
+    if (denySess || !isMain(info.conn)) return fail(denySess || "unauthorized");
     if (!TOTP) return fail("off");
     TOTP = null;
     writeMeta();
@@ -1491,11 +1632,13 @@ self.rpc = {
     }
     if (!payload || typeof payload.off !== "boolean") return fail("bad-payload");
     if (payload.off) {
-      if (!isMain(info.conn)) return fail("unauthorized");
+      var denySess = sessionDeny(info.conn);
+    if (denySess || !isMain(info.conn)) return fail(denySess || "unauthorized");
       if (SUBS.length === 0) return fail("no-subs");
       MAIN_OFF = true;
     } else {
-      if (!isMain(info.conn) && !isSub(info.conn)) return fail("unauthorized");
+      var denySess = sessionDeny(info.conn);
+      if (denySess || (!isMain(info.conn) && !isSub(info.conn))) return fail(denySess || "unauthorized");
       MAIN_OFF = false;
     }
     writeMeta();
@@ -1510,7 +1653,8 @@ self.rpc = {
      session is signed out on the spot, and a nudge tells their tabs to clear
      themselves — sub-admins are untouched, their passwords did not change. */
   setMainPassword: function (info, raw) {
-    if (!isMain(info.conn)) return fail("unauthorized");
+    var denySess = sessionDeny(info.conn);
+    if (denySess || !isMain(info.conn)) return fail(denySess || "unauthorized");
     if (!TOTP) return fail("need-2fa");
     var payload;
     try {
@@ -1525,12 +1669,19 @@ self.rpc = {
     if (!proved && !fallbackKind(payload.proof)) return fail("bad-code");
     MAIN_HASH = payload.hash;
     PWGEN++;
+    /* Every other main-admin session ends here (their password changed);
+       sub-admin sessions are untouched — their passwords did not change. */
+    var evicted = [];
     adminIds.forEach(function (ident, id) {
       if (id !== info.conn.id && ident && ident.role === "main") {
         admins.delete(id);
         adminIds.delete(id);
+        evicted.push(id);
       }
     });
+    try {
+      for (var ei = 0; ei < evicted.length; ei++) adminLast.delete(evicted[ei]);
+    } catch (e) {}
     writeMeta();
     try {
       pubsub.publish("content", JSON.stringify({ rev: REV, at: AT, by: BY }));
@@ -1542,13 +1693,15 @@ self.rpc = {
 
   /* Any signed-in admin may ask whether the main password still works. */
   mainState: function (info) {
-    if (!isMain(info.conn) && !isSub(info.conn)) return fail("unauthorized");
+    var denySess = sessionDeny(info.conn);
+    if (denySess || (!isMain(info.conn) && !isSub(info.conn))) return fail(denySess || "unauthorized");
     return ok({ off: MAIN_OFF });
   },
 
   /* The roster. Main admin only — names and dates go out, hashes never do. */
   listSubs: function (info) {
-    if (!isMain(info.conn)) return fail("unauthorized");
+    var denySess = sessionDeny(info.conn);
+    if (denySess || !isMain(info.conn)) return fail(denySess || "unauthorized");
     pruneInvites(Date.now());
     var subs = [];
     for (var i = 0; i < SUBS.length; i++) subs.push({ name: SUBS[i].name, at: SUBS[i].at });
@@ -1562,7 +1715,8 @@ self.rpc = {
   /* Invite a sub-admin. The browser generates the code (real randomness) and
      sends only its SHA-256; the code itself is shown once, to be passed on. */
   createInvite: function (info, raw) {
-    if (!isMain(info.conn)) return fail("unauthorized");
+    var denySess = sessionDeny(info.conn);
+    if (denySess || !isMain(info.conn)) return fail(denySess || "unauthorized");
     var payload;
     try {
       payload = JSON.parse(raw);
@@ -1580,7 +1734,8 @@ self.rpc = {
   },
 
   revokeInvite: function (info, raw) {
-    if (!isMain(info.conn)) return fail("unauthorized");
+    var denySess = sessionDeny(info.conn);
+    if (denySess || !isMain(info.conn)) return fail(denySess || "unauthorized");
     var payload;
     try {
       payload = JSON.parse(raw);
@@ -1601,7 +1756,8 @@ self.rpc = {
 
   /* Delete a sub-admin. Their live sessions are signed out on the spot. */
   deleteSub: function (info, raw) {
-    if (!isMain(info.conn)) return fail("unauthorized");
+    var denySess = sessionDeny(info.conn);
+    if (denySess || !isMain(info.conn)) return fail(denySess || "unauthorized");
     var payload;
     try {
       payload = JSON.parse(raw);
@@ -1619,12 +1775,17 @@ self.rpc = {
       }
     }
     if (!found) return fail("unknown");
+    var droppedSubs = [];
     adminIds.forEach(function (ident, id) {
       if (ident && ident.role === "sub" && ident.name === payload.name) {
         admins.delete(id);
         adminIds.delete(id);
+        droppedSubs.push(id);
       }
     });
+    try {
+      for (var di = 0; di < droppedSubs.length; di++) adminLast.delete(droppedSubs[di]);
+    } catch (e) {}
     writeMeta();
     return ok({});
   },
@@ -1632,7 +1793,8 @@ self.rpc = {
   /* Patch publish. raw = { by, note, notes, code, deploy, changed: [id], sections } (note 249:
      notes carries the publishing code's update, code carries its word; empty sections still bless. */
   publish: function (info, raw) {
-    if (!admins.has(info.conn.id)) return fail("unauthorized");
+    var denySess = sessionDeny(info.conn);
+    if (denySess) return fail(denySess);
     var payload;
     try {
       payload = JSON.parse(raw);
@@ -1750,7 +1912,8 @@ self.rpc = {
      outright — a publish always deletes the one before it — and the undo
      itself consumes the window: afterwards nothing of either is kept. */
   undoPublish: function (info, raw) {
-    if (!admins.has(info.conn.id)) return fail("unauthorized");
+    var denySess = sessionDeny(info.conn);
+    if (denySess) return fail(denySess);
     var now = Date.now();
     var prev = livePrev(now);
     if (!prev) {
@@ -1820,7 +1983,8 @@ self.rpc = {
   /* Forget the publish history. Content is untouched — the next publish
      starts the record again from there. Main admin only. */
   clearLog: function (info) {
-    if (!isMain(info.conn)) return fail("unauthorized");
+    var denySess = sessionDeny(info.conn);
+    if (denySess || !isMain(info.conn)) return fail(denySess || "unauthorized");
     LOG = [];
     BY = "";
     REV = 0;

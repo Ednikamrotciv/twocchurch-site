@@ -17,7 +17,7 @@ import { createCmsHost } from "./cms-local.mjs";
    it too), and the office server re-runs it every 20 minutes by itself. */
 
 const KEEP = 24;
-const FETCH_MS = 25000;
+const FETCH_MS = 8000;
 const UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36";
 
 async function fetchText(url) {

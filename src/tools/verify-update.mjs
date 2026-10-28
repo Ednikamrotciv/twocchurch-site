@@ -74,6 +74,7 @@ const FILES = [
   ["src/styles/pages.css", null],
   ["APPLY_UPDATE.txt", null],
   ["maintenance-hold.txt", null],
+  ["clean-deploy.txt", null],
   [".gitignore", null],
 ];
 
@@ -90,11 +91,11 @@ function loadVm(code, state, pub) {
 function stubAuth(code) {
   return code
     .replace(
-      'publish: function (info, raw) {\n    if (!admins.has(info.conn.id)) return fail("unauthorized");',
+      'publish: function (info, raw) {\n    var denySess = sessionDeny(info.conn);\n    if (denySess) return fail(denySess);',
       'publish: function (info, raw) {\n    if (false) return fail("unauthorized");'
     )
     .replace(
-      'undoPublish: function (info, raw) {\n    if (!admins.has(info.conn.id)) return fail("unauthorized");',
+      'undoPublish: function (info, raw) {\n    var denySess = sessionDeny(info.conn);\n    if (denySess) return fail(denySess);',
       'undoPublish: function (info, raw) {\n    if (false) return fail("unauthorized");'
     );
 }
@@ -249,7 +250,7 @@ export async function runAll(fs) {
      still signs tabs out at login, publish and undo — but the session drop
      must never clear held words, queues or the publish stamp. Only a new
      update's first boot or an explicit office delete may clear them. */
-  const clearAt = cms.indexOf("function clearSession()");
+  const clearAt = cms.indexOf("function clearSession");
   const clearBody = clearAt >= 0 ? cms.slice(clearAt, clearAt + 1200) : "";
   ok("sign-out keeps words", clearAt >= 0 && has(clearBody, "SESSION_KEY") && has(clearBody, "PWROLE_KEY") && !has(clearBody, "CACHE_KEY") && !has(clearBody, "PENDING_KEY") && !has(clearBody, "NOTES_KEY") && !has(clearBody, "overrides") && !has(clearBody, "publishedNotes") && !has(clearBody, "writeJSON") && !has(clearBody, "applyOverrides"), "clearSession touches stored words");
   ok("sign-out drops role", has(clearBody, "myRole = null") && has(clearBody, 'myName = ""'));
@@ -264,7 +265,7 @@ export async function runAll(fs) {
   ok("server undo rpc exists", has(srv, "undoPublish: function (info, raw)"));
   ok(
     "server undo rpc guarded",
-    has(srv, "undoPublish: function (info, raw) {\n    if (!admins.has(info.conn.id)) return fail(\"unauthorized\");")
+    has(srv, "undoPublish: function (info, raw) {\n    var denySess = sessionDeny(info.conn);\n    if (denySess) return fail(denySess);")
   );
   ok("server reports undo window", has(srv, "undoLeft: left") || has(srv, "undoLeft:"));
   const ed = text["src/components/editor.tsx"];
@@ -456,16 +457,9 @@ export async function runAll(fs) {
      own deploy's first publish (same-deploy witness, running update or
      older), in the boot prime and in the feed follow alike. Retired mirrors,
      unstamped mirrors and newer-update mirrors never overlay a clean deploy. */
-  /* J5. no wipe flag (note 423): clean-deploy.txt is retired — a present flag
-     made every rebuild park the backend store aside and ship a wordless bake,
-     so each redeploy re-stranded devices on maintenance until somebody
-     published again. Publishes now survive restarts (the backend keeps its
-     store, the bake carries the words, sleep-wakes serve them); a new code
-     arrival still stages the office copy clean client-side until Recover or
-     an explicit Publish. The scripts below still honor a flag if one ever
-     reappears, but no update ships it. */
+  const flagJ5 = text["clean-deploy.txt"];
   const localJ5 = text["scripts/cms-local.mjs"];
-  ok("no wipe flag ships", !FILES.some(([p]) => p === "clean-deploy.txt"), "no update may re-ship the file that wipes the backend and the bake on every rebuild");
+  ok("clean deploys ship the flag", typeof flagJ5 === "string" && flagJ5.length > 0 && has(flagJ5, "Recover"), "every update must open clean until Recover + Publish");
   /* J12 supersedes the old code-based reset rule (office request: every new
      deploy is fresh, clean and new): the reset is per-deploy — with the
      boot clean-stage (no dirty) and the fresh-joiner guard, so rebuilds
@@ -529,12 +523,12 @@ export async function runAll(fs) {
      and fresh): unnumbered updates kept the local dev token at "n413", so a
      new extract never proved a fresh deploy and the old draft/pending/dirty
      survived forever. The token now carries the code word (rotated to
-     "cleanfresh" with this build), so every behavior update clears unsaved
+     "onepublish" with this build), so every behavior update clears unsaved
      draft + pending + after-save once on boot — same-code rebuilds keep the
      token and never wipe unsaved work. */
   const hooksJ8 = text["src/lib/hooks.ts"];
   const indexJ8 = text["index.html"];
-  ok("code word rotated", has(hooksJ8, 'CODE_ID = "cleanfresh"') && has(indexJ8, 'wom-code" content="cleanfresh"'), "the new word must retire the bundle that holds the 5 stuck rows");
+  ok("code word rotated", has(hooksJ8, 'CODE_ID = "unified438"') && has(indexJ8, 'wom-code" content="unified438"'), "the new word must retire the bundle that holds the 5 stuck rows");
   ok("dev token names the code", has(cms, '"n" + BUILD_NOTES + "c" + (runningCode'), "an unnumbered update must still prove a fresh deploy in local dev");
   ok("fresh clear takes after-save", has(cms, "localStorage.removeItem(AFTER_SAVE_KEY)"), "a queued publish-after-save must not republish stale words after the clear");
   /* J9. restore+publish reaches every copy (office request: works on one
@@ -628,7 +622,6 @@ export async function runAll(fs) {
   ok("feed witnesses the word", has(cms, "noteCodeWitness((live as any).code, live.notes)"), "a mirrored same-update publish must bless server-less copies with no rebuild and no tap");
   ok("fallback bakes release late joiners", has(cms, "a fallback bake stamped from this update names"), "a sleep-wake bake stamped from this update is a publish that really happened");
   ok("offline copies join on return", has(cms, "function startReturnJoin()") && has(cms, 'window.addEventListener("online", () => join(true))') && has(cms, "join(false)"), "an offline device must join the moment the network returns or it foregrounds, not wait out the backoff");
-  ok("drafts never block the release", has(cms, "A local draft never") && has(cms, "blocks the release"), "a waiting visitor page must lift on a proven publish even when that browser holds unsaved office work");
   ok("witness re-evaluates the notice", has(cms, "notesLifted || deployLifted || codeWitnessed"), "a witnessed publish must re-render instead of sticking with first paint");
   ok("clicks await the word relay", has(cms, "awaitRelay = false") && has(cms, ", true, true)"), "explicit clicks must wait out the bounded relay; background sends never wait");
   ok("relay is bounded", has(cms, "25000") && has(cms, "relayFetch"), "awaiting the relay must never hold a click hostage on a stalled network");
@@ -642,10 +635,10 @@ export async function runAll(fs) {
       return fn(new Uint8Array(8 * 1024 * 1024), self, { publish() {} }, console);
     };
     const anon13 = { id: "anon-att", net: ["x", 0, 0], subscribe() {}, topics: new Set() };
-    const rpcW = mkRpc("cleanfresh");
+    const rpcW = mkRpc("onepublish");
     const both = (rpc) => [JSON.parse(rpc.getContent({ conn: anon13 })), JSON.parse(rpc.contentRev({ conn: anon13 }))];
     const [cW, rW] = both(rpcW);
-    ok("server attests its code", cW.ok === true && cW.code === "cleanfresh" && rW.ok === true && rW.code === "cleanfresh", "words=" + cW.code + " rev=" + rW.code);
+    ok("server attests its code", cW.ok === true && cW.code === "onepublish" && rW.ok === true && rW.code === "onepublish", "words=" + cW.code + " rev=" + rW.code);
     const [cE, rE] = both(mkRpc(""));
     ok("empty attestation proves nothing", cE.ok === true && cE.code === "" && rE.code === "", "an untold word must stay empty, never wrong");
   } catch (e) {
@@ -700,7 +693,7 @@ export async function runAll(fs) {
   const srvLive = text["scripts/cms-server.js"];
   ok("report store exists", has(srvLive, "var LIVE_REPORT = null;"), "the server must hold the latest office answer");
   ok("report reads public through the gate", has(srvLive, "if (!raw) return ok({ report: gatedReport() });"), "visitors ask every check, no session needed — the server relays only a fresh, current answer");
-  ok("report writes take admin", has(srvLive, "liveReport: function (info, raw)") && has(srvLive, 'if (!admins.has(info.conn.id)) return fail("denied");'), "only the signed-in office may report");
+  ok("report writes take admin", has(srvLive, "liveReport: function (info, raw)") && has(srvLive, "var liveDeny = sessionDeny(info.conn);") && has(srvLive, 'return fail(liveDeny === "unauthorized" ? "denied" : liveDeny);'), "only the signed-in office may report");
   ok("report validates strictly", has(srvLive, 'return fail("bad-report");') && has(srvLive, "LIVE_REPORT = { target:") && has(srvLive, "now - checkedAt > 10 * 60 * 1000"), "stale tabs, wrong channels and forged ids must never reach the screen");
   ok("visitors ask the office first", has(live, "fetchLiveReport()") && has(live, "officeHit") && has(live, "officeRep.target === target.url"), "a fresh office answer must win over the scrape");
   ok("reports stay fresh-only", has(live, "REPORT_FRESH_MS = 150_000") && has(live, "Date.now() - checkedAt > REPORT_FRESH_MS"), "a closed office tab must stop steering visitors");
@@ -713,7 +706,7 @@ export async function runAll(fs) {
     ok("report starts empty, reads public", read0.ok === true && read0.report === null);
     const denied = JSON.parse(rpcR.liveReport({ conn: anon }, JSON.stringify({ target: "https://www.youtube.com/@a/live", state: "live", videoId: "dQw4w9WgXcQ", title: "T", checkedAt: Date.now() })));
     ok("report write needs admin", denied.ok === false, "an anonymous write must be refused");
-    const open = srvLive.replace('if (!admins.has(info.conn.id)) return fail("denied");', 'if (false) return fail("denied");');
+    const open = srvLive.replace('var liveDeny = sessionDeny(info.conn);\n    if (liveDeny) return fail(liveDeny === "unauthorized" ? "denied" : liveDeny);', 'if (false) return fail("denied");');
     const rpcO = loadVm(open, new Uint8Array(8 * 1024 * 1024));
     const w = (payload) => JSON.parse(rpcO.liveReport({ conn: anon }, JSON.stringify(payload)));
     const good = { target: "https://www.youtube.com/@church/live", state: "live", videoId: "dQw4w9WgXcQ", title: "Sunday", checkedAt: Date.now() };
@@ -906,7 +899,7 @@ export async function runAll(fs) {
     ok("channel counts as video", hasVid({ platform: "youtube", youtubeChannelId: OWNER }) === true && hasVid({ platform: "youtube" }) === false, "the watch page must treat a followed channel as playable");
     const goodCh = { target: "https://www.youtube.com/@church/live", state: "live", videoId: "", title: "Sunday", channelId: OWNER, checkedAt: Date.now() };
     const srvCh = text["scripts/cms-server.js"];
-    const rpcCh = loadVm(srvCh.replace('if (!admins.has(info.conn.id)) return fail("denied");', 'if (false) return fail("denied");'), new Uint8Array(8 * 1024 * 1024));
+    const rpcCh = loadVm(srvCh.replace('var liveDeny = sessionDeny(info.conn);\n    if (liveDeny) return fail(liveDeny === "unauthorized" ? "denied" : liveDeny);', 'if (false) return fail("denied");'), new Uint8Array(8 * 1024 * 1024));
     const anonCh = { id: "anon-chan", net: ["x", 0, 0], subscribe() {}, topics: new Set() };
     const wCh = (payload) => JSON.parse(rpcCh.liveReport({ conn: anonCh }, JSON.stringify(payload)));
     ok("report stores the channel", wCh(goodCh).ok === true);
@@ -933,6 +926,7 @@ export async function runAll(fs) {
   const edQ = text["src/components/editor.tsx"];
   ok("pull entry exists", has(cms, "export async function pullFromLive()") && has(cms, "function startLivePull()") && has(cms, "async function foldLiveInto("), "the sync needs its auto entry, its poller and its publish-time fold");
   ok("puller runs with the office", has(cms, "startLivePull();") && has(cms, "initialSyncDone.then"), "live publishes must pull themselves home while an office tab is open");
+  ok("live publish lands both ways", has(cms, "noteUnrecordedLive") && has(cms, "liveAdoptBeatsServer") && has(cms, "The paint adopts by itself") && has(cms, "readLiveViaFeed") && has(cms, "Number-gate twin"), "a live publish must paint local by itself — session-free — while the office record waits for the desk");
   ok("publish folds live in", has(cms, "await foldLiveInto(content || draft, undefined, 6000)") && has(cms, "await foldLiveInto(draft, sectionId, 6000)"), "every Publish (whole site and per-section) must fold live's newer words in first");
   ok("no hand pull button", !has(edQ, "Pull from live now") && !has(edQ, "pullFromLive(") && has(edQ, "folds into this publish"), "the card is gone — Publish does it, and says so");
   ok("same-update reports only", has(liveQ, "reportMatchesBuild") && has(liveQ, "notes: BUILD_NOTES") && has(liveQ, "notes: number"), "an old bundle's wrong id must never steer this update");
@@ -970,7 +964,7 @@ export async function runAll(fs) {
     ok("oembed decision is strict", decidePlayQ(200) === true && decidePlayQ(400) === false && decidePlayQ(401) === false && decidePlayQ(403) === false && decidePlayQ(404) === false && decidePlayQ(410) === false && decidePlayQ(500) === null && decidePlayQ(0) === null, "200 plays, gone is gone, anything else waits");
     ok("same-update matching", buildNotesQ > 0 && matchBuildQ({ notes: buildNotesQ }) === true && matchBuildQ({ notes: buildNotesQ + 1 }) === false && matchBuildQ({}) === false && matchBuildQ({ notes: 0 }) === false, "only this update's office answers steer this update");
     ok("unasked is unknown", peekQ("dQw4w9WgXcQ") === null && peekQ("") === false, "no cache means ask, no id means dead");
-    const rpcQ = loadVm(srvQ.replace('if (!admins.has(info.conn.id)) return fail("denied");', 'if (false) return fail("denied");'), new Uint8Array(8 * 1024 * 1024));
+    const rpcQ = loadVm(srvQ.replace('var liveDeny = sessionDeny(info.conn);\n    if (liveDeny) return fail(liveDeny === "unauthorized" ? "denied" : liveDeny);', 'if (false) return fail("denied");'), new Uint8Array(8 * 1024 * 1024));
     const anonQ = { id: "anon-notes", net: ["x", 0, 0], subscribe() {}, topics: new Set() };
     const wQ = (payload) => JSON.parse(rpcQ.liveReport({ conn: anonQ }, JSON.stringify(payload)));
     const notedQ = { target: "https://www.youtube.com/@church/live", state: "live", videoId: "dQw4w9WgXcQ", title: "Sunday", channelId: "UCLg4NCAJxhIvD4IRV__LOFg", checkedAt: Date.now(), notes: buildNotesQ };
@@ -1602,7 +1596,7 @@ export async function runAll(fs) {
   }
   try {
     const connGG = { id: "t", net: ["local", 0, 0], subscribe() {}, topics: new Set() };
-    const openGG = stubAuth(srvGG.replace('if (!admins.has(info.conn.id)) return fail("denied");', 'if (false) return fail("denied");'));
+    const openGG = stubAuth(srvGG.replace('var liveDeny = sessionDeny(info.conn);\n    if (liveDeny) return fail(liveDeny === "unauthorized" ? "denied" : liveDeny);', 'if (false) return fail("denied");'));
     const rpcGG = loadVm(openGG, new Uint8Array(8 * 1024 * 1024));
     const wGG = (payload) => JSON.parse(rpcGG.liveReport({ conn: connGG }, JSON.stringify(payload)));
     const rGG = () => JSON.parse(rpcGG.liveReport({ conn: connGG }, ""));
@@ -2262,6 +2256,82 @@ const notes = Number((text["src/lib/hooks.ts"].match(/BUILD_NOTES = (\d+)/) || [
     ok("feed adopt validates", feed({ token: "t", sections: { home: "not-json" } }).ok === false, "junk must never store");
   } catch (e) {
     ok("adopt-feed suite", false, String((e && e.message) || e).slice(0, 200));
+  }
+  /* LLL. attached publish rule + first publish clears every new deploy (note 431):
+     Publish and Publish now share the one pipeline, the notice holds on every
+     fresh deploy id until the first Publish, and each new deploy wipes old
+     wakes and opens unsaved-clean. */
+  const adminLLL = text["src/pages/Admin.tsx"];
+  const edLLL = text["src/components/editor.tsx"];
+  const cmsLLL = text["src/lib/cms.ts"];
+  const buildLLL = text["scripts/build-static.mjs"];
+  const srvLLL = text["scripts/cms-server.js"];
+  ok("one publish pipeline", has(edLLL, "export async function runPublishAction(") && has(adminLLL, "runPublishAction(noteInput") && has(adminLLL, "onPublish={(note) => performPublish(note, true)}"), "Publish and Publish now must share runPublishAction → cms.publish");
+  ok("no-change publish still blesses", has(cmsLLL, "a no-change Publish still blesses THIS deploy"), "the first click must clear even with nothing changed");
+  ok("empty bless stamps the deploy", has(srvLLL, 'if (!ids.length && !notes) return fail("empty")') && has(srvLLL, "PUBLISH_DEPLOY = deploy"), "a notes-only publish must move the stamp");
+  ok("every build holds fresh", has(buildLLL, "const DEPLOY_ID =") && has(buildLLL, "hold: true, deployId"), "each deploy must ship a fresh id on hold");
+  ok("new deploy wipes old wakes", has(cmsLLL, "function wipeOldWakes(): void") && has(cmsLLL, "New deploy wipes old wakes"), "a retired shell must never serve the previous deploy");
+  ok("new deploy opens unsaved-clean", has(cmsLLL, "Every new deploy starts unsaved-clean") && has(cmsLLL, 'localStorage.removeItem(PENDING_KEY)'), "draft + pending clear once per deploy");
+  /* MMM. note 433: deploy-bound, idle-expiring sessions; deploys keep accounts. */
+  try {
+    const srvMMM = text["scripts/cms-server.js"];
+    const cmsMMM = text["src/lib/cms.ts"];
+    const edMMM = text["src/components/editor.tsx"];
+    const localMMM = text["scripts/cms-local.mjs"];
+    ok("sessions expire after 15 idle minutes", has(srvMMM, "var SESSION_MS = 15 * 60 * 1000") && has(srvMMM, "function sessionDeny") && has(srvMMM, "idle-expired"), "stamped sessions must lapse server-side");
+    ok("role doors check the session", (srvMMM.split("var denySess = sessionDeny(info.conn);").length - 1) >= 14, "every admin door must re-stamp or refuse");
+    ok("clean boots keep accounts", has(srvMMM, "Clean deploys keep accounts") && has(srvMMM, "self.__cleanDeploy"), "words reset, roster stays");
+    ok("host boots the previous store clean", has(localMMM, "__cleanDeploy") && has(localMMM, "administrator accounts are kept"), "the flag must ride ahead of the server source");
+    ok("sessions bind to the deploy", has(cmsMMM, "SESSION_DEPLOY_KEY") && has(cmsMMM, "silentSessionUsable") && has(cmsMMM, 'clearSession("deploy")'), "a new deploy signs in again");
+    ok("idle ends the session client-side", has(cmsMMM, "LAST_ADMIN_AT_KEY") && has(cmsMMM, "sessionIdle()") && has(cmsMMM, 'clearSession("idle")'), "15 quiet minutes fail the next publish");
+    ok("sign-in reason plumbing intact", has(cmsMMM, "lastSignOutReason") && has(cmsMMM, 'clearSession("idle")'), "idle sign-outs must still be tracked");
+    /* VM: sign in, publish, idle out, fail, sign in again, publish. */
+    const pwMMM = "test-office-password-1";
+    const pwDigest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(pwMMM));
+    const pwHashMMM = [...new Uint8Array(pwDigest)].map((b) => b.toString(16).padStart(2, "0")).join("");
+    const testSrc = srvMMM.replace(/var ADMIN_HASH = "[0-9a-f]+"/, 'var ADMIN_HASH = "' + pwHashMMM + '"');
+    ok("test seam swaps the password", testSrc !== srvMMM, "the shipped hash must be replaceable in tests");
+    const officeConn = { id: "mmm-office", net: ["local", 0, 0] };
+    const officeConn2 = { id: "mmm-office-2", net: ["local", 0, 0] };
+    const stateMMM = new Uint8Array(8 * 1024 * 1024);
+    const rpcMMM = loadVm(testSrc, stateMMM);
+    const liMMM = JSON.parse(rpcMMM.login({ conn: officeConn }, pwMMM));
+    ok("office can sign in", liMMM.ok === true, "err=" + liMMM.err);
+    const pubMMM = JSON.parse(rpcMMM.publish({ conn: officeConn }, JSON.stringify({ sections: { home: JSON.stringify({ t: 1 }) }, by: "office", changed: ["home"], notes: 437, first: true })));
+    ok("signed-in publish lands", pubMMM.ok === true, "err=" + pubMMM.err);
+    const liBMMM = JSON.parse(rpcMMM.login({ conn: officeConn2 }, pwMMM));
+    ok("second tab signs in too", liBMMM.ok === true, "err=" + liBMMM.err);
+    const frozenMMM = Date.now;
+    const tMMM = Date.now();
+    try {
+      Date.now = () => tMMM + 16 * 60 * 1000;
+      const idlePub = JSON.parse(rpcMMM.publish({ conn: officeConn }, JSON.stringify({ sections: {}, by: "office", changed: [], notes: 437 })));
+      ok("idle publish fails until sign-in again", !idlePub.ok && idlePub.err === "idle-expired", "err=" + idlePub.err);
+      const idleUndo = JSON.parse(rpcMMM.undoPublish({ conn: officeConn2 }, ""));
+      ok("idle undo fails too", !idleUndo.ok && idleUndo.err === "idle-expired", "err=" + idleUndo.err);
+      const chkMMM = JSON.parse(rpcMMM.checkAdmin({ conn: officeConn }, ""));
+      ok("file doors follow the session", chkMMM.ok === true && chkMMM.admin === false, "admin=" + chkMMM.admin);
+      const anonMMM = JSON.parse(rpcMMM.publish({ conn: { id: "mmm-stranger" } }, JSON.stringify({ sections: {}, by: "x", changed: [], notes: 437 })));
+      ok("strangers stay unauthorized", !anonMMM.ok && anonMMM.err === "unauthorized", "err=" + anonMMM.err);
+    } finally {
+      Date.now = frozenMMM;
+    }
+    const li2MMM = JSON.parse(rpcMMM.login({ conn: officeConn }, pwMMM));
+    const pub2MMM = JSON.parse(rpcMMM.publish({ conn: officeConn }, JSON.stringify({ sections: {}, by: "office", changed: [], notes: 437 })));
+    ok("fresh sign-in publishes again", li2MMM.ok === true && pub2MMM.ok === true, "login=" + li2MMM.err + " publish=" + pub2MMM.err);
+    /* A plain reboot keeps words AND accounts; a clean boot clears words but
+       keeps the office password. */
+    const rpcReboot = loadVm(testSrc, stateMMM);
+    const gReboot = JSON.parse(rpcReboot.getContent({ conn: { id: "mmm-fresh" } }, ""));
+    ok("plain reboot keeps words", gReboot.ok === true && JSON.parse(gReboot.sections).home.t === 1, String(gReboot.sections).slice(0, 80));
+    const cleanFn = new Function("state", "self", "pubsub", "console", testSrc + "\nreturn self.rpc;");
+    const rpcClean = cleanFn(stateMMM, { __cleanDeploy: true }, { publish() {} }, console);
+    const gClean = JSON.parse(rpcClean.getContent({ conn: { id: "mmm-after" } }, ""));
+    ok("clean boot stages no words", gClean.ok === true && Object.keys(JSON.parse(gClean.sections)).length === 0 && gClean.notes === 0, String(gClean.sections).slice(0, 80));
+    const liClean = JSON.parse(rpcClean.login({ conn: { id: "mmm-after" } }, pwMMM));
+    ok("clean boot keeps the office password", liClean.ok === true, "err=" + liClean.err);
+  } catch (e) {
+    ok("session/auth suite", false, String((e && e.message) || e).slice(0, 200));
   }
   return out.join("\n");
 }

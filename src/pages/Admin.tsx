@@ -179,12 +179,24 @@ export function Admin() {
   const waiting = cms.maintenanceShouldWait();
 
 
-  /* Linked publish: the bottom-bar Publish button and the dialog's Publish
-     now button both run performPublish — either one alone finishes it in one
-     click for every visitor (unlimited browsers/devices), instead of needing
-     both clicks. */
+  /* Attached publish rule, retained (note 432): the bottom-bar Publish button
+     and the dialog's Publish now button share the one publish pipeline —
+     either one alone finishes it in one click for every visitor (unlimited
+     browsers/devices) through runPublishAction → cms.publish, so Publish and
+     Publish now do the same thing. No-change Publish still blesses this
+     deploy through the same bless-only sendPatch every publish rides. */
   const performPublish = async (noteInput = "", _fromDialog = false): Promise<boolean> => {
-    if (publishing || publishSaving) return false;
+    if (publishing || publishSaving) {
+      try { fireToast("Publishing… — your click is already sending.", "info"); } catch {}
+      return false;
+    }
+    /* No early authed gate here (local-dev fix): state.authed is still false
+       on a fresh boot until connect() restores the saved session, so gating
+       on it turns a valid silent session into a sign-in popup and the office
+       reads it as "local publish did nothing". cms.publish() already signs in
+       first (requireSignedIn + silent restore + 20s join) and reports
+       unauthorized/idle-expired itself — attempt the send, then open the
+       sign-in only when the session is actually dead. */
     setPublishSaveFailed(false);
     setPublishing(true);
     try {
@@ -195,6 +207,16 @@ export function Admin() {
         setPublishOpen(false);
         return true;
       }
+      /* A publish that fails on a dead session (idle, new deploy, retired
+         password) opens the sign-in with the reason — the next click then
+         publishes. Anything else (network, stale reload) keeps the session
+         and opens nothing. */
+      try {
+        if (!cms.isAuthed()) {
+          setPublishOpen(false);
+          setSignInOpen(true);
+        }
+      } catch {}
       return false;
     } catch (err) {
       /* The shared action already toasted; this only guarantees the buttons
@@ -363,7 +385,15 @@ export function Admin() {
   /* The page behind re-renders on applied changes only, never remounts (note 61); office clock too (note 85). */
   const visitorClock = useVisitorClock();
   const pageNode = useMemo(
-    () => <ErrorBoundary>{cloneElement(resolved.element as ReactElement)}</ErrorBoundary>,
+    () => (
+      <ErrorBoundary>
+        {/* No loader page: header, footer and edit bar stay on screen while the
+            lazy page arrives — never a white page, never a Loading screen. */}
+        <React.Suspense fallback={null}>
+          {cloneElement(resolved.element as ReactElement)}
+        </React.Suspense>
+      </ErrorBoundary>
+    ),
     [resolved.to, state.version, visitorClock?.tz]
   );
 
@@ -570,13 +600,13 @@ function EditBar({
           </Btn>
         )}
 
-        {canEdit ? (
-          <Btn size="sm" icon="check" onClick={onPublish} disabled={busy} title="Put your changes on the live site for everyone">
-            {busy ? "Publishing…" : "Publish"}
-          </Btn>
-        ) : (
+        {/* One admin everywhere (local fix): Publish stays visible even while the session restores — the click itself signs in silently and only opens sign-in when the session is truly dead, so a fresh local boot never reads as "publish does nothing". */}
+        <Btn size="sm" icon="check" onClick={onPublish} disabled={busy} title="Put your changes on the live site for everyone">
+          {busy ? "Publishing…" : "Publish"}
+        </Btn>
+        {!canEdit && (
           <Btn size="sm" icon="lock" onClick={onSignIn}>
-            Sign in to edit
+            Sign in
           </Btn>
         )}
 
@@ -1002,8 +1032,17 @@ function UnsavedView({
         pub.local || pub.live === false ? "info" : "success"
       );
     } else {
+      if (pub.error === "stale-reload") {
+        /* A newer build landed mid-click: say so and reload onto it — the
+           delete edit is staged in the draft and survives the reload. */
+        fireToast("New deploy arrived — reloading onto it. Press Delete again once it loads.", "info");
+        try {
+          window.location.reload();
+        } catch {}
+        return;
+      }
       fireToast(
-        `Delete did not go through (${pub.error === "unauthorized" ? "sign in first" : pub.error}) — nothing left the site, and Undo takes back the cleanup.`,
+        `Delete did not go through (${pub.error === "unauthorized" || pub.error === "idle-expired" ? "sign in first" : pub.error}) — nothing left the site, and Undo takes back the cleanup.`,
         "error"
       );
     }

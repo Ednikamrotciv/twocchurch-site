@@ -49,7 +49,7 @@ export const LIVE_STATUS_KEY = "wom.livestatus";
     unless a watcher asks urgent (the Watch page does: it checks at once). */
 const FRESH_MS = 12_000;
 /** Give the proxy this long before calling the check a failure.
-    Fast live: 3.5s is plenty for YouTube to answer; the old 7s held the
+    Fast live: 3.5s is plenty for YouTube to answer; the old 15s held the
     Watch screen on the waiting clock past the moment the broadcast started. */
 const CHECK_TIMEOUT_MS = 3_500;
 /** Poll cadence (note 310): fast while a broadcast is expected or the Watch
@@ -402,7 +402,7 @@ export function clearGuestOnStop(live: any): any {
   const g = live as any;
   if (!String(g.externalYoutubeChannel || "").trim() && !g.guestIsLive) return live;
   const stamp = Number(g.liveCommandAt) || 0;
-  return { ...g, externalYoutubeChannel: "", guestIsLive: false, guestCommandAt: Math.max(Number(g.guestCommandAt) || 0, stamp), guestVideoId: "", guestVideoTitle: "", guestVideoChannelId: "", guestVideoAt: 0 };
+  return { ...g, externalYoutubeChannel: "", guestIsLive: false, guestCommandAt: Math.max(Number(g.guestCommandAt) || 0, stamp) };
 }
 
 /** The walled-but-on-air answer (note 331), pure for the verifier: a channel
@@ -519,7 +519,7 @@ function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
 }
 
 /** Page HTML via a same-origin / office-server proxy, else public CORS proxy.
-    Fast path: same-origin + office race in parallel (was 4 sequential timeouts). */
+    Fast path: same-origin + office race in parallel (was sequential timeouts). */
 async function fetchPage(url: string): Promise<string | null> {
   /* Fast live: all doors race at once — same-origin, office, public proxy.
      The old code waited out same+office before even trying the public door,
@@ -666,39 +666,6 @@ export async function checkLiveStream(opts: { facebook?: boolean } = {}): Promis
      login wall and no live marker), but the office copy can, so while the
      office is open and reporting, visitors take its answer. A stale report,
      or one for another address, changes nothing — the scrape below runs. */
-  /* Office-press fast path (instant live, no reload): the office pressed Live
-     and published it, yet the scrape may still read off/unknown through the
-     bot wall — so a pressed MAIN or GUEST channel with a known id answers live
-     at once, with the channel follow behind it. The scrape below still runs on
-     the next poll and refines the answer (verified video id, title) — the
-     screen already plays by then. A published Stop never takes this path. */
-  try {
-    const pressedMain = (LIVE as any)?.isLive === true && target && target.kind === "channel" && !officeStopActive(LIVE);
-    if (pressedMain) {
-      const did = designatedChannelIdForTarget(target.url);
-      if (did) {
-        /* Published verified broadcast (office stamped it at Play time): visitors
-           open the real video + real headline at once via the publish — no scrape
-           wait, no reload. Falls back to the channel follow when unstamped. */
-        const pv = String((LIVE as any)?.liveVideoId || "");
-        const pvOk = /^[\w-]{11}$/.test(pv) ? pv : "";
-        const pt = String(pvOk ? ((LIVE as any)?.liveVideoTitle || "") : ((LIVE as any)?.liveTitle || ""));
-        const pc = String((LIVE as any)?.liveVideoChannelId || "") || did;
-        return { state: "live", platform: "youtube", videoId: pvOk, title: pt, channelId: /^UC[\w-]{20,24}$/.test(pc) ? pc : did, target: target.url, checkedAt: Date.now(), endedAt: 0 };
-      }
-    }
-    const pressedGuest = (LIVE as any)?.guestIsLive === true && guest && guest.kind === "channel";
-    if (pressedGuest) {
-      const gdid = designatedChannelIdForTarget(guest.url);
-      if (gdid) {
-        const gv = String((LIVE as any)?.guestVideoId || "");
-        const gvOk = /^[\w-]{11}$/.test(gv) ? gv : "";
-        const gt = String(gvOk ? ((LIVE as any)?.guestVideoTitle || "") : ((LIVE as any)?.liveTitle || ""));
-        const gc = String((LIVE as any)?.guestVideoChannelId || "") || gdid;
-        return { state: "live", platform: "youtube", videoId: gvOk, title: gt, channelId: /^UC[\w-]{20,24}$/.test(gc) ? gc : gdid, target: guest.url, checkedAt: Date.now(), endedAt: 0 };
-      }
-    }
-  } catch { /* fall through to the report + scrape below */ }
   const officeRep = target || guest ? await fetchLiveReport() : null;
   /* A videoless "live" report is an unverified follow (note 358): it never
      opens the player — the scrape below runs and usually waits. */
@@ -1033,16 +1000,7 @@ async function run() {
   }
   const facebook = wantsFacebook();
   publish({ checking: true });
-  let next: LiveStatus;
-  try {
-    next = await checkLiveStream({ facebook });
-  } catch {
-    /* A throw must never stop the poll — that froze the screen until a
-       reload with no way back. Treat it like a hiccup and keep the timer. */
-    publish({ checking: false });
-    schedule(delay());
-    return;
-  }
+  const next = await checkLiveStream({ facebook });
   if (!watchers.size) return;
   publish({ checking: false });
   lastTarget = targetSignature();
@@ -1201,62 +1159,19 @@ export function peekVerified(videoId: string): boolean | null {
   return hit.ok;
 }
 
-/** Drop what the verifier learned about one video (the player's Try-again):
-    the next ask reads YouTube fresh instead of replaying the cached answer. */
+/** Drop what the verifier learned about one video (visitor retry + office
+    Reload): the next verify asks YouTube again instead of replaying a stale
+    dead verdict. Never throws. */
 export function forgetVerified(videoId: string) {
-  const id = parseYoutubeId(videoId);
-  if (!id) return;
-  verifyCache.delete(id);
-  verifyInflight.delete(id);
-}
-
-/* Session dead-id ban: an id YouTube itself refused (embed onError) or the
-   verifier proved gone is never optimistically mounted again this session —
-   no "unavailable" frame, no repair loop replaying the same dead id. The
-   repair loop rechecks for a NEW broadcast instead. Bans expire after
-   30 minutes (a restored video plays again); the office Reload press clears
-   them at once (`clearIdBans`, called on the published reload press), and a
-   banned id the answers still point at re-verifies itself (`unbanId` on a
-   pass) — so a ban is never the last word on a working broadcast. */
-const deadBan = new Map<string, number>();
-const DEAD_BAN_MS = 30 * 60_000;
-export function noteIdDead(videoId: string) {
   try {
     const id = parseYoutubeId(videoId);
-    if (id) deadBan.set(id, Date.now());
-  } catch {}
-}
-export function isIdBanned(videoId: string): boolean {
-  try {
-    const id = parseYoutubeId(videoId);
-    if (!id) return false;
-    const at = deadBan.get(id);
-    if (!at) return false;
-    if (Date.now() - at > DEAD_BAN_MS) {
-      try { deadBan.delete(id); } catch {}
-      return false;
+    if (id) {
+      verifyCache.delete(id);
+      verifyInflight.delete(id);
     }
-    return true;
   } catch {
-    return false;
+    /* cache clear must never break the repair */
   }
-}
-
-/** The office Reload press clears every dead-id ban at once (note above):
-    the total fixer — a banned id mounts again on the published press. */
-export function clearIdBans(): void {
-  try {
-    deadBan.clear();
-  } catch {}
-}
-
-/** Lift the ban on one id (the self-heal below): only ever called after
-    YouTube itself just said the id plays. Never throws. */
-export function unbanId(videoId: string): void {
-  try {
-    const id = parseYoutubeId(videoId);
-    if (id) deadBan.delete(id);
-  } catch {}
 }
 
 /** Is this video playable right now? true = plays, false = gone, null = could

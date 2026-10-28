@@ -1,0 +1,23 @@
+[build]
+  command = "npm ci --no-audit --no-fund && npm run build"
+  publish = "dist"
+[[headers]]
+  for = "/index.html"
+  [headers.values]
+    Cache-Control = "no-store, must-revalidate"
+[[headers]]
+  for = "/*/index.html"
+  [headers.values]
+    Cache-Control = "no-store, must-revalidate"
+[[headers]]
+  for = "/version.json"
+  [headers.values]
+    Cache-Control = "no-store, must-revalidate"
+[[headers]]
+  for = "/seed.json"
+  [headers.values]
+    Cache-Control = "no-store, must-revalidate"
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200

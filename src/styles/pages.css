@@ -31,11 +31,6 @@
   transition: opacity 0.6s ease, filter 0.6s ease;
 }
 
-/* The phones-only banner (the office's verse graphic): off everywhere else. */
-.hero__bg .hero__mobile {
-  display: none;
-}
-
 .hero__scrim {
   position: absolute;
   inset: 0;
@@ -351,21 +346,7 @@
     min-height: 0;
     padding: 2.4rem 0 8rem;
   }
-  /* Phones show the office's verse graphic, not the desktop banner. Its own
-     baked-in words are melted into a soft wash (blur + dim) so only the
-     page's clean text reads over it. */
-  .hero__bg .hero__photo,
-  .hero__bg .hero__faint {
-    display: none;
-  }
-  .hero__bg .hero__mobile {
-    display: block;
-    filter: blur(10px) brightness(0.62) saturate(1.15);
-    transform: scale(1.15);
-  }
-  [data-theme="light"] .hero__bg .hero__mobile {
-    opacity: 0.34;
-  }
+  /* Phones show the same home banner as desktop. */
   .hero__eyebrow {
     font-size: 0.62rem;
     letter-spacing: 0.22em;
@@ -1048,17 +1029,22 @@
 }
 
 .player__poster {
-  position: relative;
-  width: 100%;
-  height: 100%;
+  position: absolute;
+  inset: 0;
+  width: auto;
+  height: auto;
   padding: 0;
   border: 0;
   cursor: pointer;
   background: none;
   display: block;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
 }
 
 .player__poster img {
+  position: absolute;
+  inset: 0;
   width: 100%;
   height: 100%;
   object-fit: cover;
@@ -1072,9 +1058,8 @@
 
 .player__play {
   position: absolute;
-  top: 50%;
-  left: 50%;
-  transform: translate(-50%, -50%);
+  inset: 0;
+  margin: auto;
   width: 84px;
   height: 84px;
   border-radius: 50%;
@@ -1089,9 +1074,100 @@
 }
 
 .player__poster:hover .player__play {
-  transform: translate(-50%, -50%) scale(1.07);
+  transform: scale(1.07);
   box-shadow: 0 0 0 18px rgba(227, 183, 92, 0.18);
 }
+
+/* Live repair: the black "unavailable" frame never shows — a dimmed still
+   with a center circle-arrow reload. One tap forgets the dead verdict,
+   re-asks the channel, and reopens with sound. */
+.player--dead-live img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.player__reload {
+  position: absolute;
+  inset: 0;
+  margin: auto;
+  width: 84px;
+  height: 84px;
+  border-radius: 50%;
+  border: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(227, 183, 92, 0.96);
+  color: #241a05;
+  cursor: pointer;
+  box-shadow: 0 0 0 12px rgba(227, 183, 92, 0.16), 0 6px 24px rgba(0, 0, 0, 0.45);
+  transition: transform 0.2s ease;
+  z-index: 2;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+}
+
+.player__reload:hover {
+  transform: scale(1.07);
+}
+
+.player__reload:active {
+  transform: scale(0.97);
+}
+
+.player__reload.is-spinning svg {
+  animation: player-reload-spin 0.9s linear infinite;
+}
+
+@keyframes player-reload-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.player__reload-label {
+  position: absolute;
+  left: 1.1rem;
+  right: 1.1rem;
+  bottom: 1rem;
+  text-align: center;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: #f4f0e8;
+  text-shadow: 0 1px 14px rgba(4, 4, 7, 0.9), 0 1px 3px rgba(4, 4, 7, 0.7);
+  z-index: 2;
+}
+
+.player--compact .player__reload {
+  width: 62px;
+  height: 62px;
+}
+
+/* Instant-live sound pill: self-started lives open muted so autoplay is never
+   blocked (unmuted autoplay needs a prior tap). One tap unmutes in place —
+   no reload, no navigation, stays on this site. */
+.player__sound {
+  position: absolute;
+  left: 50%;
+  bottom: 1rem;
+  transform: translateX(-50%);
+  z-index: 3;
+  border: 0;
+  border-radius: 999px;
+  padding: 0.55rem 1.1rem;
+  font-weight: 800;
+  font-size: 0.85rem;
+  background: rgba(8, 8, 10, 0.82);
+  color: #f4e7c8;
+  border: 1px solid rgba(227, 183, 92, 0.65);
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+}
+.player__sound:hover { background: rgba(227, 183, 92, 0.92); color: #241a05; }
 
 .player__label {
   position: absolute;

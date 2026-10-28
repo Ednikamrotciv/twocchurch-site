@@ -162,9 +162,13 @@ export async function probeLocalOffice(timeoutMs = 2500): Promise<string> {
 }
 
 /* HTTPS content socket shaped like the local shim, so cms.ts treats both alike. */
-export function createRemoteSocket(base: string): any {
+export function createRemoteSocket(base: string, connId?: string): any {
   const root = String(base || "").replace(/\/+$/, "");
-  const connId = "c" + Math.random().toString(36).slice(2) + Date.now().toString(36);
+  /* HIGH fix: the file doors (/__upload, /__restore-file, /__delete-file) now
+     require a signed-in admin conn — the tab sends this same id with those
+     requests, so the server can tell the office apart from strangers. */
+  const conn = typeof connId === "string" && connId ? connId : "c" + Math.random().toString(36).slice(2) + Date.now().toString(36);
+  const connIdFinal = conn;
   const listeners: Record<string, ((ev: any) => void)[]> = {};
   let openedOnce = false;
   let failTimer = 0;
@@ -186,7 +190,7 @@ export function createRemoteSocket(base: string): any {
     });
   };
   async function call(method: string, arg: any): Promise<string> {
-    const res = await fetch(root + "/__cms/" + method + "?conn=" + encodeURIComponent(connId), {
+    const res = await fetch(root + "/__cms/" + method + "?conn=" + encodeURIComponent(connIdFinal), {
       method: "POST",
       headers: { "content-type": "text/plain;charset=utf-8" },
       body: arg === undefined || arg === null ? "" : String(arg),
@@ -196,7 +200,7 @@ export function createRemoteSocket(base: string): any {
   }
   let es: EventSource | null = null;
   try {
-    es = new EventSource(root + "/__cms/events?conn=" + encodeURIComponent(connId));
+    es = new EventSource(root + "/__cms/events?conn=" + encodeURIComponent(connIdFinal));
   } catch (err) {
     openedReject(err);
   }
@@ -239,6 +243,7 @@ export function createRemoteSocket(base: string): any {
   return {
     opened,
     rpc,
+    connId: connIdFinal,
     binaryType: "arraybuffer",
     addEventListener: (t: string, fn: (ev: any) => void) => {
       (listeners[t] = listeners[t] || []).push(fn);
