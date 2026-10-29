@@ -310,6 +310,13 @@ export function WatchLive() {
   useEffect(() => {
     if (!reloadSignal || reloadSeenRef.current === reloadSignal) return;
     reloadSeenRef.current = reloadSignal;
+    /* Office Reload reopens a wrongly-shut screen too: if the broadcast is
+       truly over the render below re-latches shut at once, so clearing here
+       can never strand the screen open — but a screen stuck shut while the
+       channel is back on air opens again on the fresh answer. */
+    try {
+      setShut(null);
+    } catch {}
     try {
       recheckLiveNow();
     } catch {}

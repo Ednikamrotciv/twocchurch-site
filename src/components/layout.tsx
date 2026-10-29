@@ -587,7 +587,15 @@ export function PageHead({
     <section className={"page-head" + (image ? " page-head--image" : "")}>
       {image && (
         <div className="page-head__bg" aria-hidden="true">
-          <img src={image} alt="" />
+          <img
+            src={image}
+            alt=""
+            onError={(e) => {
+              try {
+                e.currentTarget.style.display = "none";
+              } catch {}
+            }}
+          />
         </div>
       )}
       <div className="container page-head__inner">

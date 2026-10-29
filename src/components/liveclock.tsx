@@ -103,7 +103,7 @@ export function LiveWaiting({ cover }: { cover?: string }) {
 
   return (
     <div className="live-wait">
-      {cover ? <img className="live-wait__bg" src={cover} alt="" loading="lazy" /> : null}
+      {cover ? <img className="live-wait__bg" src={cover} alt="" loading="lazy" onError={(e) => { try { e.currentTarget.style.display = "none"; } catch {} }} /> : null}
       <span className="live-wait__scrim" aria-hidden="true" />
       <div className="live-wait__body">
         <ClockFace now={now} />

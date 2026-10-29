@@ -303,8 +303,13 @@ export function VideoPlayer({
     if (!autoPlay) return false;
     /* Live opens at once (no tap, no gold button, fast screen): the frame
        mounts immediately and the verifier behind it swaps to the fallback
-       only if the id proves dead. */
-    if (live) return true;
+       only if the id proves dead. A channel follow with no verified id
+       verifies first instead — mounting its frame blind is what used to
+       sit the screen on YouTube's own "unavailable". */
+    if (live) {
+      if (!ytId && followId) return false;
+      return true;
+    }
     /* Livestream screen: play the broadcast by itself WITH SOUND — a verified
        id, an unverified-but-not-dead id, or the live channel follow all open
        with no tap. Only a proven-dead id is held back (the fallback below
@@ -615,6 +620,62 @@ export function VideoPlayer({
     return () => window.clearInterval(t);
   }, [playing, dead, liveVideoId, ytId]);
 
+  /* Self-healing while live: a screen that landed on the dead fallback while
+     the broadcast is STILL on air (embedding flipped on, a restarted
+     stream's new id resolving late) re-resolves by itself every 30s and
+     reopens the moment a verified live id answers — no arrow tap, no office
+     Reload needed. Anything but a verified live id stays put, so a truly
+     ended broadcast never loops. */
+  useEffect(() => {
+    if (!live || !dead) return;
+    let cancelled = false;
+    const t = window.setInterval(() => {
+      (async () => {
+        try {
+          const st = await checkLiveStream();
+          if (cancelled) return;
+          if (st.state !== "live" || !st.videoId) return;
+          const mainUrl = liveTarget()?.url || "";
+          const guestWatchUrl = guestTarget()?.url || "";
+          const stamped =
+            (!!mainUrl && isStatusForTarget(st, mainUrl)) || (!!guestWatchUrl && isStatusForTarget(st, guestWatchUrl));
+          if (!stamped) return;
+          const vid = parseYoutubeId(st.videoId);
+          if (!vid || vid === liveVideoId || vid === ytId) return;
+          const v = await verifyYoutubeId(vid).catch(() => null);
+          if (cancelled) return;
+          if (v !== true) return;
+          try {
+            if (liveVideoId) forgetVerified(liveVideoId);
+          } catch {}
+          try {
+            if (ytId) forgetVerified(ytId);
+          } catch {}
+          setLiveVideoId(vid);
+          setDead(false);
+          setFailed(false);
+          setNotLive(false);
+          setChecking(false);
+          setPlaying(true);
+          try {
+            onPlay?.();
+          } catch {}
+          try {
+            recheckLiveNow();
+          } catch {}
+        } catch {
+          /* stay on the fallback — the next round tries again */
+        }
+      })();
+    }, 30_000);
+    return () => {
+      cancelled = true;
+      try {
+        window.clearInterval(t);
+      } catch {}
+    };
+  }, [live, dead, liveVideoId, ytId]);
+
   /* In-frame failure signal (see loader above): a bare video id plays
      through the API's own host div, and YouTube's own onError (100 gone,
      101/150 embedding disabled, 105) swaps to the dead fallback at once —
@@ -738,7 +799,7 @@ export function VideoPlayer({
       })().catch(() => {
         if (!frameLoadedRef.current) fail();
       });
-    }, 12_000);
+    }, live ? 7_000 : 12_000);
     return () => {
       cancelled = true;
       try {
