@@ -870,6 +870,17 @@ export type LiveSnapshot = { status: LiveStatus; checking: boolean };
 type Watcher = { soon: boolean; facebook: boolean; urgent: boolean };
 
 let snapshot: LiveSnapshot = { status: readLiveStatus(), checking: false };
+/* Fresh boot, fresh answer: a "live" remembered in the store from an earlier
+   visit (yesterday's service) must never autoplay on first paint — the
+   urgent check re-confirms within seconds when truly live, and until then
+   the screen waits instead of playing a stale broadcast with sound. */
+try {
+  if (snapshot.status.state === "live" && Date.now() - Number(snapshot.status.checkedAt || 0) > 60_000) {
+    snapshot = { status: { ...snapshot.status, state: "unknown" as LiveState }, checking: false };
+  }
+} catch {
+  /* keep the stored answer — the poll decides from here */
+}
 const watchers = new Set<Watcher>();
 const listeners = new Set<() => void>();
 let timer = 0;

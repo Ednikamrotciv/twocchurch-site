@@ -917,7 +917,7 @@ export async function runAll(fs) {
      video id that died never autoplays into the black frame, an old
      bundle's office report never steers this update, new builds hold fresh
      visitors on maintenance until the office publishes, and Recent services
-     bake from the Oct-29 @twocorg feed. */
+     bake from the Oct-30 @twocorg feed. */
   const buildNotesQ = Number((text["src/lib/hooks.ts"].match(/BUILD_NOTES = (\d+)/) || [])[1]) || 0;
   const liveQ = text["src/lib/livestatus.ts"];
   const blocksQ = text["src/components/blocks.tsx"];
@@ -938,7 +938,7 @@ export async function runAll(fs) {
     const seed333 = JSON.parse(text["seed.json"]);
     const items333 = (seed333 && seed333.recent && seed333.recent.items) || [];
     const ids333 = items333.map((it) => it && it.videoId);
-    ok("recents bake the church feed", seed333 && seed333.recent && seed333.recent.channelId === "UCQ0KIUXUV7gTZmDDlvd3ZcQ" && items333.length >= 6 && ids333.indexOf("aAJCTGmbeGo") === 0 && ids333.indexOf("vj-zun-US7k") === 1 && ids333.every((id) => /^[\w-]{11}$/.test(String(id || ""))), "six-plus @twocorg services, newest first from the Oct-29 feed");
+    ok("recents bake the church feed", seed333 && seed333.recent && seed333.recent.channelId === "UCQ0KIUXUV7gTZmDDlvd3ZcQ" && items333.length >= 6 && ids333.indexOf("dcCt75FMm6o") === 0 && ids333.indexOf("aAJCTGmbeGo") === 1 && ids333.every((id) => /^[\w-]{11}$/.test(String(id || ""))), "six-plus @twocorg services, newest first from the Oct-30 feed");
   } catch (e) {
     ok("recents bake parses", false, String((e && e.message) || e).slice(0, 160));
   }
@@ -1073,7 +1073,7 @@ export async function runAll(fs) {
   try {
     const seed344 = JSON.parse(text["seed.json"]);
     const items344 = ((seed344 && seed344.recent && seed344.recent.items) || []).map((it) => it && it.videoId);
-    const want344 = ["aAJCTGmbeGo", "vj-zun-US7k", "wh1wLNBDZ3s", "MdBG0oNwurg", "s4bLaGUNet4", "aT5IeCtJHFw", "3uqJoUXKds4", "OV6XtrNPGgo", "BgF97PIYPe8", "rmdEvZ_ZOXo", "ddWq2WYrmZ8", "HmVTgKwA6rY", "eyGDEZplxJw", "akE7Klt3a8w", "KCGWV3jWROE"];
+    const want344 = ["dcCt75FMm6o", "aAJCTGmbeGo", "vj-zun-US7k", "wh1wLNBDZ3s", "MdBG0oNwurg", "s4bLaGUNet4", "aT5IeCtJHFw", "3uqJoUXKds4", "OV6XtrNPGgo", "BgF97PIYPe8", "rmdEvZ_ZOXo", "ddWq2WYrmZ8", "HmVTgKwA6rY", "eyGDEZplxJw", "akE7Klt3a8w"];
     const live344 = seed344 && seed344.sections && seed344.sections.live;
     ok("bake still @twocorg's", !!seed344 && !!seed344.recent && seed344.recent.channelId === "UCQ0KIUXUV7gTZmDDlvd3ZcQ" && want344.every((id) => items344.indexOf(id) !== -1) && live344 && live344.youtubeChannel === "@twocorg", "recents must be the church's previous livestreams, all 15");
   } catch (e) {
@@ -1130,7 +1130,7 @@ export async function runAll(fs) {
     const items348 = ((seed348 && seed348.recent && seed348.recent.items) || []).map((it) => it && it.videoId);
     ok("bake card reads @twocorg", !!live348 && live348.youtubeChannel === "@twocorg" && yt348.value === "@twocorg", "the shipped words must name no other channel");
     ok("bake notes leave room to hold", typeof seed348.notes !== "number" || seed348.notes < notesW2, "a bake stamped at/above this update would release fresh visitors");
-    ok("recents still the church's", !!seed348 && !!seed348.recent && seed348.recent.channelId === "UCQ0KIUXUV7gTZmDDlvd3ZcQ" && items348.indexOf("aAJCTGmbeGo") !== -1 && items348.length >= 6, "previous livestreams must be @twocorg's");
+    ok("recents still the church's", !!seed348 && !!seed348.recent && seed348.recent.channelId === "UCQ0KIUXUV7gTZmDDlvd3ZcQ" && items348.indexOf("dcCt75FMm6o") !== -1 && items348.length >= 6, "previous livestreams must be @twocorg's");
   } catch (e) {
     ok("bake parses", false, String((e && e.message) || e).slice(0, 160));
   }
@@ -1386,7 +1386,7 @@ export async function runAll(fs) {
     const modCC = { exports: {} };
     new Function("module", "exports", "require", tcCC.code)(modCC, modCC.exports, stubCC);
     cacheCC["wom.recentstreams"] = { items: [{ videoId: "AAAAAAAAAAA", title: "Debug service", at: 5, ago: "", thumb: "", seeded: 0 }], at: 5, channelId: OTHER };
-    ok("foreign cache dropped", modCC.exports.readRecentServices().items[0].videoId === "aAJCTGmbeGo", "debugging videos must not survive the read");
+    ok("foreign cache dropped", modCC.exports.readRecentServices().items[0].videoId === "dcCt75FMm6o", "debugging videos must not survive the read");
     cacheCC["wom.recentstreams"] = { items: [{ videoId: "AAAAAAAAAAA", title: "Sunday service", at: 5, ago: "", thumb: "", seeded: 0 }], at: 5, channelId: OWNER };
     ok("own cache kept", modCC.exports.readRecentServices().items.length === 1, "@twocorg's list must stay");
     cacheCC["wom.recentstreams"] = { items: [{ videoId: "BBBBBBBBBBB", title: "Today's service", at: 0, ago: "", thumb: "", seeded: Date.now() }], at: 5, channelId: "" };
@@ -1510,7 +1510,7 @@ export async function runAll(fs) {
   const rsEE = text["src/lib/recentstreams.ts"];
   const applyEE = text["APPLY_UPDATE.txt"];
   ok("fallback ships in code", has(rsEE, "DESIGNATED_FALLBACK_ITEMS") && has(rsEE, "export function designatedFallback()"), "the previous services must survive an empty bake + dead proxies");
-  ok("fallback is the last service first", rsEE.indexOf("aAJCTGmbeGo") > 0 && rsEE.indexOf("aAJCTGmbeGo") < rsEE.indexOf("vj-zun-US7k"), "YOUTH SUNDAY SERVICE 25TH, OCT. 2026 must lead");
+  ok("fallback is the last service first", rsEE.indexOf("dcCt75FMm6o") > 0 && rsEE.indexOf("dcCt75FMm6o") < rsEE.indexOf("aAJCTGmbeGo"), "70TH BIRTHDAY CELEBRATION OF EVANG. SKP. DAY 1, 29TH OCT. 2026 must lead");
   ok("three cache doors", has(rsEE, "if (!cached || !Array.isArray(cached.items)) return designatedFallback();") && has(rsEE, "cachedChannelId !== designated) return designatedFallback();") && has(rsEE, "if (!items.length) return designatedFallback();"), "empty, foreign and thin caches must all fall back");
   ok("same-origin read", has(rsEE, "fetchTextSameOrigin") && has(rsEE, "const sameOrigin = await fetchTextSameOrigin(url);") && !has(rsEE, "fetchTextLocal"), "deployed visitors must read through their own host");
   ok("jazz named", has(applyEE, "zJvgsAhpNlo") && has(applyEE, "small\n  village"), "the office must know exactly which video is poison");
@@ -1535,10 +1535,10 @@ export async function runAll(fs) {
     };
     const withDes = runEE({}, OWNER);
     const empty = withDes.readRecentServices();
-    ok("empty cache falls back", empty.items.length === 15 && empty.items[0].videoId === "aAJCTGmbeGo" && empty.channelId === OWNER, "got " + empty.items.length + " first=" + (empty.items[0] || {}).videoId);
+    ok("empty cache falls back", empty.items.length === 15 && empty.items[0].videoId === "dcCt75FMm6o" && empty.channelId === OWNER, "got " + empty.items.length + " first=" + (empty.items[0] || {}).videoId);
     const foreign = runEE({ "wom.recentstreams": { items: [{ videoId: "AAAAAAAAAAA", title: "Debug", at: 5, ago: "", thumb: "", seeded: 0 }], at: 5, channelId: OTHER } }, OWNER);
     const f2 = foreign.readRecentServices();
-    ok("foreign cache falls back", f2.items.length === 15 && f2.items[0].videoId === "aAJCTGmbeGo", "debugging videos must not survive");
+    ok("foreign cache falls back", f2.items.length === 15 && f2.items[0].videoId === "dcCt75FMm6o", "debugging videos must not survive");
     const own = runEE({ "wom.recentstreams": { items: [{ videoId: "AAAAAAAAAAA", title: "Sunday", at: 5, ago: "", thumb: "", seeded: 0 }], at: 5, channelId: OWNER } }, OWNER);
     ok("own cache kept", own.readRecentServices().items.length === 1, "a good list must stay");
     const nodes = runEE({}, "");
@@ -2015,12 +2015,11 @@ export async function runAll(fs) {
   ok("delete answers first tap", has(cmsXX, "export function sectionHasPublishableRemovals(") && has(adminXX, "sectionHasPublishableRemovals(edit.sectionId)") && has(adminXX, "onClick={() => erase(edit)}"), "Delete must not look dead where it only drops the draft");
   ok("rows are styled compact", has(cssXX, ".transport-row"), "the two rows must fit the field area");
   ok("apply leads with the rows", has(applyXX, "EACH FIELD HAS ITS BUTTONS"), "the office must meet the per-field rows first");
-  /* YY. each field commands its own slot, guest Play opens the channel
+  /* YY. each field commands its own slot, Play opens the channel
      (notes 404, 410): the main row never touches the guest slot and the
-     guest row never touches the main switch, the guest keys gate on their own
-     stamp, the badges hear the guest switch, and a published guest Play opens
-     its commanded channel while the read is walled — a pressed main waits for
-     detection. */
+     guest row never touches the main switch, the keys gate on their own
+     stamp, the badges hear the switches, and a published Play opens its
+     commanded channel while the read is walled — same rule on both slots. */
   const edYY = text["src/components/editor.tsx"];
   const cmsYY = text["src/lib/cms.ts"];
   const storeYY = text["src/lib/store.ts"];
@@ -2031,7 +2030,7 @@ export async function runAll(fs) {
   ok("stop clears the guest, guest never touches main", has(edYY, "export function GuestTransportButtons()") && has(edYY, "write(clearGuestOnStop(") && has(edYY, "The stop also empties") && has(edYY, "write({ guestIsLive: true, guestCommandAt: Date.now() })"), "one Stop ends the live and empties the guest; the guest row still commands only its slot");
   ok("guest keys gated on their stamp", has(cmsYY, "out.guestIsLive") && has(cmsYY, "guestCommandAt"), "only a guest click may send the guest state");
   ok("badges hear the guest switch", has(storeYY, "(LIVE as any).guestIsLive"), "a forced guest must light LIVE too");
-  ok("guest press opens its walled channel", has(watchYY, "const overrideId = ") && has(watchYY, "(!streaming && overrideId)") && has(watchYY, ") : overrideGuest && overrideId ? (") && !has(watchYY, ") : overrideId ? (") && has(watchYY, "(mainDetected && !officeStopped)"), "a published guest Play may open the channel, a detected main plays by itself — and only a live slot plays by itself");
+  ok("pressed slot opens its walled channel", has(watchYY, "const overrideId = ") && has(watchYY, "(!streaming && overrideId)") && has(watchYY, ") : (overrideMain || overrideGuest) && overrideId ? (") && !has(watchYY, ") : overrideId ? (") && has(watchYY, "(mainDetected && !officeStopped)"), "a published Play opens its commanded channel on either slot — main and guest share one rule; a detected main plays by itself");
   ok("follow is unknown-only", has(watchYY, 'airForTarget.state === "unknown"') && has(watchYY, 'guestAir.state === "unknown"'), "a verified off must stay on the clock");
   ok("guest keys ship false", has(liveYY, "guestIsLive: false") && has(seedYY, '"guestIsLive":false'), "no copy may open with a guest forced");
   ok("apply leads own-slot", has(applyYY, "EACH FIELD COMMANDS ITS OWN SLOT"), "the office must meet the independent rows first");
@@ -2100,13 +2099,13 @@ export async function runAll(fs) {
   ok("crash names its page", has(boundAAA, "componentStack") && has(boundAAA, "Page: ${this.state.route}"), "the next screenshot must name the page");
   ok("override is this update", has(srvAAA, "OVERRIDE_NO_414 = 414"), "first boot must re-run the clear");
   ok("apply leads with press and empty", has(applyAAA, "MAIN WAITS FOR THE PLAY PRESS") && has(applyAAA, "GUEST ARRIVES EMPTY"), "the office must meet the press rule first");
-  /* BBB. autoplay when the main is live (note 400): a main with an unknown
-     read waits on the clock — only the commanded guest slot opens walled; a
-     detected main broadcast plays by itself with no press. */
+  /* BBB. autoplay when a slot is commanded or live (note 400): a pressed
+     slot opens its channel while the read is walled — same on main and
+     guest; a detected main broadcast plays by itself with no press. */
   const watchBBB = text["src/pages/WatchLive.tsx"];
   const srvBBB = text["scripts/cms-server.js"];
   const applyBBB = text["APPLY_UPDATE.txt"];
-  ok("main press never autoplays walled", has(watchBBB, ") : overrideGuest && overrideId ? (") && !has(watchBBB, ") : overrideId ? (") && has(watchBBB, "const overrideMain = "), "a pressed main must wait for detection, not open the channel");
+  ok("pressed slot opens its walled channel", has(watchBBB, ") : (overrideMain || overrideGuest) && overrideId ? (") && has(watchBBB, "const overrideMain = ") && has(watchBBB, "const overrideGuest = "), "main and guest share one rule: a pressed slot opens its channel while the read is walled");
   ok("detected main plays with sound", has(watchBBB, "(mainDetected && !officeStopped)") && has(watchBBB, "autoPlay={streaming && watchable}") && has(watchBBB, "const waitingForClick = !shutNow"), "detection must autoplay with sound, no press; a published Stop still holds");
   ok("guest press still opens walled", has(watchBBB, "const overrideGuest = ") && has(watchBBB, 'guestAir.state === "unknown"'), "a published guest Play must still open its channel");
   ok("override is this update", has(srvBBB, "OVERRIDE_NO_414 = 414"), "first boot must re-run the clear");
@@ -2118,7 +2117,7 @@ export async function runAll(fs) {
   const srvCCC = text["scripts/cms-server.js"];
   const applyCCC = text["APPLY_UPDATE.txt"];
   ok("streaming declared before liveSource", watchCCC.indexOf("const streaming = ") !== -1 && watchCCC.indexOf("const streaming = ") < watchCCC.indexOf("(!streaming && overrideId)"), "the initializer must never read across the dead zone");
-  ok("rule expression unchanged", has(watchCCC, "(guestLive || fbLive || !!LIVE.isLive)") && has(watchCCC, "autoPlay={streaming && watchable}") && has(watchCCC, ") : overrideGuest && overrideId ? ("), "the reorder must move the rule, never rewrite it");
+  ok("rule expression shared", has(watchCCC, "(guestLive || fbLive || !!LIVE.isLive)") && has(watchCCC, "autoPlay={streaming && watchable}") && has(watchCCC, ") : (overrideMain || overrideGuest) && overrideId ? ("), "both slots share one override rule");
   ok("override is this update", has(srvCCC, "OVERRIDE_NO_414 = 414"), "first boot must re-run the clear");
   ok("apply leads with the crash fix", has(applyCCC, "WATCH PAGE PLAYS AGAIN"), "the office must meet the fix first");
   /* GGG. update 414: unsaved Delete clears, one Recent services, verified livestream, sleep-free uploads (note 413). */

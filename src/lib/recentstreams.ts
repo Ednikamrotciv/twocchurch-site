@@ -566,10 +566,11 @@ export function subscribeRecentServices(fn: () => void): () => void {
    every public proxy is down and the deployed bake is empty until seed.json is
    deployed — so a standalone visitor would see no recents and no still on the
    screen. With @twocorg published, this list stands in, newest first (read off
-   the channel feed on 2026-10-29). A live read, the cache, or the shipped bake
+   the channel feed on 2026-10-30). A live read, the cache, or the shipped bake
    always wins over it; it never saves itself anywhere. */
-const DESIGNATED_FALLBACK_AT = 1792967998000;
+const DESIGNATED_FALLBACK_AT = 1793290826000;
 const DESIGNATED_FALLBACK_ITEMS: Array<{ videoId: string; title: string; at: number }> = [
+  { videoId: "dcCt75FMm6o", title: "70TH BIRTHDAY CELEBRATION OF EVANG. SKP. DAY 1, 29TH OCT. 2026", at: 1793290826000 },
   { videoId: "aAJCTGmbeGo", title: "YOUTH SUNDAY SERVICE 25TH, OCT. 2026", at: 1792967998000 },
   { videoId: "vj-zun-US7k", title: "COMMUNION SUNDAY SERVICE, 18TH, OCT. 2026", at: 1792360910000 },
   { videoId: "wh1wLNBDZ3s", title: "COMMUNION SUNDAY SERVICE, 18TH, OCT. 2026", at: 1792310828000 },
@@ -584,7 +585,6 @@ const DESIGNATED_FALLBACK_ITEMS: Array<{ videoId: string; title: string; at: num
   { videoId: "HmVTgKwA6rY", title: "FAMILY ESSENTIALS AFRICA {BUILDING STRONG MEN OF GOD, FAMILIES AND CHURCHES} SEPT 8TH 2026.", at: 1788907035000 },
   { videoId: "eyGDEZplxJw", title: "FAMILY ESSENTIALS AFRICA {BUILDING STRONG MEN OF GOD, FAMILIES AND CHURCHES} SEPT 8TH 2026.", at: 1788904484000 },
   { videoId: "akE7Klt3a8w", title: "FAMILY ESSENTIALS AFRICA {BUILDING STRONG MEN OF GOD, FAMILIES AND CHURCHES} SEPT 7TH 2026.", at: 1788822563000 },
-  { videoId: "KCGWV3jWROE", title: "FAMILY ESSENTIALS AFRICA {BUILDING STRONG MEN OF GOD, FAMILIES AND CHURCHES} SEPT 7TH 2026.", at: 1788788138000 },
 ];
 /** The fallback list — only for the designated channel, [] anywhere else. A
     published @channel takes the designation, but the baked items stay

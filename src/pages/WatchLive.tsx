@@ -306,7 +306,10 @@ export function WatchLive() {
      it (see VideoPlayer reloadSignal); the screen also re-asks the on-air
      check at once here so the fixed frame arrives in seconds. */
   const reloadSignal = Number((LIVE as any).liveReloadAt) || 0;
-  const reloadSeenRef = useRef(0);
+  /* Only a press that lands after this screen opened repairs it: the words
+     may already carry an older press (a visitor arriving after Publish),
+     and replaying that on every load would remount the player for nothing. */
+  const reloadSeenRef = useRef<number>(typeof reloadSignal === "number" ? reloadSignal : 0);
   useEffect(() => {
     if (!reloadSignal || reloadSeenRef.current === reloadSignal) return;
     reloadSeenRef.current = reloadSignal;
@@ -450,22 +453,18 @@ export function WatchLive() {
                   autoPlay={streaming && watchable}
                   reloadSignal={reloadSignal}
                 />
-              ) : overrideGuest && overrideId ? (
+              ) : (overrideMain || overrideGuest) && overrideId ? (
                 <VideoPlayer
                   hideEscape
                   source={{ platform: "youtube", youtubeId: "", youtubeChannelId: overrideId }}
                   title={liveName || ct("auto.live.bc108377bb47f9e6")}
                   compact
                   live
-                  /* The office commanded the guest slot (notes 404, 410): the
-                     guest Play is published and the read is walled — so that
-                     commanded channel opens by itself instead of the waiting
-                     clock, WITH SOUND like every live. The MAIN slot never
-                     opens here: a pressed main with no detected broadcast
-                     waits on the clock below — autoplay only works once the
-                     main livestream has started live on the channel. A
-                     verified off still waits; a detected broadcast still
-                     wins. */
+                  /* The office commanded the slot and the read is walled —
+                     main and guest alike open their commanded channel by
+                     itself instead of the waiting clock, WITH SOUND like
+                     every live. A verified off still waits; a detected
+                     broadcast still wins. */
                   autoPlay
                   reloadSignal={reloadSignal}
                 />
@@ -478,7 +477,7 @@ export function WatchLive() {
                    ends its thumbnails are already on the screen. */
                 <>
                 <div className="live-ended">
-                  {cover && <img className="live-ended__bg" src={cover} alt="" loading="lazy" />}
+                  {cover && <img className="live-ended__bg" src={cover} alt="" loading="lazy" onError={(e) => { try { e.currentTarget.style.display = "none"; } catch {} }} />}
                   <span className="live-ended__scrim" aria-hidden="true" />
                   <div className="live-ended__body">
                     <h3 className="live-ended__title">
@@ -511,6 +510,7 @@ export function WatchLive() {
                 <>
                   <VideoPlayer
                     hideEscape
+                    hideDeadText
                     source={sermonSource(latest)}
                     title={ct("auto.live.2af95d5fd1e87dae", { title: latest.title })}
                     poster={sermonThumb(latest)}
@@ -527,8 +527,8 @@ export function WatchLive() {
 
             {available.length > 0 && (
               <div className="btn-row center live-panel__links">
-                {available.includes("youtube") && (
-                  <Btn variant={onAirNow ? "crimson" : "gold"} icon="youtube" href={youtubeLink}>
+                {available.includes("youtube") && onAirNow && (
+                  <Btn variant="crimson" icon="youtube" href={youtubeLink}>
                     {ct("live.watch.button1")}
                   </Btn>
                 )}
@@ -620,7 +620,7 @@ export function WatchLive() {
               </Btn>
             }
           />
-          <SermonWatch sermon={latest} className="vcard--wide" />
+          <SermonWatch sermon={latest} className="vcard--wide" hideDeadText />
         </Section>
       )}
 
@@ -654,7 +654,7 @@ export function WatchLive() {
           <div className="grid grid-2">
             {recentFallback.map((s, i) => (
               <Reveal key={s.id} delay={i * 60}>
-                <SermonWatch sermon={s} />
+                <SermonWatch sermon={s} hideDeadText />
               </Reveal>
             ))}
           </div>
@@ -684,7 +684,7 @@ export function WatchLive() {
           <div className="grid grid-3">
             {pastCards.map((s, i) => (
               <Reveal key={s.id} delay={(i % 3) * 60}>
-                <SermonWatch sermon={s} />
+                <SermonWatch sermon={s} hideDeadText />
               </Reveal>
             ))}
           </div>

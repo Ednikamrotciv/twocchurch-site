@@ -272,6 +272,7 @@ export function VideoPlayer({
   live,
   autoPlay,
   hideEscape,
+  hideDeadText,
   reloadSignal,
 }: {
   source: VideoSource;
@@ -284,6 +285,10 @@ export function VideoPlayer({
   autoPlay?: boolean;
   /** Hide the "Can't see the video?" escape link — the live screen drops it. */
   hideEscape?: boolean;
+  /** Hide the "can't be played here" line in the dead fallback (poster,
+      retry arrow and platform link stay) — used all over the Watch live
+      screen, where the line is not wanted. */
+  hideDeadText?: boolean;
   /** Office Reload press (published liveReloadAt): the general fix. When it
       changes, the player drops what it learned, remounts the frame and
       re-asks — any error heals with no page reload, staying on this site. */
@@ -641,7 +646,18 @@ export function VideoPlayer({
             (!!mainUrl && isStatusForTarget(st, mainUrl)) || (!!guestWatchUrl && isStatusForTarget(st, guestWatchUrl));
           if (!stamped) return;
           const vid = parseYoutubeId(st.videoId);
-          if (!vid || vid === liveVideoId || vid === ytId) return;
+          if (!vid) return;
+          /* Same id counts too: an embedding flip or late probe can turn
+             the current id from dead to playable while the fallback shows.
+             Forget first so a cached dead verdict never vetoes the fresh
+             ask — only a verified live id reopens, so a truly ended
+             broadcast never loops. */
+          try {
+            if (liveVideoId) forgetVerified(liveVideoId);
+          } catch {}
+          try {
+            if (ytId) forgetVerified(ytId);
+          } catch {}
           const v = await verifyYoutubeId(vid).catch(() => null);
           if (cancelled) return;
           if (v !== true) return;
@@ -840,7 +856,7 @@ export function VideoPlayer({
         </button>
         <div className="player__deadbody">
           <p className="player__deadtitle">{shown}</p>
-          {!live && <p className="player__deadtext">{tx("This video can't be played here.")}</p>}
+          {!live && !hideDeadText && <p className="player__deadtext">{tx("This video can't be played here.")}</p>}
           {openHref && (
             <Btn size="sm" variant="gold" href={openHref} icon="youtube" iconRight="external">
               {tx("Watch on YouTube")}
@@ -1008,7 +1024,7 @@ export function platformOpenLabel(platform?: VideoPlatform): string {
 }
 
 /** A message the visitor can play without leaving the site. */
-export function SermonWatch({ sermon, className = "" }: { sermon: Sermon; className?: string }) {
+export function SermonWatch({ sermon, className = "", hideDeadText = false }: { sermon: Sermon; className?: string; hideDeadText?: boolean }) {
   /* Keyed on the values, not the object: the CMS mutates records in place. */
   const options = useMemo(
     () => sermonSources(sermon),
@@ -1026,7 +1042,7 @@ export function SermonWatch({ sermon, className = "" }: { sermon: Sermon; classN
     <Card className={"vcard " + className} pad={false}>
       <div className="vcard__media">
         {source ? (
-          <VideoPlayer source={source} title={sermon.title} poster={sermonThumb(sermon)} compact />
+          <VideoPlayer source={source} title={sermon.title} poster={sermonThumb(sermon)} compact hideDeadText={hideDeadText} />
         ) : (
           <div className="player player--empty">{ct("site.videoEmpty")}</div>
         )}
@@ -1138,6 +1154,7 @@ export function RecentServiceCard({ item }: { item: RecentService }) {
         title={item.title}
         poster={item.thumb}
         compact
+        hideDeadText
       />
       <div className="recent-card__body">
         <h3>{tx(item.title)}</h3>
