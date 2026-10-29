@@ -51,8 +51,9 @@ export function youtubeEmbed(id: string, autoplay = true): string {
   if (!video) return "";
   /* Sound on (note 388): every live from a channel plays with its audio —
      anything the site plays, tapped or self-started, carries its sound, and
-     the stream's audio opens by itself the moment the broadcast starts. */
-  return `https://www.youtube.com/embed/${video}?rel=0&modestbranding=1&playsinline=1${autoplay ? "&autoplay=1" : ""}`;
+     the stream's audio opens by itself the moment the broadcast starts.
+     enablejsapi lets the player hear YouTube's own error events. */
+  return `https://www.youtube.com/embed/${video}?rel=0&modestbranding=1&playsinline=1&enablejsapi=1${autoplay ? "&autoplay=1" : ""}`;
 }
 
 /** A channel id (`UC…`): the only address the channel player takes. */
@@ -68,7 +69,7 @@ export function isYoutubeChannelId(input: unknown): boolean {
 export function youtubeChannelEmbed(channelId: string, autoplay = true): string {
   if (!isYoutubeChannelId(channelId)) return "";
   const id = String(channelId).trim();
-  return `https://www.youtube.com/embed/live_stream?channel=${id}&rel=0&modestbranding=1&playsinline=1${autoplay ? "&autoplay=1" : ""}`;
+  return `https://www.youtube.com/embed/live_stream?channel=${id}&rel=0&modestbranding=1&playsinline=1&enablejsapi=1${autoplay ? "&autoplay=1" : ""}`;
 }
 
 export function youtubeWatch(id: string): string {

@@ -519,22 +519,70 @@ function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
 }
 
 /** Page HTML via a same-origin / office-server proxy, else public CORS proxy.
-    Fast path: same-origin + office race in parallel (was sequential timeouts). */
+    Fast path: same-origin + office race in parallel (was sequential timeouts).
+    First VALID answer wins — a fast door never waits out a slow one. */
 async function fetchPage(url: string): Promise<string | null> {
   /* Fast live: all doors race at once — same-origin, office, public proxy.
      The old code waited out same+office before even trying the public door,
      which held the Watch screen past the live start on static hosts. First
-     non-empty answer wins; a miss degrades exactly as before (unknown). */
+     valid answer wins; a miss degrades exactly as before (unknown). */
   try {
-    const [sameOrigin, office, remote] = await Promise.all([
+    return await firstValidHtml([
       fetchPageSameOrigin(url),
       fetchPageOffice(url),
       fetchPageRemote(url),
     ]);
-    return sameOrigin || office || remote || null;
   } catch {
     return null;
   }
+}
+
+/** First valid (non-null) door wins; never waits out the slowest door.
+    Rejects/nulls are ignored until every door settles, then null. */
+function firstValidHtml(jobs: Promise<string | null>[]): Promise<string | null> {
+  return new Promise((resolve) => {
+    let pending = jobs.length;
+    let done = false;
+    if (!pending) {
+      resolve(null);
+      return;
+    }
+    for (const job of jobs) {
+      Promise.resolve(job).then(
+        (value) => {
+          if (done) return;
+          if (typeof value === "string" && value.length > 0) {
+            done = true;
+            resolve(value);
+            return;
+          }
+          pending -= 1;
+          if (pending <= 0 && !done) {
+            done = true;
+            resolve(null);
+          }
+        },
+        () => {
+          if (done) return;
+          pending -= 1;
+          if (pending <= 0) {
+            done = true;
+            resolve(null);
+          }
+        }
+      );
+    }
+  });
+}
+
+/** True when this HTML actually came from YouTube (not a static host's SPA
+    fallback index.html answering /__yt with 200). index.html carries no
+    ytInitialData/videoDetails, so without this the live check would treat a
+    200 fallback as "read, not live" and never try the doors that work. */
+function isYoutubeHtml(html: string): boolean {
+  const text = String(html || "");
+  if (text.length < 500) return false;
+  return /ytInitialData/.test(text) || /"videoDetails":\{/.test(text) || /ytInitialPlayerResponse/.test(text);
 }
 
 /** Same-origin YouTube read (`scripts/serve.mjs` /__yt, note 420): the office
@@ -547,7 +595,11 @@ async function fetchPageSameOrigin(url: string): Promise<string | null> {
     const res = await withTimeout(fetch(`/__yt?url=${encodeURIComponent(url)}`, { cache: "no-store" }), CHECK_TIMEOUT_MS);
     if (!res || !res.ok) return null;
     const text = await res.text();
-    return typeof text === "string" && text.length > 0 ? text : null;
+    if (typeof text !== "string" || text.length === 0) return null;
+    /* Static hosts answer /__yt with the SPA fallback (200 index.html) — that
+       is not YouTube and must fall through to the doors that work. */
+    if (!isYoutubeHtml(text)) return null;
+    return text;
   } catch {
     return null;
   }
@@ -564,7 +616,9 @@ async function fetchPageRemote(url: string): Promise<string | null> {
     );
     if (!res || !res.ok) return null;
     const text = await res.text();
-    return typeof text === "string" && text.length > 0 ? text : null;
+    if (typeof text !== "string" || text.length === 0) return null;
+    if (!isYoutubeHtml(text)) return null;
+    return text;
   } catch {
     return null;
   }
@@ -581,6 +635,29 @@ async function fetchPageOffice(url: string): Promise<string | null> {
     if (!base) return null;
     const res = await withTimeout(
       fetch(`${base}/__yt?url=${encodeURIComponent(url)}`, { cache: "no-store" }),
+      CHECK_TIMEOUT_MS
+    );
+    if (!res || !res.ok) return null;
+    const text = await res.text();
+    if (typeof text !== "string" || text.length === 0) return null;
+    /* The office door is YouTube-only too — a login wall or error page is not
+       an answer and must not beat the public door that has the real page. */
+    if (!isYoutubeHtml(text)) return null;
+    return text;
+  } catch {
+    return null;
+  }
+}
+
+/** Facebook pages can only be read through the public CORS door: the /__yt
+    proxy is YouTube-only by design (SSRF guard) and answers 400 for them, so
+    asking it first only burns two fast failures per check. Facebook never
+    answers "off" (live markers or unknown), so any readable page is fine —
+    error pages simply read as unknown, exactly as before. */
+async function fetchPageFacebook(url: string): Promise<string | null> {
+  try {
+    const res = await withTimeout(
+      fetch(`https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`, { cache: "no-store" }),
       CHECK_TIMEOUT_MS
     );
     if (!res || !res.ok) return null;
@@ -703,7 +780,7 @@ export async function checkLiveStream(opts: { facebook?: boolean } = {}): Promis
      guest answers first too (note 380): Facebook never overrides it. */
   let facebook: { state: LiveState; videoId: string; title: string; channelId: string } = { state: "unset", videoId: "", title: "", channelId: "" };
   if (fbUrl && youtube.state !== "live" && guestAns.state !== "live") {
-    const fbHtml = await fetchPage(fbUrl);
+    const fbHtml = await fetchPageFacebook(fbUrl);
     if (fbHtml !== null) {
       const parsed = parseFacebookLivePage(fbHtml);
       facebook = { state: parsed.live ? "live" : "unknown", videoId: parsed.videoId, title: parsed.title, channelId: "" };

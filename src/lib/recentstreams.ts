@@ -136,13 +136,68 @@ function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
   });
 }
 
-/** Fetch a YouTube page: same-origin / office-server proxy, else public CORS proxy. */
+/** Fetch a YouTube page: same-origin / office-server proxy, else public CORS
+    proxy. All doors race — first VALID answer wins, never the slowest door. */
 async function fetchText(url: string): Promise<string | null> {
-  const sameOrigin = await fetchTextSameOrigin(url);
-  if (sameOrigin) return sameOrigin;
-  const office = await fetchTextOffice(url);
-  if (office) return office;
-  return fetchTextRemote(url);
+  try {
+    return await firstValidText([
+      fetchTextSameOrigin(url),
+      fetchTextOffice(url),
+      fetchTextRemote(url),
+    ]);
+  } catch {
+    return null;
+  }
+}
+
+/** First valid (non-null) door wins; rejects/nulls are ignored until every
+    door settles, then null. */
+function firstValidText(jobs: Promise<string | null>[]): Promise<string | null> {
+  return new Promise((resolve) => {
+    let pending = jobs.length;
+    let done = false;
+    if (!pending) {
+      resolve(null);
+      return;
+    }
+    for (const job of jobs) {
+      Promise.resolve(job).then(
+        (value) => {
+          if (done) return;
+          if (typeof value === "string" && value.length > 0) {
+            done = true;
+            resolve(value);
+            return;
+          }
+          pending -= 1;
+          if (pending <= 0 && !done) {
+            done = true;
+            resolve(null);
+          }
+        },
+        () => {
+          if (done) return;
+          pending -= 1;
+          if (pending <= 0) {
+            done = true;
+            resolve(null);
+          }
+        }
+      );
+    }
+  });
+}
+
+/** True when this body is really what was asked for — not a static host's SPA
+    fallback index.html answering /__yt with 200. Feed URLs carry entries;
+    channel pages carry the video grid scaffolding. */
+function isExpectedBody(url: string, text: string): boolean {
+  const body = String(text || "");
+  if (body.length < 500) return false;
+  if (/\/feeds\/videos\.xml/i.test(String(url || ""))) {
+    return /<entry>/.test(body) || /<yt:videoId>/.test(body);
+  }
+  return /lockupMetadataViewModel/.test(body) || /ytInitialData/.test(body) || /"videoDetails":\{/.test(body);
 }
 
 /* Last resort for hosts with no proxy: a free public CORS proxy.
@@ -156,7 +211,11 @@ async function fetchTextRemote(url: string): Promise<string | null> {
     );
     if (!res || !res.ok) return null;
     const text = await res.text();
-    return typeof text === "string" && text.length > 0 ? text : null;
+    if (typeof text !== "string" || text.length === 0) return null;
+    /* An error page from the proxy is not the channel — it must not beat the
+       doors that carry the real list. */
+    if (!isExpectedBody(url, text)) return null;
+    return text;
   } catch {
     return null;
   }
@@ -171,7 +230,11 @@ async function fetchTextSameOrigin(url: string): Promise<string | null> {
     const res = await withTimeout(fetch(`/__yt?url=${encodeURIComponent(url)}`, { cache: "no-store" }), TIMEOUT_MS);
     if (!res || !res.ok) return null;
     const text = await res.text();
-    return typeof text === "string" && text.length > 0 ? text : null;
+    if (typeof text !== "string" || text.length === 0) return null;
+    /* Static hosts answer /__yt with the SPA fallback (200 index.html) — not
+       YouTube, so it must not beat the doors that work. */
+    if (!isExpectedBody(url, text)) return null;
+    return text;
   } catch {
     return null;
   }
@@ -186,7 +249,9 @@ async function fetchTextOffice(url: string): Promise<string | null> {
     const res = await withTimeout(fetch(`${base}/__yt?url=${encodeURIComponent(url)}`, { cache: "no-store" }), TIMEOUT_MS);
     if (!res || !res.ok) return null;
     const text = await res.text();
-    return typeof text === "string" && text.length > 0 ? text : null;
+    if (typeof text !== "string" || text.length === 0) return null;
+    if (!isExpectedBody(url, text)) return null;
+    return text;
   } catch {
     return null;
   }

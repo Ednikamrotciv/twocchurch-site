@@ -303,14 +303,8 @@ export function VideoPlayer({
     if (!autoPlay) return false;
     /* Live opens at once (no tap, no gold button, fast screen): the frame
        mounts immediately and the verifier behind it swaps to the fallback
-       only if the id proves dead. A bare channel follow never opens blind:
-       mounting `live_stream?channel=` while the channel is offline paints
-       YouTube's black "unavailable" frame — it verifies first (autoplay
-       effect below) and mounts only on a fresh live confirmation. */
-    if (live) {
-      if (!ytId && followId) return false;
-      return true;
-    }
+       only if the id proves dead. */
+    if (live) return true;
     /* Livestream screen: play the broadcast by itself WITH SOUND — a verified
        id, an unverified-but-not-dead id, or the live channel follow all open
        with no tap. Only a proven-dead id is held back (the fallback below
@@ -605,53 +599,7 @@ export function VideoPlayer({
   useEffect(() => {
     if (!playing || dead) return;
     const vid = liveVideoId || ytId;
-    if (!vid) {
-      /* Bare channel follows never report errors cross-origin, so a stale or
-         false live (ended stream, wrong address) would otherwise sit on
-         YouTube's black "unavailable" frame with no way out. Re-ask on a
-         short cadence: a proven-off channel falls to the fallback with its
-         retry arrow, and a newly named broadcast upgrades to its own verified
-         id (which does report errors). Anything unproven keeps playing — a
-         thin read must never end a walled service. */
-      if (platform !== "youtube" || !followId) return;
-      const t = window.setInterval(() => {
-        try {
-          if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
-        } catch {
-          /* visibility unreadable — ask anyway */
-        }
-        checkLiveStream()
-          .then(async (st) => {
-            try {
-              const guestWatchUrl = guestTarget()?.url || "";
-              const mainUrl = liveTarget()?.url || "";
-              const stamped =
-                (!!mainUrl && isStatusForTarget(st, mainUrl)) || (!!guestWatchUrl && isStatusForTarget(st, guestWatchUrl));
-              if (!stamped) return;
-              if (st.state === "live" && st.videoId) {
-                const id = parseYoutubeId(st.videoId);
-                if (!id) return;
-                const v = await verifyYoutubeId(id).catch(() => null);
-                if (v === false) return;
-                try {
-                  setLiveVideoId(id);
-                } catch {}
-                try {
-                  onPlay?.();
-                } catch {}
-                return;
-              }
-              if (st.state === "off") {
-                try {
-                  setDead(true);
-                } catch {}
-              }
-            } catch {}
-          })
-          .catch(() => {});
-      }, 30_000);
-      return () => window.clearInterval(t);
-    }
+    if (!vid) return;
     const t = window.setInterval(() => {
       try {
         if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
@@ -665,7 +613,7 @@ export function VideoPlayer({
         .catch(() => {});
     }, 60 * 1000);
     return () => window.clearInterval(t);
-  }, [playing, dead, liveVideoId, ytId, followId]);
+  }, [playing, dead, liveVideoId, ytId]);
 
   /* In-frame failure signal (see loader above): a bare video id plays
      through the API's own host div, and YouTube's own onError (100 gone,

@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { tx } from "../lib/i18n";
 import { Link } from "../lib/router";
 import { SITE, SERVICES, img } from "../data/site";
@@ -16,12 +16,17 @@ import { Badge, Btn, Icon, IconBtn, Modal, Notice, Reveal, Rich, Section, Sectio
 import { PageHead } from "../components/layout";
 import { LiveWaiting } from "../components/liveclock";
 import { Countdown, RecentServiceCard, SermonWatch, VideoPlayer, WatchCards, platformWatchLinks } from "../components/blocks";
+import { useCmsVersion } from "../lib/cms";
 
 export function WatchLive() {
   const [branchId] = useLocalState<string>(KEYS.branch, DEFAULT_BRANCH_ID);
   const branch = BRANCHES.find((b) => b.id === branchId) || BRANCHES[0];
   const [reminders, setReminders] = useLocalState<Record<string, boolean>>("wom.reminders", {});
   const now = useNow(1000);
+  /* Published Play/Stop words mutate LIVE in place with no event of their own —
+     subscribe to the content version so the screen answers at once instead of
+     waiting out the 1s clock above. Cheap on this page: visitors never type. */
+  useCmsVersion();
   /* The office's Weekly services card, read on the church's own clock. */
   const info = nextService(SERVICES, now, churchTimezone());
   /* When the next gathering happens — read on the visitor's own clock (SPEC note 85). */
@@ -248,13 +253,16 @@ export function WatchLive() {
 
   /* which platforms the office has actually configured (the stream that is on
      air right now counts as YouTube being available, even if all the office
-     gave us was the channel to watch) */
-  const available = useMemo(() => {
+     gave us was the channel to watch). Computed every render on purpose: the
+     inputs (detection, Play overrides, LIVE switches) change independently,
+     and a memo keyed on only some of them once hid YouTube when only the
+     Play-override channel was available. */
+  const available: VideoPlatform[] = (() => {
     const list: VideoPlatform[] = [];
     if (detectedId || detectedChannel || overrideId || (!hasChannel && parseYoutubeId(LIVE.youtubeId))) list.push("youtube");
     if (isFacebookVideoUrl(LIVE.facebookUrl)) list.push("facebook");
     return list;
-  }, [detectedId, detectedChannel, hasChannel, LIVE.youtubeId, LIVE.facebookUrl, fbLive]);
+  })();
   const preferred: VideoPlatform = fbLive ? "facebook" : detectedId || detectedChannel || overrideId ? "youtube" : LIVE.provider === "facebook" ? "facebook" : "youtube";
   const [chosen, setChosen] = useState<VideoPlatform>(preferred);
   /* The service notepad behind the *Service notes* arrow (note 223). */
@@ -269,11 +277,7 @@ export function WatchLive() {
   /* The grace window replays the last playable address: a fresh off keeps the
      frame on exactly what was playing instead of an empty follow. */
   const graceRef = useRef<VideoSource | null>(null);
-  /* Grace replays only a verified broadcast (never a bare channel follow): a
-     channel embed replayed after the stream ends sits on YouTube's black
-     "unavailable" frame for the whole window. Without a replayable address
-     the screen closes straight onto the ended still instead. */
-  if (streaming && watchable && (freshSource.platform !== "youtube" || !!freshSource.youtubeId)) graceRef.current = freshSource;
+  if (streaming && watchable) graceRef.current = freshSource;
   const liveSource: VideoSource = offFresh && graceRef.current ? graceRef.current : freshSource;
   const youtubeLink =
     watchUrl({ platform: "youtube", youtubeId: playableId }) ||
