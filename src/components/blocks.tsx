@@ -21,7 +21,7 @@ import {
   type VideoPlatform,
   type VideoSource,
 } from "../lib/embed";
-import { checkLiveStream, isStatusForTarget, liveTarget, guestTarget, isGuestTargetUrl, peekVerified, verifyYoutubeId, forgetVerified, recheckLiveNow, isDesignatedChannel, designatedChannelIdForTarget } from "../lib/livestatus";
+import { checkLiveStream, isStatusForTarget, liveTarget, guestTarget, isGuestTargetUrl, peekVerified, verifyYoutubeId, forgetVerified, forgetAllVerified, recheckLiveNow, isDesignatedChannel, designatedChannelIdForTarget } from "../lib/livestatus";
 import {
   KEYS,
   fmtDate,
@@ -328,12 +328,17 @@ export function VideoPlayer({
      livestream-screen error — dead frame, hung load, blocked autoplay. Drops
      what the verifier learned, remounts the frame, re-asks the on-air check
      and reopens. No page reload, stays on this site. */
-  /* One-press repair (visitor arrow + office Reload share it): drops stale
-     verdicts, re-asks what's live NOW, and plays the current broadcast by
-     its fresh verified id — a restarted stream's new video heals in one tap.
-     Non-live bare ids remount and replay (verifier + in-frame error decide).
-     Never replays a stale dead id blind. Error-only arrow calls this. */
+  /* One-press repair (visitor arrow + office Reload share it): drop stale
+     verdicts, re-ask what's live now, and play the current broadcast by its
+     fresh verified ID — a restarted stream's new video, a stale resolution,
+     a hung frame. A channel follow re-asks the check and plays the current
+     broadcast by its own verified id; a bare id remounts and replays (the
+     verifier + in-frame error decide). Never replays a stale dead id blind. */
+  const [repairing, setRepairing] = useState(false);
   const repair = () => {
+    try {
+      forgetAllVerified();
+    } catch {}
     try {
       if (ytId) forgetVerified(ytId);
     } catch {}
@@ -345,19 +350,33 @@ export function VideoPlayer({
     setNotLive(false);
     setChecking(false);
     setLiveVideoId("");
+    setRepairing(true);
     try {
       recheckLiveNow();
     } catch {}
-    /* Live re-resolves (the fix for "unavailable" after a restarted
-       stream): drop the stale id, ask what's live NOW and play the current
-       broadcast by its fresh verified id. Non-live bare ids remount/replay. */
-    if (live && source?.platform !== "facebook" && source?.platform !== "upload") checkChannelThenPlay();
-    else {
+    const settledRepair = () => {
+      try {
+        setRepairing(false);
+      } catch {}
+    };
+    /* A channel follow re-resolves (the fix for "unavailable" after the
+       office restarted the stream): re-ask what's live now and play the
+       current broadcast by its fresh verified id. Anything else remounts
+       and replays. */
+    if (live && followId) {
+      checkChannelThenPlay();
+      try {
+        window.setTimeout(settledRepair, 1500);
+      } catch {
+        settledRepair();
+      }
+    } else {
       setIframeKey((k) => k + 1);
       setPlaying(true);
       try {
         onPlay?.();
       } catch {}
+      settledRepair();
     }
   };
   /* Office Reload repair (published liveReloadAt): the general fix for any
@@ -655,33 +674,83 @@ export function VideoPlayer({
     };
   }, [playing, dead, liveVideoId, ytId, platform, iframeKey]);
 
-  if (file) {
-    /* A video the office uploaded plays in the browser itself. */
-    return (
-      <div className={shell + " player--file"}>
-        <video
-          className="player__video"
-          src={file}
-          poster={source?.poster || undefined}
-          controls
-          playsInline
-          preload="metadata"
-          onPlay={() => onPlay?.()}
-          onError={() => setFailed(true)}
-        />
-        {live && (
-          <span className="player__live">
-            <span className="live-dot" /> {ct("live.player.badge")}
-          </span>
-        )}
-      </div>
-    );
-  }
+  /* Plain-frame net (channel follows, Facebook, other non-API frames): these
+     iframes never report content errors cross-origin, so a dead channel embed
+     would otherwise sit on the black "video unavailable" frame with no way
+     out. Watchdog re-asks what's live now: a fresh verified broadcast upgrades
+     to its own id (API path above, which does report errors); a proven-off
+     channel and any never-loaded frame land on the same grey arrow above. */
+  const frameLoadedRef = useRef(false);
+  useEffect(() => {
+    frameLoadedRef.current = false;
+  }, [sourceKey, iframeKey]);
+  useEffect(() => {
+    if (!playing || dead) return;
+    if (liveVideoId || ytId) return;
+    if (file) return;
+    if (!src) return;
+    if (platform !== "youtube" && platform !== "facebook") return;
+    let cancelled = false;
+    const fail = () => {
+      if (cancelled) return;
+      try {
+        console.warn("church player: showing fallback", { why: "plain-frame" });
+      } catch {}
+      try {
+        setDead(true);
+      } catch {}
+    };
+    const watchdog = window.setTimeout(() => {
+      (async () => {
+        if (cancelled) return;
+        if (platform === "youtube" && followId) {
+          try {
+            const st = await checkLiveStream();
+            if (cancelled) return;
+            const guestWatchUrl = guestTarget()?.url || "";
+            const mainUrl = liveTarget()?.url || "";
+            const stamped =
+              (!!mainUrl && isStatusForTarget(st, mainUrl)) || (!!guestWatchUrl && isStatusForTarget(st, guestWatchUrl));
+            if (stamped && st.state === "live" && st.videoId) {
+              const vid = parseYoutubeId(st.videoId);
+              if (vid) {
+                const v = await verifyYoutubeId(vid).catch(() => null);
+                if (cancelled) return;
+                if (v === false) {
+                  fail();
+                  return;
+                }
+                try {
+                  setLiveVideoId(vid);
+                } catch {}
+                return;
+              }
+            }
+            if (stamped && st.state === "off") {
+              fail();
+              return;
+            }
+          } catch {
+            /* probe down — fall through to the loaded check below */
+          }
+        }
+        if (!frameLoadedRef.current) fail();
+      })().catch(() => {
+        if (!frameLoadedRef.current) fail();
+      });
+    }, 12_000);
+    return () => {
+      cancelled = true;
+      try {
+        window.clearTimeout(watchdog);
+      } catch {}
+    };
+  }, [playing, dead, liveVideoId, ytId, platform, src, file, followId, iframeKey, sourceKey]);
 
-  if (!src) return <div className="player player--empty">{ct("site.videoEmpty")}</div>;
-  /* A dead video never plays here: the poster stays, the visitor is told, and
-     the platform link below is the way out (note 333). The circular arrow in
-     the center retries in place — visible ONLY while this error shows. */
+  /* Grey centered circle arrow, error-only: rendered ONLY while the player
+     reports an error (video unavailable + every other failure) and hidden
+     whenever the screen is fine — the dead branch below is the only place
+     it exists. One click runs the shared repair above. */
   if (dead) {
     const openHref = watchUrl(source);
     return (
@@ -696,7 +765,7 @@ export function VideoPlayer({
         <span className="player__scrim" />
         <button
           type="button"
-          className="player__reload"
+          className={"player__reload" + (repairing ? " is-spinning" : "")}
           onClick={retry}
           aria-label={tx("Reload the livestream")}
           title={tx("Reload the livestream")}
@@ -725,6 +794,32 @@ export function VideoPlayer({
       </div>
     );
   }
+
+  if (file) {
+    /* A video the office uploaded plays in the browser itself. Any failure
+       lands on the same grey arrow above (error-only) — one click repairs. */
+    return (
+      <div className={shell + " player--file"}>
+        <video
+          className="player__video"
+          src={file}
+          poster={source?.poster || undefined}
+          controls
+          playsInline
+          preload="metadata"
+          onPlay={() => onPlay?.()}
+          onError={() => setDead(true)}
+        />
+        {live && (
+          <span className="player__live">
+            <span className="live-dot" /> {ct("live.player.badge")}
+          </span>
+        )}
+      </div>
+    );
+  }
+
+  if (!src) return <div className="player player--empty">{ct("site.videoEmpty")}</div>;
   return (
     <div className={shell}>
       {playing ? (
@@ -743,6 +838,16 @@ export function VideoPlayer({
             referrerPolicy={EMBED_REFERRER_POLICY}
             allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; fullscreen"
             allowFullScreen
+            onLoad={() => {
+              try {
+                frameLoadedRef.current = true;
+              } catch {}
+            }}
+            onError={() => {
+              try {
+                setDead(true);
+              } catch {}
+            }}
           />
           )}
           {/* The frame itself never reports a failure (note 344): a video

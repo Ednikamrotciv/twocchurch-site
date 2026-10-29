@@ -21,7 +21,7 @@ import {
 import { PageHead } from "../components/layout";
 import { SearchBox, eventDate } from "../components/blocks";
 import { fireToast, useNow } from "../lib/hooks";
-import { readLiveStatus, recheckLiveNow, checkLiveStream, guestTarget, isGuestTargetUrl, useLiveStream, liveTarget, isStatusForTarget, clearGuestOnStop, forgetVerified } from "../lib/livestatus";
+import { readLiveStatus, recheckLiveNow, checkLiveStream, guestTarget, isGuestTargetUrl, useLiveStream, liveTarget, isStatusForTarget, clearGuestOnStop, forgetVerified, forgetAllVerified } from "../lib/livestatus";
 import { SITE, SERVICES, img } from "../data/site";
 import { recentLimit } from "../data/live";
 import { ytWatch } from "../data/sermons";
@@ -974,6 +974,12 @@ export function LiveTransportButtons() {
      no page reload, staying on this site. */
   const reload = () => {
     const at = Date.now();
+    /* Shared repair (visitor arrow runs the same): drop stale verdicts,
+       re-ask what's live now, play the current broadcast by its fresh
+       verified id. */
+    try {
+      forgetAllVerified();
+    } catch {}
     try {
       const cur = cms.getDraft().live || {};
       for (const raw of [String((cur as any).liveVideoId || ""), String((cur as any).guestVideoId || "")]) {
@@ -1123,6 +1129,12 @@ export function GuestTransportButtons() {
      is misbehaving. Visitors remount + rejoin sound on the published press. */
   const reload = () => {
     const at = Date.now();
+    /* Shared repair (visitor arrow runs the same): drop stale verdicts,
+       re-ask what's live now, play the current broadcast by its fresh
+       verified id. */
+    try {
+      forgetAllVerified();
+    } catch {}
     try {
       const cur = cms.getDraft().live || {};
       for (const raw of [String((cur as any).liveVideoId || ""), String((cur as any).guestVideoId || "")]) {

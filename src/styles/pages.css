@@ -1111,6 +1111,53 @@
   object-fit: cover;
 }
 
+/* Error-only dead frame: dimmed still with the grey repair arrow. The arrow
+   exists ONLY here (rendered only in the error state, hidden whenever the
+   screen is fine) and covers video-unavailable + every other player failure. */
+.player--dead img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  filter: brightness(0.55);
+}
+
+.player__deadbody {
+  position: absolute;
+  left: 1rem;
+  right: 1rem;
+  bottom: 0.85rem;
+  z-index: 2;
+  text-align: center;
+  pointer-events: none;
+}
+
+.player__deadbody .btn {
+  pointer-events: auto;
+}
+
+.player__deadtitle {
+  margin: 0 0 0.15rem;
+  font-weight: 800;
+  font-size: 1rem;
+  color: #f4f0e8;
+  text-shadow: 0 1px 14px rgba(4, 4, 7, 0.9), 0 1px 3px rgba(4, 4, 7, 0.7);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.player__deadtext {
+  margin: 0 0 0.55rem;
+  font-size: 0.85rem;
+  color: rgba(244, 240, 232, 0.85);
+  text-shadow: 0 1px 10px rgba(4, 4, 7, 0.9);
+}
+
+/* Grey centered circle arrow (error-only repair): one click runs the shared
+   repair — drops stale verdicts, re-asks what's live now, plays the current
+   broadcast by its fresh verified id. */
 .player__reload {
   position: absolute;
   inset: 0;
@@ -1122,11 +1169,11 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  background: rgba(255, 255, 255, 0.96);
-  color: #1a1a1a;
+  background: rgba(107, 114, 128, 0.96);
+  color: #ffffff;
   cursor: pointer;
-  box-shadow: 0 0 0 12px rgba(255, 255, 255, 0.16), 0 6px 24px rgba(0, 0, 0, 0.45);
-  transition: transform 0.2s ease;
+  box-shadow: 0 0 0 12px rgba(107, 114, 128, 0.22), 0 6px 24px rgba(0, 0, 0, 0.45);
+  transition: transform 0.2s ease, background 0.2s ease;
   z-index: 2;
   -webkit-tap-highlight-color: transparent;
   touch-action: manipulation;

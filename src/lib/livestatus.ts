@@ -760,15 +760,6 @@ export async function checkLiveStream(opts: { facebook?: boolean } = {}): Promis
 export function readLiveStatus(): LiveStatus {
   const cached = readStore<LiveStatus | null>(LIVE_STATUS_KEY, null);
   if (!cached || typeof cached !== "object" || typeof cached.state !== "string") return { ...EMPTY };
-  /* Fresh deploy starts fresh (new-build rule): a cached answer from another
-     build never seeds this one — an old live video would otherwise paint the
-     black "unavailable" frame before the fresh check lands. Caches without a
-     stamp (older updates) are stale by definition. */
-  try {
-    if (Number((cached as any).notes) !== BUILD_NOTES) return { ...EMPTY };
-  } catch {
-    return { ...EMPTY };
-  }
   return {
     state: (cached.state as LiveState) || "unset",
     platform: cached.platform === "youtube" || cached.platform === "facebook" ? cached.platform : "",
@@ -785,9 +776,7 @@ function saveLiveStatus(status: LiveStatus) {
   /* "unknown" is not worth remembering — it would only make the next visit
      start out more pessimistic than it needs to be. */
   if (status.state === "unknown") return;
-  /* Stamped with the running build so the next deploy starts fresh instead
-     of replaying this one's video. */
-  writeStore(LIVE_STATUS_KEY, { ...status, notes: BUILD_NOTES } as LiveStatus);
+  writeStore(LIVE_STATUS_KEY, status);
 }
 
 /* One shared, reference-counted poll; every live state reads it via `onAir()`. */
@@ -1231,6 +1220,22 @@ export function forgetVerified(videoId: string) {
       verifyCache.delete(id);
       verifyInflight.delete(id);
     }
+  } catch {
+    /* cache clear must never break the repair */
+  }
+}
+
+/** Drop every stale verdict at once (visitor arrow + office Reload share it):
+    a restarted stream's new video must never lose to a cached dead answer.
+    Never throws. */
+export function forgetAllVerified() {
+  try {
+    verifyCache.clear();
+  } catch {
+    /* cache clear must never break the repair */
+  }
+  try {
+    verifyInflight.clear();
   } catch {
     /* cache clear must never break the repair */
   }
