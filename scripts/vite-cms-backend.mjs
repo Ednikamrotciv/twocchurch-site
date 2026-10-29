@@ -16,6 +16,7 @@ import { createWaf, getClientIp, isSafePath, endpointCategory, ipClass, normaliz
 import { createSessionAnomaly } from "./session-anomaly.mjs";
 import { createPublishWatch } from "./publish-watch.mjs";
 import { createHash } from "node:crypto";
+import { gzipSync } from "node:zlib";
 
 /* index.html points straight at the source entry — no prebuilt bundle involved. */
 const ENTRY_TAG = '<script type="module" src="/src/main.tsx"></script>';
@@ -763,7 +764,9 @@ export function cmsBackend() {
           }
 
           /* Same-origin YouTube proxy (YouTube sends no CORS headers, so the
-             browser cannot read it directly). */
+             browser cannot read it directly). Identical to scripts/serve.mjs:
+             same hosts, same UA, same 10s cap, same 3MB guard, same gzip —
+             so local dev and the deployed office read YouTube the same way. */
           if (pathname === "/__yt" && req.method === "GET") {
             const target = url.searchParams.get("url") || "";
             let host = "";
@@ -789,17 +792,50 @@ export function cmsBackend() {
                 },
                 signal: typeof AbortSignal !== "undefined" && typeof AbortSignal.timeout === "function" ? AbortSignal.timeout(10000) : undefined,
               });
-              const text = await upstream.text();
+              const YT_MAX_BYTES = 3 * 1024 * 1024;
+              let ytBytes = 0;
+              const ytParts = [];
+              let ytTooBig = false;
+              try {
+                if (!upstream.body) throw new Error("empty");
+                for await (const chunk of upstream.body) {
+                  ytBytes += chunk.length;
+                  if (ytBytes > YT_MAX_BYTES) {
+                    ytTooBig = true;
+                    try { await upstream.cancel(); } catch {}
+                    break;
+                  }
+                  ytParts.push(chunk);
+                }
+              } catch {
+                ytTooBig = true;
+              }
+              const text = ytTooBig ? "" : Buffer.concat(ytParts).toString("utf8");
               if (!upstream.ok || !text) {
                 res.writeHead(502, { "cache-control": "no-store" });
-                res.end("unreachable");
+                res.end(ytTooBig ? "too large" : "unreachable");
+                return;
+              }
+              const body = Buffer.from(text, "utf8");
+              const accept = req.headers["accept-encoding"] || "";
+              if (body.length > 1024 && accept.includes("gzip")) {
+                const gz = gzipSync(body);
+                res.writeHead(200, {
+                  "content-type": "text/html; charset=utf-8",
+                  "content-length": gz.length,
+                  "content-encoding": "gzip",
+                  "cache-control": "no-store",
+                  vary: "accept-encoding",
+                });
+                res.end(gz);
                 return;
               }
               res.writeHead(200, {
                 "content-type": "text/html; charset=utf-8",
+                "content-length": body.length,
                 "cache-control": "no-store",
               });
-              res.end(text);
+              res.end(body);
               return;
             } catch {
               res.writeHead(502, { "cache-control": "no-store" });

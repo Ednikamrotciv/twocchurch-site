@@ -779,7 +779,7 @@ export function VideoPlayer({
         </button>
         <div className="player__deadbody">
           <p className="player__deadtitle">{shown}</p>
-          <p className="player__deadtext">{tx("This video can't be played here.")}</p>
+          {!live && <p className="player__deadtext">{tx("This video can't be played here.")}</p>}
           {openHref && (
             <Btn size="sm" variant="gold" href={openHref} icon="youtube" iconRight="external">
               {tx("Watch on YouTube")}

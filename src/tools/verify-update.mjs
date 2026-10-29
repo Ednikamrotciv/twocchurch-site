@@ -917,7 +917,7 @@ export async function runAll(fs) {
      video id that died never autoplays into the black frame, an old
      bundle's office report never steers this update, new builds hold fresh
      visitors on maintenance until the office publishes, and Recent services
-     bake from the Oct-12 @twocorg feed. */
+     bake from the Oct-29 @twocorg feed. */
   const buildNotesQ = Number((text["src/lib/hooks.ts"].match(/BUILD_NOTES = (\d+)/) || [])[1]) || 0;
   const liveQ = text["src/lib/livestatus.ts"];
   const blocksQ = text["src/components/blocks.tsx"];
@@ -938,7 +938,7 @@ export async function runAll(fs) {
     const seed333 = JSON.parse(text["seed.json"]);
     const items333 = (seed333 && seed333.recent && seed333.recent.items) || [];
     const ids333 = items333.map((it) => it && it.videoId);
-    ok("recents bake the church feed", seed333 && seed333.recent && seed333.recent.channelId === "UCQ0KIUXUV7gTZmDDlvd3ZcQ" && items333.length >= 6 && ids333.indexOf("s4bLaGUNet4") === 0 && ids333.indexOf("aT5IeCtJHFw") === 1 && ids333.every((id) => /^[\w-]{11}$/.test(String(id || ""))), "six-plus @twocorg services, newest first from the Oct-12 feed");
+    ok("recents bake the church feed", seed333 && seed333.recent && seed333.recent.channelId === "UCQ0KIUXUV7gTZmDDlvd3ZcQ" && items333.length >= 6 && ids333.indexOf("aAJCTGmbeGo") === 0 && ids333.indexOf("vj-zun-US7k") === 1 && ids333.every((id) => /^[\w-]{11}$/.test(String(id || ""))), "six-plus @twocorg services, newest first from the Oct-29 feed");
   } catch (e) {
     ok("recents bake parses", false, String((e && e.message) || e).slice(0, 160));
   }
@@ -1073,7 +1073,7 @@ export async function runAll(fs) {
   try {
     const seed344 = JSON.parse(text["seed.json"]);
     const items344 = ((seed344 && seed344.recent && seed344.recent.items) || []).map((it) => it && it.videoId);
-    const want344 = ["s4bLaGUNet4", "aT5IeCtJHFw", "3uqJoUXKds4", "OV6XtrNPGgo", "BgF97PIYPe8", "rmdEvZ_ZOXo", "ddWq2WYrmZ8", "HmVTgKwA6rY", "eyGDEZplxJw", "akE7Klt3a8w", "KCGWV3jWROE", "_PD-k6SqPvg", "eu3xQ-XCHv4", "gVJP8wlL9dM", "suLunbMiN78"];
+    const want344 = ["aAJCTGmbeGo", "vj-zun-US7k", "wh1wLNBDZ3s", "MdBG0oNwurg", "s4bLaGUNet4", "aT5IeCtJHFw", "3uqJoUXKds4", "OV6XtrNPGgo", "BgF97PIYPe8", "rmdEvZ_ZOXo", "ddWq2WYrmZ8", "HmVTgKwA6rY", "eyGDEZplxJw", "akE7Klt3a8w", "KCGWV3jWROE"];
     const live344 = seed344 && seed344.sections && seed344.sections.live;
     ok("bake still @twocorg's", !!seed344 && !!seed344.recent && seed344.recent.channelId === "UCQ0KIUXUV7gTZmDDlvd3ZcQ" && want344.every((id) => items344.indexOf(id) !== -1) && live344 && live344.youtubeChannel === "@twocorg", "recents must be the church's previous livestreams, all 15");
   } catch (e) {
@@ -1130,7 +1130,7 @@ export async function runAll(fs) {
     const items348 = ((seed348 && seed348.recent && seed348.recent.items) || []).map((it) => it && it.videoId);
     ok("bake card reads @twocorg", !!live348 && live348.youtubeChannel === "@twocorg" && yt348.value === "@twocorg", "the shipped words must name no other channel");
     ok("bake notes leave room to hold", typeof seed348.notes !== "number" || seed348.notes < notesW2, "a bake stamped at/above this update would release fresh visitors");
-    ok("recents still the church's", !!seed348 && !!seed348.recent && seed348.recent.channelId === "UCQ0KIUXUV7gTZmDDlvd3ZcQ" && items348.indexOf("s4bLaGUNet4") !== -1 && items348.length >= 6, "previous livestreams must be @twocorg's");
+    ok("recents still the church's", !!seed348 && !!seed348.recent && seed348.recent.channelId === "UCQ0KIUXUV7gTZmDDlvd3ZcQ" && items348.indexOf("aAJCTGmbeGo") !== -1 && items348.length >= 6, "previous livestreams must be @twocorg's");
   } catch (e) {
     ok("bake parses", false, String((e && e.message) || e).slice(0, 160));
   }
@@ -1386,7 +1386,7 @@ export async function runAll(fs) {
     const modCC = { exports: {} };
     new Function("module", "exports", "require", tcCC.code)(modCC, modCC.exports, stubCC);
     cacheCC["wom.recentstreams"] = { items: [{ videoId: "AAAAAAAAAAA", title: "Debug service", at: 5, ago: "", thumb: "", seeded: 0 }], at: 5, channelId: OTHER };
-    ok("foreign cache dropped", modCC.exports.readRecentServices().items[0].videoId === "s4bLaGUNet4", "debugging videos must not survive the read");
+    ok("foreign cache dropped", modCC.exports.readRecentServices().items[0].videoId === "aAJCTGmbeGo", "debugging videos must not survive the read");
     cacheCC["wom.recentstreams"] = { items: [{ videoId: "AAAAAAAAAAA", title: "Sunday service", at: 5, ago: "", thumb: "", seeded: 0 }], at: 5, channelId: OWNER };
     ok("own cache kept", modCC.exports.readRecentServices().items.length === 1, "@twocorg's list must stay");
     cacheCC["wom.recentstreams"] = { items: [{ videoId: "BBBBBBBBBBB", title: "Today's service", at: 0, ago: "", thumb: "", seeded: Date.now() }], at: 5, channelId: "" };
@@ -1510,7 +1510,7 @@ export async function runAll(fs) {
   const rsEE = text["src/lib/recentstreams.ts"];
   const applyEE = text["APPLY_UPDATE.txt"];
   ok("fallback ships in code", has(rsEE, "DESIGNATED_FALLBACK_ITEMS") && has(rsEE, "export function designatedFallback()"), "the previous services must survive an empty bake + dead proxies");
-  ok("fallback is the last service first", rsEE.indexOf("s4bLaGUNet4") > 0 && rsEE.indexOf("s4bLaGUNet4") < rsEE.indexOf("aT5IeCtJHFw"), "SUNDAY SERVICE, 11TH OCT. 2026 must lead");
+  ok("fallback is the last service first", rsEE.indexOf("aAJCTGmbeGo") > 0 && rsEE.indexOf("aAJCTGmbeGo") < rsEE.indexOf("vj-zun-US7k"), "YOUTH SUNDAY SERVICE 25TH, OCT. 2026 must lead");
   ok("three cache doors", has(rsEE, "if (!cached || !Array.isArray(cached.items)) return designatedFallback();") && has(rsEE, "cachedChannelId !== designated) return designatedFallback();") && has(rsEE, "if (!items.length) return designatedFallback();"), "empty, foreign and thin caches must all fall back");
   ok("same-origin read", has(rsEE, "fetchTextSameOrigin") && has(rsEE, "const sameOrigin = await fetchTextSameOrigin(url);") && !has(rsEE, "fetchTextLocal"), "deployed visitors must read through their own host");
   ok("jazz named", has(applyEE, "zJvgsAhpNlo") && has(applyEE, "small\n  village"), "the office must know exactly which video is poison");
@@ -1535,10 +1535,10 @@ export async function runAll(fs) {
     };
     const withDes = runEE({}, OWNER);
     const empty = withDes.readRecentServices();
-    ok("empty cache falls back", empty.items.length === 15 && empty.items[0].videoId === "s4bLaGUNet4" && empty.channelId === OWNER, "got " + empty.items.length + " first=" + (empty.items[0] || {}).videoId);
+    ok("empty cache falls back", empty.items.length === 15 && empty.items[0].videoId === "aAJCTGmbeGo" && empty.channelId === OWNER, "got " + empty.items.length + " first=" + (empty.items[0] || {}).videoId);
     const foreign = runEE({ "wom.recentstreams": { items: [{ videoId: "AAAAAAAAAAA", title: "Debug", at: 5, ago: "", thumb: "", seeded: 0 }], at: 5, channelId: OTHER } }, OWNER);
     const f2 = foreign.readRecentServices();
-    ok("foreign cache falls back", f2.items.length === 15 && f2.items[0].videoId === "s4bLaGUNet4", "debugging videos must not survive");
+    ok("foreign cache falls back", f2.items.length === 15 && f2.items[0].videoId === "aAJCTGmbeGo", "debugging videos must not survive");
     const own = runEE({ "wom.recentstreams": { items: [{ videoId: "AAAAAAAAAAA", title: "Sunday", at: 5, ago: "", thumb: "", seeded: 0 }], at: 5, channelId: OWNER } }, OWNER);
     ok("own cache kept", own.readRecentServices().items.length === 1, "a good list must stay");
     const nodes = runEE({}, "");

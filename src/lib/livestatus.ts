@@ -712,6 +712,12 @@ async function fetchLiveReport(): Promise<LiveReport | null> {
       REPORT_TIMEOUT_MS
     );
     if (!res || !res.ok) return null;
+    /* Same code, every host: a static host answers this door with its SPA
+       fallback (200 index.html) — that is not a report. Only JSON answers. */
+    try {
+      const ctype = String((res.headers && res.headers.get("content-type")) || "");
+      if (!/application\/json/i.test(ctype)) return null;
+    } catch { return null; }
     const data = await res.json().catch(() => null);
     const rep = data && (data as { report?: unknown }).report;
     if (!rep || typeof rep !== "object") return null;

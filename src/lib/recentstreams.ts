@@ -41,7 +41,7 @@ const KEEP = 24;
 /** Two uploads this close together — with the same headline — are one message. */
 const SAME_MESSAGE_MS = 20 * 60 * 60 * 1000;
 /** The channel is re-read this often in the quiet week… */
-const IDLE_MS = 4 * 60_000;
+const IDLE_MS = 2 * 60_000;
 /** …and this often while a service is on the clock or on air. */
 const SOON_MS = 30_000;
 /** …and how long the short cadence is kept after a service comes off air. */
@@ -566,12 +566,16 @@ export function subscribeRecentServices(fn: () => void): () => void {
    every public proxy is down and the deployed bake is empty until seed.json is
    deployed — so a standalone visitor would see no recents and no still on the
    screen. With @twocorg published, this list stands in, newest first (read off
-   the channel feed on 2026-10-12). A live read, the cache, or the shipped bake
+   the channel feed on 2026-10-29). A live read, the cache, or the shipped bake
    always wins over it; it never saves itself anywhere. */
-const DESIGNATED_FALLBACK_AT = 1791755357000;
+const DESIGNATED_FALLBACK_AT = 1792967998000;
 const DESIGNATED_FALLBACK_ITEMS: Array<{ videoId: string; title: string; at: number }> = [
+  { videoId: "aAJCTGmbeGo", title: "YOUTH SUNDAY SERVICE 25TH, OCT. 2026", at: 1792967998000 },
+  { videoId: "vj-zun-US7k", title: "COMMUNION SUNDAY SERVICE, 18TH, OCT. 2026", at: 1792360910000 },
+  { videoId: "wh1wLNBDZ3s", title: "COMMUNION SUNDAY SERVICE, 18TH, OCT. 2026", at: 1792310828000 },
+  { videoId: "MdBG0oNwurg", title: "COMMUNION SUNDAY SERVICE, 18TH, OCT. 2026", at: 1792309764000 },
   { videoId: "s4bLaGUNet4", title: "SUNDAY SERVICE, 11TH OCT. 2026", at: 1791755357000 },
-  { videoId: "aT5IeCtJHFw", title: "THANKSGIVING SUNDAY SERVICE 3RD OCT. 2026", at: 1791151867000 },
+  { videoId: "aT5IeCtJHFw", title: "THANKSGIVING SUNDAY SERVICE 4TH OCT. 2026", at: 1791151867000 },
   { videoId: "3uqJoUXKds4", title: "YOUTH SUNDAY/COMMUNION SERVICE,  27TH. SEPT. 2026.", at: 1790547921000 },
   { videoId: "OV6XtrNPGgo", title: "TEENS WEEK 2026. SUNDAY SERVICE, 20TH. SEPT. 2026.", at: 1789940337000 },
   { videoId: "BgF97PIYPe8", title: "TEENS WEEK 2026. SUNDAY SERVICE, 20TH. SEPT. 2026.", at: 1789899897000 },
@@ -581,10 +585,6 @@ const DESIGNATED_FALLBACK_ITEMS: Array<{ videoId: string; title: string; at: num
   { videoId: "eyGDEZplxJw", title: "FAMILY ESSENTIALS AFRICA {BUILDING STRONG MEN OF GOD, FAMILIES AND CHURCHES} SEPT 8TH 2026.", at: 1788904484000 },
   { videoId: "akE7Klt3a8w", title: "FAMILY ESSENTIALS AFRICA {BUILDING STRONG MEN OF GOD, FAMILIES AND CHURCHES} SEPT 7TH 2026.", at: 1788822563000 },
   { videoId: "KCGWV3jWROE", title: "FAMILY ESSENTIALS AFRICA {BUILDING STRONG MEN OF GOD, FAMILIES AND CHURCHES} SEPT 7TH 2026.", at: 1788788138000 },
-  { videoId: "_PD-k6SqPvg", title: "THANKSGIVING SUNDAY SERVICE, 6TH SEPT. 2026", at: 1788731683000 },
-  { videoId: "eu3xQ-XCHv4", title: "THANKSGIVING SUNDAY SERVICE, 6TH SEPT. 2026", at: 1788681346000 },
-  { videoId: "gVJP8wlL9dM", title: "It Will End in Praise - Evang Steve K Pelemo", at: 1788419927000 },
-  { videoId: "suLunbMiN78", title: "SUNDAY SERVICE, AUG. 30TH. 2026", at: 1788127709000 },
 ];
 /** The fallback list — only for the designated channel, [] anywhere else. A
     published @channel takes the designation, but the baked items stay
