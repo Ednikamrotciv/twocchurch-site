@@ -269,7 +269,11 @@ export function WatchLive() {
   /* The grace window replays the last playable address: a fresh off keeps the
      frame on exactly what was playing instead of an empty follow. */
   const graceRef = useRef<VideoSource | null>(null);
-  if (streaming && watchable) graceRef.current = freshSource;
+  /* Grace replays only a verified broadcast (never a bare channel follow): a
+     channel embed replayed after the stream ends sits on YouTube's black
+     "unavailable" frame for the whole window. Without a replayable address
+     the screen closes straight onto the ended still instead. */
+  if (streaming && watchable && (freshSource.platform !== "youtube" || !!freshSource.youtubeId)) graceRef.current = freshSource;
   const liveSource: VideoSource = offFresh && graceRef.current ? graceRef.current : freshSource;
   const youtubeLink =
     watchUrl({ platform: "youtube", youtubeId: playableId }) ||
