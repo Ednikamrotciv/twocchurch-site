@@ -17,6 +17,7 @@ import {
   platformLabel,
   posterFor,
   watchUrl,
+  youtubeChannelEmbed,
   youtubeChannelUrl,
   type VideoPlatform,
   type VideoSource,
@@ -619,7 +620,8 @@ export function VideoPlayer({
      through the API's own host div, and YouTube's own onError (100 gone,
      101/150 embedding disabled, 105) swaps to the dead fallback at once —
      the centered arrow appears instead of the black "unavailable" frame.
-     Channel follows and files keep the plain frame + verifier below. */
+     Verified in-browser: onReady fires BEFORE the video error, so dead
+     codes always win here and are never gated on any settled flag. */
   const apiHostRef = useRef<HTMLDivElement | null>(null);
   useEffect(() => {
     if (!playing || dead) return;
@@ -633,14 +635,13 @@ export function VideoPlayer({
     /* Watchdog: a frame that reports neither ready nor error within 12s is
        hung (blocked API, stalled load) — show the fallback with its arrow
        instead of a silent black box. Normal loads settle far sooner. */
-    let settled = false;
-    const fail = (why: string, code?: number) => {
-      if (settled || cancelled) return;
-      settled = true;
-      try { console.warn("church player: showing fallback", { videoId: vid, why, code }); } catch {}
-      try { setDead(true); } catch {}
-    };
-    const watchdog = window.setTimeout(() => fail("watchdog"), 12_000);
+    let seen = false;
+    const watchdog = window.setTimeout(() => {
+      if (!seen && !cancelled) {
+        try { console.warn("church player: showing fallback", { videoId: vid, why: "watchdog" }); } catch {}
+        try { setDead(true); } catch {}
+      }
+    }, 12_000);
     loadYtPlayerApi()
       .then((api) => {
         if (cancelled || !api || !api.Player) return;
@@ -651,14 +652,19 @@ export function VideoPlayer({
             playerVars: { autoplay: 1, rel: 0, modestbranding: 1, playsinline: 1 },
             events: {
               onReady: () => {
-                settled = true;
+                seen = true;
                 try { window.clearTimeout(watchdog); } catch {}
               },
               onError: (e: any) => {
                 const code = Number(e && (e as any).data);
+                seen = true;
                 try { window.clearTimeout(watchdog); } catch {}
-                if (code === 100 || code === 101 || code === 105 || code === 150) fail("youtube-error", code);
-                else { settled = true; }
+                if (code === 100 || code === 101 || code === 105 || code === 150) {
+                  if (!cancelled) {
+                    try { console.warn("church player: showing fallback", { videoId: vid, why: "youtube-error", code }); } catch {}
+                    try { setDead(true); } catch {}
+                  }
+                }
               },
             },
           });
@@ -674,70 +680,122 @@ export function VideoPlayer({
     };
   }, [playing, dead, liveVideoId, ytId, platform, iframeKey]);
 
-  /* Plain-frame net (channel follows, Facebook, other non-API frames): these
-     iframes never report content errors cross-origin, so a dead channel embed
-     would otherwise sit on the black "video unavailable" frame with no way
-     out. Watchdog re-asks what's live now: a fresh verified broadcast upgrades
-     to its own id (API path above, which does report errors); a proven-off
-     channel and any never-loaded frame land on the same grey arrow above. */
+  /* Channel-follow failure signal: the raw `live_stream?channel=` iframe
+     renders YouTube's own "video unavailable" text with no event the page
+     can hear cross-origin — that black frame is the deployed bug. The
+     channel therefore plays through the API's own host div like a bare id:
+     the player loads the channel's live_stream address and YouTube's own
+     onError (100 gone, 101/150 embedding disabled, 105) swaps to the dead
+     fallback at once — the grey arrow appears instead of the black frame.
+     Verified in-browser: loadVideoByUrl(channel live_stream) reports 150
+     for a dead channel. React owns the host div; the API owns what's
+     inside it, so no managed node is ever replaced. */
+  const channelHostRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    if (!playing || dead) return;
+    if (platform !== "youtube") return;
+    if (liveVideoId || ytId) return;
+    if (!followId) return;
+    const host = channelHostRef.current;
+    if (!host) return;
+    let player: any = null;
+    let cancelled = false;
+    let state = -2;
+    const clearStall = () => {
+      try {
+        window.clearTimeout(stall);
+      } catch {}
+    };
+    const goDead = (why: string, code?: number) => {
+      if (cancelled) return;
+      clearStall();
+      try {
+        console.warn("church player: showing fallback", { channelId: followId, why, code });
+      } catch {}
+      try {
+        setDead(true);
+      } catch {}
+    };
+    /* Stall: a channel load that never buffers, plays, cues or errors within
+       20s is hung — arrow instead of a silent box. Buffering keeps its time;
+       a cued frame is playable (its own tap), so only the never-started and
+       the reported-ended loads fail. */
+    const stall = window.setTimeout(() => {
+      if (cancelled) return;
+      if (state === -1 || state === -2) goDead("channel-stall");
+    }, 20_000);
+    loadYtPlayerApi()
+      .then((api) => {
+        if (cancelled || !api || !api.Player) return;
+        if (channelHostRef.current !== host) return;
+        try {
+          player = new api.Player(host, {
+            playerVars: { autoplay: 1, rel: 0, modestbranding: 1, playsinline: 1 },
+            events: {
+              onReady: (ev: any) => {
+                if (cancelled) return;
+                try {
+                  ev.target.loadVideoByUrl(youtubeChannelEmbed(followId, true));
+                } catch {
+                  goDead("channel-load-threw");
+                }
+              },
+              onStateChange: (ev: any) => {
+                const s = Number(ev && (ev as any).data);
+                state = s;
+                if (s === 1 || s === 5) {
+                  /* Playing or cued: the frame is genuinely alive — the grey
+                     arrow stays hidden. */
+                  clearStall();
+                } else if (s === 0) {
+                  goDead("channel-ended");
+                }
+              },
+              onError: (e: any) => {
+                const code = Number(e && (e as any).data);
+                /* Ready fires before the video error, so dead codes always
+                   win here — never gated on any settled flag. */
+                if (code === 100 || code === 101 || code === 105 || code === 150) goDead("youtube-error", code);
+                else clearStall();
+              },
+            },
+          });
+        } catch {
+          goDead("channel-player-threw");
+        }
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+      clearStall();
+      try {
+        if (player && typeof player.destroy === "function") player.destroy();
+      } catch {}
+    };
+  }, [playing, dead, liveVideoId, ytId, followId, platform, iframeKey]);
+
+  /* Facebook net (best effort): the plugin frame never reports content errors
+     cross-origin, so a never-loading frame lands on the same grey arrow above
+     instead of a silent box. YouTube never reaches a plain iframe anymore —
+     bare ids and channel follows both play through API hosts above. */
   const frameLoadedRef = useRef(false);
   useEffect(() => {
     frameLoadedRef.current = false;
   }, [sourceKey, iframeKey]);
   useEffect(() => {
     if (!playing || dead) return;
-    if (liveVideoId || ytId) return;
+    if (platform !== "facebook") return;
     if (file) return;
     if (!src) return;
-    if (platform !== "youtube" && platform !== "facebook") return;
     let cancelled = false;
-    const fail = () => {
-      if (cancelled) return;
+    const watchdog = window.setTimeout(() => {
+      if (cancelled || frameLoadedRef.current) return;
       try {
-        console.warn("church player: showing fallback", { why: "plain-frame" });
+        console.warn("church player: showing fallback", { why: "facebook-never-loaded" });
       } catch {}
       try {
         setDead(true);
       } catch {}
-    };
-    const watchdog = window.setTimeout(() => {
-      (async () => {
-        if (cancelled) return;
-        if (platform === "youtube" && followId) {
-          try {
-            const st = await checkLiveStream();
-            if (cancelled) return;
-            const guestWatchUrl = guestTarget()?.url || "";
-            const mainUrl = liveTarget()?.url || "";
-            const stamped =
-              (!!mainUrl && isStatusForTarget(st, mainUrl)) || (!!guestWatchUrl && isStatusForTarget(st, guestWatchUrl));
-            if (stamped && st.state === "live" && st.videoId) {
-              const vid = parseYoutubeId(st.videoId);
-              if (vid) {
-                const v = await verifyYoutubeId(vid).catch(() => null);
-                if (cancelled) return;
-                if (v === false) {
-                  fail();
-                  return;
-                }
-                try {
-                  setLiveVideoId(vid);
-                } catch {}
-                return;
-              }
-            }
-            if (stamped && st.state === "off") {
-              fail();
-              return;
-            }
-          } catch {
-            /* probe down — fall through to the loaded check below */
-          }
-        }
-        if (!frameLoadedRef.current) fail();
-      })().catch(() => {
-        if (!frameLoadedRef.current) fail();
-      });
     }, 12_000);
     return () => {
       cancelled = true;
@@ -745,7 +803,7 @@ export function VideoPlayer({
         window.clearTimeout(watchdog);
       } catch {}
     };
-  }, [playing, dead, liveVideoId, ytId, platform, src, file, followId, iframeKey, sourceKey]);
+  }, [playing, dead, platform, src, file, iframeKey, sourceKey]);
 
   /* Grey centered circle arrow, error-only: rendered ONLY while the player
      reports an error (video unavailable + every other failure) and hidden
@@ -829,6 +887,12 @@ export function VideoPlayer({
                iframe into this host div and reports its own errors; React
                never touches what's inside it. */
             <div key={iframeKey} ref={apiHostRef} className="player__frame-host" />
+          ) : (platform === "youtube" && followId) ? (
+            /* API-managed frame (channel follow): the player loads the
+               channel's live_stream address here and reports its own errors
+               the same way — no raw channel iframe ever reaches the screen,
+               so its silent "video unavailable" frame cannot. */
+            <div key={iframeKey} ref={channelHostRef} className="player__frame-host" />
           ) : (
           <iframe
             key={iframeKey}
