@@ -9,7 +9,7 @@ import { sermonsNewestFirst, sermonSource, sermonThumb } from "../data/sermons";
 import { useLocalState, useNow, fireToast } from "../lib/hooks";
 import { KEYS, nextService, onAir, displayLive, to12h, DAY_NAMES, countdownParts, addToCalendar, mailto, clockHere, tidyCount, churchTimezone, visitorPlace, fmtDate, downloadText, serviceNoteKey, type NextServiceInfo } from "../lib/store";
 import { isFacebookVideoUrl, parseYoutubeId, platformLabel, watchUrl, youtubeThumb, type VideoPlatform, type VideoSource } from "../lib/embed";
-import { useLiveStream, liveTarget, guestTarget, isGuestTargetUrl, facebookTarget, useYoutubeVerdict, isStatusForTarget, designatedChannelIdForTarget, isDesignatedChannel, nextScreenShut, officeStopActive, recheckLiveNow, type ScreenShut } from "../lib/livestatus";
+import { useLiveStream, liveTarget, guestTarget, isGuestTargetUrl, facebookTarget, useYoutubeVerdict, isStatusForTarget, designatedChannelIdForTarget, isDesignatedChannel, nextScreenShut, officeStopActive, recheckLiveNow, forgetVerified, type ScreenShut } from "../lib/livestatus";
 import { useLibrary } from "../lib/collections";
 import { useRecentServices, designatedFallback } from "../lib/recentstreams";
 import { Badge, Btn, Icon, IconBtn, Modal, Notice, Reveal, Rich, Section, SectionHeading, Textarea } from "../components/ui";
@@ -302,6 +302,16 @@ export function WatchLive() {
   useEffect(() => {
     if (!reloadSignal || reloadSeenRef.current === reloadSignal) return;
     reloadSeenRef.current = reloadSignal;
+    /* Office Reload repair: drop stale verdicts, re-ask what's live now —
+       the player below remounts + rejoins on the same signal (VideoPlayer
+       reloadSignal) and plays the current broadcast by its fresh verified
+       id. Never replays a stale dead id. */
+    try {
+      if (detectedId) forgetVerified(detectedId);
+    } catch {}
+    try {
+      if (fallbackId) forgetVerified(fallbackId);
+    } catch {}
     try {
       recheckLiveNow();
     } catch {}

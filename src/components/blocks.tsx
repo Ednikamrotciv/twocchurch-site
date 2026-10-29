@@ -328,12 +328,11 @@ export function VideoPlayer({
      livestream-screen error — dead frame, hung load, blocked autoplay. Drops
      what the verifier learned, remounts the frame, re-asks the on-air check
      and reopens. No page reload, stays on this site. */
-  /* One-press repair (visitor arrow + office Reload share it): finds what's
-     live NOW and plays it — a restarted stream's new video, a stale
-     resolution, a hung frame. A channel follow re-asks the check and plays
-     the current broadcast by its own verified id; a bare id remounts and
-     replays (the verifier + in-frame error decide). Never replays a stale
-     dead id blind. */
+  /* One-press repair (visitor arrow + office Reload share it): drops stale
+     verdicts, re-asks what's live NOW, and plays the current broadcast by
+     its fresh verified id — a restarted stream's new video heals in one tap.
+     Non-live bare ids remount and replay (verifier + in-frame error decide).
+     Never replays a stale dead id blind. Error-only arrow calls this. */
   const repair = () => {
     try {
       if (ytId) forgetVerified(ytId);
@@ -349,9 +348,10 @@ export function VideoPlayer({
     try {
       recheckLiveNow();
     } catch {}
-    /* A channel follow re-resolves (the fix for "unavailable" after the
-       office restarted the stream); anything else remounts and replays. */
-    if (live && followId) checkChannelThenPlay();
+    /* Live re-resolves (the fix for "unavailable" after a restarted
+       stream): drop the stale id, ask what's live NOW and play the current
+       broadcast by its fresh verified id. Non-live bare ids remount/replay. */
+    if (live && source?.platform !== "facebook" && source?.platform !== "upload") checkChannelThenPlay();
     else {
       setIframeKey((k) => k + 1);
       setPlaying(true);

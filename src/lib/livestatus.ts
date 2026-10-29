@@ -760,6 +760,15 @@ export async function checkLiveStream(opts: { facebook?: boolean } = {}): Promis
 export function readLiveStatus(): LiveStatus {
   const cached = readStore<LiveStatus | null>(LIVE_STATUS_KEY, null);
   if (!cached || typeof cached !== "object" || typeof cached.state !== "string") return { ...EMPTY };
+  /* Fresh deploy starts fresh (new-build rule): a cached answer from another
+     build never seeds this one — an old live video would otherwise paint the
+     black "unavailable" frame before the fresh check lands. Caches without a
+     stamp (older updates) are stale by definition. */
+  try {
+    if (Number((cached as any).notes) !== BUILD_NOTES) return { ...EMPTY };
+  } catch {
+    return { ...EMPTY };
+  }
   return {
     state: (cached.state as LiveState) || "unset",
     platform: cached.platform === "youtube" || cached.platform === "facebook" ? cached.platform : "",
@@ -776,7 +785,9 @@ function saveLiveStatus(status: LiveStatus) {
   /* "unknown" is not worth remembering — it would only make the next visit
      start out more pessimistic than it needs to be. */
   if (status.state === "unknown") return;
-  writeStore(LIVE_STATUS_KEY, status);
+  /* Stamped with the running build so the next deploy starts fresh instead
+     of replaying this one's video. */
+  writeStore(LIVE_STATUS_KEY, { ...status, notes: BUILD_NOTES } as LiveStatus);
 }
 
 /* One shared, reference-counted poll; every live state reads it via `onAir()`. */
