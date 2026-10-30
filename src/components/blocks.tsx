@@ -775,7 +775,11 @@ export function VideoPlayer({
               onError: (e: any) => {
                 const code = Number(e && (e as any).data);
                 try { window.clearTimeout(watchdog); } catch {}
-                if (code === 100 || code === 101 || code === 105 || code === 150) fail("youtube-error", code);
+                /* Every unplayable code lands on the grey-arrow fallback (with
+                   its one-tap force repair): 100 gone/private, 101/150
+                   embedding disabled, 105 removed, 5 player error, 2 bad id.
+                   Anything else settles as fine. */
+                if (code === 2 || code === 5 || code === 100 || code === 101 || code === 105 || code === 150) fail("youtube-error", code);
                 else { settled = true; }
               },
             },
