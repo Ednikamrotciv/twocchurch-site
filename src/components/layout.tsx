@@ -566,30 +566,6 @@ export function MaintenanceSite() {
   );
 }
 
-/* Header image that never shows a broken-image icon: tries the office's
-   image first, then the bundled hero, then yields to the gradient — so a
-   missing upload or a stale cached path can never blank the header. */
-function PageHeadBg({ src }: { src: string }) {
-  const [step, setStep] = useState(0);
-  const fallbacks = useMemo(() => {
-    const list = [src];
-    try {
-      const hero = siteFile("src/assets/img/hero.jpg");
-      if (hero && !list.includes(hero)) list.push(hero);
-    } catch {}
-    return list;
-  }, [src]);
-  useEffect(() => {
-    setStep(0);
-  }, [src]);
-  if (step >= fallbacks.length) return null;
-  return (
-    <div className="page-head__bg" aria-hidden="true">
-      <img src={fallbacks[step]} alt="" loading="eager" onError={() => setStep((s) => s + 1)} />
-    </div>
-  );
-}
-
 export function PageHead({
   eyebrow,
   title,
@@ -609,7 +585,19 @@ export function PageHead({
 }) {
   return (
     <section className={"page-head" + (image ? " page-head--image" : "")}>
-      {image ? <PageHeadBg src={image} /> : null}
+      {image && (
+        <div className="page-head__bg" aria-hidden="true">
+          <img
+            src={image}
+            alt=""
+            onError={(e) => {
+              try {
+                e.currentTarget.style.display = "none";
+              } catch {}
+            }}
+          />
+        </div>
+      )}
       <div className="container page-head__inner">
         {crumbs && (
           <nav className="breadcrumbs" aria-label={ct("auto.site.b6a65473c104609a")}>

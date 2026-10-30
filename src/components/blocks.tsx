@@ -234,9 +234,8 @@ export function AnnouncementBanner() {
    and injects its own iframe as a child (it never replaces a React-managed
    node), and the cleanup destroys the player before React touches the div —
    so the old removeChild crash cannot happen. On a proven error the player
-   swaps to the dead fallback (title + grey reload arrow only — no error text,
-   no Watch button). If the API never loads (offline, blocked) everything
-   behaves exactly as before. */
+   swaps to the dead fallback (centered arrow + Watch on YouTube). If the API
+   never loads (offline, blocked) everything behaves exactly as before. */
 let ytApiPromise: Promise<any> | null = null;
 function loadYtPlayerApi(): Promise<any> {
   try {
@@ -286,8 +285,9 @@ export function VideoPlayer({
   autoPlay?: boolean;
   /** Hide the "Can't see the video?" escape link — the live screen drops it. */
   hideEscape?: boolean;
-  /** Kept for API compatibility: the dead fallback no longer renders error
-      text or a Watch button anywhere — title plus grey reload arrow only. */
+  /** Hide the "can't be played here" line in the dead fallback (poster,
+      retry arrow and platform link stay) — used all over the Watch live
+      screen, where the line is not wanted. */
   hideDeadText?: boolean;
   /** Office Reload press (published liveReloadAt): the general fix. When it
       changes, the player drops what it learned, remounts the frame and
@@ -407,27 +407,6 @@ export function VideoPlayer({
   const retry = () => {
     repair();
   };
-  /* Auto-heal: a live screen sitting on the grey arrow retries by itself —
-     first after ~4s, then every 20s, at most 3 tries per broadcast — so a
-     blip, an embedding flip, or a restarted stream's new id recovers with
-     no tap. The budget resets only on a new broadcast (sourceKey below), so
-     a truly ended broadcast stops retrying and rests on the arrow; the
-     visitor's tap and the office Reload share the same repair and always
-     work. The 30s verified-only self-heal further below keeps watching for
-     a genuinely live id in the background. */
-  const autoTries = useRef(0);
-  useEffect(() => {
-    if (!live || !dead) return;
-    if (autoTries.current >= 3) return;
-    autoTries.current += 1;
-    const delay = autoTries.current === 1 ? 4000 : 20000;
-    const t = window.setTimeout(() => {
-      try {
-        repair();
-      } catch {}
-    }, delay);
-    return () => window.clearTimeout(t);
-  }, [live, dead]);
   /* No host ref, no innerHTML: the frame below is a plain React iframe, so
      nothing outside React ever replaces or removes a node it owns. */
   /* Sound on (note 388): every opening plays with its audio — a tap, or a
@@ -435,19 +414,11 @@ export function VideoPlayer({
      from a channel carries its sound. */
   const shown = tx(title);
   const sourceKey = embedSrc(source, true);
-  const baseSrc = liveVideoId ? embedSrc({ platform: "youtube", youtubeId: liveVideoId }, true) : sourceKey;
-  /* Fresh-frame fix: every repair/remount gets its own URL so the browser
-     never repaints a cached error frame (unavailable / 153 / blank). The
-     API-managed path remounts via iframeKey on its host div instead. */
-  const src = baseSrc ? baseSrc + (baseSrc.includes("?") ? "&" : "?") + "_r=" + String(iframeKey) : baseSrc;
+  const src = liveVideoId ? embedSrc({ platform: "youtube", youtubeId: liveVideoId }, true) : sourceKey;
   const file = fileSrc(source);
   const still = poster && !failed ? poster : posterFor(source);
   const platform: VideoPlatform = source?.platform === "facebook" ? "facebook" : source?.platform === "upload" ? "upload" : "youtube";
   const shell = "player" + (compact ? " player--compact" : "") + (playing ? " player--playing" : "");
-  /* New broadcast, new auto-retry budget (see the auto-heal effect above). */
-  useEffect(() => {
-    autoTries.current = 0;
-  }, [sourceKey]);
 
   /* A new source starts unjudged. */
   useEffect(() => {
@@ -858,6 +829,7 @@ export function VideoPlayer({
      whenever the screen is fine — the dead branch below is the only place
      it exists. One click runs the shared repair above. */
   if (dead) {
+    const openHref = watchUrl(source);
     return (
       <div className={shell + " player--dead"}>
         {still ? (
@@ -884,9 +856,12 @@ export function VideoPlayer({
         </button>
         <div className="player__deadbody">
           <p className="player__deadtitle">{shown}</p>
-          {/* By design the fallback shows no error text and no Watch button:
-              the grey arrow above is the only control — one tap runs the
-              clean repair (fresh verdicts, fresh status, fresh frame). */}
+          {!live && !hideDeadText && <p className="player__deadtext">{tx("This video can't be played here.")}</p>}
+          {openHref && (
+            <Btn size="sm" variant="gold" href={openHref} icon="youtube" iconRight="external">
+              {tx("Watch on YouTube")}
+            </Btn>
+          )}
         </div>
         {live && (
           <span className="player__live">
@@ -981,7 +956,7 @@ export function VideoPlayer({
             </span>
           )}
           <span className="player__scrim" />
-          <span className="player__label">{checking ? shown : notLive ? tx("No broadcast right now — checking again…") : shown}</span>
+          <span className="player__label">{checking ? tx("Connecting to the broadcast…") : notLive ? tx("No broadcast right now — checking again…") : shown}</span>
           <span className={"player__source player__source--" + platform}>
             <Icon name={platform === "upload" ? "play" : platform} size={13} /> {platformLabel(platform)}
           </span>
@@ -1010,7 +985,7 @@ export function VideoPlayer({
           <span className="player__play">
             <Icon name="play" size={26} />
           </span>
-          <span className="player__label">{checking ? shown : notLive ? tx("No broadcast right now — tap to check again.") : shown}</span>
+          <span className="player__label">{checking ? tx(followId ? "Checking the broadcast…" : "Checking the video…") : notLive ? tx("No broadcast right now — tap to check again.") : shown}</span>
           <span className={"player__source player__source--" + platform}>
             <Icon name={platform === "upload" ? "play" : platform} size={13} /> {platformLabel(platform)}
           </span>

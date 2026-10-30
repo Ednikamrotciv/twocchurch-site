@@ -441,7 +441,6 @@ export function WatchLive() {
 ) : ((streaming && watchable) || (offFresh && !!graceRef.current)) ? (
                 <VideoPlayer
                   hideEscape
-                  hideDeadText
                   source={liveSource}
                   title={liveName || ct("auto.live.bc108377bb47f9e6")}
                   compact
@@ -457,7 +456,6 @@ export function WatchLive() {
               ) : (overrideMain || overrideGuest) && overrideId ? (
                 <VideoPlayer
                   hideEscape
-                  hideDeadText
                   source={{ platform: "youtube", youtubeId: "", youtubeChannelId: overrideId }}
                   title={liveName || ct("auto.live.bc108377bb47f9e6")}
                   compact
