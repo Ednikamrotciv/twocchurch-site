@@ -14,7 +14,6 @@ import { AnnouncementSlides } from "../components/slides";
 import { useTestimonies } from "../lib/collections";
 import { fireToast } from "../lib/hooks";
 import { mailto } from "../lib/store";
-import { siteFile } from "../lib/livefeed";
 
 export function Home() {
   const now = useNow(1000);
@@ -32,9 +31,9 @@ export function Home() {
       {/* ---------------- hero ---------------- */}
       <section className="hero">
         <div className="hero__bg" aria-hidden="true">
-          <img className="hero__photo" src={img("home")} alt="" onError={(e) => { try { const el = e.currentTarget; if (el.dataset.fb) { el.style.display = "none"; return; } el.dataset.fb = "1"; el.src = siteFile("src/assets/img/hero.jpg"); } catch {} }} />
+          <img className="hero__photo" src={img("home")} alt="" />
           <span className="hero__scrim" />
-          <img className="hero__faint" src={img("hero-faint")} alt="" onError={(e) => { try { e.currentTarget.style.display = "none"; } catch {} }} />
+          <img className="hero__faint" src={img("hero-faint")} alt="" />
           <span className="hero__glow" />
           <span className="hero__grain" />
         </div>

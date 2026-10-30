@@ -9,7 +9,7 @@ import { sermonsNewestFirst, sermonSource, sermonThumb } from "../data/sermons";
 import { useLocalState, useNow, fireToast } from "../lib/hooks";
 import { KEYS, nextService, onAir, displayLive, to12h, DAY_NAMES, countdownParts, addToCalendar, mailto, clockHere, tidyCount, churchTimezone, visitorPlace, fmtDate, downloadText, serviceNoteKey, type NextServiceInfo } from "../lib/store";
 import { isFacebookVideoUrl, parseYoutubeId, platformLabel, watchUrl, youtubeThumb, type VideoPlatform, type VideoSource } from "../lib/embed";
-import { useLiveStream, liveTarget, guestTarget, isGuestTargetUrl, facebookTarget, useYoutubeVerdict, isStatusForTarget, designatedChannelIdForTarget, isDesignatedChannel, nextScreenShut, officeStopActive, recheckLiveNow, readLocalReloadPing, type ScreenShut } from "../lib/livestatus";
+import { useLiveStream, liveTarget, guestTarget, isGuestTargetUrl, facebookTarget, useYoutubeVerdict, isStatusForTarget, designatedChannelIdForTarget, isDesignatedChannel, nextScreenShut, officeStopActive, recheckLiveNow, type ScreenShut } from "../lib/livestatus";
 import { useLibrary } from "../lib/collections";
 import { useRecentServices, designatedFallback } from "../lib/recentstreams";
 import { Badge, Btn, Icon, IconBtn, Modal, Notice, Reveal, Rich, Section, SectionHeading, Textarea } from "../components/ui";
@@ -244,13 +244,8 @@ export function WatchLive() {
      the designated channel's last previous service standing in by itself
      (note 372 — @twocorg's latest thumbnail even before any read settles),
      else a sermon still, else the hero. */
-  /* Dead ids never seed the still: a deleted/private/restricted broadcast's
-     thumbnail slot would paint broken — fall through to the latest previous
-     finished service instead. */
-  const endedThumbId = airForTarget.endedAt && airForTarget.videoId ? parseYoutubeId(airForTarget.videoId) : "";
-  const endedThumbDead = !!endedThumbId && (endedThumbId === deadLiveId || (endedThumbId === detectedId && idVerdict === false));
   const cover =
-    (!endedThumbDead && airForTarget.endedAt && airForTarget.videoId && airForTarget.platform !== "facebook" ? youtubeThumb(airForTarget.videoId) : "") ||
+    (airForTarget.endedAt && airForTarget.videoId && airForTarget.platform !== "facebook" ? youtubeThumb(airForTarget.videoId) : "") ||
     recentStreams.items[0]?.thumb ||
     designatedFallback().items[0]?.thumb ||
     (latest && sermonThumb(latest)) ||
@@ -306,41 +301,11 @@ export function WatchLive() {
   const guestForcedOnly = (guestLive || !!(LIVE as any).guestIsLive) && !LIVE.isLive && airForTarget.state !== "live";
   const liveName = tx(air.title || (guestForcedOnly ? LIVE.liveTitle : info?.slot.name || LIVE.liveTitle) || "");
   const streamCountdown = info ? countdownParts(info.msUntil) : null;
-  /* Office Reload repair press (published liveReloadAt + the office's own local
-     ping before Publish): the general fix for any livestream-screen error.
-     The live players below remount + rejoin on it (see VideoPlayer
-     reloadSignal); the screen also re-asks the on-air check at once here so
-     the fixed frame arrives in seconds. */
-  const publishedReload = Number((LIVE as any).liveReloadAt) || 0;
-  /* The office's local ping (same browser, before Publish): the Reload button
-     stamps it alongside the draft so the office's own open Watch tabs repair
-     at once without waiting for Publish. */
-  const [localReload, setLocalReload] = useState<number>(() => readLocalReloadPing());
-  useEffect(() => {
-    try {
-      const onPing = () => {
-        try { setLocalReload(readLocalReloadPing()); } catch {}
-      };
-      window.addEventListener("wom:live-reload", onPing as EventListener);
-      window.addEventListener("storage", onPing);
-      let bc: BroadcastChannel | null = null;
-      try {
-        bc = new BroadcastChannel("wom-live");
-        bc.onmessage = (ev: MessageEvent) => {
-          try {
-            const at = Number((ev as any)?.data?.at) || 0;
-            if (at) setLocalReload((cur) => (at > cur ? at : cur));
-          } catch {}
-        };
-      } catch {}
-      return () => {
-        try { window.removeEventListener("wom:live-reload", onPing as EventListener); } catch {}
-        try { window.removeEventListener("storage", onPing); } catch {}
-        try { bc?.close(); } catch {}
-      };
-    } catch { return; }
-  }, []);
-  const reloadSignal = Math.max(publishedReload, localReload);
+  /* Office Reload repair press (published liveReloadAt): the general fix for
+     any livestream-screen error. The live players below remount + rejoin on
+     it (see VideoPlayer reloadSignal); the screen also re-asks the on-air
+     check at once here so the fixed frame arrives in seconds. */
+  const reloadSignal = Number((LIVE as any).liveReloadAt) || 0;
   /* Only a press that lands after this screen opened repairs it: the words
      may already carry an older press (a visitor arriving after Publish),
      and replaying that on every load would remount the player for nothing. */
@@ -476,9 +441,9 @@ export function WatchLive() {
 ) : ((streaming && watchable) || (offFresh && !!graceRef.current)) ? (
                 <VideoPlayer
                   hideEscape
+                  hideDeadText
                   source={liveSource}
                   title={liveName || ct("auto.live.bc108377bb47f9e6")}
-                  poster={cover}
                   compact
                   live
                   /* The check says live, so the screen plays by itself (notes
@@ -492,9 +457,9 @@ export function WatchLive() {
               ) : (overrideMain || overrideGuest) && overrideId ? (
                 <VideoPlayer
                   hideEscape
+                  hideDeadText
                   source={{ platform: "youtube", youtubeId: "", youtubeChannelId: overrideId }}
                   title={liveName || ct("auto.live.bc108377bb47f9e6")}
-                  poster={cover}
                   compact
                   live
                   /* The office commanded the slot and the read is walled —

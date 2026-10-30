@@ -21,7 +21,7 @@ import {
 import { PageHead } from "../components/layout";
 import { SearchBox, eventDate } from "../components/blocks";
 import { fireToast, useNow } from "../lib/hooks";
-import { readLiveStatus, recheckLiveNow, checkLiveStream, guestTarget, isGuestTargetUrl, useLiveStream, liveTarget, isStatusForTarget, clearGuestOnStop, forgetVerified, forgetAllVerified, pingLocalReload } from "../lib/livestatus";
+import { readLiveStatus, recheckLiveNow, checkLiveStream, guestTarget, isGuestTargetUrl, useLiveStream, liveTarget, isStatusForTarget, clearGuestOnStop, forgetVerified, forgetAllVerified } from "../lib/livestatus";
 import { SITE, SERVICES, img } from "../data/site";
 import { recentLimit } from "../data/live";
 import { ytWatch } from "../data/sermons";
@@ -991,11 +991,6 @@ export function LiveTransportButtons() {
       } catch {}
     } catch {}
     write({ liveReloadAt: at, liveCommandAt: at });
-    /* Local force ping: every open Watch screen in this browser repairs at
-       once — before Publish — while the stamp above carries it to visitors. */
-    try {
-      pingLocalReload(at);
-    } catch {}
     try {
       const stampBoth = (s: any) => {
         try {
@@ -1151,11 +1146,6 @@ export function GuestTransportButtons() {
       } catch {}
     } catch {}
     write({ liveReloadAt: at, guestCommandAt: at });
-    /* Local force ping: every open Watch screen in this browser repairs at
-       once — before Publish — while the stamp above carries it to visitors. */
-    try {
-      pingLocalReload(at);
-    } catch {}
     try {
       const stampBoth = (s: any) => {
         try {

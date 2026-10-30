@@ -1,6 +1,5 @@
 import React from "react";
 import { Btn, Icon, Section } from "./ui";
-import { clearLiveStatusCache, recheckLiveNow } from "../lib/livestatus";
 
 /** Keeps a broken page from taking the whole site down with it. */
 export class ErrorBoundary extends React.Component<{ children: React.ReactNode }, { error: Error | null; route: string; stack: string }> {
@@ -39,7 +38,6 @@ export class ErrorBoundary extends React.Component<{ children: React.ReactNode }
   }
   render() {
     if (this.state.error) {
-      const route = this.state.route || "";
       return (
         <Section className="error-state">
           <span className="prayer-success__icon"><Icon name="alert" size={26} /></span>
@@ -48,13 +46,12 @@ export class ErrorBoundary extends React.Component<{ children: React.ReactNode }
             We are sorry — this page failed to load. Reloading usually fixes it. If it keeps happening, please let the church office
             know exactly what you clicked.
           </p>
-          {route ? <p className="muted">Page: {route}</p> : null}
           <p className="muted">Nothing was lost — your place is saved. One tap brings the page back.</p>
           <div className="btn-row center">
-            <Btn onClick={() => this.handleReload()} icon="refresh">
+            <Btn onClick={() => window.location.reload()} icon="refresh">
               Reload the page
             </Btn>
-            <Btn variant="ghost" to="/" icon="home" onClick={() => this.handleHome()}>
+            <Btn variant="ghost" to="/" icon="home" onClick={() => this.setState({ error: null })}>
               Try the home page
             </Btn>
           </div>
@@ -62,38 +59,5 @@ export class ErrorBoundary extends React.Component<{ children: React.ReactNode }
       );
     }
     return this.props.children;
-  }
-  /* Force-fresh reload of the SAME page: clears the remembered on-air answer
-     and every video verdict first, so the fresh load re-asks what's live now
-     instead of replaying the stale broadcast the crash interrupted (which is
-     how a reload used to land on a different stream). The address keeps its
-     path (e.g. /watch-live) with a cache-busting query, so it can never
-     wander to another stream. */
-  private handleReload() {
-    try {
-      clearLiveStatusCache();
-    } catch {}
-    try {
-      recheckLiveNow();
-    } catch {}
-    this.setState({ error: null, route: "", stack: "" });
-    try {
-      const url = new URL(window.location.href);
-      url.searchParams.set("fresh", String(Date.now()));
-      window.location.replace(url.toString());
-    } catch {
-      try {
-        window.location.reload();
-      } catch {}
-    }
-  }
-  private handleHome() {
-    try {
-      clearLiveStatusCache();
-    } catch {}
-    try {
-      recheckLiveNow();
-    } catch {}
-    this.setState({ error: null, route: "", stack: "" });
   }
 }

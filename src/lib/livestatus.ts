@@ -1335,54 +1335,6 @@ export function forgetAllVerified() {
   }
 }
 
-/** Force-fresh repair cache clear (error card + visitor arrow + office
-    Reload share it): drops the remembered on-air answer AND every verifier
-    verdict, so the next check re-asks YouTube instead of replaying a stale
-    broadcast. This is what stops a reload from landing on a different/old
-    stream. Never throws. */
-export function clearLiveStatusCache() {
-  try {
-    forgetAllVerified();
-  } catch {}
-  try {
-    localStorage.removeItem(LIVE_STATUS_KEY);
-  } catch {}
-  try {
-    snapshot = { status: { ...EMPTY }, checking: false };
-    lastCheckAt = 0;
-    offStreak = 0;
-    offTarget = "";
-  } catch {}
-}
-
-/* Local force-reload ping (office Reload button → every open Watch screen in
-   this browser, before Publish): the published liveReloadAt stamp reaches
-   visitors through the feed, but the office's own preview tabs need the fix
-   at once. One localStorage key (survives across tabs) + one event (same
-   tab) + one BroadcastChannel (other tabs, where supported). Never throws. */
-export const LOCAL_RELOAD_KEY = "wom.live.reloadPing";
-export function pingLocalReload(at?: number) {
-  const stamp = Number(at) || Date.now();
-  try {
-    localStorage.setItem(LOCAL_RELOAD_KEY, String(stamp));
-  } catch {}
-  try {
-    window.dispatchEvent(new CustomEvent("wom:live-reload", { detail: stamp }));
-  } catch {}
-  try {
-    const bc = new BroadcastChannel("wom-live");
-    bc.postMessage({ type: "reload", at: stamp });
-    bc.close();
-  } catch {}
-}
-export function readLocalReloadPing(): number {
-  try {
-    return Number(localStorage.getItem(LOCAL_RELOAD_KEY)) || 0;
-  } catch {
-    return 0;
-  }
-}
-
 /** Is this video playable right now? true = plays, false = gone, null = could
     not tell (offline, proxy/probe down — play anyway). Never throws. */
 export async function verifyYoutubeId(videoId: string): Promise<boolean | null> {
