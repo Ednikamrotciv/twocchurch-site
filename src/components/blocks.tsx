@@ -348,6 +348,19 @@ export function VideoPlayer({
      an extension), the API host div would sit blank with no arrow. Flip to a
      plain iframe instead, so the watchdog below can still reach the arrow. */
   const [apiFailed, setApiFailed] = useState(false);
+  /* Prove before you show: every YouTube frame mounts under an opaque cover
+     and is revealed only on proof of playback — so YouTube's own "video
+     unavailable" text can never flash on screen, not even for a frame. While
+     covered the poster + status show; anything unprovable lands on the grey
+     arrow instead. */
+  const [revealed, setRevealed] = useState(false);
+  /* A cover that overstays (still proving after 4s) offers its own one-tap
+     force repair, so a stuck cover is never a dead end. */
+  const [coverSlow, setCoverSlow] = useState(false);
+  /* Mirror of `dead` for timers whose closures would otherwise go stale. */
+  const deadRef = useRef(false);
+  /* The plain channel iframe, for the wrap that proves real playback. */
+  const plainFrameRef = useRef<HTMLIFrameElement | null>(null);
   const repair = () => {
     /* Force-fresh repair (visitor arrow + office Reload share it): drop the
        remembered on-air answer AND every verifier verdict, re-ask what's live
@@ -369,6 +382,8 @@ export function VideoPlayer({
     setChecking(false);
     setLiveVideoId("");
     setApiFailed(false);
+    setRevealed(false);
+    setCoverSlow(false);
     setRepairing(true);
     try {
       recheckLiveNow();
@@ -424,9 +439,13 @@ export function VideoPlayer({
   };
   /* No host ref, no innerHTML: the frame below is a plain React iframe, so
      nothing outside React ever replaces or removes a node it owns. */
+  useEffect(() => {
+    deadRef.current = dead;
+  });
   /* Sound on (note 388): every opening plays with its audio — a tap, or a
-     broadcast the site starts by itself the moment it goes live. Every live
-     from a channel carries its sound. */
+     broadcast the site starts by itself the moment it goes live. The cover
+     never mutes anything: audio starts behind it at once, the picture joins
+     on proof. Every live from a channel carries its sound. */
   const shown = tx(title);
   const sourceKey = embedSrc(source, true);
   const baseSrc = liveVideoId ? embedSrc({ platform: "youtube", youtubeId: liveVideoId }, true) : sourceKey;
@@ -438,15 +457,22 @@ export function VideoPlayer({
   const platform: VideoPlatform = source?.platform === "facebook" ? "facebook" : source?.platform === "upload" ? "upload" : "youtube";
   const shell = "player" + (compact ? " player--compact" : "") + (playing ? " player--playing" : "");
 
-  /* A new source starts unjudged. */
+  /* A new source starts unjudged (and covered: proof runs again). */
   useEffect(() => {
     setDead(false);
     setChecking(false);
     setNotLive(false);
     setLiveVideoId("");
     setApiFailed(false);
+    setRevealed(false);
+    setCoverSlow(false);
     setIframeKey((k) => k + 1);
   }, [sourceKey]);
+
+  /* An upgraded broadcast re-proves: never show the new player unproven. */
+  useEffect(() => {
+    if (liveVideoId) setRevealed(false);
+  }, [liveVideoId]);
 
   /* A click never opens a known-dead video: unknown ids are asked first
      (a beat of "checking"), dead ones go straight to the fallback below. */
@@ -728,7 +754,10 @@ export function VideoPlayer({
      through the API's own host div, and YouTube's own onError (100 gone,
      101/150 embedding disabled, 105) swaps to the dead fallback at once —
      the centered arrow appears instead of the black "unavailable" frame.
-     Channel follows and files keep the plain frame + verifier below. */
+     Channel follows and files keep the plain frame + verifier below.
+     Prove before you show: the host mounts under the opaque cover and is
+     revealed only on PLAYING/BUFFERING state, or shortly after ready when
+     the id verifies — an unproven frame is never seen. */
   const apiHostRef = useRef<HTMLDivElement | null>(null);
   useEffect(() => {
     if (!playing || dead) return;
@@ -750,6 +779,23 @@ export function VideoPlayer({
       try { console.warn("church player: showing fallback", { videoId: vid, why, code }); } catch {}
       try { setDead(true); } catch {}
     };
+    const reveal = () => {
+      if (cancelled) return;
+      try { if (!deadRef.current) setRevealed(true); } catch {}
+    };
+    /* Ready is not proof (it fires for dead videos too): reveal shortly
+       after ready only while no error has shown and the id verifies — a
+       permission wall errors within milliseconds, long before this lands. */
+    let revealTimer = 0;
+    const armReveal = () => {
+      try { window.clearTimeout(revealTimer); } catch {}
+      revealTimer = window.setTimeout(() => {
+        if (cancelled) return;
+        try { if (deadRef.current) return; } catch {}
+        try { if (peekVerified(vid) === true) setRevealed(true); } catch {}
+      }, 800);
+    };
+    let errorSeen = false;
     const watchdog = window.setTimeout(() => fail("watchdog"), live ? 8_000 : 12_000);
     loadYtPlayerApi()
       .then((api) => {
@@ -771,15 +817,22 @@ export function VideoPlayer({
               onReady: () => {
                 settled = true;
                 try { window.clearTimeout(watchdog); } catch {}
+                armReveal();
+              },
+              onStateChange: (e: any) => {
+                if (cancelled || errorSeen) return;
+                const s = Number(e && (e as any).data);
+                /* PLAYING (or BUFFERING toward it) proves the frame — an
+                   error screen never buffers. Reveal at once. */
+                if (s === 1 || s === 3) reveal();
               },
               onError: (e: any) => {
                 const code = Number(e && (e as any).data);
                 try { window.clearTimeout(watchdog); } catch {}
-                /* Every unplayable code lands on the grey-arrow fallback (with
-                   its one-tap force repair): 100 gone/private, 101/150
-                   embedding disabled, 105 removed, 5 player error, 2 bad id.
-                   Anything else settles as fine. */
-                if (code === 2 || code === 5 || code === 100 || code === 101 || code === 105 || code === 150) fail("youtube-error", code);
+                if (code === 2 || code === 5 || code === 100 || code === 101 || code === 105 || code === 150) { errorSeen = true; fail("youtube-error", code); }
+                /* Anything else (notably environmental 153, which fires for
+                   healthy videos in sandboxed/cookie-blocked contexts too)
+                   is ignored: never arrow a working stream on it. */
                 else { settled = true; }
               },
             },
@@ -792,17 +845,90 @@ export function VideoPlayer({
     return () => {
       cancelled = true;
       try { window.clearTimeout(watchdog); } catch {}
+      try { window.clearTimeout(revealTimer); } catch {}
       try { if (player && typeof player.destroy === "function") player.destroy(); } catch {}
     };
   }, [playing, dead, liveVideoId, ytId, platform, iframeKey, apiFailed]);
 
+  /* Proof that a channel follow is actually playing (never show an unproven
+     frame): wrap the plain iframe with the IFrame API and reveal on real
+     playback state. The wrap is never destroyed — destroy would remove
+     React's own iframe node. Environmental errors (153) are ignored. */
+  useEffect(() => {
+    if (!playing || dead || revealed) return;
+    if (liveVideoId || ytId) return;
+    if (file || !src || platform !== "youtube" || !followId) return;
+    let cancelled = false;
+    let timer = 0;
+    (async () => {
+      try {
+        const api = await loadYtPlayerApi();
+        if (cancelled || !api || !api.Player) return;
+        const frame = plainFrameRef.current;
+        if (!frame) return;
+        let wrapped: any = null;
+        try {
+          wrapped = new api.Player(frame, {
+            events: {
+              onStateChange: (e: any) => {
+                if (cancelled) return;
+                const s = Number(e && (e as any).data);
+                if (s === 1 || s === 3) { try { setRevealed(true); } catch {} }
+              },
+              onError: (e: any) => {
+                if (cancelled) return;
+                const code = Number(e && (e as any).data);
+                if (code === 2 || code === 5 || code === 100 || code === 101 || code === 105 || code === 150) { try { setDead(true); } catch {} }
+              },
+            },
+          });
+        } catch { return; }
+        /* Poll the wrapped state: PLAYING/BUFFERING proves playback even when
+           the change fired before the wrap landed. */
+        timer = window.setInterval(() => {
+          if (cancelled) return;
+          try {
+            const s = wrapped && typeof wrapped.getPlayerState === "function" ? Number(wrapped.getPlayerState()) : -99;
+            if (s === 1 || s === 3) { try { setRevealed(true); } catch {} }
+          } catch {}
+        }, 1500);
+      } catch {}
+    })();
+    return () => {
+      cancelled = true;
+      try { window.clearInterval(timer); } catch {}
+      /* Never destroy the wrap: React owns the iframe. The abandoned wrapper
+         goes quiet with its frame. */
+    };
+  }, [playing, dead, revealed, liveVideoId, ytId, platform, src, file, followId, iframeKey, apiFailed]);
+
+  /* Proof for the API-fallback plain frame (fresh verify only): a verified
+     id reveals, a proven-dead one arrows, an unknown one stays covered while
+     the check, the minute re-verify and the retry keep resolving. */
+  useEffect(() => {
+    if (!playing || dead || revealed || !apiFailed) return;
+    const vid = liveVideoId || ytId;
+    if (!vid || platform !== "youtube") return;
+    let cancelled = false;
+    verifyYoutubeId(vid)
+      .then((v) => {
+        if (cancelled) return;
+        if (v === true) { try { setRevealed(true); } catch {} }
+        else if (v === false) { try { setDead(true); } catch {} }
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [playing, dead, revealed, apiFailed, liveVideoId, ytId, platform, iframeKey]);
+
   /* Plain-frame net (channel follows, Facebook, API-fallback frames, other
-     non-API frames): these iframes never report content errors cross-origin,
-     so a dead channel embed would otherwise sit on the black "video
-     unavailable" frame with no way out. Live channel follows always
-     re-resolve: a fresh verified broadcast upgrades to its own id (API path
-     above, which does report errors); a proven-off channel and any live
-     follow still unverified after the window land on the same grey arrow. */
+     non-API frames): these iframes never report content errors cross-origin.
+     Covered YouTube frames never flash and never wrongly arrow: a fresh
+     verified broadcast upgrades to its own id (API path above, with its own
+     proof); a proven-off channel arrows; anything still unproven stays under
+     the cover while the check, the minute re-verify and the retry keep
+     resolving. Facebook keeps the old net (never-loaded arrows). */
   const frameLoadedRef = useRef(false);
   useEffect(() => {
     frameLoadedRef.current = false;
@@ -826,6 +952,17 @@ export function VideoPlayer({
     const watchdog = window.setTimeout(() => {
       (async () => {
         if (cancelled) return;
+        /* API-fallback plain frame: only a fresh verdict moves it — proven
+           reveals, proven-dead arrows, unknown stays covered. */
+        if (apiFailed && platform === "youtube" && (liveVideoId || ytId)) {
+          try {
+            const v = await verifyYoutubeId(liveVideoId || ytId).catch(() => null);
+            if (cancelled) return;
+            if (v === true) { try { setRevealed(true); } catch {} return; }
+            if (v === false) { fail(); return; }
+          } catch {}
+          return;
+        }
         if (platform === "youtube" && followId) {
           try {
             const st = await checkLiveStream();
@@ -854,25 +991,20 @@ export function VideoPlayer({
               fail();
               return;
             }
-            /* Live follow, still no verified broadcast after the window: the
-               frame would sit on YouTube's own "unavailable" — show the grey
-               arrow instead, with its one-tap force repair. */
-            if (live && followId) {
-              fail();
-              return;
-            }
+            /* Live but unproven (walled read, wrap pending or blocked): the
+               cover stays on and resolving continues — never flash an
+               unproven frame, never arrow a working broadcast. */
+            return;
           } catch {
-            /* probe down — fall through to the loaded check below */
-            if (live && followId) {
-              fail();
-              return;
-            }
+            /* Probe down: stay covered — the retry and the poller keep
+               resolving. */
+            return;
           }
         }
         if (!frameLoadedRef.current) fail();
-        else if (apiFailed) fail();
       })().catch(() => {
-        if (!frameLoadedRef.current || apiFailed || (live && followId)) fail();
+        /* Facebook keeps the old net; covered YouTube frames stay covered. */
+        if (platform === "facebook" && !frameLoadedRef.current) fail();
       });
     }, live ? 7_000 : 12_000);
     return () => {
@@ -882,6 +1014,21 @@ export function VideoPlayer({
       } catch {}
     };
   }, [playing, dead, liveVideoId, ytId, platform, src, file, followId, iframeKey, sourceKey]);
+
+  /* A cover that overstays its proof offers its own one-tap force repair. */
+  useEffect(() => {
+    if (!playing || revealed || dead || platform !== "youtube" || file) {
+      setCoverSlow(false);
+      return;
+    }
+    const t = window.setTimeout(() => {
+      try { setCoverSlow(true); } catch {}
+    }, 4000);
+    return () => {
+      try { window.clearTimeout(t); } catch {}
+      try { setCoverSlow(false); } catch {}
+    };
+  }, [playing, revealed, dead, platform, file, sourceKey, iframeKey]);
 
   /* Grey centered circle arrow, error-only: rendered ONLY while the player
      reports an error (video unavailable + every other failure) and hidden
@@ -960,7 +1107,7 @@ export function VideoPlayer({
 
   if (!src) return <div className="player player--empty">{ct("site.videoEmpty")}</div>;
   return (
-    <div className={shell}>
+    <div className={shell} style={{ position: "relative" }}>
       {playing ? (
         <>
           {(platform === "youtube" && (liveVideoId || ytId) && !apiFailed) ? (
@@ -973,6 +1120,7 @@ export function VideoPlayer({
           ) : (
           <iframe
             key={iframeKey}
+            ref={plainFrameRef}
             className="player__frame"
             src={src}
             title={shown}
@@ -1005,6 +1153,36 @@ export function VideoPlayer({
             >
               {tx("Can't see the video? Watch on YouTube")}
             </a>
+          )}
+          {/* Prove-before-you-show cover: the unproven frame plays behind
+             this opaque still (audio already live) until playback proves
+             itself — YouTube's "unavailable" can never be seen. A cover that
+             overstays offers the same one-tap force repair as the arrow. */}
+          {playing && !revealed && !dead && platform === "youtube" && !file && (
+            <div
+              className="player__cover"
+              role="status"
+              aria-live="polite"
+              aria-label={tx("Connecting to the broadcast…")}
+              style={{ position: "absolute", inset: 0, zIndex: 6, overflow: "hidden" }}
+            >
+              {still ? (
+                <img src={still} alt="" loading="lazy" onError={() => setFailed(true)} />
+              ) : (
+                <span className={"player__still player__still--" + platform}>
+                  <Icon name={platform === "upload" ? "play" : platform} size={54} />
+                </span>
+              )}
+              <span className="player__scrim" />
+              <span className="player__label">{checking ? tx("Connecting to the broadcast…") : shown}</span>
+              {coverSlow && (
+                <span style={{ position: "absolute", left: "50%", bottom: 12, transform: "translateX(-50%)", zIndex: 7 }}>
+                  <Btn size="sm" variant="gold" icon="refresh" onClick={retry} title={tx("Reload the livestream")} ariaLabel={tx("Reload the livestream")}>
+                    {tx("Reload the livestream")}
+                  </Btn>
+                </span>
+              )}
+            </div>
           )}
         </>
       ) : live ? (

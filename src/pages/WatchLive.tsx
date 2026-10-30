@@ -175,7 +175,17 @@ export function WatchLive() {
      the black "unavailable" frame, and never the ticking clock for a live
      that is already on air. */
   const deadLiveId = detectedId && idVerdict === false && (isDesignatedChannel(airForTarget.channelId, designatedId) || (guestLive && isGuestTargetUrl(screenAir.target, guestUrl))) ? detectedId : "";
-  const watchable = !!playableId || !!deadLiveId || !!detectedChannel || fbLive || !!verifiedFallbackId;
+  /* Rescue rule: a named id YouTube proves dead no longer strands the screen
+     on the arrow when its own channel is known — the player follows the
+     channel instead, so a restarted broadcast under a fresh id opens by
+     itself with sound; an offline channel still lands on the grey arrow via
+     the watchdog, never on YouTube's "unavailable". Main uses the designated
+     channel, the guest its own stamped channel; a video-link target with no
+     channel keeps today's arrow. */
+  const rescueChannelId =
+    deadLiveId && !guestLive && designatedId ? designatedId
+    : deadLiveId && guestLive && screenAir.channelId ? String(screenAir.channelId) : "";
+  const watchable = !!playableId || !!deadLiveId || !!rescueChannelId || !!detectedChannel || fbLive || !!verifiedFallbackId;
   /* Dead-video gate (note 413, opened note 420): a named id reaches the
      player while its verdict is still unknown — offline, probe down, still
      checking — and the player verifies behind the frame, swapping to its
@@ -273,7 +283,7 @@ export function WatchLive() {
       ? { platform: "facebook", facebookUrl: LIVE.facebookUrl }
       : platform === "facebook"
       ? { platform: "facebook", facebookUrl: LIVE.facebookUrl }
-      : { platform: "youtube", youtubeId: playableId || deadLiveId || verifiedFallbackId, youtubeChannelId: detectedChannel || (!streaming && overrideId) || undefined };
+      : { platform: "youtube", youtubeId: playableId || verifiedFallbackId || (!rescueChannelId ? deadLiveId : ""), youtubeChannelId: detectedChannel || rescueChannelId || (!streaming && overrideId) || undefined };
   /* The grace window replays the last playable address: a fresh off keeps the
      frame on exactly what was playing instead of an empty follow. */
   const graceRef = useRef<VideoSource | null>(null);
