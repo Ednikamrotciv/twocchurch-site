@@ -285,9 +285,9 @@ export function VideoPlayer({
   autoPlay?: boolean;
   /** Hide the "Can't see the video?" escape link — the live screen drops it. */
   hideEscape?: boolean;
-  /** Hide the "can't be played here" line in the dead fallback (poster,
-      retry arrow and platform link stay) — used all over the Watch live
-      screen, where the line is not wanted. */
+  /** Kept so existing callers still type-check: the dead fallback no longer
+      renders the dead-text line on any screen — poster, reload arrow and a
+      way out are the whole fallback now. */
   hideDeadText?: boolean;
   /** Office Reload press (published liveReloadAt): the general fix. When it
       changes, the player drops what it learned, remounts the frame and
@@ -830,6 +830,10 @@ export function VideoPlayer({
      it exists. One click runs the shared repair above. */
   if (dead) {
     const openHref = watchUrl(source);
+    /* The livestream screen already carries its own red Watch button while
+       live, so the dead card drops the yellow one there (cards elsewhere keep
+       it — they have no red button of their own). */
+    const showWayOut = !!openHref && !live;
     return (
       <div className={shell + " player--dead"}>
         {still ? (
@@ -856,8 +860,7 @@ export function VideoPlayer({
         </button>
         <div className="player__deadbody">
           <p className="player__deadtitle">{shown}</p>
-          {!live && !hideDeadText && <p className="player__deadtext">{tx("This video can't be played here.")}</p>}
-          {openHref && (
+          {showWayOut && (
             <Btn size="sm" variant="gold" href={openHref} icon="youtube" iconRight="external">
               {tx("Watch on YouTube")}
             </Btn>
