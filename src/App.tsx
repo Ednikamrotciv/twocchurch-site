@@ -19,8 +19,11 @@ import { ct } from "./data/copy";
 import { SITE } from "./data/site";
 import { BRANCHES, HQ } from "./data/branches";
 import { EVENTS } from "./data/content";
+import { retryLazyImport } from "./lib/safe";
 
-const Admin = React.lazy(() => import("./pages/Admin").then((m) => ({ default: m.Admin })));
+/* Chunk-proof admin (note 440): same retry as the pages, so a deploy never
+   parks the office on a crash card. */
+const Admin = React.lazy(retryLazyImport(() => import("./pages/Admin").then((m) => ({ default: m.Admin }))));
 
 /* Explicit local preview only (?maintenance=1): the office's way to see the
    notice on demand. Visitors on a fresh deploy see it until Publish clears it. */
@@ -265,8 +268,12 @@ function SiteApp() {
   }, []);
 
   const previewing = usePreviewingWhileWaiting();
+  /* Outer boundary (note 441): Header/Footer/Toaster live outside the page
+     boundary below — a crash in any of them used to white-screen with no
+     card. The outer card catches frame chrome; the inner card keeps page
+     crashes scoped to the page. */
   return (
-    <>
+    <ErrorBoundary>
       <SkipLink />
       {previewing && <PreviewBanner />}
       <Header />
@@ -278,6 +285,6 @@ function SiteApp() {
       <Footer />
       <ScrollTop />
       <Toaster />
-    </>
+    </ErrorBoundary>
   );
 }

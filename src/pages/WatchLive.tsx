@@ -299,7 +299,9 @@ export function WatchLive() {
      office's standing headline; a forced guest with no detected title keeps
      the headline, since the church schedule never names a guest event. */
   const guestForcedOnly = (guestLive || !!(LIVE as any).guestIsLive) && !LIVE.isLive && airForTarget.state !== "live";
-  const liveName = tx(air.title || (guestForcedOnly ? LIVE.liveTitle : info?.slot.name || LIVE.liveTitle) || "");
+  /* Never-throw title (note 441): a gathering without a slot (bad clock data)
+     must fall back to the headline, never throw on slot.name. */
+  const liveName = tx(air.title || (guestForcedOnly ? LIVE.liveTitle : info?.slot?.name || LIVE.liveTitle) || "");
   const streamCountdown = info ? countdownParts(info.msUntil) : null;
   /* Office Reload repair press (published liveReloadAt): the general fix for
      any livestream-screen error. The live players below remount + rejoin on
@@ -397,7 +399,7 @@ export function WatchLive() {
                 {ct("live.next.badge")}
               </Badge>
             )}
-            <h2>{onAirNow ? liveName : info ? tx(info.slot.name) : ""}</h2>
+            <h2>{onAirNow ? liveName : info?.slot?.name ? tx(info.slot.name) : ""}</h2>
             {!onAirNow && (
               <p className="lede">
                 {tx(DAY_NAMES[when?.day ?? 0])}

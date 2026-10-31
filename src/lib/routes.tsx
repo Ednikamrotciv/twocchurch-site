@@ -2,23 +2,27 @@
 
 import React from "react";
 import { matchPath } from "./router";
+import { retryLazyImport } from "./safe";
 import { Home } from "../pages/Home";
 import { NotFound } from "../pages/NotFound";
 
-const About = React.lazy(() => import("../pages/About").then((m) => ({ default: m.About })));
-const Locations = React.lazy(() => import("../pages/Locations").then((m) => ({ default: m.Locations })));
-const Sermons = React.lazy(() => import("../pages/Sermons").then((m) => ({ default: m.Sermons })));
-const SermonDetail = React.lazy(() => import("../pages/SermonDetail").then((m) => ({ default: m.SermonDetail })));
-const WatchLive = React.lazy(() => import("../pages/WatchLive").then((m) => ({ default: m.WatchLive })));
-const Events = React.lazy(() => import("../pages/Events").then((m) => ({ default: m.Events })));
-const Testimonies = React.lazy(() => import("../pages/Testimonies").then((m) => ({ default: m.Testimonies })));
-const Giving = React.lazy(() => import("../pages/Giving").then((m) => ({ default: m.Giving })));
-const Prayer = React.lazy(() => import("../pages/Prayer").then((m) => ({ default: m.Prayer })));
-const Contact = React.lazy(() => import("../pages/Contact").then((m) => ({ default: m.Contact })));
-const Visit = React.lazy(() => import("../pages/Visit").then((m) => ({ default: m.Visit })));
-const Devotional = React.lazy(() => import("../pages/Devotional").then((m) => ({ default: m.Devotional })));
-const Ministries = React.lazy(() => import("../pages/Ministries").then((m) => ({ default: m.Ministries })));
-const Library = React.lazy(() => import("../pages/Library").then((m) => ({ default: m.Library })));
+/* Chunk-proof lazy (note 440): a deploy that ships new chunks must never park
+   a tap on a crash card — each page retries its chunk, then the boundary's
+   hard reload lands it on the new files. */
+const About = React.lazy(retryLazyImport(() => import("../pages/About").then((m) => ({ default: m.About }))));
+const Locations = React.lazy(retryLazyImport(() => import("../pages/Locations").then((m) => ({ default: m.Locations }))));
+const Sermons = React.lazy(retryLazyImport(() => import("../pages/Sermons").then((m) => ({ default: m.Sermons }))));
+const SermonDetail = React.lazy(retryLazyImport(() => import("../pages/SermonDetail").then((m) => ({ default: m.SermonDetail }))));
+const WatchLive = React.lazy(retryLazyImport(() => import("../pages/WatchLive").then((m) => ({ default: m.WatchLive }))));
+const Events = React.lazy(retryLazyImport(() => import("../pages/Events").then((m) => ({ default: m.Events }))));
+const Testimonies = React.lazy(retryLazyImport(() => import("../pages/Testimonies").then((m) => ({ default: m.Testimonies }))));
+const Giving = React.lazy(retryLazyImport(() => import("../pages/Giving").then((m) => ({ default: m.Giving }))));
+const Prayer = React.lazy(retryLazyImport(() => import("../pages/Prayer").then((m) => ({ default: m.Prayer }))));
+const Contact = React.lazy(retryLazyImport(() => import("../pages/Contact").then((m) => ({ default: m.Contact }))));
+const Visit = React.lazy(retryLazyImport(() => import("../pages/Visit").then((m) => ({ default: m.Visit }))));
+const Devotional = React.lazy(retryLazyImport(() => import("../pages/Devotional").then((m) => ({ default: m.Devotional }))));
+const Ministries = React.lazy(retryLazyImport(() => import("../pages/Ministries").then((m) => ({ default: m.Ministries }))));
+const Library = React.lazy(retryLazyImport(() => import("../pages/Library").then((m) => ({ default: m.Library }))));
 
 /* No-loader navigation (the site stays on screen, never a Loading page):
    fetch every page chunk behind the first paint, so taps land on the ready

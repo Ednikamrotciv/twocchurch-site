@@ -35,6 +35,16 @@ try {
 // Rebuild incidents from the raw log (same 10-min source+endpoint rule as the
 // live logger), so the report reflects backend reality, not browser state.
 const WINDOW_MS = 10 * 60 * 1000;
+async function readAckedKeys() {
+  try {
+    const raw = await readFile(path.join(base, "security-reviewed.json"), "utf8");
+    const data = JSON.parse(raw);
+    if (data && typeof data === "object" && data.keys && typeof data.keys === "object") return data.keys;
+  } catch {}
+  return {};
+}
+const ackedKeys = await readAckedKeys().catch(() => ({}));
+
 const incidents = new Map();
 for (const e of events) {
   if (!e || typeof e !== "object") continue;
@@ -69,11 +79,13 @@ for (const e of events) {
   }
 }
 const list = [...incidents.values()].sort((a, b) => (a.lastMs < b.lastMs ? 1 : -1));
-const review = list.filter((inc) => {
+const reviewAll = list.filter((inc) => {
   if (inc.class === "security-incident") return true;
   const ord = { info: 0, low: 1, medium: 2, high: 3, critical: 4 };
   return (ord[inc.maxLevel] ?? 0) >= 3 && inc.class === "blocked-request";
 });
+const review = reviewAll.filter((inc) => !ackedKeys[inc.key]);
+const reviewedDone = reviewAll.filter((inc) => !!ackedKeys[inc.key]);
 
 const byClass = {};
 for (const inc of list) byClass[inc.class || "notice"] = (byClass[inc.class || "notice"] || 0) + 1;
@@ -110,6 +122,8 @@ try {
 }
 console.log(`security report: ${events.length} raw events, ${list.length} unique incidents, ${review.length} incident(s) needing review`);
 console.log(`by class: ${Object.entries(byClass).map(([k, v]) => `${k}=${v}`).join(", ") || "none"}`);
+if (reviewedDone.length) console.log(`human-reviewed (acknowledged): ${reviewedDone.length} — ${reviewedDone.map((i) => i.key).join("; ")}`);
+if (reviewedDone.length && !review.length) console.log("all incidents needing review are triaged — record new reviews with: npm run security:ack -- ack \"<kind|ip|route>\" \"<what you verified>\"");
 console.log(`evidence persistence: ${persistent ? "PERSISTENT" : "EPHEMERAL — mount a disk at data/ (or set SECURITY_LOG_DIR) to keep evidence across Render sleeps/restarts"}`);
 for (const inc of list.slice(0, 50)) {
   console.log(`[${inc.lastTs}][${String(inc.maxLevel).toUpperCase()}][${inc.ip}][${inc.route}] ${inc.kind} x${inc.count} (${inc.class}) — ${inc.sample}`);
