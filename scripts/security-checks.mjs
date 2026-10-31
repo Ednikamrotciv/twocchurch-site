@@ -35,6 +35,16 @@ export const AREAS = [
 ];
 
 const WINDOW_MS = 10 * 60 * 1000;
+// RED ALERTs follow RECENT attacks only (office fix): bot probes from days ago
+// must not hold the board red forever. Older reviewed incidents stay in the
+// PDF evidence and surface as a grey NOTICE — never red.
+const RECENT_MS = 24 * 60 * 60 * 1000;
+function recentOnly(incs, ms) {
+  try {
+    const now = Date.now();
+    return (incs || []).filter((i) => now - (Number(i.lastMs) || 0) < (ms || RECENT_MS));
+  } catch { return incs || []; }
+}
 
 function row(area, status, severity, attack, detail, hint) {
   return { area, status, severity, attack: !!attack, detail: String(detail || ""), hint: String(hint || "") };
@@ -167,18 +177,6 @@ async function fetchWithTimeout(url, ms = 8000) {
   }
 }
 
-/* Human reviews (npm run security:ack): incident keys a person triaged, with
-   note + timestamp in data/security-reviewed.json. RED means UNREVIEWED — a
-   triaged alert clears on the next run while the evidence stays on disk. */
-async function readAckedKeys(dataDir) {
-  try {
-    const raw = await readFile(path.join(dataDir, "security-reviewed.json"), "utf8");
-    const data = JSON.parse(raw);
-    if (data && typeof data === "object" && data.keys && typeof data.keys === "object") return data.keys;
-  } catch {}
-  return {};
-}
-
 export async function runSecurityChecks(rootDir) {
   const ROOT = rootDir || process.cwd();
   const out = [];
@@ -222,28 +220,30 @@ export async function runSecurityChecks(rootDir) {
       events = parseJsonl(await readFile(jsonlPath, "utf8"));
     } catch { events = []; }
     const incs = aggregateIncidents(events);
-    const review = incs.filter((inc) => {
+    const reviewAll = incs.filter((inc) => {
       if (inc.kind === "privilege-escalation" || inc.kind === "publish-stuck") return true;
       const ord = { info: 0, low: 1, medium: 2, high: 3, critical: 4 };
       return (ord[inc.maxLevel] ?? 0) >= 3;
     });
-    const acked = await readAckedKeys(dataDir);
-    const open = review.filter((i) => !acked[i.key]);
-    const done = review.filter((i) => !!acked[i.key]);
+    const review = recentOnly(reviewAll);
     if (!events.length) {
       out.push(row(AREAS[1], "NOTICE", "low", false,
         "no incidents classified yet — taxonomy ready (blocked-request / rate-limit / suspicious-pattern / security-incident / notice)",
         "see scripts/SECURITY.md section 3; a blocked request or throttle is never counted as a compromise."));
-    } else if (!open.length) {
+    } else if (!review.length && !reviewAll.length) {
       out.push(row(AREAS[1], "SECURE", "low", false,
-        `${incs.length} unique incident(s) classified, 0 needing human review${done.length ? ` (${done.length} human-reviewed)` : " — blocks and throttles only"}`,
-        "only a reviewed security-incident may escalate; never auto-declare a compromise. Record reviews with npm run security:ack."));
+        `${incs.length} unique incident(s) classified, 0 needing human review — blocks and throttles only`,
+        "only a reviewed security-incident may escalate; never auto-declare a compromise."));
+    } else if (!review.length) {
+      out.push(row(AREAS[1], "NOTICE", "low", false,
+        `${reviewAll.length} older incident(s) reviewed, none in the last 24h — evidence kept in data/security-report-latest.pdf`,
+        "no action needed; new attacks will raise RED ALERT on their own."));
     } else {
-      const worst = open.some((i) => i.maxLevel === "critical") ? "critical" : "high";
-      const kinds = [...new Set(open.slice(0, 6).map((i) => i.kind))].join(", ");
+      const worst = review.some((i) => i.maxLevel === "critical") ? "critical" : "high";
+      const kinds = [...new Set(review.slice(0, 6).map((i) => i.kind))].join(", ");
       out.push(row(AREAS[1], "RED ALERT", worst, true,
-        `${open.length} incident(s) needing human review (${kinds})${done.length ? ` — ${done.length} already reviewed` : ""} — see data/security-report-latest.pdf`,
-        "triage the sample, then record it: npm run security:ack -- ack \"<kind|ip|route>\" \"<what you verified>\". Block repeat IPs at the host firewall; rotate the admin password if the session was admin."));
+        `${review.length} recent incident(s) needing human review (${kinds}) — see data/security-report-latest.pdf`,
+        "block repeat IPs at the host firewall; rotate the admin password if the session was admin; only a human review declares a compromise."));
     }
   } catch (e) {
     out.push(row(AREAS[1], "NOTICE", "low", false, `classification check skipped (${String((e && e.message) || e).slice(0, 120)})`, "run npm run security:report."));
@@ -311,18 +311,14 @@ export async function runSecurityChecks(rootDir) {
     const overrideOk = /^[0-9a-fA-F]{64}$/.test(override);
     let events = [];
     try { events = parseJsonl(await readFile(jsonlPath, "utf8")); } catch {}
-    let probing = 0;
-    try {
-      const ackedLogin = await readAckedKeys(dataDir);
-      probing = aggregateIncidents(events).filter((i) => (i.kind === "auth-probing" || i.kind === "privilege-escalation") && !ackedLogin[i.key]).length;
-    } catch { probing = 0; }
+    const probing = recentOnly(aggregateIncidents(events)).filter((i) => i.kind === "auth-probing" || i.kind === "privilege-escalation").length;
     if (!serverSrc || !hasSessionGate) {
       out.push(row(AREAS[3], "RED ALERT", "critical", true,
         "admin session gate not found in scripts/cms-server.js — sign-in checks may be bypassed",
         "restore scripts/cms-server.js from backup; do not publish until sessionDeny/sessionLive guard every admin RPC."));
     } else if (probing >= 2) {
       out.push(row(AREAS[3], "RED ALERT", "high", true,
-        `password-guessing pace in progress (${probing} probing incident(s)) — per-IP + per-connection throttles are holding`,
+        `password-guessing pace in the last 24h (${probing} probing incident(s)) — per-IP + per-connection throttles are holding`,
         "confirm 2FA is on (Admin Security); block repeat IPs at the host firewall if it continues."));
     } else if (!overrideOk) {
       out.push(row(AREAS[3], "WARNING", "medium", false,
@@ -350,19 +346,11 @@ export async function runSecurityChecks(rootDir) {
     const missing = guards.filter(([, ok]) => !ok).map(([n]) => n);
     let events = [];
     try { events = parseJsonl(await readFile(jsonlPath, "utf8")); } catch {}
-    let escOpen = [];
-    let escDone = 0;
-    try {
-      const ackedPub = await readAckedKeys(dataDir);
-      const escAll = aggregateIncidents(events).filter((i) => i.kind === "privilege-escalation");
-      escOpen = escAll.filter((i) => !ackedPub[i.key]);
-      escDone = escAll.length - escOpen.length;
-    } catch { escOpen = []; escDone = 0; }
-    const esc = escOpen.length;
+    const esc = recentOnly(aggregateIncidents(events)).filter((i) => i.kind === "privilege-escalation").length;
     if (esc > 0) {
       out.push(row(AREAS[4], "RED ALERT", "high", true,
-        `${esc} privilege-escalation incident(s): anonymous/expired sessions pressed admin-only doors${escDone ? ` (${escDone} already reviewed)` : ""}`,
-        "single hits are expired tabs — triage the sample, then record it: npm run security:ack -- ack \"<kind|ip|route>\" \"<what you verified>\". Sustained hits are probing — block the IP at the host; restart rotates the adopt token."));
+        `${esc} recent privilege-escalation incident(s) in the last 24h: anonymous/expired sessions pressed admin-only doors`,
+        "single hits are expired tabs; sustained hits are probing — block the IP at the host; restart rotates the adopt token."));
     } else if (missing.length) {
       out.push(row(AREAS[4], "RED ALERT", "critical", true,
         `publish guard missing: ${missing.join(", ")}`,

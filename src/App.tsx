@@ -19,11 +19,8 @@ import { ct } from "./data/copy";
 import { SITE } from "./data/site";
 import { BRANCHES, HQ } from "./data/branches";
 import { EVENTS } from "./data/content";
-import { retryLazyImport } from "./lib/safe";
 
-/* Chunk-proof admin (note 440): same retry as the pages, so a deploy never
-   parks the office on a crash card. */
-const Admin = React.lazy(retryLazyImport(() => import("./pages/Admin").then((m) => ({ default: m.Admin }))));
+const Admin = React.lazy(() => import("./pages/Admin").then((m) => ({ default: m.Admin })));
 
 /* Explicit local preview only (?maintenance=1): the office's way to see the
    notice on demand. Visitors on a fresh deploy see it until Publish clears it. */
@@ -200,14 +197,7 @@ export function App() {
       <LangAsk />
     </>
   );
-  /* The wait itself is boundary-wrapped (note 442): an uncaught throw in the
-     notice (theme, logo, clock) used to white-screen with no reload button. */
-  if (stale.waiting || maintenance)
-    return (
-      <ErrorBoundary>
-        <MaintenanceSite />
-      </ErrorBoundary>
-    );
+  if (stale.waiting || maintenance) return <MaintenanceSite />;
 
   return (
     <>
@@ -275,12 +265,8 @@ function SiteApp() {
   }, []);
 
   const previewing = usePreviewingWhileWaiting();
-  /* Outer boundary (note 441): Header/Footer/Toaster live outside the page
-     boundary below — a crash in any of them used to white-screen with no
-     card. The outer card catches frame chrome; the inner card keeps page
-     crashes scoped to the page. */
   return (
-    <ErrorBoundary>
+    <>
       <SkipLink />
       {previewing && <PreviewBanner />}
       <Header />
@@ -292,6 +278,6 @@ function SiteApp() {
       <Footer />
       <ScrollTop />
       <Toaster />
-    </ErrorBoundary>
+    </>
   );
 }

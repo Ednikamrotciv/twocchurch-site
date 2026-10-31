@@ -548,24 +548,6 @@ export function MaintenanceSite() {
   /* Re-render as the wait resolves (the sync bumps the version when the
      publish lands), so the notice lifts by itself with no tap. */
   useCmsVersion();
-  /* Forced look only (`?maintenance=1` office preview): the bare notice has
-     no exit, and the old exit kept the flag so the reload landed back on it
-     with no way out (note 442). Visitors on a genuine hold see no extra row. */
-  let forced = false;
-  try {
-    const q = new URLSearchParams(window.location.search || "");
-    forced = q.get("maintenance") === "1" || q.get("showMaintenance") === "1";
-    if (!forced) {
-      const h = String(window.location.hash || "");
-      const qi = h.indexOf("?");
-      if (qi !== -1) {
-        const hq = new URLSearchParams(h.slice(qi + 1));
-        forced = hq.get("maintenance") === "1" || hq.get("showMaintenance") === "1";
-      }
-    }
-  } catch {
-    forced = false;
-  }
   return (
     <div className="maint">
       <header className="maint__head">
@@ -579,14 +561,6 @@ export function MaintenanceSite() {
         <img className="maint__mark" src={siteFile(LOGO_MARK)} alt="" aria-hidden="true" onError={(e) => { try { e.currentTarget.style.display = "none"; } catch {} }} />
         <h1>{tx("We\u2019ll be right back")}</h1>
         <p>{tx("The site is being updated. Please check back shortly.")}</p>
-        {forced ? (
-          <p className="maint__office">
-            You are previewing the maintenance notice.{" "}
-            <button type="button" className="admin__maint-go" onClick={() => exitMaintenancePreview()}>
-              Exit preview
-            </button>
-          </p>
-        ) : null}
       </main>
     </div>
   );

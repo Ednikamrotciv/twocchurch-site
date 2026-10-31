@@ -753,28 +753,9 @@ export function exitMaintenancePreview(): void {
   try {
     sessionStorage.removeItem(PREVIEW_NOTES_KEY);
   } catch {}
-  /* Clear every maintenance/preview flag, in the query AND in a hash-routed
-     query (/#/?maintenance=1) — otherwise an office `?maintenance=1` look
-     at the notice reloads straight back onto it with no way out (note 442). */
   try {
     const u = new URL(window.location.href);
     u.searchParams.delete("preview");
-    u.searchParams.delete("maintenance");
-    u.searchParams.delete("showMaintenance");
-    let h = u.hash || "";
-    try {
-      const qi = h.indexOf("?");
-      if (qi !== -1) {
-        const hq = new URLSearchParams(h.slice(qi + 1));
-        hq.delete("preview");
-        hq.delete("maintenance");
-        hq.delete("showMaintenance");
-        const rest = hq.toString();
-        h = h.slice(0, qi + 1) + rest;
-        if (rest === "") h = h.slice(0, qi);
-        u.hash = h;
-      }
-    } catch {}
     window.history.replaceState(null, "", u.pathname + (u.searchParams.toString() ? "?" + u.searchParams.toString() : "") + u.hash);
   } catch {}
   try {

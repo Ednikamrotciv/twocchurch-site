@@ -1,12 +1,11 @@
 import React from "react";
 import { Btn, Icon, Section } from "./ui";
-import { recordCrash, crashLooping, clearCrashLoop, rememberError, isChunkLoadError } from "../lib/safe";
 
 /** Keeps a broken page from taking the whole site down with it. */
-export class ErrorBoundary extends React.Component<{ children: React.ReactNode }, { error: Error | null; route: string; stack: string; nonce: number; retriedRoute: string; retryFailed: boolean; scroll: number; looping: boolean }> {
+export class ErrorBoundary extends React.Component<{ children: React.ReactNode }, { error: Error | null; route: string; stack: string; nonce: number; retriedRoute: string; retryFailed: boolean; scroll: number }> {
   constructor(props: { children: React.ReactNode }) {
     super(props);
-    this.state = { error: null, route: "", stack: "", nonce: 0, retriedRoute: "", retryFailed: false, scroll: 0, looping: false };
+    this.state = { error: null, route: "", stack: "", nonce: 0, retriedRoute: "", retryFailed: false, scroll: 0 };
   }
   static getDerivedStateFromError(error: Error) {
     return { error };
@@ -28,17 +27,6 @@ export class ErrorBoundary extends React.Component<{ children: React.ReactNode }
       /* no scroll to keep */
     }
     const stack = String(info?.componentStack || "");
-    /* Never-throw crash bookkeeping (note 441): persist the error for the
-       office, count repeats across hard reloads, and notice a loop so the
-       card can send the visitor home instead of re-crashing forever. */
-    try {
-      rememberError(error, route);
-    } catch {}
-    let looping = false;
-    try {
-      const rec = recordCrash(route);
-      looping = rec.count >= 3 && crashLooping(route);
-    } catch {}
     this.setState((s) => ({
       route,
       stack,
@@ -47,7 +35,6 @@ export class ErrorBoundary extends React.Component<{ children: React.ReactNode }
          itself is broken, so the next tap takes the full reload instead. */
       retryFailed: !!s.retriedRoute && s.retriedRoute === route,
       retriedRoute: "",
-      looping,
     }));
     console.error("World Overcomers app error:", { route, error, stack });
   }
@@ -60,12 +47,7 @@ export class ErrorBoundary extends React.Component<{ children: React.ReactNode }
       try {
         here = readBoundaryRoute();
       } catch {}
-      if (here && here !== this.state.route) {
-        try {
-          clearCrashLoop();
-        } catch {}
-        this.setState({ error: null, route: "", stack: "", retriedRoute: "", retryFailed: false, scroll: 0, looping: false });
-      }
+      if (here && here !== this.state.route) this.setState({ error: null, route: "", stack: "", retriedRoute: "", retryFailed: false, scroll: 0 });
     } else if (this.state.retriedRoute) {
       /* A retry that survived: forget it once the visitor moves on, so a
          later crash elsewhere still gets its own in-place retry first. */
@@ -76,47 +58,35 @@ export class ErrorBoundary extends React.Component<{ children: React.ReactNode }
       if (here && here !== this.state.retriedRoute) this.setState({ retriedRoute: "", retryFailed: false });
     }
   }
-  /* One tap brings the SAME page back (notes 435, 441): the button says
-     Reload and it reloads — a full page load that drops the poisoned
-     in-memory render (shut latch, grace refs, half-mounted player) and boots
-     the same address fresh from the published words + saved draft. Three
-     hard-reload fallbacks so the tap works even when reload() itself is
-     blocked (iframe, privacy mode): reload(), then href re-assign, then
-     history.go(0). Only if all three throw does it fall back to the
-     in-place remount. A chunk-load failure or a 3x crash loop skips the
-     same-address reload and goes straight home, so a bad deploy or a
-     poisonous draft can never trap the visitor on the same card. */
-  private hardReloadSamePage = () => {
-    try {
-      window.location.reload();
-      return true;
-    } catch {}
-    try {
-      const href = window.location.href;
-      (window.location as any).href = href;
-      return true;
-    } catch {}
-    try {
-      window.history.go(0);
-      return true;
-    } catch {}
-    return false;
-  };
+  /* One tap brings the SAME page back: the card retries the page subtree in
+     place first — same address, same synced words, same on-air answer — and
+     only a crash that repeats on the same route takes the full reload. Before
+     either path, volatile live caches are dropped (stale on-air/verdict
+     answers can never re-poison the retry) and a chunk-load failure — a new
+     deploy landing mid-visit — goes straight to the full reload, since the
+     in-place retry would only re-request the same missing chunk. Either way
+     one tap fixes it; the second tap always reloads. */
   private retry = () => {
     try {
-      clearCrashPlacement();
-    } catch {
-      /* placement state is best-effort — the reload still fixes */
-    }
-    /* Looping or a stale chunk: the same address is the problem, so do not
-       reload it — go home clean instead. */
-    try {
-      if (this.state.looping || isChunkLoadError(this.state.error)) {
-        this.goHome();
-        return;
-      }
+      import("../lib/livestatus").then((m) => {
+        try { m.forgetAllVerified(); } catch {}
+      }).catch(() => {});
     } catch {}
-    if (this.hardReloadSamePage()) return;
+    try {
+      localStorage.removeItem("wom.livestatus");
+    } catch {}
+    try {
+      sessionStorage.removeItem("wom.live.targetNote");
+    } catch {}
+    const msg = String((this.state.error && (this.state.error as any).message) || "") + "\n" + this.state.stack;
+    if (this.state.retryFailed || isChunkError(msg)) {
+      try {
+        window.location.reload();
+      } catch {
+        /* reload unavailable — the card stays with its way home */
+      }
+      return;
+    }
     let here = "";
     try {
       here = readBoundaryRoute();
@@ -135,25 +105,6 @@ export class ErrorBoundary extends React.Component<{ children: React.ReactNode }
       /* no frame to wait for — the remount still paints */
     }
   };
-  private goHome = () => {
-    try {
-      clearCrashPlacement();
-    } catch {}
-    try {
-      clearCrashLoop();
-    } catch {}
-    /* Clear the card at once so a blocked navigation still leaves a safe
-       page, then navigate for real — hash, pathname and hard href in order. */
-    this.setState({ error: null, route: "", stack: "", retriedRoute: "", retryFailed: false, scroll: 0, looping: false });
-    try {
-      window.location.hash = "#/";
-    } catch {}
-    try {
-      if (window.location.pathname !== "/") {
-        (window.location as any).href = "/";
-      }
-    } catch {}
-  };
   render() {
     if (this.state.error) {
       return (
@@ -166,14 +117,11 @@ export class ErrorBoundary extends React.Component<{ children: React.ReactNode }
           </p>
           <p className="muted">Nothing was lost — your place is saved. One tap brings the page back.</p>
           <p className="muted">{`Page: ${this.state.route}`}</p>
-          {this.state.looping ? (
-            <p className="muted">This page kept failing, so going home is safest — your work is saved.</p>
-          ) : null}
           <div className="btn-row center">
             <Btn onClick={this.retry} icon="refresh">
-              {this.state.looping ? "Try again" : "Reload the page"}
+              Reload the page
             </Btn>
-            <Btn variant="ghost" to="/" icon="home" onClick={this.goHome}>
+            <Btn variant="ghost" to="/" icon="home" onClick={() => this.setState({ error: null })}>
               Try the home page
             </Btn>
           </div>
@@ -184,31 +132,68 @@ export class ErrorBoundary extends React.Component<{ children: React.ReactNode }
   }
 }
 
+/* A new deploy landing mid-visit breaks dynamic chunk imports with these
+   messages — the in-place retry would only re-request the same chunk, so the
+   card reloads straight onto the new code instead. Never throws. */
+function isChunkError(text: string): boolean {
+  try {
+    const t = String(text || "").toLowerCase();
+    return (
+      t.includes("dynamically imported module") ||
+      t.includes("chunkloaderror") ||
+      t.includes("loading chunk") ||
+      t.includes("failed to fetch") ||
+      t.includes("importing a module")
+    );
+  } catch {
+    return false;
+  }
+}
+
+/* A per-section net for list-heavy pages (Watch live, sermons): one bad card
+   (a corrupt write-up, a bad thumbnail, a translator miss) clears to a quiet
+   placeholder instead of taking the whole page to the error card above. The
+   page keeps working; the office sees the console error with the section name.
+   Never throws, never remounts siblings. */
+export class SectionBoundary extends React.Component<{ children: React.ReactNode; label?: string }, { error: Error | null; nonce: number }> {
+  constructor(props: { children: React.ReactNode; label?: string }) {
+    super(props);
+    this.state = { error: null, nonce: 0 };
+  }
+  static getDerivedStateFromError(error: Error) {
+    return { error };
+  }
+  componentDidCatch(error: Error, info?: { componentStack?: string }) {
+    try {
+      console.error("World Overcomers section error (" + String(this.props.label || "section") + "):", { error, stack: String(info?.componentStack || "") });
+    } catch {}
+  }
+  private retry = () => {
+    this.setState((s) => ({ error: null, nonce: s.nonce + 1 }));
+  };
+  render() {
+    if (this.state.error) {
+      return (
+        <div className="notice notice--warn" role="status">
+          <p style={{ margin: 0 }}>
+            This section failed to load.{" "}
+            <button type="button" className="linklike" onClick={this.retry}>
+              Try again
+            </button>
+          </p>
+        </div>
+      );
+    }
+    return <React.Fragment key={this.state.nonce}>{this.props.children}</React.Fragment>;
+  }
+}
+
 /* The address that broke — read in one place so the card, the report and the
    retry all name the same page. */
 function readBoundaryRoute(): string {
-  return window.location.hash || window.location.pathname || "";
-}
-
-/* Transient placement that may re-crash the next boot (note 435): the drawer
-   view, its open sections/entries, its last touch, the last admin page and
-   the exit/admin return notes, plus the stale-reload counter. Content
-   (draft, history, pending, cache, notes, publish stamps) is never touched —
-   only where the office was standing. Clearing it means a Reload boots the
-   page's default drawer instead of re-opening the same poisoned view. */
-function clearCrashPlacement() {
-  const sessionKeys = [
-    "wom.cms.drawerView",
-    "wom.cms.drawerOpenSections",
-    "wom.cms.drawerOpenEntry",
-    "wom.cms.drawerTouch",
-    "wom.cms.lastAdminPage",
-    "wom.cms.exitReturn",
-    "wom.cms.staleReload",
-  ];
-  for (const k of sessionKeys) {
-    try {
-      sessionStorage.removeItem(k);
-    } catch {}
+  try {
+    return window.location.hash || window.location.pathname || "";
+  } catch {
+    return "";
   }
 }

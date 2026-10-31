@@ -15,6 +15,7 @@ import { useRecentServices, designatedFallback } from "../lib/recentstreams";
 import { Badge, Btn, Icon, IconBtn, Modal, Notice, Reveal, Rich, Section, SectionHeading, Textarea } from "../components/ui";
 import { PageHead } from "../components/layout";
 import { LiveWaiting } from "../components/liveclock";
+import { SectionBoundary } from "../components/ErrorBoundary";
 import { Countdown, RecentServiceCard, SermonWatch, VideoPlayer, WatchCards, platformWatchLinks } from "../components/blocks";
 import { useCmsVersion } from "../lib/cms";
 
@@ -299,9 +300,7 @@ export function WatchLive() {
      office's standing headline; a forced guest with no detected title keeps
      the headline, since the church schedule never names a guest event. */
   const guestForcedOnly = (guestLive || !!(LIVE as any).guestIsLive) && !LIVE.isLive && airForTarget.state !== "live";
-  /* Never-throw title (note 441): a gathering without a slot (bad clock data)
-     must fall back to the headline, never throw on slot.name. */
-  const liveName = tx(air.title || (guestForcedOnly ? LIVE.liveTitle : info?.slot?.name || LIVE.liveTitle) || "");
+  const liveName = tx(air.title || (guestForcedOnly ? LIVE.liveTitle : info?.slot.name || LIVE.liveTitle) || "");
   const streamCountdown = info ? countdownParts(info.msUntil) : null;
   /* Office Reload repair press (published liveReloadAt): the general fix for
      any livestream-screen error. The live players below remount + rejoin on
@@ -311,9 +310,20 @@ export function WatchLive() {
   /* Only a press that lands after this screen opened repairs it: the words
      may already carry an older press (a visitor arriving after Publish),
      and replaying that on every load would remount the player for nothing. */
-  const reloadSeenRef = useRef<number>(typeof reloadSignal === "number" ? reloadSignal : 0);
+  /* A press that landed just before this screen opened still repairs it:
+     the office Reload (or a visitor arriving right after Publish) carries a
+     fresh stamp, but the ref above starts at that stamp — so without this the
+     mount would swallow the fix and keep any cached dead verdict. Old stamps
+     (>30min) are just marked seen: replaying them would remount every load. */
+  const RELOAD_FRESH_MS = 30 * 60_000;
+  const reloadSeenRef = useRef<number>(0);
   useEffect(() => {
     if (!reloadSignal || reloadSeenRef.current === reloadSignal) return;
+    const age = Date.now() - reloadSignal;
+    if (!(reloadSignal > 0) || age > RELOAD_FRESH_MS) {
+      reloadSeenRef.current = reloadSignal;
+      return;
+    }
     reloadSeenRef.current = reloadSignal;
     /* Office Reload reopens a wrongly-shut screen too: if the broadcast is
        truly over the render below re-latches shut at once, so clearing here
@@ -399,7 +409,7 @@ export function WatchLive() {
                 {ct("live.next.badge")}
               </Badge>
             )}
-            <h2>{onAirNow ? liveName : info?.slot?.name ? tx(info.slot.name) : ""}</h2>
+            <h2>{onAirNow ? liveName : info ? tx(info.slot.name) : ""}</h2>
             {!onAirNow && (
               <p className="lede">
                 {tx(DAY_NAMES[when?.day ?? 0])}
@@ -622,7 +632,9 @@ export function WatchLive() {
               </Btn>
             }
           />
-          <SermonWatch sermon={latest} className="vcard--wide" hideDeadText />
+          <SectionBoundary label="last-message">
+            <SermonWatch sermon={latest} className="vcard--wide" hideDeadText />
+          </SectionBoundary>
         </Section>
       )}
 
@@ -652,6 +664,7 @@ export function WatchLive() {
             </>
           }
         />
+        <SectionBoundary label="recent-services">
         {recentFallback.length ? (
           <div className="grid grid-2">
             {recentFallback.map((s, i) => (
@@ -669,6 +682,7 @@ export function WatchLive() {
             ))}
           </div>
         )}
+        </SectionBoundary>
       </Section>
 
       {pastCards.length > 0 && (
@@ -683,6 +697,7 @@ export function WatchLive() {
               </Btn>
             }
           />
+          <SectionBoundary label="past-sermons">
           <div className="grid grid-3">
             {pastCards.map((s, i) => (
               <Reveal key={s.id} delay={(i % 3) * 60}>
@@ -690,12 +705,15 @@ export function WatchLive() {
               </Reveal>
             ))}
           </div>
+          </SectionBoundary>
         </Section>
       )}
 
       <Section tone="raised">
         <SectionHeading center eyebrow={ct("live.ways.eyebrow")} title={ct("live.ways.title")} />
-        <WatchCards />
+        <SectionBoundary label="ways-to-watch">
+          <WatchCards />
+        </SectionBoundary>
       </Section>
 
       {notesOpen && <ServiceNotesModal info={info} onClose={() => setNotesOpen(false)} />}

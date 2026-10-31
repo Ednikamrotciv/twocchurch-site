@@ -1359,13 +1359,19 @@ async function noembedVerdict(id: string, signal?: AbortSignal): Promise<boolean
   }
 }
 
-/** Cache-only peek (no fetch): true = played before, false = known dead, null = never asked. */
+/** Cache-only peek (no fetch): true = played before, false = known dead, null = never asked.
+    Dead verdicts expire fast (60s): an embedding flip or a restarted stream can
+    turn the same id playable again, and a cached dead must never hold the
+    screen on the fallback. Playable verdicts keep the full 5 minutes. */
+const VERIFY_DEAD_TTL_MS = 60_000;
 export function peekVerified(videoId: string): boolean | null {
   const id = parseYoutubeId(videoId);
   if (!id) return false;
   const hit = verifyCache.get(id);
-  if (!hit || Date.now() - hit.at >= VERIFY_TTL_MS) return null;
-  return hit.ok;
+  if (!hit) return null;
+  const age = Date.now() - hit.at;
+  if (hit.ok) return age >= VERIFY_TTL_MS ? null : true;
+  return age >= VERIFY_DEAD_TTL_MS ? null : false;
 }
 
 /** Drop what the verifier learned about one video (visitor retry + office

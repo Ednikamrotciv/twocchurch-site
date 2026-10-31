@@ -159,20 +159,6 @@ If an incident needs review:
    tab, or Render sleep — the throttle + keep-awake ping hint covers it.
 3. Keep `npm run backup` snapshots: the PDF + JSONL are evidence, not
    content; Tools → Backup/Restore + Publish is the way back for words.
-4. Record the review so the board clears honestly: `npm run security:ack`
-   lists the open keys, then
-   `npm run security:ack -- ack "<kind|ip|route>" "<what you verified>"`
-   writes `data/security-reviewed.json` + a `review-ack` line in the JSONL.
-   RED means UNREVIEWED — a triaged alert clears on the next run while the
-   evidence and the note stay on disk. A fresh hit re-raises immediately.
-   Triage guide: a single denied `privilege-escalation` from 127.0.0.1 on
-   `/__cms/publish` is an expired office tab (15-min idle) pressing Publish
-   — denied 403, nothing written, benign. A `publish-stuck` after ~50s
-   means the office→live relay missed: read the Publish toast — a denied
-   live login is fixed once by typing the live box's CURRENT password on the
-   Status tab (diskless sleeps reset it; ADMIN_HASH_OVERRIDE ends that), a
-   "not a git checkout" line means publish from a git checkout or Publish on
-   live/admin, and a merely asleep live box is carried by its retry + wake.
 
 ## 8. Seven-area posture board (terminal + PDF)
 

@@ -10,10 +10,3 @@ services:
     envVars:
       - key: NODE_VERSION
         value: 24
-      # Stable office password across diskless sleep/resets (SECURITY.md section 6,
-      # DEPLOY.md): the 64-hex SHA-256 of the office password — NEVER the password
-      # itself. sync:false keeps the value in the Render dashboard only; it is never
-      # committed to the repo. Until this is set, sleeps fall back to the shipped
-      # default, the office→live relay is denied, and publishes go publish-stuck.
-      - key: ADMIN_HASH_OVERRIDE
-        sync: false
