@@ -406,11 +406,12 @@ export function VideoPlayer({
     reloadSeen.current = reloadSignal;
     repair();
   }, [live, reloadSignal]);
-  /* Visitor retry (error-only): the circular arrow in the center of the
-     screen, shown ONLY while the player reports an error (unavailable + all
-     other failures) or sits blank with no address, and hidden whenever the
-     screen is fine. One tap runs the shared force repair above — it finds
-     what's live now and plays it fresh. */
+  /* Visitor retry: the circular arrow in the center of the screen. Live
+     broadcasts also carry an always-on centered arrow OVER the playing frame
+     (see the playing branch below), because YouTube's own "unavailable" text
+     is cross-origin invisible and no detector can reveal an arrow after the
+     fact. One tap runs the shared force repair above — it finds what's live
+     now and plays it fresh. */
   const retry = () => {
     repair();
   };
@@ -917,14 +918,13 @@ export function VideoPlayer({
 
   /* Grey centered circle arrow, error-only: rendered ONLY while the player
      reports an error (video unavailable + every other failure) and hidden
-     whenever the screen is fine — the dead branch below is the only place
-     it exists. One click runs the shared repair above. */
+     whenever the screen is fine — the dead + empty branches below are the
+     only places it exists. One click runs the shared repair above.
+     No YouTube link is handed here: the Watch page's own red button is the
+     single way out, so an embedding-off / private / region / age-blocked
+     video that survives arrow + Reload + Publish is fixed in YouTube Studio
+     (enable embedding or swap the video), not in this player. */
   if (dead) {
-    const openHref = watchUrl(source);
-    /* The livestream screen already carries its own red Watch button while
-       live, so the dead card drops the yellow one there (cards elsewhere keep
-       it — they have no red button of their own). */
-    const showWayOut = !!openHref && !live;
     return (
       <div className={shell + " player--dead"}>
         {still ? (
@@ -951,11 +951,6 @@ export function VideoPlayer({
         </button>
         <div className="player__deadbody">
           <p className="player__deadtitle">{shown}</p>
-          {showWayOut && (
-            <Btn size="sm" variant="gold" href={openHref} icon="youtube" iconRight="external">
-              {tx("Watch on YouTube")}
-            </Btn>
-          )}
         </div>
         {live && (
           <span className="player__live">
@@ -1059,9 +1054,11 @@ export function VideoPlayer({
           )}
           {/* The frame itself never reports a failure (note 344): a video
               YouTube refuses to embed, blocks in this country, or takes down
-              mid-play would otherwise sit black with no way out. This link
-              is the permanent way out — on YouTube itself it always plays
-              or says why. */}
+              mid-play swaps to the grey-arrow fallback above via the
+              verifier / in-frame error / watchdogs — the arrow only ever
+              shows on error, never over a healthy live frame. The Watch
+              page's own red button is the permanent way out (not a second
+              link here): on YouTube itself it always plays or says why. */}
           {platform === "youtube" && (liveVideoId || ytId) && !hideEscape && (
             <a
               className="player__escape"
