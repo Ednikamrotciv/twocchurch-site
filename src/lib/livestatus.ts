@@ -51,14 +51,14 @@ const FRESH_MS = 6_000;
 /** Give the proxy this long before calling the check a failure.
     Fast live: 3.5s is plenty for YouTube to answer; the old 15s held the
     Watch screen on the waiting clock past the moment the broadcast started. */
-const CHECK_TIMEOUT_MS = 2_500;
+const CHECK_TIMEOUT_MS = 8_000;
 /** Poll cadence (note 310): fast while a broadcast is expected or the Watch
     page is open — a YouTube start shows in seconds and the waiting clock
     vanishes with it — slower in the quiet week. Live and local share this
     poller; only the fetch door differs (same-origin /__yt on local runs, the
     office server when joined, else the public proxy). */
-export const SOON_MS = 2_500;
-export const IDLE_MS = 15_000;
+export const SOON_MS = 20_000;
+export const IDLE_MS = 90_000;
 
 const EMPTY: LiveStatus = { state: "unset", platform: "", videoId: "", title: "", channelId: "", target: "", checkedAt: 0, endedAt: 0 };
 
@@ -157,7 +157,10 @@ export function parseLivePage(html: string, pageUrl = ""): { read: boolean; live
   const chromeLive =
     (/"liveIndicatorText":\{"simpleText":"Live"\}/.test(text) && / watching now"/.test(text)) ||
     (/"dateText":\{"simpleText":"Started streaming /.test(text) && / watching now"/.test(text)) ||
-    (/"liveChatRenderer":\{"continuations"/.test(text) && / watching now"/.test(text));
+    (/"liveChatRenderer":\{"continuations"/.test(text) && / watching now"/.test(text)) ||
+    /* concurrentViewers only exists on a live watch page — extra net for
+       markup shifts that hide the chrome above. */
+    (/"concurrentViewers":"[0-9,]+"/.test(text) && / watching now"/.test(text));
   const live = read && (/"isLiveNow":true/.test(text) || /"hlsManifestUrl":"https?:\/\//.test(text) || chromeLive);
   if (!live) return { read, live: false, videoId: "", title: "" };
   /* A bot-walled watch page drops the canonical link and the videoDetails id
@@ -191,9 +194,15 @@ export function parseLivePage(html: string, pageUrl = ""): { read: boolean; live
 export function channelLiveVideoId(html: string): string {
   const text = String(html || "");
   const tab = text.indexOf('"title":"Live","selected":true');
-  if (tab < 0) return "";
-  const seg = text.slice(tab, tab + 30_000);
-  return /"url":"\/watch\?v=([\w-]{11})"/.exec(seg)?.[1] || /"videoId":"([\w-]{11})"/.exec(seg)?.[1] || "";
+  if (tab >= 0) {
+    const seg = text.slice(tab, tab + 30_000);
+    const hit = /"url":"\/watch\?v=([\w-]{11})"/.exec(seg)?.[1] || /"videoId":"([\w-]{11})"/.exec(seg)?.[1] || "";
+    if (hit) return hit;
+  }
+  /* Markup-shift fallback: any Live-tab video on the page (the tab renderer
+     changed shape before and hid the selected marker). First Live-tab hit. */
+  const anyTab = /"title":"Live"[^\{]{0,400}?"url":"\/watch\?v=([\w-]{11})"/.exec(text)?.[1] || "";
+  return anyTab;
 }
 
 /** Candidate videos named by a channel page, best first (note 324): the Live
@@ -458,16 +467,16 @@ async function resolveYoutube(
      cannot. */
   const designatedId = designatedChannelIdForTarget(target.url);
   const liveTabId = channelLiveVideoId(html);
-  /* Asked in parallel (were sequential): on a walled network each read can
-     burn a full timeout, so three candidates in a row kept the screen on the
-     clock for half a minute. Judgment below stays best-first, as before. */
-  const reads = await Promise.all(
-    cands.map(async (vid) => {
-      const url = `https://www.youtube.com/watch?v=${vid}`;
-      return { vid, url, watchHtml: await fetchPage(url) };
-    })
-  );
-  for (const { vid, url, watchHtml } of reads) {
+  /* Asked one by one (best first): three candidates raced at once used to
+     fire 9 page reads per check and trip the proxy rate-limit mid-service.
+     Sequential costs at most ~2 extra timeouts only when the first misses,
+     and the first hit still returns fast. */
+  const liveTabFirst = liveTabId && cands.includes(liveTabId)
+    ? [liveTabId, ...cands.filter((c) => c !== liveTabId)].slice(0, 3)
+    : cands.slice(0, 3);
+  for (const vid of liveTabFirst) {
+    const url = `https://www.youtube.com/watch?v=${vid}`;
+    const watchHtml = await fetchPage(url);
     if (watchHtml === null) continue;
     const watch = parseLivePage(watchHtml, url);
     if (watch.live && (watch.videoId || vid)) {
@@ -529,6 +538,7 @@ async function fetchPage(url: string): Promise<string | null> {
   try {
     return await firstValidHtml([
       fetchPageSameOrigin(url),
+      fetchPageStaticProxy(url),
       fetchPageOffice(url),
       fetchPageRemote(url),
     ]);
@@ -605,13 +615,43 @@ async function fetchPageSameOrigin(url: string): Promise<string | null> {
   }
 }
 
-/* Last resort for hosts with no proxy: a free public CORS proxy.
-   Only reached when no office door is open, and a miss
-   degrades exactly as before (unknown, quiet). */
+/* Last resort for hosts with no proxy: three free public CORS doors race —
+   a single proxy (allorigins alone before) was the livestream's single point
+   of failure: when it slowed or 500'd, every check read unknown and the Watch
+   screen sat on the clock through a live service. First VALID YouTube answer
+   wins; a miss degrades exactly as before (unknown, quiet). */
+async function proxyDoor(proxyUrl: string, url: string): Promise<string | null> {
+  try {
+    const res = await withTimeout(fetch(proxyUrl + encodeURIComponent(url), { cache: "no-store" }), CHECK_TIMEOUT_MS);
+    if (!res || !res.ok) return null;
+    const text = await res.text();
+    if (typeof text !== "string" || text.length === 0) return null;
+    if (!isYoutubeHtml(text)) return null;
+    return text;
+  } catch {
+    return null;
+  }
+}
 async function fetchPageRemote(url: string): Promise<string | null> {
   try {
+    return await firstValidHtml([
+      proxyDoor("https://api.allorigins.win/raw?url=", url),
+      proxyDoor("https://corsproxy.io/?url=", url),
+      proxyDoor("https://api.codetabs.com/v1/proxy?quest=", url),
+    ]);
+  } catch {
+    return null;
+  }
+}
+
+/** Netlify-function YouTube door (`netlify/functions/yt.mjs`): static deploys
+    have no /__yt (the SPA fallback answers 200 index.html there), so without
+    this the only door left was the public proxy. Same-origin, no CORS, and
+    YouTube-only by design like /__yt. Missing anywhere else -> null. */
+async function fetchPageStaticProxy(url: string): Promise<string | null> {
+  try {
     const res = await withTimeout(
-      fetch(`https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`, { cache: "no-store" }),
+      fetch(`/.netlify/functions/yt?url=${encodeURIComponent(url)}`, { cache: "no-store" }),
       CHECK_TIMEOUT_MS
     );
     if (!res || !res.ok) return null;
@@ -655,14 +695,27 @@ async function fetchPageOffice(url: string): Promise<string | null> {
     answers "off" (live markers or unknown), so any readable page is fine —
     error pages simply read as unknown, exactly as before. */
 async function fetchPageFacebook(url: string): Promise<string | null> {
+  /* Three public doors race (was allorigins alone): Facebook reads share the
+     same single-proxy failure as YouTube did. Any readable page is fine —
+     error pages simply read as unknown, exactly as before. */
+  const doors = [
+    "https://api.allorigins.win/raw?url=",
+    "https://corsproxy.io/?url=",
+    "https://api.codetabs.com/v1/proxy?quest=",
+  ];
   try {
-    const res = await withTimeout(
-      fetch(`https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`, { cache: "no-store" }),
-      CHECK_TIMEOUT_MS
+    return await firstValidHtml(
+      doors.map(async (base) => {
+        try {
+          const res = await withTimeout(fetch(base + encodeURIComponent(url), { cache: "no-store" }), CHECK_TIMEOUT_MS);
+          if (!res || !res.ok) return null;
+          const text = await res.text();
+          return typeof text === "string" && text.length > 0 ? text : null;
+        } catch {
+          return null;
+        }
+      })
     );
-    if (!res || !res.ok) return null;
-    const text = await res.text();
-    return typeof text === "string" && text.length > 0 ? text : null;
   } catch {
     return null;
   }
@@ -702,6 +755,10 @@ export function reportCarriesVideo(rep: { state?: unknown; videoId?: unknown }):
 async function fetchLiveReport(): Promise<LiveReport | null> {
   try {
     const base = serverUrl();
+    /* Standalone copies (no office joined) used to POST this to the same
+       origin every check and burn the full report timeout on the SPA
+       fallback before the scrape even started. Skip it outright. */
+    if (!base) return null;
     const res = await withTimeout(
       fetch(`${base}/__cms/liveReport?conn=rpt-` + Math.random().toString(36).slice(2), {
         method: "POST",
@@ -884,11 +941,6 @@ try {
 const watchers = new Set<Watcher>();
 const listeners = new Set<() => void>();
 let timer = 0;
-/* Newest check wins: overlapping reads must not publish out of order (a slow
-   older read landing after a fresh one could end a live broadcast or reopen
-   an ended one). Only the run carrying the current generation publishes its
-   answer and its timer. */
-let runSeq = 0;
 let polling = false;
 /** End debounce: consecutive "off" answers for the same address. A lone off
     (or two) never ends a watched broadcast — a walled read can blink off
@@ -900,7 +952,7 @@ let offTarget = "";
     longer confirm its broadcast must not sit on its black frame forever. */
 let lastDefinitiveAt = 0;
 /** How long an unconfirmed live may stand before it is retired to ended. */
-const UNKNOWN_CAP_MS = 10 * 60_000;
+const UNKNOWN_CAP_MS = 3 * 60_000;
 /** When the last answer was fetched (ms) — the freshness clock. */
 let lastCheckAt = snapshot.status.checkedAt;
 /** The address the last answer was about, so a new one is checked at once. */
@@ -1054,6 +1106,10 @@ export function liveTargetSignature(): string {
 }
 
 function delay() {
+  /* The Watch page (urgent watcher) polls faster than the quiet week without
+     changing the shared cadence above: a YouTube start shows in seconds where
+     someone is actually watching, while background tabs stay cheap. */
+  if (wantsUrgent()) return 8_000;
   return wantsSoon() ? SOON_MS : IDLE_MS;
 }
 
@@ -1066,7 +1122,10 @@ function schedule(ms: number) {
     /* the check below degrades exactly as before */
   }
   window.clearTimeout(timer);
-  timer = window.setTimeout(run, Math.max(0, ms));
+  /* Jitter: every open tab polling on the exact second hammers the proxy as
+     one burst mid-service. +/-1s spreads the load; timing stays the same. */
+  const jitter = Math.floor(Math.random() * 2000) - 1000;
+  timer = window.setTimeout(run, Math.max(0, ms + jitter));
 }
 
 /** Ask at once (the Watch page just opened, the office pressed Start/Stop,
@@ -1100,7 +1159,6 @@ function onLiveTargetEvent() {
 
 async function run() {
   if (!watchers.size) return;
-  const my = ++runSeq;
   /* A broadcast that is on air is the one moment the answer matters, so it is
      never skipped; a hidden tab is otherwise left alone (no point in spending
      the proxy's time on a screen nobody is looking at). */
@@ -1111,28 +1169,13 @@ async function run() {
   }
   const facebook = wantsFacebook();
   publish({ checking: true });
-  let next: LiveStatus;
-  try {
-    next = await checkLiveStream({ facebook });
-  } catch {
-    /* A failed read schedules the next round like an unknown answer — the
-       poller never dies on a throw. A newer run in flight carries on. */
-    if (my !== runSeq) return;
-    if (!watchers.size) return;
-    publish({ checking: false });
-    lastCheckAt = Date.now();
-    schedule(delay());
-    return;
-  }
+  const next = await checkLiveStream({ facebook });
   if (!watchers.size) return;
   publish({ checking: false });
-  /* A newer check is already in flight (or landed): this answer is history —
-     it carries neither the screen nor the timer. */
-  if (my !== runSeq) return;
   lastTarget = targetSignature();
   /* End debounce: a lone off (or two) never ends a watched broadcast — a
      walled read can blink off and the screen must not end itself and come
-     back on. Only three consecutive offs for the same address end it;
+     back on. Only two consecutive offs for the same address end it;
      anything else (live, unknown, unset, or a moved address) resets the
      count. Definitive answers refresh the freshness clock below. */
   if (next.state === "live" || next.state === "off") lastDefinitiveAt = Date.now();
@@ -1145,7 +1188,7 @@ async function run() {
       offStreak = 0;
     }
     offStreak++;
-    if (offStreak < 3) {
+    if (offStreak < 2) {
       lastCheckAt = Date.now();
       schedule(delay());
       return;
@@ -1163,7 +1206,7 @@ async function run() {
       schedule(delay());
       return;
     }
-    try { console.warn("church live: retiring stale live (no confirmable read for 10m)"); } catch {}
+    try { console.warn("church live: retiring stale live (no confirmable read for 3m)"); } catch {}
     const checkedAt = Date.now();
     const kept = inheritEnded(snapshot.status, snapshot.status.target || "", checkedAt, designatedChannelIdForTarget(snapshot.status.target || ""));
     const retired: LiveStatus = { state: "off", platform: kept.platform, videoId: kept.videoId, title: kept.title, channelId: kept.channelId, target: snapshot.status.target || "", checkedAt, endedAt: kept.endedAt || checkedAt };
@@ -1276,7 +1319,7 @@ export function useLiveStream(soon = false, watchFacebook = false, urgent = fals
    fetch (no proxy door needed); cached 5 minutes; in-flight asks shared. */
 
 const VERIFY_TTL_MS = 5 * 60_000;
-const VERIFY_TIMEOUT_MS = 2_000;
+const VERIFY_TIMEOUT_MS = 6_000;
 const verifyCache = new Map<string, { ok: boolean; at: number }>();
 const verifyInflight = new Map<string, Promise<boolean | null>>();
 

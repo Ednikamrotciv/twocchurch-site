@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Link, navigate } from "../lib/router";
 import { motion, AnimatePresence, useReducedMotion } from "framer-motion";
 import { useLocalState, fireToast, useNow, useReveal } from "../lib/hooks";
-import { setLivePlaybackActive, useCmsVersion } from "../lib/cms";
+import { useCmsVersion } from "../lib/cms";
 import { liveAnnouncements, ANNOUNCEMENTS } from "../data/announcements";
 import { ct } from "../data/copy";
 import { tx } from "../lib/i18n";
@@ -21,7 +21,7 @@ import {
   type VideoPlatform,
   type VideoSource,
 } from "../lib/embed";
-import { checkLiveStream, isStatusForTarget, liveTarget, guestTarget, isGuestTargetUrl, peekVerified, verifyYoutubeId, forgetVerified, forgetAllVerified, recheckLiveNow, isDesignatedChannel, designatedChannelIdForTarget } from "../lib/livestatus";
+import { checkLiveStream, facebookTarget, isStatusForTarget, liveTarget, guestTarget, isGuestTargetUrl, peekVerified, verifyYoutubeId, forgetVerified, forgetAllVerified, recheckLiveNow, isDesignatedChannel, designatedChannelIdForTarget } from "../lib/livestatus";
 import {
   KEYS,
   fmtDate,
@@ -299,10 +299,7 @@ export function VideoPlayer({
   /* Dead-video net (note 333, hardened note 413): a removed or private video must never sit on
      the black "unavailable" frame — the player says so and offers the
      platform link instead. Channel follows and files cannot be asked, so
-     only bare YouTube ids are verified. Autoplay never opens an unverified
-     id — the one exception is a live follow, which mounts its channel
-     address at once (the screen already says live) and upgrades to the
-     verified id behind it. */
+     only bare YouTube ids are verified. Autoplay never opens an unverified id. */
   const ytId = source?.platform === "facebook" || source?.platform === "upload" ? "" : parseYoutubeId(source?.youtubeId || "");
   const followId = live && source?.platform !== "facebook" && source?.platform !== "upload" ? String(source?.youtubeChannelId || "") : "";
   /* Frame remount key: bumped by the visitor retry and the office Reload —
@@ -323,12 +320,14 @@ export function VideoPlayer({
     if (live) {
       return true;
     }
-    /* Replay cards open by themselves WITH SOUND — a verified id or an
-       unverified-but-not-dead one, with no tap. Only a proven-dead id is
-       held back (the fallback below still offers the platform link, never
-       the black "unavailable" frame). Channel follows are live-only, so
-       there is nothing else to hold back here. */
+    /* Livestream screen: play the broadcast by itself WITH SOUND — a verified
+       id, an unverified-but-not-dead id, or the live channel follow all open
+       with no tap. Only a proven-dead id is held back (the fallback below
+       still offers the platform link, never the black "unavailable" frame). */
     if (ytId && peekVerified(ytId) !== true) return false;
+    /* A channel follow never opens blind: it verifies first, so an offline
+       channel shows the waiting poster, never the black "unavailable" frame. */
+    if (!ytId && followId) return false;
     return true;
   });
   /* A channel with no video id cannot be asked of oEmbed (note 342): tapping
@@ -407,20 +406,6 @@ export function VideoPlayer({
     reloadSeen.current = reloadSignal;
     repair();
   }, [live, reloadSignal]);
-  /* A live broadcast never stops for a deploy: while this live player is
-     open, the stale-build gate holds its reload and its maintenance notice —
-     the tab takes the newer update the moment the broadcast ends. */
-  useEffect(() => {
-    if (!live || !playing) return;
-    try {
-      setLivePlaybackActive(true);
-    } catch {}
-    return () => {
-      try {
-        setLivePlaybackActive(false);
-      } catch {}
-    };
-  }, [live, playing]);
   /* Visitor retry (error-only): the circular arrow in the center of the
      screen, shown ONLY while the player reports an error (unavailable + all
      other failures) or sits blank with no address, and hidden whenever the
@@ -465,7 +450,9 @@ export function VideoPlayer({
     setNotLive(false);
     setChecking(true);
     setIframeKey((k) => k + 1);
-    checkLiveStream()
+    /* Facebook-only services (note 111): the tap must ask Facebook too, or a
+       Facebook-only live answers "not live" on tap while it plays by itself. */
+    checkLiveStream({ facebook: !!facebookTarget() })
       .then((st) => {
         /* Only the handle's answer opens the player (note 350): a tap that
            lands after the office moved the channel waits instead of playing
@@ -623,7 +610,7 @@ export function VideoPlayer({
     return () => {
       alive = false;
     };
-  }, [autoPlay, ytId, sourceKey, followId, live]);
+  }, [autoPlay, ytId, sourceKey]);
 
   /* Autoplay verifies behind the player: a dead id swaps to the fallback
      instead of sitting on the black frame (unknown plays as before). */

@@ -289,10 +289,10 @@ export function WatchLive() {
      waits on the ticking clock (never the ended screen: something IS live),
      naming the gathering. The shut latch still closes first. */
   const waitingForClick = !shutNow && !officeStopped && !LIVE.isLive && !guestLive && !fbLive && airForTarget.state === "live";
-  /* What the badges show (note 386): the stream itself, or the office's
-     switch — never the bare service clock — and never another channel's
-     livestream while the screen sits shut after an end. */
-  const onAirNow = displayLive(info) && !shutNow;
+  /* What the badges show (note 386): the detected stream itself lights
+     LIVE even before the office switch paints — never the bare service
+     clock, never another channel while shut, and a Stop still holds it off. */
+  const onAirNow = (displayLive(info) && !shutNow) || (screenAir.state === "live" && !shutNow && !officeStopped);
   /* What the panel calls the broadcast while on air (notes 133, 406): the
      detected stream's own title; else the gathering the clock has on — or the
      next one, so a Play press for a coming broadcast names it instead of the

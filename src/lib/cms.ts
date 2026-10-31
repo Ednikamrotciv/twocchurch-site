@@ -900,13 +900,6 @@ export function useMaintenance(): boolean {
   try {
     if (maintenanceAutoCleared()) return false;
   } catch {}
-  /* A live broadcast never stops for a deploy: while the live player is
-     open, the site stays up even when a newer update lands — the tab takes
-     the newer update the moment the broadcast ends (see
-     setLivePlaybackActive). An explicit ?maintenance=1 above still wins. */
-  try {
-    if (livePlaybackActive) return false;
-  } catch {}
   /* Note 302: a known newer update waits even on this (older) bundle — a
      stale tab never paints live from cached code while the host has moved on.
      Server-less copies still never wait (note 250): with no backend there is
@@ -1031,21 +1024,6 @@ let staleCheckRunning: Promise<void> | null = null;
    for a second click. Cleared whenever version.json matches this bundle. */
 let staleHostDeploy = "";
 let staleHostNotes = 0;
-/* A live broadcast in progress: while a live player is open and playing, a
-   newer deploy must never stop the service — no maintenance notice, no
-   reload. The 15s poll records the newer update and reloads onto it the
-   moment the broadcast ends. Set only by the live player; office tabs mount
-   no live players, so publishes and gates behave exactly as before there. */
-let livePlaybackActive = false;
-/** The live player calls this as it opens and closes (note: live only). */
-export function setLivePlaybackActive(on: boolean): void {
-  try {
-    if (!!on === livePlaybackActive) return;
-    livePlaybackActive = !!on;
-    version += 1;
-    notify();
-  } catch {}
-}
 /* Publish in flight: while a publish click runs, skip the stale auto-reload
    so the click finishes stamping instead of unloading mid-send. */
 let publishInFlight = false;
@@ -1134,8 +1112,6 @@ function readStaleAttempts(): { notes: number; at: number; tries: number } | nul
 /** True while version.json names a newer update than this bundle (note 302):
     visitors wait on maintenance until the reload lands them on the new code. */
 export function isStaleWaiting(): boolean {
-  /* A live viewer never waits mid-broadcast (see setLivePlaybackActive). */
-  if (livePlaybackActive) return false;
   return staleNewerNotes > BUILD_NOTES || staleCodeMismatch;
 }
 /** True once the first version.json check has settled (found newer or not). */
@@ -1214,12 +1190,6 @@ export function checkStaleBuild(): Promise<void> {
          but do NOT unload — the click stamps the fresh id below instead of
          asking for a second click. */
       if (publishInFlight) return;
-      /* One live broadcast: while it plays, the newer update stays recorded
-         above but this tab does NOT unload — the 15s poll reloads onto it
-         the moment the broadcast ends. Attempts are not burned while
-         deferring, so the retry budget survives the service. */
-      if (livePlaybackActive) return;
-      
       
       /* Retryable guard: a few attempts inside a few minutes, then stop
          reloading but KEEP waiting (maintenance stays, no live flash, no

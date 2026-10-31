@@ -51,7 +51,7 @@ const SEED_MAX_MS = 12 * 60 * 60 * 1000;
 /** Give the proxy this long before calling a read a failure (note 372:
     three doors at the old 20 seconds each held the deployed feed up to a
     minute past a dead proxy — eight is plenty for YouTube to answer). */
-const TIMEOUT_MS = 5_000;
+const TIMEOUT_MS = 8_000;
 
 const EMPTY: RecentServices = { items: [], at: 0, channelId: "" };
 
@@ -203,12 +203,9 @@ function isExpectedBody(url: string, text: string): boolean {
 /* Last resort for hosts with no proxy: a free public CORS proxy.
    Only reached when no office door is open, and a miss
    degrades exactly as before (the last good list stands). */
-async function fetchTextRemote(url: string): Promise<string | null> {
+async function proxyDoor(url: string, proxyBase: string): Promise<string | null> {
   try {
-    const res = await withTimeout(
-      fetch(`https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`, { cache: "no-store" }),
-      TIMEOUT_MS
-    );
+    const res = await withTimeout(fetch(proxyBase + encodeURIComponent(url), { cache: "no-store" }), TIMEOUT_MS);
     if (!res || !res.ok) return null;
     const text = await res.text();
     if (typeof text !== "string" || text.length === 0) return null;
@@ -216,6 +213,19 @@ async function fetchTextRemote(url: string): Promise<string | null> {
        doors that carry the real list. */
     if (!isExpectedBody(url, text)) return null;
     return text;
+  } catch {
+    return null;
+  }
+}
+async function fetchTextRemote(url: string): Promise<string | null> {
+  /* Three public doors race (was allorigins alone): one slow proxy held the
+     deployed feed up to a minute past a dead proxy. First VALID list wins. */
+  try {
+    return await firstValidText([
+      proxyDoor(url, "https://api.allorigins.win/raw?url="),
+      proxyDoor(url, "https://corsproxy.io/?url="),
+      proxyDoor(url, "https://api.codetabs.com/v1/proxy?quest="),
+    ]);
   } catch {
     return null;
   }
@@ -228,13 +238,24 @@ async function fetchTextRemote(url: string): Promise<string | null> {
 async function fetchTextSameOrigin(url: string): Promise<string | null> {
   try {
     const res = await withTimeout(fetch(`/__yt?url=${encodeURIComponent(url)}`, { cache: "no-store" }), TIMEOUT_MS);
-    if (!res || !res.ok) return null;
-    const text = await res.text();
-    if (typeof text !== "string" || text.length === 0) return null;
-    /* Static hosts answer /__yt with the SPA fallback (200 index.html) — not
-       YouTube, so it must not beat the doors that work. */
-    if (!isExpectedBody(url, text)) return null;
-    return text;
+    if (res && res.ok) {
+      const text = await res.text();
+      /* Static hosts answer /__yt with the SPA fallback (200 index.html) — not
+         YouTube, so it must not beat the doors that work. */
+      if (typeof text === "string" && text.length > 0 && isExpectedBody(url, text)) return text;
+    }
+  } catch {
+    /* fall through to the Netlify-function door below */
+  }
+  /* Netlify-function door (netlify/functions/yt.mjs): static deploys have no
+     /__yt, so without this the public proxy was the only door left. */
+  try {
+    const res2 = await withTimeout(fetch(`/.netlify/functions/yt?url=${encodeURIComponent(url)}`, { cache: "no-store" }), TIMEOUT_MS);
+    if (!res2 || !res2.ok) return null;
+    const text2 = await res2.text();
+    if (typeof text2 !== "string" || text2.length === 0) return null;
+    if (!isExpectedBody(url, text2)) return null;
+    return text2;
   } catch {
     return null;
   }
