@@ -9,13 +9,12 @@ import { sermonsNewestFirst, sermonSource, sermonThumb } from "../data/sermons";
 import { useLocalState, useNow, fireToast } from "../lib/hooks";
 import { KEYS, nextService, onAir, displayLive, to12h, DAY_NAMES, countdownParts, addToCalendar, mailto, clockHere, tidyCount, churchTimezone, visitorPlace, fmtDate, downloadText, serviceNoteKey, type NextServiceInfo } from "../lib/store";
 import { isFacebookVideoUrl, parseYoutubeId, platformLabel, watchUrl, youtubeThumb, type VideoPlatform, type VideoSource } from "../lib/embed";
-import { useLiveStream, liveTarget, guestTarget, isGuestTargetUrl, facebookTarget, useYoutubeVerdict, isStatusForTarget, designatedChannelIdForTarget, isDesignatedChannel, nextScreenShut, officeStopActive, recheckLiveNow, forgetAllVerified, type ScreenShut } from "../lib/livestatus";
+import { useLiveStream, liveTarget, guestTarget, isGuestTargetUrl, facebookTarget, useYoutubeVerdict, isStatusForTarget, designatedChannelIdForTarget, isDesignatedChannel, nextScreenShut, officeStopActive, recheckLiveNow, type ScreenShut } from "../lib/livestatus";
 import { useLibrary } from "../lib/collections";
 import { useRecentServices, designatedFallback } from "../lib/recentstreams";
 import { Badge, Btn, Icon, IconBtn, Modal, Notice, Reveal, Rich, Section, SectionHeading, Textarea } from "../components/ui";
 import { PageHead } from "../components/layout";
 import { LiveWaiting } from "../components/liveclock";
-import { SectionBoundary } from "../components/ErrorBoundary";
 import { Countdown, RecentServiceCard, SermonWatch, VideoPlayer, WatchCards, platformWatchLinks } from "../components/blocks";
 import { useCmsVersion } from "../lib/cms";
 
@@ -288,8 +287,10 @@ export function WatchLive() {
   /* Live but not yet playable: the main address reads live while its id still
      verifies (or the screen sits behind a press-free detection) — the screen
      waits on the ticking clock (never the ended screen: something IS live),
-     naming the gathering. The shut latch still closes first. */
-  const waitingForClick = !shutNow && !officeStopped && !LIVE.isLive && !guestLive && !fbLive && airForTarget.state === "live";
+     naming the gathering. The shut latch still closes first. A gathering on
+     the clock with nothing detected yet waits the same way: the ticking clock
+     — never "Live has ended" — until the broadcast lands or the hour passes. */
+  const waitingForClick = !shutNow && !officeStopped && !LIVE.isLive && !guestLive && !fbLive && (airForTarget.state === "live" || justNow);
   /* What the badges show (note 386): the detected stream itself lights
      LIVE even before the office switch paints — never the bare service
      clock, never another channel while shut, and a Stop still holds it off. */
@@ -310,32 +311,16 @@ export function WatchLive() {
   /* Only a press that lands after this screen opened repairs it: the words
      may already carry an older press (a visitor arriving after Publish),
      and replaying that on every load would remount the player for nothing. */
-  /* A press that landed just before this screen opened still repairs it:
-     the office Reload (or a visitor arriving right after Publish) carries a
-     fresh stamp, but the ref above starts at that stamp — so without this the
-     mount would swallow the fix and keep any cached dead verdict. Old stamps
-     (>30min) are just marked seen: replaying them would remount every load. */
-  const RELOAD_FRESH_MS = 30 * 60_000;
-  const reloadSeenRef = useRef<number>(0);
+  const reloadSeenRef = useRef<number>(typeof reloadSignal === "number" ? reloadSignal : 0);
   useEffect(() => {
     if (!reloadSignal || reloadSeenRef.current === reloadSignal) return;
-    const age = Date.now() - reloadSignal;
-    if (!(reloadSignal > 0) || age > RELOAD_FRESH_MS) {
-      reloadSeenRef.current = reloadSignal;
-      return;
-    }
     reloadSeenRef.current = reloadSignal;
     /* Office Reload reopens a wrongly-shut screen too: if the broadcast is
        truly over the render below re-latches shut at once, so clearing here
        can never strand the screen open — but a screen stuck shut while the
-       channel is back on air opens again on the fresh answer. A cached dead
-       verdict from this same tab is dropped first, or the fresh mount would
-       replay the old answer instead of the fix. */
+       channel is back on air opens again on the fresh answer. */
     try {
       setShut(null);
-    } catch {}
-    try {
-      forgetAllVerified();
     } catch {}
     try {
       recheckLiveNow();
@@ -637,9 +622,7 @@ export function WatchLive() {
               </Btn>
             }
           />
-          <SectionBoundary label="last-message">
-            <SermonWatch sermon={latest} className="vcard--wide" hideDeadText />
-          </SectionBoundary>
+          <SermonWatch sermon={latest} className="vcard--wide" hideDeadText />
         </Section>
       )}
 
@@ -669,7 +652,6 @@ export function WatchLive() {
             </>
           }
         />
-        <SectionBoundary label="recent-services">
         {recentFallback.length ? (
           <div className="grid grid-2">
             {recentFallback.map((s, i) => (
@@ -687,7 +669,6 @@ export function WatchLive() {
             ))}
           </div>
         )}
-        </SectionBoundary>
       </Section>
 
       {pastCards.length > 0 && (
@@ -702,7 +683,6 @@ export function WatchLive() {
               </Btn>
             }
           />
-          <SectionBoundary label="past-sermons">
           <div className="grid grid-3">
             {pastCards.map((s, i) => (
               <Reveal key={s.id} delay={(i % 3) * 60}>
@@ -710,15 +690,12 @@ export function WatchLive() {
               </Reveal>
             ))}
           </div>
-          </SectionBoundary>
         </Section>
       )}
 
       <Section tone="raised">
         <SectionHeading center eyebrow={ct("live.ways.eyebrow")} title={ct("live.ways.title")} />
-        <SectionBoundary label="ways-to-watch">
-          <WatchCards />
-        </SectionBoundary>
+        <WatchCards />
       </Section>
 
       {notesOpen && <ServiceNotesModal info={info} onClose={() => setNotesOpen(false)} />}

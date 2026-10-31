@@ -58,28 +58,16 @@ export class ErrorBoundary extends React.Component<{ children: React.ReactNode }
       if (here && here !== this.state.retriedRoute) this.setState({ retriedRoute: "", retryFailed: false });
     }
   }
-  /* One tap brings the SAME page back: the card retries the page subtree in
-     place first — same address, same synced words, same on-air answer — and
-     only a crash that repeats on the same route takes the full reload. Before
-     either path, volatile live caches are dropped (stale on-air/verdict
-     answers can never re-poison the retry) and a chunk-load failure — a new
-     deploy landing mid-visit — goes straight to the full reload, since the
-     in-place retry would only re-request the same missing chunk. Either way
-     one tap fixes it; the second tap always reloads. */
+  /* One tap brings the SAME page back (note 408): the card retries the page
+     subtree in place — same address, same synced words, same on-air answer —
+     so the livestream that returns is the one the visitor was watching, not
+     whatever a cold boot resolves first (seed words, a guest answer landing
+     before the main one, an override still converging). The page's own mount
+     checks re-run on the remount, so a stream that is live still opens by
+     itself, with sound. Only a crash that repeats on the same route takes
+     the full reload — that render is broken, not its state. */
   private retry = () => {
-    try {
-      import("../lib/livestatus").then((m) => {
-        try { m.forgetAllVerified(); } catch {}
-      }).catch(() => {});
-    } catch {}
-    try {
-      localStorage.removeItem("wom.livestatus");
-    } catch {}
-    try {
-      sessionStorage.removeItem("wom.live.targetNote");
-    } catch {}
-    const msg = String((this.state.error && (this.state.error as any).message) || "") + "\n" + this.state.stack;
-    if (this.state.retryFailed || isChunkError(msg)) {
+    if (this.state.retryFailed) {
       try {
         window.location.reload();
       } catch {
@@ -132,68 +120,8 @@ export class ErrorBoundary extends React.Component<{ children: React.ReactNode }
   }
 }
 
-/* A new deploy landing mid-visit breaks dynamic chunk imports with these
-   messages — the in-place retry would only re-request the same chunk, so the
-   card reloads straight onto the new code instead. Never throws. */
-function isChunkError(text: string): boolean {
-  try {
-    const t = String(text || "").toLowerCase();
-    return (
-      t.includes("dynamically imported module") ||
-      t.includes("chunkloaderror") ||
-      t.includes("loading chunk") ||
-      t.includes("failed to fetch") ||
-      t.includes("importing a module")
-    );
-  } catch {
-    return false;
-  }
-}
-
-/* A per-section net for list-heavy pages (Watch live, sermons): one bad card
-   (a corrupt write-up, a bad thumbnail, a translator miss) clears to a quiet
-   placeholder instead of taking the whole page to the error card above. The
-   page keeps working; the office sees the console error with the section name.
-   Never throws, never remounts siblings. */
-export class SectionBoundary extends React.Component<{ children: React.ReactNode; label?: string }, { error: Error | null; nonce: number }> {
-  constructor(props: { children: React.ReactNode; label?: string }) {
-    super(props);
-    this.state = { error: null, nonce: 0 };
-  }
-  static getDerivedStateFromError(error: Error) {
-    return { error };
-  }
-  componentDidCatch(error: Error, info?: { componentStack?: string }) {
-    try {
-      console.error("World Overcomers section error (" + String(this.props.label || "section") + "):", { error, stack: String(info?.componentStack || "") });
-    } catch {}
-  }
-  private retry = () => {
-    this.setState((s) => ({ error: null, nonce: s.nonce + 1 }));
-  };
-  render() {
-    if (this.state.error) {
-      return (
-        <div className="notice notice--warn" role="status">
-          <p style={{ margin: 0 }}>
-            This section failed to load.{" "}
-            <button type="button" className="linklike" onClick={this.retry}>
-              Try again
-            </button>
-          </p>
-        </div>
-      );
-    }
-    return <React.Fragment key={this.state.nonce}>{this.props.children}</React.Fragment>;
-  }
-}
-
 /* The address that broke — read in one place so the card, the report and the
    retry all name the same page. */
 function readBoundaryRoute(): string {
-  try {
-    return window.location.hash || window.location.pathname || "";
-  } catch {
-    return "";
-  }
+  return window.location.hash || window.location.pathname || "";
 }

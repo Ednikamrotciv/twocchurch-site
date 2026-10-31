@@ -957,6 +957,12 @@ const UNKNOWN_CAP_MS = 3 * 60_000;
 let lastCheckAt = snapshot.status.checkedAt;
 /** The address the last answer was about, so a new one is checked at once. */
 let lastTarget = "";
+/** A check is in flight: slow doors (walled reads verify up to three watch
+    pages in a row) can outlast the short cadence, so a second run must queue
+    instead of overlapping — overlapping runs hammer the proxy and the last
+    answer to land wins, which flaps the screen. */
+let running = false;
+let queued = false;
 
 /* Where definitive answers go when this copy is the office (note 318): the
    content store registers its authed-socket sink at boot; every other copy
@@ -1159,6 +1165,28 @@ function onLiveTargetEvent() {
 
 async function run() {
   if (!watchers.size) return;
+  /* One check at a time (see `running` above): a timer that fires while the
+     previous check is still behind slow doors queues one follow-up instead of
+     overlapping it — overlapping runs hammer the proxy and flap the screen
+     when the slower answer lands last. */
+  if (running) {
+    queued = true;
+    return;
+  }
+  running = true;
+  try {
+    await runOnce();
+  } finally {
+    running = false;
+    if (queued) {
+      queued = false;
+      if (watchers.size) schedule(0);
+    }
+  }
+}
+
+async function runOnce() {
+  if (!watchers.size) return;
   /* A broadcast that is on air is the one moment the answer matters, so it is
      never skipped; a hidden tab is otherwise left alone (no point in spending
      the proxy's time on a screen nobody is looking at). */
@@ -1359,19 +1387,13 @@ async function noembedVerdict(id: string, signal?: AbortSignal): Promise<boolean
   }
 }
 
-/** Cache-only peek (no fetch): true = played before, false = known dead, null = never asked.
-    Dead verdicts expire fast (60s): an embedding flip or a restarted stream can
-    turn the same id playable again, and a cached dead must never hold the
-    screen on the fallback. Playable verdicts keep the full 5 minutes. */
-const VERIFY_DEAD_TTL_MS = 60_000;
+/** Cache-only peek (no fetch): true = played before, false = known dead, null = never asked. */
 export function peekVerified(videoId: string): boolean | null {
   const id = parseYoutubeId(videoId);
   if (!id) return false;
   const hit = verifyCache.get(id);
-  if (!hit) return null;
-  const age = Date.now() - hit.at;
-  if (hit.ok) return age >= VERIFY_TTL_MS ? null : true;
-  return age >= VERIFY_DEAD_TTL_MS ? null : false;
+  if (!hit || Date.now() - hit.at >= VERIFY_TTL_MS) return null;
+  return hit.ok;
 }
 
 /** Drop what the verifier learned about one video (visitor retry + office

@@ -443,6 +443,10 @@ export async function fetchRecentServices(): Promise<RecentServices | null> {
     /* An upload with neither a date nor YouTube's own words is an *upcoming*
        broadcast, not a service that has happened: it is not a recent service. */
     .filter((it) => feed.dates[it.videoId] || it.ago)
+    /* A scheduled premiere or upcoming broadcast is not a service that has
+       happened either: the /videos grid lists those like any upload, so their
+       markers are refused the same way the /streams read refuses them. */
+    .filter((it) => !isUnfinishedAgo(it.ago))
     .filter((it) => !designatedRead || !!feed.dates[it.videoId])
     .map((it) => ({
       videoId: it.videoId,
@@ -453,10 +457,14 @@ export async function fetchRecentServices(): Promise<RecentServices | null> {
     }));
   if (!items.length) return null;
 
+  /* Scheduled premieres sit in the feed with tomorrow's date — not previous. */
+  const past = items.filter((it) => !(it.at > now + 30 * 60_000));
+  if (!past.length) return null;
+
   /* One message however many times it was published (SPEC note 113), and the
      list in the order the office's own number then picks from: nearest date
      first, which for a church means the last few services as they happened. */
-  const collapsed = collapseSameMessage(items, now).sort((a, b) => whenOf(b, now) - whenOf(a, now));
+  const collapsed = collapseSameMessage(past, now).sort((a, b) => whenOf(b, now) - whenOf(a, now));
 
   /* Never lose a service to a thin read: the channel only ever carries the
      latest uploads, so a read that comes back short must not evict the older
@@ -618,14 +626,18 @@ export function designatedFallback(): RecentServices {
      lives no code can ship) the live read and the shipped bake fill the
      card instead. */
   if (!designated || designated !== designatedChannelId("@twocorg")) return { ...EMPTY };
+  /* One card per message (note 113): the baked list carries repeat uploads of
+     the same service — collapse them exactly like a live read, newest first. */
+  const base: RecentService[] = DESIGNATED_FALLBACK_ITEMS.map((it) => ({
+    videoId: it.videoId,
+    title: it.title,
+    at: it.at,
+    ago: "",
+    thumb: `https://i.ytimg.com/vi/${it.videoId}/hqdefault.jpg`,
+  }));
+  const collapsed = collapseSameMessage(base, DESIGNATED_FALLBACK_AT).sort((a, b) => b.at - a.at);
   return {
-    items: DESIGNATED_FALLBACK_ITEMS.map((it) => ({
-      videoId: it.videoId,
-      title: it.title,
-      at: it.at,
-      ago: "",
-      thumb: `https://i.ytimg.com/vi/${it.videoId}/hqdefault.jpg`,
-    })),
+    items: collapsed,
     at: DESIGNATED_FALLBACK_AT,
     channelId: designated,
   };

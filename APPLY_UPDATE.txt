@@ -1,4 +1,4 @@
-APPLY THIS UPDATE (438) — ONE UNIFIED UPDATE (ALL OLD UPDATES REMOVED)
+APPLY THIS UPDATE (439) — ONE UNIFIED UPDATE (ALL OLD UPDATES REMOVED)
 =============================================================================
 Single update, one zip — every older update is superseded by this one. Extract fully
 incl. index.html on BOTH sides (office computer + any always-on host), then follow the
@@ -58,10 +58,10 @@ BOTH sides (same zip), `npm run dev:fresh` + restart the office backend, hard re
 sign in once (the new deploy asks for it; dev restarts keep you signed in); Publish
 ONCE from any signed-in admin copy — every copy lifts within seconds online (or at
 first sync); THEN bake-seed, commit+push full step-0 set, rebuild BOTH hosts; Publish
-on each host; reload ALL admin tabs. Proof: window.__womBuild = { notes: 438,
-code: "unified438" }; verifier sections GGG (no-change publish blesses deploy) + MMM
+on each host; reload ALL admin tabs. Proof: window.__womBuild = { notes: 439,
+code: "unified439" }; verifier sections GGG (no-change publish blesses deploy) + MMM
 (sessions) pass, plus the new live-lands-both-ways lock. Files: src/lib/hooks.ts
-(438/unified438) + index.html (wom-notes/code), src/lib/cms.ts (session-free live
+(439/unified439) + index.html (wom-notes/code), src/lib/cms.ts (session-free live
 adoption both directions + owed-record guard + prompt live tick), src/SPEC.md
 (note 438), src/tools/verify-update.mjs (438 payloads + both-ways lock),
 DEPLOY.md (bidirectional routine).

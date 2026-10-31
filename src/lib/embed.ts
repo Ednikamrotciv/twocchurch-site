@@ -36,6 +36,7 @@ export function parseYoutubeId(input: string): string {
     /youtu\.be\/([\w-]{11})/,
     /youtube\.com\/live\/([\w-]{11})/,
     /youtube\.com\/embed\/([\w-]{11})/,
+    /youtube-nocookie\.com\/embed\/([\w-]{11})/,
     /youtube\.com\/shorts\/([\w-]{11})/,
     /youtube\.com\/watch\/([\w-]{11})/,
   ];
