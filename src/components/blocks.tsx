@@ -347,6 +347,14 @@ export function VideoPlayer({
      id; anything else remounts with a cache-busted address and replays (the
      verifier + in-frame error decide). Never replays a stale dead id blind. */
   const [repairing, setRepairing] = useState(false);
+  /* Loaded but unconfirmed (the deployed net): a plain channel frame whose
+     document arrived yet no check could say whether it is the broadcast or
+     YouTube's own "unavailable" card — the document loads either way, so
+     onLoad alone never proves anything. While set, the same grey repair
+     arrow sits over the frame (the frame stays mounted, so a broadcast that
+     IS live keeps playing); one tap runs the shared repair below. Cleared
+     the moment anything confirms — a verified id, a new source, a repair. */
+  const [stalled, setStalled] = useState(false);
   const repair = () => {
     try {
       forgetAllVerified();
@@ -361,6 +369,7 @@ export function VideoPlayer({
     setFailed(false);
     setNotLive(false);
     setChecking(false);
+    setStalled(false);
     setLiveVideoId("");
     /* Fresh address + fresh mount together: the remount alone can repaint a
        cached blank frame, so the frame address changes too — the browser
@@ -437,6 +446,7 @@ export function VideoPlayer({
     setDead(false);
     setChecking(false);
     setNotLive(false);
+    setStalled(false);
     setLiveVideoId("");
     setIframeKey((k) => k + 1);
   }, [sourceKey]);
@@ -484,6 +494,7 @@ export function VideoPlayer({
                 return;
               }
               setLiveVideoId(vid);
+              setStalled(false);
               setPlaying(true);
               onPlay?.();
             })
@@ -661,10 +672,12 @@ export function VideoPlayer({
      the broadcast is STILL on air (embedding flipped on, a restarted
      stream's new id resolving late) re-resolves by itself every 30s and
      reopens the moment a verified live id answers — no arrow tap, no office
-     Reload needed. Anything but a verified live id stays put, so a truly
+     Reload needed. A stalled channel frame (arrow over an unconfirmed frame)
+     heals the same way: the arrow lifts by itself when the broadcast
+     verifies. Anything but a verified live id stays put, so a truly
      ended broadcast never loops. */
   useEffect(() => {
-    if (!live || !dead) return;
+    if (!live || (!dead && !stalled)) return;
     let cancelled = false;
     const t = window.setInterval(() => {
       (async () => {
@@ -704,6 +717,7 @@ export function VideoPlayer({
           setFailed(false);
           setNotLive(false);
           setChecking(false);
+          setStalled(false);
           setPlaying(true);
           try {
             onPlay?.();
@@ -722,7 +736,7 @@ export function VideoPlayer({
         window.clearInterval(t);
       } catch {}
     };
-  }, [live, dead, liveVideoId, ytId]);
+  }, [live, dead, stalled, liveVideoId, ytId]);
 
   /* In-frame failure signal (see loader above): a bare video id plays
      through the API's own host div, and YouTube's own onError (100 gone,
@@ -736,7 +750,6 @@ export function VideoPlayer({
     const vid = liveVideoId || ytId;
     if (!vid) return;
     const host = apiHostRef.current;
-    if (!host) return;
     let player: any = null;
     let cancelled = false;
     /* Watchdog: a frame that reports neither ready nor error within 12s is
@@ -750,6 +763,12 @@ export function VideoPlayer({
       try { setDead(true); } catch {}
     };
     const watchdog = window.setTimeout(() => fail("watchdog"), 12_000);
+    /* No host to play into is a failure like any other: the screen must
+       offer the repair arrow, never an empty black box. */
+    if (!host) {
+      fail("no-host");
+      return;
+    }
     loadYtPlayerApi()
       .then((api) => {
         if (cancelled || !api || !api.Player) return;
@@ -766,13 +785,20 @@ export function VideoPlayer({
               onError: (e: any) => {
                 const code = Number(e && (e as any).data);
                 try { window.clearTimeout(watchdog); } catch {}
-                if (code === 100 || code === 101 || code === 105 || code === 150) fail("youtube-error", code);
-                else { settled = true; }
+                /* Every player-reported failure lands on the fallback (the
+                   centered repair arrow above): the known gone/private/
+                   embedding codes AND anything else YouTube may send (e.g. a
+                   player/media error on a flaky network) — a black frame with
+                   no way out is never the answer. */
+                fail("youtube-error", code);
               },
             },
           });
         } catch {
+          /* A player that cannot even be built is a failure like any
+             other: the repair arrow, never a silent empty box. */
           try { window.clearTimeout(watchdog); } catch {}
+          fail("player-build");
         }
       })
       .catch(() => {});
@@ -831,6 +857,7 @@ export function VideoPlayer({
                 }
                 try {
                   setLiveVideoId(vid);
+                  setStalled(false);
                 } catch {}
                 return;
               }
@@ -843,7 +870,21 @@ export function VideoPlayer({
             /* probe down — fall through to the loaded check below */
           }
         }
-        if (!frameLoadedRef.current) fail();
+        if (!frameLoadedRef.current) {
+          fail();
+        } else if (platform === "youtube" && followId) {
+          /* Loaded but unconfirmed: the frame document arrived, so this is
+             not a network blank — but only YouTube knows whether it is the
+             broadcast or its own "unavailable" card, and the check above
+             could not say (deployed with the proxies down reads unknown
+             here). The repair arrow appears over the frame — the frame stays
+             mounted, so a broadcast that IS live keeps playing — and one tap
+             re-asks and replays. A verified id above (or any repair) clears
+             it again. */
+          try {
+            setStalled(true);
+          } catch {}
+        }
       })().catch(() => {
         if (!frameLoadedRef.current) fail();
       });
@@ -997,6 +1038,30 @@ export function VideoPlayer({
               } catch {}
             }}
           />
+          )}
+          {/* Loaded but unconfirmed (the deployed net): the frame document
+             arrived yet no check could say broadcast or "unavailable" — the
+             same grey repair arrow as the dead fallback, over the frame
+             instead of replacing it, so a broadcast that IS live keeps
+             playing underneath. One tap runs the shared repair. */}
+          {stalled && platform === "youtube" && !!followId && !dead && (
+            <span className="player__stall" aria-live="polite">
+              <span className="player__scrim" aria-hidden="true" />
+              <button
+                type="button"
+                className={"player__reload" + (repairing ? " is-spinning" : "")}
+                onClick={retry}
+                aria-label={tx("Reload the livestream")}
+                title={tx("Reload the livestream")}
+              >
+                <svg viewBox="0 0 24 24" width="44" height="44" aria-hidden="true">
+                  <path
+                    fill="currentColor"
+                    d="M12 5V1L7 6l5 5V7c3.3 0 6 2.7 6 6s-2.7 6-6 6-6-2.7-6-6H4c0 4.4 3.6 8 8 8s8-3.6 8-8-3.6-8-8-8z"
+                  />
+                </svg>
+              </button>
+            </span>
           )}
           {/* The frame itself never reports a failure (note 344): a video
               YouTube refuses to embed, blocks in this country, or takes down

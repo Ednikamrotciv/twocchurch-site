@@ -1187,6 +1187,26 @@
   transform: scale(0.97);
 }
 
+/* Loaded-but-unconfirmed channel frame (the deployed net): the same grey
+   repair arrow over the frame instead of replacing it. The overlay itself
+   clicks through (a broadcast that IS live keeps playing underneath) — only
+   the arrow button takes the tap. */
+.player__stall {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+}
+.player__stall .player__scrim {
+  background: linear-gradient(180deg, rgba(4, 4, 7, 0.12), rgba(4, 4, 7, 0.45));
+}
+.player__stall .player__reload {
+  pointer-events: auto;
+}
+
 .player__reload.is-spinning svg {
   animation: player-reload-spin 0.9s linear infinite;
 }
