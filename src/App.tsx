@@ -200,7 +200,14 @@ export function App() {
       <LangAsk />
     </>
   );
-  if (stale.waiting || maintenance) return <MaintenanceSite />;
+  /* The wait itself is boundary-wrapped (note 442): an uncaught throw in the
+     notice (theme, logo, clock) used to white-screen with no reload button. */
+  if (stale.waiting || maintenance)
+    return (
+      <ErrorBoundary>
+        <MaintenanceSite />
+      </ErrorBoundary>
+    );
 
   return (
     <>

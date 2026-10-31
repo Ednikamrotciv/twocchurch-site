@@ -3,11 +3,11 @@
 <!-- The shipped update number: the pre-bundle gate below paints the maintenance
      notice before React boots whenever this copy has not published it yet.
      Bump with BUILD_NOTES (src/lib/hooks.ts) on every update. -->
-<meta name="wom-notes" content="441" />
+<meta name="wom-notes" content="442" />
 <!-- The shipped code word (unnumbered stale fix): names the running code with
 no number, so the gate below holds for this fix even though the update
 number is unchanged. build-static.mjs stamps it from hooks.ts CODE_ID. -->
-  <meta name="wom-code" content="unified441" />
+  <meta name="wom-code" content="unified442" />
 
 <meta name="theme-color" content="#08080a">
 <!-- Speed: warm the stream + image doors so the live player opens instantly. -->
@@ -139,7 +139,9 @@ number is unchanged. build-static.mjs stamps it from hooks.ts CODE_ID. -->
       d.id = "wom-maint-gate";
       d.setAttribute("style", "position:fixed;inset:0;z-index:99999;background:#07070a;color:#f5efe0;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:2rem;font-family:Georgia,serif;");
       d.innerHTML = '<div style="max-width:34rem;"><div style="font-size:0.8rem;letter-spacing:0.2em;opacity:0.7;margin-bottom:1rem;">MAINTENANCE</div><h1 style="font-size:2rem;margin:0 0 0.8rem;">We\u2019ll be right back</h1><p style="opacity:0.85;line-height:1.6;margin:0;">The site is being updated. Please check back shortly.</p></div>';
-      try { document.documentElement.appendChild(d); } catch (_) { try { document.body.appendChild(d); } catch (_) {} }
+      /* Body first (note 442): appending to <html> outside <body> is invalid
+         and misplaces the overlay in some browsers — body, then fallback. */
+      try { document.body.appendChild(d); } catch (_) { try { document.documentElement.appendChild(d); } catch (_) {} }
     }
     function unpaint() { try { var e = document.getElementById("wom-maint-gate"); if (e) e.remove(); } catch (_) {} }
     if (shouldWait) paint();
@@ -176,6 +178,17 @@ number is unchanged. build-static.mjs stamps it from hooks.ts CODE_ID. -->
           if (e.key === "wom.cms.deployPublished" || e.key === "wom.cms.codeBlessed" || e.key === "wom.cms.notes") {
             var pd = ls("wom.cms.deployPublished") || "";
             if (deployId && pd === deployId) unpaint();
+            /* Local-dev parity (note 442): no deploy id here, so the notes +
+               code gate is the release — the interval below already follows
+               React, but a background tab should drop the early paint at the
+               storage event instead of waiting a second. */
+            if (!deployId) {
+              var nr2 = ls("wom.cms.notes");
+              var nn2 = 0;
+              try { nn2 = Math.floor(Number(JSON.parse(nr2))) || 0; } catch (_) { try { nn2 = Math.floor(Number(nr2)) || 0; } catch (_) {} }
+              var bl2 = ls("wom.cms.codeBlessed") || "";
+              if (nn2 >= notesNum && bl2 && code && bl2 === code) unpaint();
+            }
           }
         } catch (_) {}
       });
