@@ -1210,34 +1210,6 @@
   z-index: 2;
 }
 
-/* Always-visible live repair (small grey circle over the playing frame):
-   same repair as the big error-only arrow, but present even when YouTube
-   paints its own "unavailable" text inside the iframe (which React cannot
-   detect cross-origin). Subtle until hovered; spins while repairing. */
-.player__mini-reload {
-  position: absolute;
-  top: 10px;
-  left: 10px;
-  z-index: 4;
-  width: 38px;
-  height: 38px;
-  border-radius: 50%;
-  border: 0;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  background: rgba(107, 114, 128, 0.88);
-  color: #fff;
-  cursor: pointer;
-  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.45);
-  opacity: 0.82;
-  -webkit-tap-highlight-color: transparent;
-  touch-action: manipulation;
-}
-.player__mini-reload:hover { opacity: 1; transform: scale(1.06); }
-.player__mini-reload:active { transform: scale(0.96); }
-.player__mini-reload.is-spinning svg { animation: player-reload-spin 0.9s linear infinite; }
-
 .player--compact .player__reload {
   width: 62px;
   height: 62px;

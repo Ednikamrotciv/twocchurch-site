@@ -462,6 +462,10 @@ export function VideoPlayer({
         if (!isStatusForTarget(st, liveTarget()?.url || "") && !(guestWatchUrl && isStatusForTarget(st, guestWatchUrl))) {
           setChecking(false);
           setNotLive(true);
+          /* Stale address with a frame already open: land on the centered
+             arrow fallback instead of a silent poster — the visitor's tap
+             asked, and the arrow is the way back to what's live now. */
+          try { if (playing) setDead(true); } catch {}
           return;
         }
         /* Only the designated channel opens the player (note 358): a live
@@ -472,6 +476,9 @@ export function VideoPlayer({
         if (!isDesignatedChannel(st.channelId || "", designatedId) && !(guestWatchUrl && isGuestTargetUrl(st.target || "", guestWatchUrl))) {
           setChecking(false);
           setNotLive(true);
+          /* Somebody else's video can never play here: the centered arrow
+             fallback names the fix instead of a silent poster. */
+          try { if (playing) setDead(true); } catch {}
           return;
         }
         const vid = parseYoutubeId(st.videoId || "");
@@ -500,6 +507,13 @@ export function VideoPlayer({
           setChecking(false);
           setPlaying(true);
           onPlay?.();
+        } else if (st.state === "off") {
+          setChecking(false);
+          setNotLive(true);
+          /* Proven off while a channel frame plays: that frame is YouTube's
+             own "unavailable" text, so swap it for the centered arrow
+             fallback at once — the arrow re-asks and reopens. */
+          try { setDead(true); } catch {}
         } else {
           setChecking(false);
           setNotLive(true);
@@ -1042,28 +1056,6 @@ export function VideoPlayer({
               } catch {}
             }}
           />
-          )}
-          {/* Live repair, always within reach: YouTube's own "unavailable"
-              text renders INSIDE the iframe where React cannot see it, so the
-              error-only arrow below can never appear for it. This small grey
-              circle sits OVER the frame while live and runs the same shared
-              repair (fresh verified id, remount, rejoin sound) — one tap fixes
-              a stuck/unavailable/embed-refused frame with no page reload. */}
-          {live && playing && !dead && (
-            <button
-              type="button"
-              className={"player__mini-reload" + (repairing ? " is-spinning" : "")}
-              onClick={retry}
-              aria-label={tx("Reload the livestream")}
-              title={tx("Reload the livestream")}
-            >
-              <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">
-                <path
-                  fill="currentColor"
-                  d="M12 5V1L7 6l5 5V7c3.3 0 6 2.7 6 6s-2.7 6-6 6-6-2.7-6-6H4c0 4.4 3.6 8 8 8s8-3.6 8-8-3.6-8-8-8z"
-                />
-              </svg>
-            </button>
           )}
           {/* The frame itself never reports a failure (note 344): a video
               YouTube refuses to embed, blocks in this country, or takes down
