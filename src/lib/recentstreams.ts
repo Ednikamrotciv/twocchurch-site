@@ -41,7 +41,7 @@ const KEEP = 24;
 /** Two uploads this close together — with the same headline — are one message. */
 const SAME_MESSAGE_MS = 20 * 60 * 60 * 1000;
 /** The channel is re-read this often in the quiet week… */
-const IDLE_MS = 2 * 60_000;
+const IDLE_MS = 60_000;
 /** …and this often while a service is on the clock or on air. */
 const SOON_MS = 30_000;
 /** …and how long the short cadence is kept after a service comes off air. */

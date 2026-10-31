@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Link, navigate } from "../lib/router";
 import { motion, AnimatePresence, useReducedMotion } from "framer-motion";
 import { useLocalState, fireToast, useNow, useReveal } from "../lib/hooks";
-import { useCmsVersion } from "../lib/cms";
+import { setLivePlaybackActive, useCmsVersion } from "../lib/cms";
 import { liveAnnouncements, ANNOUNCEMENTS } from "../data/announcements";
 import { ct } from "../data/copy";
 import { tx } from "../lib/i18n";
@@ -285,44 +285,50 @@ export function VideoPlayer({
   autoPlay?: boolean;
   /** Hide the "Can't see the video?" escape link — the live screen drops it. */
   hideEscape?: boolean;
-  /** Hide the "can't be played here" line in the dead fallback (poster,
-      retry arrow and platform link stay) — used all over the Watch live
-      screen, where the line is not wanted. */
+  /** Kept so existing callers still type-check: the dead fallback no longer
+      renders the dead-text line on any screen — poster, reload arrow and a
+      way out are the whole fallback now. */
   hideDeadText?: boolean;
   /** Office Reload press (published liveReloadAt): the general fix. When it
-      changes, the player drops what it learned, remounts the frame and
-      re-asks — any error heals with no page reload, staying on this site. */
+      changes, the player force-repairs — drops what it learned, re-asks
+      what's live now, remounts the frame on a fresh address — any error or
+      blank heals with no page reload, staying on this site. */
   reloadSignal?: number;
 }) {
   const [failed, setFailed] = useState(false);
   /* Dead-video net (note 333, hardened note 413): a removed or private video must never sit on
      the black "unavailable" frame — the player says so and offers the
      platform link instead. Channel follows and files cannot be asked, so
-     only bare YouTube ids are verified. Autoplay never opens an unverified id. */
+     only bare YouTube ids are verified. Autoplay never opens an unverified
+     id — the one exception is a live follow, which mounts its channel
+     address at once (the screen already says live) and upgrades to the
+     verified id behind it. */
   const ytId = source?.platform === "facebook" || source?.platform === "upload" ? "" : parseYoutubeId(source?.youtubeId || "");
   const followId = live && source?.platform !== "facebook" && source?.platform !== "upload" ? String(source?.youtubeChannelId || "") : "";
   /* Frame remount key: bumped by the visitor retry and the office Reload —
      the iframe reloads in place, no page reload, stays on this site. */
   const [iframeKey, setIframeKey] = useState(0);
+  /* Fresh-frame key: bumped with the remount key on every force repair. The
+     plain-frame address carries it as a dummy query, so the browser cannot
+     repaint a cached blank frame — each repair loads truly fresh. */
+  const [forceKey, setForceKey] = useState(0);
   const [playing, setPlaying] = useState(() => {
     if (!autoPlay) return false;
-    /* Live opens at once (no tap, no gold button, fast screen): the frame
-       mounts immediately and the verifier behind it swaps to the fallback
-       only if the id proves dead. A channel follow with no verified id
-       verifies first instead — mounting its frame blind is what used to
-       sit the screen on YouTube's own "unavailable". */
+    /* Live opens at once (no tap, no gold button, no round trip): the frame
+       mounts immediately — the channel it follows or the id it carries —
+       and the check behind it upgrades to the verified broadcast id the
+       moment it lands. The screen (or the office's Play) already says live,
+       so there is nothing to wait for; a truly dead id still falls to the
+       fallback below. */
     if (live) {
-      if (!ytId && followId) return false;
       return true;
     }
-    /* Livestream screen: play the broadcast by itself WITH SOUND — a verified
-       id, an unverified-but-not-dead id, or the live channel follow all open
-       with no tap. Only a proven-dead id is held back (the fallback below
-       still offers the platform link, never the black "unavailable" frame). */
+    /* Replay cards open by themselves WITH SOUND — a verified id or an
+       unverified-but-not-dead one, with no tap. Only a proven-dead id is
+       held back (the fallback below still offers the platform link, never
+       the black "unavailable" frame). Channel follows are live-only, so
+       there is nothing else to hold back here. */
     if (ytId && peekVerified(ytId) !== true) return false;
-    /* A channel follow never opens blind: it verifies first, so an offline
-       channel shows the waiting poster, never the black "unavailable" frame. */
-    if (!ytId && followId) return false;
     return true;
   });
   /* A channel with no video id cannot be asked of oEmbed (note 342): tapping
@@ -334,15 +340,12 @@ export function VideoPlayer({
   const [checking, setChecking] = useState(false);
   const [notLive, setNotLive] = useState(false);
   const [liveVideoId, setLiveVideoId] = useState("");
-  /* Office Reload repair (published liveReloadAt): the general fix for any
-     livestream-screen error — dead frame, hung load, blocked autoplay. Drops
-     what the verifier learned, remounts the frame, re-asks the on-air check
-     and reopens. No page reload, stays on this site. */
-  /* One-press repair (visitor arrow + office Reload share it): drop stale
-     verdicts, re-ask what's live now, and play the current broadcast by its
-     fresh verified ID — a restarted stream's new video, a stale resolution,
-     a hung frame. A channel follow re-asks the check and plays the current
-     broadcast by its own verified id; a bare id remounts and replays (the
+  /* One-press FORCE repair (visitor arrow + office Reload share it): drop
+     stale verdicts, re-ask what's live now, and play the current broadcast
+     by its fresh verified ID — a restarted stream's new video, a stale
+     resolution, a hung frame, a cached blank frame. A channel follow
+     re-asks the check and plays the current broadcast by its own verified
+     id; anything else remounts with a cache-busted address and replays (the
      verifier + in-frame error decide). Never replays a stale dead id blind. */
   const [repairing, setRepairing] = useState(false);
   const repair = () => {
@@ -360,6 +363,10 @@ export function VideoPlayer({
     setNotLive(false);
     setChecking(false);
     setLiveVideoId("");
+    /* Fresh address + fresh mount together: the remount alone can repaint a
+       cached blank frame, so the frame address changes too — the browser
+       must fetch the player again instead of reusing what it has. */
+    setForceKey((k) => k + 1);
     setRepairing(true);
     try {
       recheckLiveNow();
@@ -372,7 +379,7 @@ export function VideoPlayer({
     /* A channel follow re-resolves (the fix for "unavailable" after the
        office restarted the stream): re-ask what's live now and play the
        current broadcast by its fresh verified id. Anything else remounts
-       and replays. */
+       with the fresh address and replays. */
     if (live && followId) {
       checkChannelThenPlay();
       try {
@@ -390,9 +397,9 @@ export function VideoPlayer({
     }
   };
   /* Office Reload repair (published liveReloadAt): the general fix for any
-     livestream-screen error — unavailable frame, dead id, hung load, blocked
-     autoplay. Runs the shared repair above: re-asks the on-air check and
-     reopens on what's live now. No page reload, stays on this site. */
+     livestream-screen error — dead frame, blank frame, dead id, hung load,
+     blocked autoplay. Runs the shared force repair above: re-asks the on-air
+     check and reopens on what's live now. No page reload, stays on this site. */
   const reloadSeen = useRef(typeof reloadSignal === "number" ? reloadSignal : 0);
   useEffect(() => {
     if (!live || !reloadSignal) return;
@@ -400,10 +407,25 @@ export function VideoPlayer({
     reloadSeen.current = reloadSignal;
     repair();
   }, [live, reloadSignal]);
+  /* A live broadcast never stops for a deploy: while this live player is
+     open, the stale-build gate holds its reload and its maintenance notice —
+     the tab takes the newer update the moment the broadcast ends. */
+  useEffect(() => {
+    if (!live || !playing) return;
+    try {
+      setLivePlaybackActive(true);
+    } catch {}
+    return () => {
+      try {
+        setLivePlaybackActive(false);
+      } catch {}
+    };
+  }, [live, playing]);
   /* Visitor retry (error-only): the circular arrow in the center of the
      screen, shown ONLY while the player reports an error (unavailable + all
-     other failures) and hidden whenever the screen is fine. One tap runs the
-     shared repair above — it finds what's live now and plays it. */
+     other failures) or sits blank with no address, and hidden whenever the
+     screen is fine. One tap runs the shared force repair above — it finds
+     what's live now and plays it fresh. */
   const retry = () => {
     repair();
   };
@@ -415,6 +437,11 @@ export function VideoPlayer({
   const shown = tx(title);
   const sourceKey = embedSrc(source, true);
   const src = liveVideoId ? embedSrc({ platform: "youtube", youtubeId: liveVideoId }, true) : sourceKey;
+  /* Force-fresh address: after a repair the plain frame must load again, not
+     repaint a cached blank — the dummy query makes each repair an address the
+     browser has never seen. The API-managed frame takes the id, not a URL, so
+     its remount is already fresh. */
+  const freshSrc = forceKey > 0 && src ? src + (src.indexOf("?") === -1 ? "?" : "&") + "womfresh=" + forceKey : src;
   const file = fileSrc(source);
   const still = poster && !failed ? poster : posterFor(source);
   const platform: VideoPlatform = source?.platform === "facebook" ? "facebook" : source?.platform === "upload" ? "upload" : "youtube";
@@ -492,8 +519,10 @@ export function VideoPlayer({
         }
       })
       .catch(() => {
+        /* Probe down, not proof of off (note 420): keep the frame the screen
+           already opened — the poller and the self-heal re-ask, and a truly
+           ended broadcast still closes at the screen level. */
         setChecking(false);
-        setNotLive(true);
       });
   };
   const open = () => {
@@ -538,21 +567,37 @@ export function VideoPlayer({
      Note 413: autoplay verifies first — an unverified id waits (poster +
      "Checking…") and a dead id falls to the fallback instead of the black frame. */
   useEffect(() => {
-    if (!autoPlay || playing) return;
+    if (!autoPlay) return;
     if (!ytId) {
       /* Id-less autoplay (channel follow) verifies first: an offline channel
          must show the waiting poster, never the "unavailable" frame. */
       if (source?.platform === "facebook") {
-        setPlaying(true);
+        if (!playing) setPlaying(true);
         return;
       }
       if (followId) {
+        if (live) {
+          /* Immediate open, live only: the screen (or the office's Play)
+             already says live, so the channel frame is already mounted (see
+             above) — the check runs behind it and upgrades to the verified
+             broadcast id the moment it lands. Cards still verify first. */
+          if (!playing) {
+            setPlaying(true);
+            try {
+              onPlay?.();
+            } catch {}
+          }
+          checkChannelThenPlay();
+          return;
+        }
+        if (playing) return;
         checkChannelThenPlay();
         return;
       }
-      setPlaying(true);
+      if (!playing) setPlaying(true);
       return;
     }
+    if (playing) return;
     const peek = peekVerified(ytId);
     if (peek === true) {
       setPlaying(true);
@@ -578,7 +623,7 @@ export function VideoPlayer({
     return () => {
       alive = false;
     };
-  }, [autoPlay, ytId, sourceKey]);
+  }, [autoPlay, ytId, sourceKey, followId, live]);
 
   /* Autoplay verifies behind the player: a dead id swaps to the fallback
      instead of sitting on the black frame (unknown plays as before). */
@@ -822,7 +867,7 @@ export function VideoPlayer({
         window.clearTimeout(watchdog);
       } catch {}
     };
-  }, [playing, dead, liveVideoId, ytId, platform, src, file, followId, iframeKey, sourceKey]);
+  }, [playing, dead, liveVideoId, ytId, platform, freshSrc, file, followId, iframeKey, sourceKey, forceKey]);
 
   /* Grey centered circle arrow, error-only: rendered ONLY while the player
      reports an error (video unavailable + every other failure) and hidden
@@ -830,6 +875,10 @@ export function VideoPlayer({
      it exists. One click runs the shared repair above. */
   if (dead) {
     const openHref = watchUrl(source);
+    /* The livestream screen already carries its own red Watch button while
+       live, so the dead card drops the yellow one there (cards elsewhere keep
+       it — they have no red button of their own). */
+    const showWayOut = !!openHref && !live;
     return (
       <div className={shell + " player--dead"}>
         {still ? (
@@ -856,8 +905,7 @@ export function VideoPlayer({
         </button>
         <div className="player__deadbody">
           <p className="player__deadtitle">{shown}</p>
-          {!live && !hideDeadText && <p className="player__deadtext">{tx("This video can't be played here.")}</p>}
-          {openHref && (
+          {showWayOut && (
             <Btn size="sm" variant="gold" href={openHref} icon="youtube" iconRight="external">
               {tx("Watch on YouTube")}
             </Btn>
@@ -878,6 +926,7 @@ export function VideoPlayer({
     return (
       <div className={shell + " player--file"}>
         <video
+          key={iframeKey}
           className="player__video"
           src={file}
           poster={source?.poster || undefined}
@@ -896,7 +945,42 @@ export function VideoPlayer({
     );
   }
 
-  if (!src) return <div className="player player--empty">{ct("site.videoEmpty")}</div>;
+  /* Blank with no address carries the grey arrow too: a sourceless player
+     never heals by itself, so the same force repair sits on the blank — one
+     tap re-asks what's live now and opens the current broadcast fresh. */
+  if (!src) {
+    return (
+      <div className={shell + " player--empty"}>
+        <span className={"player__still player__still--" + platform}>
+          <Icon name={platform === "upload" ? "play" : platform} size={54} />
+        </span>
+        <span className="player__scrim" />
+        <button
+          type="button"
+          className={"player__reload" + (repairing ? " is-spinning" : "")}
+          onClick={retry}
+          aria-label={tx("Reload the livestream")}
+          title={tx("Reload the livestream")}
+        >
+          <svg viewBox="0 0 24 24" width="44" height="44" aria-hidden="true">
+            <path
+              fill="currentColor"
+              d="M12 5V1L7 6l5 5V7c3.3 0 6 2.7 6 6s-2.7 6-6 6-6-2.7-6-6H4c0 4.4 3.6 8 8 8s8-3.6 8-8-3.6-8-8-8z"
+            />
+          </svg>
+        </button>
+        <div className="player__deadbody">
+          <p className="player__deadtitle">{shown}</p>
+          <p className="player__deadtext">{ct("site.videoEmpty")}</p>
+        </div>
+        {live && (
+          <span className="player__live">
+            <span className="live-dot" /> {ct("live.player.badge")}
+          </span>
+        )}
+      </div>
+    );
+  }
   return (
     <div className={shell}>
       {playing ? (
@@ -910,7 +994,7 @@ export function VideoPlayer({
           <iframe
             key={iframeKey}
             className="player__frame"
-            src={src}
+            src={freshSrc}
             title={shown}
             referrerPolicy={EMBED_REFERRER_POLICY}
             allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; fullscreen"
@@ -944,19 +1028,14 @@ export function VideoPlayer({
           )}
         </>
       ) : live ? (
-        /* Live has no play button at all (no gold circle, no tap): while the
-           broadcast is not yet open the still shows with a status line — the
-           frame opens by itself the moment it can. */
+        /* Live waits quietly — no icon, no status line: while the broadcast
+           is not yet open only the dimmed still shows (or the bare frame).
+           The frame still opens by itself with sound the moment it can. */
         <div className="player__poster player__poster--live" aria-live="polite">
           {still ? (
             <img src={still} alt="" loading="lazy" onError={() => setFailed(true)} />
-          ) : (
-            <span className={"player__still player__still--" + platform}>
-              <Icon name={platform === "upload" ? "play" : platform} size={54} />
-            </span>
-          )}
+          ) : null}
           <span className="player__scrim" />
-          <span className="player__label">{checking ? tx("Connecting to the broadcast…") : notLive ? tx("No broadcast right now — checking again…") : shown}</span>
           <span className={"player__source player__source--" + platform}>
             <Icon name={platform === "upload" ? "play" : platform} size={13} /> {platformLabel(platform)}
           </span>

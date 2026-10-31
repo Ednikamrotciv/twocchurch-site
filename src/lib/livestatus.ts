@@ -884,6 +884,11 @@ try {
 const watchers = new Set<Watcher>();
 const listeners = new Set<() => void>();
 let timer = 0;
+/* Newest check wins: overlapping reads must not publish out of order (a slow
+   older read landing after a fresh one could end a live broadcast or reopen
+   an ended one). Only the run carrying the current generation publishes its
+   answer and its timer. */
+let runSeq = 0;
 let polling = false;
 /** End debounce: consecutive "off" answers for the same address. A lone off
     (or two) never ends a watched broadcast — a walled read can blink off
@@ -1095,6 +1100,7 @@ function onLiveTargetEvent() {
 
 async function run() {
   if (!watchers.size) return;
+  const my = ++runSeq;
   /* A broadcast that is on air is the one moment the answer matters, so it is
      never skipped; a hidden tab is otherwise left alone (no point in spending
      the proxy's time on a screen nobody is looking at). */
@@ -1105,9 +1111,24 @@ async function run() {
   }
   const facebook = wantsFacebook();
   publish({ checking: true });
-  const next = await checkLiveStream({ facebook });
+  let next: LiveStatus;
+  try {
+    next = await checkLiveStream({ facebook });
+  } catch {
+    /* A failed read schedules the next round like an unknown answer — the
+       poller never dies on a throw. A newer run in flight carries on. */
+    if (my !== runSeq) return;
+    if (!watchers.size) return;
+    publish({ checking: false });
+    lastCheckAt = Date.now();
+    schedule(delay());
+    return;
+  }
   if (!watchers.size) return;
   publish({ checking: false });
+  /* A newer check is already in flight (or landed): this answer is history —
+     it carries neither the screen nor the timer. */
+  if (my !== runSeq) return;
   lastTarget = targetSignature();
   /* End debounce: a lone off (or two) never ends a watched broadcast — a
      walled read can blink off and the screen must not end itself and come

@@ -931,7 +931,7 @@ export async function runAll(fs) {
   ok("no hand pull button", !has(edQ, "Pull from live now") && !has(edQ, "pullFromLive(") && has(edQ, "folds into this publish"), "the card is gone — Publish does it, and says so");
   ok("same-update reports only", has(liveQ, "reportMatchesBuild") && has(liveQ, "notes: BUILD_NOTES") && has(liveQ, "notes: number"), "an old bundle's wrong id must never steer this update");
   ok("server keeps the reporter update", has(srvQ, "rep.notes") && has(srvQ, "notes: notes"), "the store must carry notes without trusting them");
-  ok("player verifies before playing", has(blocksQ, "verifyYoutubeId") && has(blocksQ, "peekVerified") && has(blocksQ, "player--dead") && has(blocksQ, "can't be played here") && has(blocksQ, "Watch on YouTube"), "a dead video must say so with a way out, never the black frame");
+  ok("player verifies before playing", has(blocksQ, "verifyYoutubeId") && has(blocksQ, "peekVerified") && has(blocksQ, "player--dead") && !has(blocksQ, "can't be played here") && has(blocksQ, "Watch on YouTube") && has(blocksQ, "showWayOut"), "a dead video must never sit on the black frame or the dead text — poster, reload arrow and a way out instead (the livestream screen drops the yellow button while its red one is active)");
   ok("watch plays live by itself", has(watchQ, "useYoutubeVerdict") && has(watchQ, "autoPlay={streaming && watchable}") && has(watchQ, "watchable"), "when the check says live the screen must open with no tap");
   ok("hold ships with the update", has(text["maintenance-hold.txt"], "hold") && has(text["scripts/build-static.mjs"], "maintenance-hold.txt"), "fresh visitors must wait on maintenance until the office publishes");
   try {

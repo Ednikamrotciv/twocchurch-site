@@ -153,7 +153,7 @@ export function Header() {
       <header className={"header" + (scrolled ? " header--scrolled" : "")}>
         <div className="container header__inner">
           <Link to="/" className="brand" aria-label={ct("auto.site.35ab10970eb7d78e", { "name": SITE.name })}>
-            <img className="brand__logo" src={siteFile(LOGO_MARK)} alt={SITE.name} />
+            <img className="brand__logo" src={siteFile(LOGO_MARK)} alt={SITE.name} onError={(e) => { try { e.currentTarget.style.display = "none"; } catch {} }} />
           </Link>
 
           {isDesktop && (
@@ -354,7 +354,7 @@ export function Footer() {
       <div className="container">
         <div className="footer__top">
           <div className="footer__brand">
-            <img src={siteFile(LOGO_MARK)} alt={SITE.name} className="footer__logo" />
+            <img src={siteFile(LOGO_MARK)} alt={SITE.name} className="footer__logo" onError={(e) => { try { e.currentTarget.style.display = "none"; } catch {} }} />
             <h3>{SITE.name}</h3>
             <p className="muted">{tx(SITE.tagline)}</p>
           </div>
@@ -552,13 +552,13 @@ export function MaintenanceSite() {
     <div className="maint">
       <header className="maint__head">
         <span className="maint__brand">
-          <img className="maint__logo" src={siteFile(LOGO_MARK)} alt={SITE.name} />
+          <img className="maint__logo" src={siteFile(LOGO_MARK)} alt={SITE.name} onError={(e) => { try { e.currentTarget.style.display = "none"; } catch {} }} />
           <span className="maint__name">{SITE.name}</span>
         </span>
         <span className="maint__pill">{tx("Maintenance")}</span>
       </header>
       <main className="maint__main">
-        <img className="maint__mark" src={siteFile(LOGO_MARK)} alt="" aria-hidden="true" />
+        <img className="maint__mark" src={siteFile(LOGO_MARK)} alt="" aria-hidden="true" onError={(e) => { try { e.currentTarget.style.display = "none"; } catch {} }} />
         <h1>{tx("We\u2019ll be right back")}</h1>
         <p>{tx("The site is being updated. Please check back shortly.")}</p>
       </main>
@@ -591,9 +591,22 @@ export function PageHead({
             src={image}
             alt=""
             onError={(e) => {
+              /* A missing custom banner (deleted upload, moved file) falls
+                 back to the bundled hero once instead of leaving a broken
+                 header — same fallback on local and on every deploy. */
               try {
-                e.currentTarget.style.display = "none";
-              } catch {}
+                const el = e.currentTarget;
+                if (el.dataset.fb) {
+                  el.style.display = "none";
+                  return;
+                }
+                el.dataset.fb = "1";
+                el.src = siteFile("src/assets/img/hero.jpg");
+              } catch {
+                try {
+                  e.currentTarget.style.display = "none";
+                } catch {}
+              }
             }}
           />
         </div>
