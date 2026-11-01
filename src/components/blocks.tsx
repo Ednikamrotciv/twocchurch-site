@@ -744,9 +744,20 @@ export function VideoPlayer({
      the centered arrow appears instead of the black "unavailable" frame.
      Channel follows and files keep the plain frame + verifier below. */
   const apiHostRef = useRef<HTMLDivElement | null>(null);
+  /* Plain-iframe fallback when the YT IFrame API itself is unreachable
+     (fix — livestream not showing): adblockers, offline, or a blocked
+     youtube.com/iframe_api used to resolve null after 10s, then the 12s
+     watchdog below marked a good live as dead. When the API is gone the
+     player now falls back to the plain embed iframe (same address the
+     non-API path uses) instead of the dead card — the livestream shows. */
+  const [noApi, setNoApi] = useState(false);
+  useEffect(() => {
+    setNoApi(false);
+  }, [sourceKey]);
   useEffect(() => {
     if (!playing || dead) return;
     if (platform !== "youtube") return;
+    if (noApi) return;
     const vid = liveVideoId || ytId;
     if (!vid) return;
     const host = apiHostRef.current;
@@ -765,13 +776,14 @@ export function VideoPlayer({
     const watchdog = window.setTimeout(() => fail("watchdog"), 12_000);
     /* No host to play into is a failure like any other: the screen must
        offer the repair arrow, never an empty black box. */
-    if (!host) {
+    if (!host && !noApi) {
       fail("no-host");
       return;
     }
     loadYtPlayerApi()
       .then((api) => {
-        if (cancelled || !api || !api.Player) return;
+        if (cancelled) return;
+        if (!api || !api.Player) { try { window.clearTimeout(watchdog); } catch {} settled = true; try { setNoApi(true); } catch {} return; }
         if (apiHostRef.current !== host) return;
         try {
           player = new api.Player(host, {
@@ -807,7 +819,7 @@ export function VideoPlayer({
       try { window.clearTimeout(watchdog); } catch {}
       try { if (player && typeof player.destroy === "function") player.destroy(); } catch {}
     };
-  }, [playing, dead, liveVideoId, ytId, platform, iframeKey]);
+  }, [playing, dead, liveVideoId, ytId, platform, iframeKey, noApi]);
 
   /* Plain-frame net (channel follows, Facebook, other non-API frames): these
      iframes never report content errors cross-origin, so a dead channel embed
@@ -1013,14 +1025,16 @@ export function VideoPlayer({
     <div className={shell}>
       {playing ? (
         <>
-          {(platform === "youtube" && (liveVideoId || ytId)) ? (
+          {(platform === "youtube" && (liveVideoId || ytId) && !noApi) ? (
             /* API-managed frame (bare video id): the API injects its own
                iframe into this host div and reports its own errors; React
-               never touches what's inside it. */
+               never touches what's inside it. Falls back to the plain
+               iframe below when the API itself is unreachable (noApi). */
             <div key={iframeKey} ref={apiHostRef} className="player__frame-host" />
           ) : (
           <iframe
-            key={iframeKey}
+            key={iframeKey + (noApi ? "-noapi" : "")}
+            ref={noApi ? apiHostRef : undefined}
             className="player__frame"
             src={freshSrc}
             title={shown}

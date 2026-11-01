@@ -49,10 +49,13 @@ export const LIVE_STATUS_KEY = "wom.livestatus";
     unless a watcher asks urgent (the Watch page does: it checks at once). */
 const FRESH_MS = 6_000;
 /** Give the proxy this long before calling the check a failure.
-    Fast live: 5s is plenty for YouTube to answer — every door races, so the
-    first valid answer wins in ~1s and the Watch screen leaves the waiting
-    clock with it instead of sitting out a slow door. */
-const CHECK_TIMEOUT_MS = 5_000;
+    YouTube pages are ~1MB and the public doors are slow — 5s used to kill
+    the only working door on standalone hosts (allorigins often needs 8-15s),
+    leaving the Watch screen on the waiting clock through a live service.
+    Every door still races, so the first valid answer wins in ~1-2s via the
+    office/Netlify doors; the slow public door is now allowed to finish
+    instead of being aborted. */
+const CHECK_TIMEOUT_MS = 15_000;
 /** Poll cadence (note 310): fast while a broadcast is expected or the Watch
     page is open — a YouTube start shows in seconds and the waiting clock
     vanishes with it — slower in the quiet week. Live and local share this
@@ -643,7 +646,6 @@ async function fetchPageRemote(url: string): Promise<string | null> {
   try {
     return await firstValidHtml([
       proxyDoor("https://api.allorigins.win/raw?url=", url),
-      proxyDoor("https://corsproxy.io/?url=", url),
       proxyDoor("https://api.codetabs.com/v1/proxy?quest=", url),
     ]);
   } catch {
@@ -704,10 +706,10 @@ async function fetchPageOffice(url: string): Promise<string | null> {
 async function fetchPageFacebook(url: string): Promise<string | null> {
   /* Three public doors race (was allorigins alone): Facebook reads share the
      same single-proxy failure as YouTube did. Any readable page is fine —
-     error pages simply read as unknown, exactly as before. */
+     error pages simply read as unknown, exactly as before.
+     Note: corsproxy.io removed (fix) — it now requires an API key (401). */
   const doors = [
     "https://api.allorigins.win/raw?url=",
-    "https://corsproxy.io/?url=",
     "https://api.codetabs.com/v1/proxy?quest=",
   ];
   try {

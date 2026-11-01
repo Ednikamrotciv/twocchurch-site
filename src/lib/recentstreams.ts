@@ -50,8 +50,10 @@ const BURST_MS = 6 * 60_000;
 const SEED_MAX_MS = 12 * 60 * 60 * 1000;
 /** Give the proxy this long before calling a read a failure (note 372:
     three doors at the old 20 seconds each held the deployed feed up to a
-    minute past a dead proxy — eight is plenty for YouTube to answer). */
-const TIMEOUT_MS = 8_000;
+    minute past a dead proxy — fifteen allows the slow-but-working public
+    door to finish on standalone hosts instead of stranding Recent services
+    on a stale list). */
+const TIMEOUT_MS = 15_000;
 
 const EMPTY: RecentServices = { items: [], at: 0, channelId: "" };
 
@@ -218,12 +220,11 @@ async function proxyDoor(url: string, proxyBase: string): Promise<string | null>
   }
 }
 async function fetchTextRemote(url: string): Promise<string | null> {
-  /* Three public doors race (was allorigins alone): one slow proxy held the
-     deployed feed up to a minute past a dead proxy. First VALID list wins. */
+  /* Two public doors race (was three — corsproxy.io removed: it now requires
+     an API key, 401, so it never carried a valid answer). First VALID wins. */
   try {
     return await firstValidText([
       proxyDoor(url, "https://api.allorigins.win/raw?url="),
-      proxyDoor(url, "https://corsproxy.io/?url="),
       proxyDoor(url, "https://api.codetabs.com/v1/proxy?quest="),
     ]);
   } catch {

@@ -56,9 +56,11 @@ export function youtubeEmbed(id: string, autoplay = true): string {
      enablejsapi lets the player hear YouTube's own error events.
      origin (fix): without it enablejsapi throws cross-origin on the deployed
      host and the API frame never reports ready/error — the watchdog then
-     swaps a good live to the fallback. */
+     swaps a good live to the fallback. Opaque origins (sandboxed iframes,
+     file:// — location.origin "null") are omitted: YouTube answers those
+     with Error 153 instead of the player. */
   let origin = "";
-  try { origin = typeof location !== "undefined" && location.origin ? `&origin=${encodeURIComponent(location.origin)}` : ""; } catch { origin = ""; }
+  try { const o = typeof location !== "undefined" ? location.origin : ""; if (o && /^https?:\/\//i.test(o)) origin = `&origin=${encodeURIComponent(o)}`; } catch { origin = ""; }
   return `https://www.youtube.com/embed/${video}?rel=0&modestbranding=1&playsinline=1&enablejsapi=1${autoplay ? "&autoplay=1" : ""}${origin}`;
 }
 
@@ -76,7 +78,7 @@ export function youtubeChannelEmbed(channelId: string, autoplay = true): string 
   if (!isYoutubeChannelId(channelId)) return "";
   const id = String(channelId).trim();
   let origin = "";
-  try { origin = typeof location !== "undefined" && location.origin ? `&origin=${encodeURIComponent(location.origin)}` : ""; } catch { origin = ""; }
+  try { const o = typeof location !== "undefined" ? location.origin : ""; if (o && /^https?:\/\//i.test(o)) origin = `&origin=${encodeURIComponent(o)}`; } catch { origin = ""; }
   return `https://www.youtube.com/embed/live_stream?channel=${id}&rel=0&modestbranding=1&playsinline=1&enablejsapi=1${autoplay ? "&autoplay=1" : ""}${origin}`;
 }
 

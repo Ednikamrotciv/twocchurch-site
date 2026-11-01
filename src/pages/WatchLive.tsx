@@ -272,7 +272,11 @@ export function WatchLive() {
      Play-override channel was available. */
   const available: VideoPlatform[] = (() => {
     const list: VideoPlatform[] = [];
-    if (detectedId || detectedChannel || overrideId || publishedId || (!hasChannel && parseYoutubeId(LIVE.youtubeId))) list.push("youtube");
+    /* Fix (livestream not showing): a configured channel always counts as a
+       YouTube door — even while detection is unknown and the office hasn't
+       pressed Play — so the Watch button and tap-to-play frame stay present
+       instead of only the ticking clock. */
+    if (detectedId || detectedChannel || overrideId || publishedId || hasChannel || (!hasChannel && parseYoutubeId(LIVE.youtubeId))) list.push("youtube");
     if (isFacebookVideoUrl(LIVE.facebookUrl)) list.push("facebook");
     return list;
   })();
@@ -281,12 +285,16 @@ export function WatchLive() {
   /* The service notepad behind the *Service notes* arrow (note 223). */
   const [notesOpen, setNotesOpen] = useState(false);
   const platform: VideoPlatform | null = available.includes(chosen) ? chosen : available[0] || null;
+  /* Channel fallback (fix — livestream not showing): a configured channel
+     always yields a followable address, so the frame never renders empty
+     while detection is unknown. */
+  const channelFallbackId = !detectedChannel && hasChannel ? designatedChannelIdForTarget(targetUrl) : "";
   const freshSource: VideoSource =
     fbLive
       ? { platform: "facebook", facebookUrl: LIVE.facebookUrl }
       : platform === "facebook"
       ? { platform: "facebook", facebookUrl: LIVE.facebookUrl }
-      : { platform: "youtube", youtubeId: playableId || publishedId || overrideVideoId || deadLiveId || verifiedFallbackId, youtubeChannelId: detectedChannel || (!streaming && overrideId) || undefined };
+      : { platform: "youtube", youtubeId: playableId || publishedId || overrideVideoId || deadLiveId || verifiedFallbackId, youtubeChannelId: detectedChannel || (!streaming && overrideId) || channelFallbackId || undefined };
   /* The grace window replays the last playable address: a fresh off keeps the
      frame on exactly what was playing instead of an empty follow. */
   const graceRef = useRef<VideoSource | null>(null);
@@ -533,8 +541,23 @@ export function WatchLive() {
                 {/* Note 413: duplicate Recent services removed — see #recent-services below. */}
                 </>
               ) : configured ? (
-                /* Service on, stream not open yet: last still under the ticking clock (note 133). */
-                <LiveWaiting cover={cover} />
+                /* Service on, stream not open yet: last still under the ticking clock (note 133).
+                   Fix (livestream not showing): when the channel is configured but
+                   detection hasn't confirmed yet (unknown/proxies down), the live
+                   channel stays one tap away below the clock instead of hiding
+                   entirely — the broadcast opens here the moment it can. */
+                <>
+                  <LiveWaiting cover={cover} />
+                  {!!channelFallbackId && (
+                    <div style={{ marginTop: "0.9rem" }}>
+                      <VideoPlayer
+                        source={{ platform: "youtube", youtubeChannelId: channelFallbackId }}
+                        title={liveName || ct("auto.live.bc108377bb47f9e6")}
+                        compact
+                      />
+                    </div>
+                  )}
+                </>
               ) : latest ? (
                 /* On air but pointed at nothing: play the most recent message. */
                 <>
