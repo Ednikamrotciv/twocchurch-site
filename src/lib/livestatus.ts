@@ -49,9 +49,10 @@ export const LIVE_STATUS_KEY = "wom.livestatus";
     unless a watcher asks urgent (the Watch page does: it checks at once). */
 const FRESH_MS = 6_000;
 /** Give the proxy this long before calling the check a failure.
-    Fast live: 3.5s is plenty for YouTube to answer; the old 15s held the
-    Watch screen on the waiting clock past the moment the broadcast started. */
-const CHECK_TIMEOUT_MS = 8_000;
+    Fast live: 5s is plenty for YouTube to answer — every door races, so the
+    first valid answer wins in ~1s and the Watch screen leaves the waiting
+    clock with it instead of sitting out a slow door. */
+const CHECK_TIMEOUT_MS = 5_000;
 /** Poll cadence (note 310): fast while a broadcast is expected or the Watch
     page is open — a YouTube start shows in seconds and the waiting clock
     vanishes with it — slower in the quiet week. Live and local share this
@@ -474,17 +475,23 @@ async function resolveYoutube(
   const liveTabFirst = liveTabId && cands.includes(liveTabId)
     ? [liveTabId, ...cands.filter((c) => c !== liveTabId)].slice(0, 3)
     : cands.slice(0, 3);
-  for (const vid of liveTabFirst) {
-    const url = `https://www.youtube.com/watch?v=${vid}`;
-    const watchHtml = await fetchPage(url);
-    if (watchHtml === null) continue;
-    const watch = parseLivePage(watchHtml, url);
-    if (watch.live && (watch.videoId || vid)) {
-      if (!ownerAllowsCandidate(owner, watchChannelId(watchHtml))) continue;
-      if (!candidateStandsForDesignated(watchChannelId(watchHtml), designatedId, vid === liveTabId)) continue;
+  /* Asked in parallel (were one by one): three sequential watch reads tripled
+     the worst case past 20s and held the Watch screen on the waiting clock
+     through the live start — racing keeps it to a single timeout, and the
+     first hit in Live-tab order still wins. */
+  const settled = await Promise.all(
+    liveTabFirst.map(async (vid) => {
+      const url = `https://www.youtube.com/watch?v=${vid}`;
+      const watchHtml = await fetchPage(url);
+      if (watchHtml === null) return null;
+      const watch = parseLivePage(watchHtml, url);
+      if (!watch.live || !(watch.videoId || vid)) return null;
+      if (!ownerAllowsCandidate(owner, watchChannelId(watchHtml))) return null;
+      if (!candidateStandsForDesignated(watchChannelId(watchHtml), designatedId, vid === liveTabId)) return null;
       return { state: "live" as const, videoId: watch.videoId || vid, title: watch.title, channelId: "" };
-    }
-  }
+    })
+  );
+  for (const hit of settled) if (hit) return hit;
   /* Walled but on air (note 331): the channel page carries the full on-air
      chrome yet no suggestion verifies — measured on a real service, every
      watch page answers 502 through the deployed server while the channel page
@@ -1115,7 +1122,7 @@ function delay() {
   /* The Watch page (urgent watcher) polls faster than the quiet week without
      changing the shared cadence above: a YouTube start shows in seconds where
      someone is actually watching, while background tabs stay cheap. */
-  if (wantsUrgent()) return 8_000;
+  if (wantsUrgent()) return 5_000;
   return wantsSoon() ? SOON_MS : IDLE_MS;
 }
 
