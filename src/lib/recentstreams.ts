@@ -50,10 +50,8 @@ const BURST_MS = 6 * 60_000;
 const SEED_MAX_MS = 12 * 60 * 60 * 1000;
 /** Give the proxy this long before calling a read a failure (note 372:
     three doors at the old 20 seconds each held the deployed feed up to a
-    minute past a dead proxy — fifteen allows the slow-but-working public
-    door to finish on standalone hosts instead of stranding Recent services
-    on a stale list). */
-const TIMEOUT_MS = 15_000;
+    minute past a dead proxy — eight is plenty for YouTube to answer). */
+const TIMEOUT_MS = 8_000;
 
 const EMPTY: RecentServices = { items: [], at: 0, channelId: "" };
 
@@ -220,11 +218,12 @@ async function proxyDoor(url: string, proxyBase: string): Promise<string | null>
   }
 }
 async function fetchTextRemote(url: string): Promise<string | null> {
-  /* Two public doors race (was three — corsproxy.io removed: it now requires
-     an API key, 401, so it never carried a valid answer). First VALID wins. */
+  /* Three public doors race (was allorigins alone): one slow proxy held the
+     deployed feed up to a minute past a dead proxy. First VALID list wins. */
   try {
     return await firstValidText([
       proxyDoor(url, "https://api.allorigins.win/raw?url="),
+      proxyDoor(url, "https://corsproxy.io/?url="),
       proxyDoor(url, "https://api.codetabs.com/v1/proxy?quest="),
     ]);
   } catch {
@@ -444,10 +443,6 @@ export async function fetchRecentServices(): Promise<RecentServices | null> {
     /* An upload with neither a date nor YouTube's own words is an *upcoming*
        broadcast, not a service that has happened: it is not a recent service. */
     .filter((it) => feed.dates[it.videoId] || it.ago)
-    /* A scheduled premiere or upcoming broadcast is not a service that has
-       happened either: the /videos grid lists those like any upload, so their
-       markers are refused the same way the /streams read refuses them. */
-    .filter((it) => !isUnfinishedAgo(it.ago))
     .filter((it) => !designatedRead || !!feed.dates[it.videoId])
     .map((it) => ({
       videoId: it.videoId,
@@ -458,14 +453,10 @@ export async function fetchRecentServices(): Promise<RecentServices | null> {
     }));
   if (!items.length) return null;
 
-  /* Scheduled premieres sit in the feed with tomorrow's date — not previous. */
-  const past = items.filter((it) => !(it.at > now + 30 * 60_000));
-  if (!past.length) return null;
-
   /* One message however many times it was published (SPEC note 113), and the
      list in the order the office's own number then picks from: nearest date
      first, which for a church means the last few services as they happened. */
-  const collapsed = collapseSameMessage(past, now).sort((a, b) => whenOf(b, now) - whenOf(a, now));
+  const collapsed = collapseSameMessage(items, now).sort((a, b) => whenOf(b, now) - whenOf(a, now));
 
   /* Never lose a service to a thin read: the channel only ever carries the
      latest uploads, so a read that comes back short must not evict the older
@@ -627,18 +618,14 @@ export function designatedFallback(): RecentServices {
      lives no code can ship) the live read and the shipped bake fill the
      card instead. */
   if (!designated || designated !== designatedChannelId("@twocorg")) return { ...EMPTY };
-  /* One card per message (note 113): the baked list carries repeat uploads of
-     the same service — collapse them exactly like a live read, newest first. */
-  const base: RecentService[] = DESIGNATED_FALLBACK_ITEMS.map((it) => ({
-    videoId: it.videoId,
-    title: it.title,
-    at: it.at,
-    ago: "",
-    thumb: `https://i.ytimg.com/vi/${it.videoId}/hqdefault.jpg`,
-  }));
-  const collapsed = collapseSameMessage(base, DESIGNATED_FALLBACK_AT).sort((a, b) => b.at - a.at);
   return {
-    items: collapsed,
+    items: DESIGNATED_FALLBACK_ITEMS.map((it) => ({
+      videoId: it.videoId,
+      title: it.title,
+      at: it.at,
+      ago: "",
+      thumb: `https://i.ytimg.com/vi/${it.videoId}/hqdefault.jpg`,
+    })),
     at: DESIGNATED_FALLBACK_AT,
     channelId: designated,
   };

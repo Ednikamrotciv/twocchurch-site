@@ -49,13 +49,9 @@ export const LIVE_STATUS_KEY = "wom.livestatus";
     unless a watcher asks urgent (the Watch page does: it checks at once). */
 const FRESH_MS = 6_000;
 /** Give the proxy this long before calling the check a failure.
-    YouTube pages are ~1MB and the public doors are slow — 5s used to kill
-    the only working door on standalone hosts (allorigins often needs 8-15s),
-    leaving the Watch screen on the waiting clock through a live service.
-    Every door still races, so the first valid answer wins in ~1-2s via the
-    office/Netlify doors; the slow public door is now allowed to finish
-    instead of being aborted. */
-const CHECK_TIMEOUT_MS = 15_000;
+    Fast live: 3.5s is plenty for YouTube to answer; the old 15s held the
+    Watch screen on the waiting clock past the moment the broadcast started. */
+const CHECK_TIMEOUT_MS = 8_000;
 /** Poll cadence (note 310): fast while a broadcast is expected or the Watch
     page is open — a YouTube start shows in seconds and the waiting clock
     vanishes with it — slower in the quiet week. Live and local share this
@@ -478,23 +474,17 @@ async function resolveYoutube(
   const liveTabFirst = liveTabId && cands.includes(liveTabId)
     ? [liveTabId, ...cands.filter((c) => c !== liveTabId)].slice(0, 3)
     : cands.slice(0, 3);
-  /* Asked in parallel (were one by one): three sequential watch reads tripled
-     the worst case past 20s and held the Watch screen on the waiting clock
-     through the live start — racing keeps it to a single timeout, and the
-     first hit in Live-tab order still wins. */
-  const settled = await Promise.all(
-    liveTabFirst.map(async (vid) => {
-      const url = `https://www.youtube.com/watch?v=${vid}`;
-      const watchHtml = await fetchPage(url);
-      if (watchHtml === null) return null;
-      const watch = parseLivePage(watchHtml, url);
-      if (!watch.live || !(watch.videoId || vid)) return null;
-      if (!ownerAllowsCandidate(owner, watchChannelId(watchHtml))) return null;
-      if (!candidateStandsForDesignated(watchChannelId(watchHtml), designatedId, vid === liveTabId)) return null;
+  for (const vid of liveTabFirst) {
+    const url = `https://www.youtube.com/watch?v=${vid}`;
+    const watchHtml = await fetchPage(url);
+    if (watchHtml === null) continue;
+    const watch = parseLivePage(watchHtml, url);
+    if (watch.live && (watch.videoId || vid)) {
+      if (!ownerAllowsCandidate(owner, watchChannelId(watchHtml))) continue;
+      if (!candidateStandsForDesignated(watchChannelId(watchHtml), designatedId, vid === liveTabId)) continue;
       return { state: "live" as const, videoId: watch.videoId || vid, title: watch.title, channelId: "" };
-    })
-  );
-  for (const hit of settled) if (hit) return hit;
+    }
+  }
   /* Walled but on air (note 331): the channel page carries the full on-air
      chrome yet no suggestion verifies — measured on a real service, every
      watch page answers 502 through the deployed server while the channel page
@@ -646,6 +636,7 @@ async function fetchPageRemote(url: string): Promise<string | null> {
   try {
     return await firstValidHtml([
       proxyDoor("https://api.allorigins.win/raw?url=", url),
+      proxyDoor("https://corsproxy.io/?url=", url),
       proxyDoor("https://api.codetabs.com/v1/proxy?quest=", url),
     ]);
   } catch {
@@ -706,10 +697,10 @@ async function fetchPageOffice(url: string): Promise<string | null> {
 async function fetchPageFacebook(url: string): Promise<string | null> {
   /* Three public doors race (was allorigins alone): Facebook reads share the
      same single-proxy failure as YouTube did. Any readable page is fine —
-     error pages simply read as unknown, exactly as before.
-     Note: corsproxy.io removed (fix) — it now requires an API key (401). */
+     error pages simply read as unknown, exactly as before. */
   const doors = [
     "https://api.allorigins.win/raw?url=",
+    "https://corsproxy.io/?url=",
     "https://api.codetabs.com/v1/proxy?quest=",
   ];
   try {
@@ -966,12 +957,6 @@ const UNKNOWN_CAP_MS = 3 * 60_000;
 let lastCheckAt = snapshot.status.checkedAt;
 /** The address the last answer was about, so a new one is checked at once. */
 let lastTarget = "";
-/** A check is in flight: slow doors (walled reads verify up to three watch
-    pages in a row) can outlast the short cadence, so a second run must queue
-    instead of overlapping — overlapping runs hammer the proxy and the last
-    answer to land wins, which flaps the screen. */
-let running = false;
-let queued = false;
 
 /* Where definitive answers go when this copy is the office (note 318): the
    content store registers its authed-socket sink at boot; every other copy
@@ -1124,7 +1109,7 @@ function delay() {
   /* The Watch page (urgent watcher) polls faster than the quiet week without
      changing the shared cadence above: a YouTube start shows in seconds where
      someone is actually watching, while background tabs stay cheap. */
-  if (wantsUrgent()) return 5_000;
+  if (wantsUrgent()) return 8_000;
   return wantsSoon() ? SOON_MS : IDLE_MS;
 }
 
@@ -1173,28 +1158,6 @@ function onLiveTargetEvent() {
 }
 
 async function run() {
-  if (!watchers.size) return;
-  /* One check at a time (see `running` above): a timer that fires while the
-     previous check is still behind slow doors queues one follow-up instead of
-     overlapping it — overlapping runs hammer the proxy and flap the screen
-     when the slower answer lands last. */
-  if (running) {
-    queued = true;
-    return;
-  }
-  running = true;
-  try {
-    await runOnce();
-  } finally {
-    running = false;
-    if (queued) {
-      queued = false;
-      if (watchers.size) schedule(0);
-    }
-  }
-}
-
-async function runOnce() {
   if (!watchers.size) return;
   /* A broadcast that is on air is the one moment the answer matters, so it is
      never skipped; a hidden tab is otherwise left alone (no point in spending
@@ -1396,13 +1359,19 @@ async function noembedVerdict(id: string, signal?: AbortSignal): Promise<boolean
   }
 }
 
-/** Cache-only peek (no fetch): true = played before, false = known dead, null = never asked. */
+/** Cache-only peek (no fetch): true = played before, false = known dead, null = never asked.
+    Dead verdicts expire fast (60s): an embedding flip or a restarted stream can
+    turn the same id playable again, and a cached dead must never hold the
+    screen on the fallback. Playable verdicts keep the full 5 minutes. */
+const VERIFY_DEAD_TTL_MS = 60_000;
 export function peekVerified(videoId: string): boolean | null {
   const id = parseYoutubeId(videoId);
   if (!id) return false;
   const hit = verifyCache.get(id);
-  if (!hit || Date.now() - hit.at >= VERIFY_TTL_MS) return null;
-  return hit.ok;
+  if (!hit) return null;
+  const age = Date.now() - hit.at;
+  if (hit.ok) return age >= VERIFY_TTL_MS ? null : true;
+  return age >= VERIFY_DEAD_TTL_MS ? null : false;
 }
 
 /** Drop what the verifier learned about one video (visitor retry + office

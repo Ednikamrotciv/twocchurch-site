@@ -36,7 +36,6 @@ export function parseYoutubeId(input: string): string {
     /youtu\.be\/([\w-]{11})/,
     /youtube\.com\/live\/([\w-]{11})/,
     /youtube\.com\/embed\/([\w-]{11})/,
-    /youtube-nocookie\.com\/embed\/([\w-]{11})/,
     /youtube\.com\/shorts\/([\w-]{11})/,
     /youtube\.com\/watch\/([\w-]{11})/,
   ];
@@ -50,18 +49,17 @@ export function parseYoutubeId(input: string): string {
 export function youtubeEmbed(id: string, autoplay = true): string {
   const video = parseYoutubeId(id);
   if (!video) return "";
-  /* Sound on (note 388): every live from a channel plays with its audio —
-     anything the site plays, tapped or self-started, carries its sound, and
-     the stream's audio opens by itself the moment the broadcast starts.
-     enablejsapi lets the player hear YouTube's own error events.
+  /* Sound on: every live from a channel plays with its audio — anything the
+     site plays, tapped or self-started, carries its sound, and the stream's
+     audio opens by itself the moment the broadcast starts. enablejsapi lets
+     the player hear YouTube's own error + autoplay-blocked events.
+     nocookie host: fewer cookie blocks, same player, same videos.
      origin (fix): without it enablejsapi throws cross-origin on the deployed
      host and the API frame never reports ready/error — the watchdog then
-     swaps a good live to the fallback. Opaque origins (sandboxed iframes,
-     file:// — location.origin "null") are omitted: YouTube answers those
-     with Error 153 instead of the player. */
+     swaps a good live to the fallback. */
   let origin = "";
-  try { const o = typeof location !== "undefined" ? location.origin : ""; if (o && /^https?:\/\//i.test(o)) origin = `&origin=${encodeURIComponent(o)}`; } catch { origin = ""; }
-  return `https://www.youtube.com/embed/${video}?rel=0&modestbranding=1&playsinline=1&enablejsapi=1${autoplay ? "&autoplay=1" : ""}${origin}`;
+  try { origin = typeof location !== "undefined" && location.origin ? `&origin=${encodeURIComponent(location.origin)}` : ""; } catch { origin = ""; }
+  return `https://www.youtube-nocookie.com/embed/${video}?rel=0&modestbranding=1&playsinline=1&enablejsapi=1${autoplay ? "&autoplay=1" : ""}${origin}`;
 }
 
 /** A channel id (`UC…`): the only address the channel player takes. */
@@ -73,13 +71,14 @@ export function isYoutubeChannelId(input: unknown): boolean {
     deployed server cannot read watch pages (they answer 502 from its network
     while the channel page reads 200), so when the channel page is on air but
     names no verifiable video, the player follows the channel instead of
-    guessing a video — on live and on local alike. */
+    guessing a video — on live and on local alike. nocookie host, same as
+    the video embed above. */
 export function youtubeChannelEmbed(channelId: string, autoplay = true): string {
   if (!isYoutubeChannelId(channelId)) return "";
   const id = String(channelId).trim();
   let origin = "";
-  try { const o = typeof location !== "undefined" ? location.origin : ""; if (o && /^https?:\/\//i.test(o)) origin = `&origin=${encodeURIComponent(o)}`; } catch { origin = ""; }
-  return `https://www.youtube.com/embed/live_stream?channel=${id}&rel=0&modestbranding=1&playsinline=1&enablejsapi=1${autoplay ? "&autoplay=1" : ""}${origin}`;
+  try { origin = typeof location !== "undefined" && location.origin ? `&origin=${encodeURIComponent(location.origin)}` : ""; } catch { origin = ""; }
+  return `https://www.youtube-nocookie.com/embed/live_stream?channel=${id}&rel=0&modestbranding=1&playsinline=1&enablejsapi=1${autoplay ? "&autoplay=1" : ""}${origin}`;
 }
 
 export function youtubeWatch(id: string): string {
