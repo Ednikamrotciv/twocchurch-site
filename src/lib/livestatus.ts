@@ -47,17 +47,17 @@ export const LIVE_STATUS_KEY = "wom.livestatus";
 
 /** A status younger than this is trusted on mount instead of re-checked —
     unless a watcher asks urgent (the Watch page does: it checks at once). */
-const FRESH_MS = 6_000;
+const FRESH_MS = 3_000;
 /** Give the proxy this long before calling the check a failure.
-    Fast live: 3.5s is plenty for YouTube to answer; the old 15s held the
-    Watch screen on the waiting clock past the moment the broadcast started. */
-const CHECK_TIMEOUT_MS = 8_000;
+    Fast live: 5s is plenty for YouTube to answer (was 8s); the old hold kept
+    the Watch screen on the waiting clock past the moment the broadcast started. */
+const CHECK_TIMEOUT_MS = 5_000;
 /** Poll cadence (note 310): fast while a broadcast is expected or the Watch
     page is open — a YouTube start shows in seconds and the waiting clock
     vanishes with it — slower in the quiet week. Live and local share this
     poller; only the fetch door differs (same-origin /__yt on local runs, the
     office server when joined, else the public proxy). */
-export const SOON_MS = 20_000;
+export const SOON_MS = 12_000;
 export const IDLE_MS = 90_000;
 
 const EMPTY: LiveStatus = { state: "unset", platform: "", videoId: "", title: "", channelId: "", target: "", checkedAt: 0, endedAt: 0 };
@@ -1109,7 +1109,7 @@ function delay() {
   /* The Watch page (urgent watcher) polls faster than the quiet week without
      changing the shared cadence above: a YouTube start shows in seconds where
      someone is actually watching, while background tabs stay cheap. */
-  if (wantsUrgent()) return 8_000;
+  if (wantsUrgent()) return 4_000;
   return wantsSoon() ? SOON_MS : IDLE_MS;
 }
 
@@ -1234,7 +1234,7 @@ async function run() {
 
 function onWake() {
   if (document.visibilityState !== "visible") return;
-  if (Date.now() - lastCheckAt < 4_000) return;
+  if (Date.now() - lastCheckAt < 2_000) return;
   schedule(0);
 }
 
@@ -1319,7 +1319,7 @@ export function useLiveStream(soon = false, watchFacebook = false, urgent = fals
    fetch (no proxy door needed); cached 5 minutes; in-flight asks shared. */
 
 const VERIFY_TTL_MS = 5 * 60_000;
-const VERIFY_TIMEOUT_MS = 6_000;
+const VERIFY_TIMEOUT_MS = 3_500;
 const verifyCache = new Map<string, { ok: boolean; at: number }>();
 const verifyInflight = new Map<string, Promise<boolean | null>>();
 

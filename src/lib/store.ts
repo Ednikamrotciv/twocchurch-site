@@ -422,14 +422,27 @@ export function parseServiceNoteKey(key: string): { date: string; name: string }
 export type ServiceSlot = { day: number; time: string; name: string; minutes: number };
 
 /** When a gathering next happens; pass the branch's zone (note 84). */
-export function nextOccurrence(slot: ServiceSlot, now = new Date(), tz = churchTimezone()): Date {
-  const zone = zoneOr(tz);
-  const [h, m] = slot.time.split(":").map(Number);
-  const p = zonedParts(now, zone);
-  const ahead = (slot.day - p.weekday + 7) % 7;
-  let at = zonedTimeToUtc(p.year, p.month, p.day + ahead, h, m, zone);
-  if (at.getTime() <= now.getTime()) at = zonedTimeToUtc(p.year, p.month, p.day + ahead + 7, h, m, zone);
-  return at;
+export function nextOccurrence(slot: ServiceSlot, now = new Date(), tz = churchTimezone()): Date | null {
+  try {
+    if (!slot || typeof slot !== "object") return null;
+    if (!Number.isFinite(Number(slot.day))) return null;
+    const parts = String((slot as any).time || "").split(":");
+    if (parts.length < 2) return null;
+    const h = Number(parts[0]);
+    const m = Number(parts[1]);
+    if (!Number.isFinite(h) || !Number.isFinite(m)) return null;
+    const zone = zoneOr(tz);
+    const p = zonedParts(now, zone);
+    const ahead = (Number(slot.day) - p.weekday + 7) % 7;
+    let at = zonedTimeToUtc(p.year, p.month, p.day + ahead, h, m, zone);
+    if (at.getTime() <= now.getTime()) at = zonedTimeToUtc(p.year, p.month, p.day + ahead + 7, h, m, zone);
+    if (isNaN(at.getTime())) return null;
+    return at;
+  } catch {
+    /* A malformed slot (blank time, bad day) is skipped, never thrown — one
+       bad row used to take the whole page to the error card. */
+    return null;
+  }
 }
 
 export type NextServiceInfo = {
@@ -442,32 +455,51 @@ export type NextServiceInfo = {
 
 /** The gathering in progress, else the next one with its wait. Skips hand-ended ones (note 106). */
 export function nextService(schedule: ServiceSlot[], now = new Date(), tz = churchTimezone()): NextServiceInfo | null {
-  if (!schedule?.length) return null;
-  const zone = zoneOr(tz);
-  const p = zonedParts(now, zone);
-  const enriched = schedule.map((slot) => {
-    const at = nextOccurrence(slot, now, zone);
-    return { slot, at, msUntil: at.getTime() - now.getTime() };
-  });
-  enriched.sort((a, b) => a.msUntil - b.msUntil);
-
-  for (const slot of schedule) {
-    const [h, m] = slot.time.split(":").map(Number);
-    for (let back = 0; back <= 7; back++) {
-      const start = zonedTimeToUtc(p.year, p.month, p.day - back, h, m, zone);
-      if (zonedParts(start, zone).weekday !== slot.day) continue;
-      const end = new Date(start.getTime() + (slot.minutes || 120) * 60000);
-      if (now >= start && now <= end) {
-        /* Ended by hand — or by the stream itself? Then it is not this
-           gathering's turn any more (SPEC notes 106, 133). */
-        if (Math.max(Number(LIVE.liveCut) || 0, streamCut()) >= start.getTime()) break;
-        return { slot, at: start, endsAt: end, msUntil: 0, isLive: true };
+  try {
+    if (!schedule?.length) return null;
+    const zone = zoneOr(tz);
+    const p = zonedParts(now, zone);
+    const enriched: { slot: ServiceSlot; at: Date; msUntil: number }[] = [];
+    for (const slot of schedule) {
+      try {
+        const at = nextOccurrence(slot, now, zone);
+        if (!at) continue;
+        enriched.push({ slot, at, msUntil: at.getTime() - now.getTime() });
+      } catch {
+        /* Skip one bad row, keep the rest — never throw out of render. */
       }
     }
+    if (!enriched.length) return null;
+    enriched.sort((a, b) => a.msUntil - b.msUntil);
+
+    for (const { slot } of enriched) {
+      try {
+        const parts = String((slot as any).time || "").split(":");
+        if (parts.length < 2) continue;
+        const h = Number(parts[0]);
+        const m = Number(parts[1]);
+        if (!Number.isFinite(h) || !Number.isFinite(m) || !Number.isFinite(Number((slot as any).day))) continue;
+        for (let back = 0; back <= 7; back++) {
+          const start = zonedTimeToUtc(p.year, p.month, p.day - back, h, m, zone);
+          if (zonedParts(start, zone).weekday !== Number((slot as any).day)) continue;
+          const end = new Date(start.getTime() + (Number((slot as any).minutes) || 120) * 60000);
+          if (now >= start && now <= end) {
+            /* Ended by hand — or by the stream itself? Then it is not this
+               gathering's turn any more (SPEC notes 106, 133). */
+            if (Math.max(Number(LIVE.liveCut) || 0, streamCut()) >= start.getTime()) break;
+            return { slot, at: start, endsAt: end, msUntil: 0, isLive: true };
+          }
+        }
+      } catch {
+        /* Skip one bad row, keep the rest. */
+      }
+    }
+    const first = enriched[0];
+    if (!first) return null;
+    return { slot: first.slot, at: first.at, endsAt: new Date(first.at.getTime() + (Number((first.slot as any).minutes) || 120) * 60000), msUntil: first.msUntil, isLive: false };
+  } catch {
+    return null;
   }
-  const first = enriched[0];
-  if (!first) return null;
-  return { slot: first.slot, at: first.at, endsAt: new Date(first.at.getTime() + (first.slot.minutes || 120) * 60000), msUntil: first.msUntil, isLive: false };
 }
 
 /** The stream's own cut: a gathering begun before a watched broadcast ended is over (notes 106, 133). */

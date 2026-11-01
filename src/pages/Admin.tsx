@@ -6,7 +6,7 @@ import { navigate, useRoute } from "../lib/router";
 import { resolvePath } from "../lib/routes";
 import { Header, Footer, ScrollTop, SkipLink } from "../components/layout";
 import { Btn, Card, Icon, Input, Modal, Select, Toaster } from "../components/ui";
-import { ErrorBoundary } from "../components/ErrorBoundary";
+import { ErrorBoundary, SectionBoundary } from "../components/ErrorBoundary";
 import {
   ConfirmIcon,
   CurrentEventPanel,
@@ -760,16 +760,19 @@ function PagePanel({
   };
 
   const block = (def: SectionDef, focusEntry?: string) => (
-    <SectionBlock
-      key={def.id}
-      def={def}
-      draft={draft}
-      dirty={changedIds.includes(def.id)}
-      open={open.includes(def.id)}
-      focusEntry={focusEntry}
-      onToggle={() => toggle(def.id)}
-      onOpenSection={onOpenSection}
-    />
+    /* One bad section can never take the console down: a throw inside paints
+       an inline notice with a retry instead of the full-page error card. */
+    <SectionBoundary label={def.id} key={def.id}>
+      <SectionBlock
+        def={def}
+        draft={draft}
+        dirty={changedIds.includes(def.id)}
+        open={open.includes(def.id)}
+        focusEntry={focusEntry}
+        onToggle={() => toggle(def.id)}
+        onOpenSection={onOpenSection}
+      />
+    </SectionBoundary>
   );
 
   const searchBox = (
@@ -1377,8 +1380,16 @@ function SectionBlock({
                   {field(f, () => getPath(value, f.path), (v) => {
                     patch((next) => setPath(next, f.path, v));
                   })}
-                  {def.id === "live" && f.path === "youtubeChannel" && <LiveTransportButtons />}
-                  {def.id === "live" && f.path === "externalYoutubeChannel" && <GuestTransportButtons />}
+                  {def.id === "live" && f.path === "youtubeChannel" && (
+                    <SectionBoundary label="live-transport">
+                      <LiveTransportButtons />
+                    </SectionBoundary>
+                  )}
+                  {def.id === "live" && f.path === "externalYoutubeChannel" && (
+                    <SectionBoundary label="guest-transport">
+                      <GuestTransportButtons />
+                    </SectionBoundary>
+                  )}
                 </React.Fragment>
               ))}
             </div>
@@ -1386,17 +1397,23 @@ function SectionBlock({
             <ListBlock def={def} list={Array.isArray(value) ? value : []} draft={draft} patch={patch} focusKey={focusEntry} />
           )}
 
-          {def.id === "live" && <RecentServicesPanel />}
           {def.id === "live" && (
-            <LiveEndingPanel onOpen={onOpenSection}>
-              {pastField && (
-                <div className="admin__form">
-                  {field(pastField, () => getPath(value, pastField.path), (v) => {
-                    patch((next) => setPath(next, pastField.path, v));
-                  })}
-                </div>
-              )}
-            </LiveEndingPanel>
+            <SectionBoundary label="recent-services-panel">
+              <RecentServicesPanel />
+            </SectionBoundary>
+          )}
+          {def.id === "live" && (
+            <SectionBoundary label="live-ending">
+              <LiveEndingPanel onOpen={onOpenSection}>
+                {pastField && (
+                  <div className="admin__form">
+                    {field(pastField, () => getPath(value, pastField.path), (v) => {
+                      patch((next) => setPath(next, pastField.path, v));
+                    })}
+                  </div>
+                )}
+              </LiveEndingPanel>
+            </SectionBoundary>
           )}
           {def.id === "events" && <CurrentEventPanel onOpen={onOpenSection} />}
 
