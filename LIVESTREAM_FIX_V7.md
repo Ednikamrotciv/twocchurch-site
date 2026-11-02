@@ -19,10 +19,11 @@ site sat on the clock through a properly started service.
   - **Published-stamp fast path:** a fresh office-on-air stamp (`isLive` /
     `guestIsLive` + id + press < 12h old) is verified playable through the
     CORS-open verifier (works on deployed hosts) and wins **at once** — no
-    scrape wait. The scrape still runs behind for end-detection (a
-    definitive scrape OFF still ends it; office Stop clears the stamp).
-    Stamps older than 12h fall back to the scrape, so a forgotten Stop can
-    never pin a recording as "live" forever.
+    scrape wait. A proven-ended stamp falls through (fix v8: the stamped
+    video's own watch page is re-read, and readable-with-no-live-marker ends
+    the pin so the scrape's OFF + ended screen take over; office Stop clears
+    the stamp). Stamps older than 12h fall back to the scrape, so a forgotten
+    Stop can never pin a recording as "live" forever.
   - **Authoritative Data API door:** same-origin `__live` (then the joined
     office server on split deploys), answered from the YouTube Data API.
     A live answer plays immediately; an off answer only counts when the
