@@ -5,7 +5,7 @@ Frontend (Netlify/Cloudflare/GitHub Pages): upload the *contents* of `dist/` aft
 - Install: `npm ci --no-audit --no-fund` (cached, fast — not plain `npm install`)
 - Build: `npm run build` (vite + bake; skips YouTube reads on the farm so it never hangs)
 - Publish dir: `dist`
-- Node: 24 (`.nvmrc` — Render reads it automatically)
+- Node: 20 (`.nvmrc` — Render reads it automatically)
 
 Backend (Render, only if you edit away from your computer): use `render.yaml` in this repo as-is —
 - Build: `npm ci --no-audit --no-fund && npm run build`
@@ -156,7 +156,7 @@ A Render Web Service works as the always-on backend:
 - Health Check Path: `/healthz` (answers instantly, so the deploy reports
   healthy the moment the port opens instead of waiting out the old YouTube /
   mirror warm-up — that warm-up now runs in the background after listen).
-- Node version: Render reads `.nvmrc` (Node 24) automatically.
+- Node version: Render reads `.nvmrc` (Node 20 LTS) automatically.
 - No disk needed: every restart the server re-serves its last deployed words
   and uploads from the build itself (note 290) — it never comes back blank.
   A persistent disk mounted at `data` is still a fine optimization (it keeps

@@ -2376,7 +2376,7 @@ function socketFactory(): (() => any) | null {
   /* Local runs: the dev/production server injects its own same-origin socket
      (scripts/local-shim.js) — sign-in, publishing, uploads, live updates. */
   const w = window as any;
-  if (typeof w.createServerSocket === "function") return () => w.createServerSocket();
+  if (typeof w.createLocalSocket === "function") return () => w.createLocalSocket();
   /* A deployed copy pointed at the office server (baked in at deploy time or
      typed into the admin console): the same shared store, over plain HTTPS. */
   const remote = serverUrl();

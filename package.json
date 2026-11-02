@@ -53,7 +53,8 @@
     "@types/react-dom": "18.3.1",
     "@types/three": "0.170.0"
   },
-  "allowScripts": {
-    "esbuild": true
+  "engines": {
+    "node": ">=18.20.0",
+    "npm": ">=9.0.0"
   }
 }

@@ -470,6 +470,12 @@ var OVERRIDE_CLEAN = 0;
    lone welcome card, once per store (flag rides the meta blob, same pattern).
    Later office slides are never touched. */
 var WELCOME_LOCK = false;
+/* Welcome picture goes local (no remote hosts): a stored slides section that
+   is still the lone welcome card but points its picture at the old remote
+   upload becomes the bundled welcome card — once per store (flag rides the
+   meta blob, same pattern). Office slides (their own pictures) are never
+   touched: only the lone welcome card with a foreign picture is replanted. */
+var WELCOME_LOCAL_IMG = false;
 /* Set while loading a state stamped with an older history generation: the
    record is forgotten and the clean state is written back at once. */
 var FRESH_GEN = false;
@@ -566,7 +572,7 @@ function undoLeftSec(now) {
 }
 
 function writeMeta() {
-  var meta = JSON.stringify({ by: BY, log: LOG, logGen: LOG_GEN, subs: SUBS, invites: INVITES, totp: TOTP, mainOff: MAIN_OFF, mainHash: MAIN_HASH, pwgen: PWGEN, notes: NOTES, prev: PREV, chReady: CH_READY, mediaClean: MEDIA_CLEAN, overrideClean: OVERRIDE_CLEAN, welcomeLock: WELCOME_LOCK, publishDeploy: PUBLISH_DEPLOY, publishCode: PUBLISH_CODE });
+  var meta = JSON.stringify({ by: BY, log: LOG, logGen: LOG_GEN, subs: SUBS, invites: INVITES, totp: TOTP, mainOff: MAIN_OFF, mainHash: MAIN_HASH, pwgen: PWGEN, notes: NOTES, prev: PREV, chReady: CH_READY, mediaClean: MEDIA_CLEAN, overrideClean: OVERRIDE_CLEAN, welcomeLock: WELCOME_LOCK, welcomeLocalImg: WELCOME_LOCAL_IMG, publishDeploy: PUBLISH_DEPLOY, publishCode: PUBLISH_CODE });
   META_CHARS = meta.length;
   writeString(meta, BASE_CHARS + SECTION_CHARS);
   /* The header carries META_CHARS: without this, an admin-only change (an
@@ -720,6 +726,7 @@ function loadState() {
     MEDIA_CLEAN = parsed.mediaClean === true;
     OVERRIDE_CLEAN = typeof parsed.overrideClean === "number" && parsed.overrideClean > 0 ? Math.floor(parsed.overrideClean) : 0;
     WELCOME_LOCK = parsed.welcomeLock === true;
+    WELCOME_LOCAL_IMG = parsed.welcomeLocalImg === true;
     PUBLISH_DEPLOY = validDeployId(parsed.publishDeploy);
     PUBLISH_CODE = validCodeWord(parsed.publishCode);
   } catch (e) {
@@ -737,6 +744,7 @@ function loadState() {
     MEDIA_CLEAN = false;
     OVERRIDE_CLEAN = 0;
     WELCOME_LOCK = false;
+    WELCOME_LOCAL_IMG = false;
     PUBLISH_DEPLOY = "";
     PUBLISH_CODE = "";
   }
@@ -832,7 +840,7 @@ try {
    runs it, no stamp, no rev bump, no publish. A later take-off or a new
    slide is never touched (MEDIA_CLEAN above); a store with no slides
    section keeps none (the fallback already shows the welcome card). */
-var WELCOME_SLIDE_360 = [{ id: "welcome-home", image: "https://user.uploads.dev/file/ec157920014fb49a718f07e297b665c4.jpg", headline: "Welcome home", line: "First Sunday or fiftieth — there is a seat here with your name on it.", cta: "Plan your visit", link: "/visit", design: "auto", active: true }];
+var WELCOME_SLIDE_360 = [{ id: "welcome-home", image: "src/assets/img/welcome.jpg", headline: "Welcome home", line: "First Sunday or fiftieth — there is a seat here with your name on it.", cta: "Plan your visit", link: "/visit", design: "auto", active: true }];
 try {
   if (!MEDIA_CLEAN) {
     MEDIA_CLEAN = true;
@@ -929,6 +937,29 @@ try {
   }
 } catch (e) {
   /* a failed lock must never break boot — the console still stands */
+}
+
+/* Welcome picture goes local (no remote hosts): once per store, a lone
+   welcome card still pointing at the old remote upload is replanted with the
+   bundled picture. Anything else — office slides, an empty section, no
+   section — is never touched here. */
+try {
+  if (!WELCOME_LOCAL_IMG) {
+    WELCOME_LOCAL_IMG = true;
+    try {
+      if (typeof SECTIONS.slides === "string") {
+        var slidesLocal = JSON.parse(SECTIONS.slides);
+        var loneWelcomeLocal = Array.isArray(slidesLocal) && slidesLocal.length === 1 && slidesLocal[0] && typeof slidesLocal[0] === "object" && String(slidesLocal[0].id || "") === "welcome-home";
+        if (loneWelcomeLocal && String(slidesLocal[0].image || "") !== WELCOME_SLIDE_360[0].image) setSection("slides", JSON.stringify(WELCOME_SLIDE_360));
+      }
+    } catch (e) {
+      /* a broken slides section is the restore's work, not ours */
+    }
+    writeMeta();
+    writeHeader();
+  }
+} catch (e) {
+  /* a failed picture move must never break boot — the console still stands */
 }
 
 /* Clean deploys keep accounts (note 433): with clean-deploy.txt beside

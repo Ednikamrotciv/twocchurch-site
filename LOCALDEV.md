@@ -1,6 +1,20 @@
 # Running the site on your own computer
 
-You need Node.js (v24, see `.nvmrc`) and nothing else.
+You need Node.js 20 or newer (LTS recommended — see `.nvmrc`) and nothing else.
+Vite 6 runs on Node 18+, but 20 LTS avoids the `ExperimentalWarning:
+require(ESM)` noise newer Node prints from npm itself (harmless, but it scared
+people into thinking the install was broken).
+
+Easiest on Windows: extract the zip, then double-click **`install.bat`**.
+It prints your Node/npm versions, clears the half-installed folders that
+corrupt most often, verifies the npm cache, and runs `npm install` with full
+output so the real error is visible if one happens. When it says DONE:
+
+```sh
+npm run dev   # → http://localhost:5173/  (admin console: /admin)
+```
+
+Or the manual way (same thing install.bat does):
 
 ```sh
 npm install   # once
@@ -61,6 +75,26 @@ npm start       # serves dist/ + the backend (or double-click start.bat)
 Leave that running on the always-on machine. Content is stored in
 `data/cms-state.bin` (created on first publish — keep that file to keep your
 content); photo/video uploads land in `data/uploads/`.
+
+## If `npm install` fails on Windows
+
+1. Use Node 20 LTS from https://nodejs.org/ (check with `node -v`).
+   Node 18+ works, but 20 LTS is the smoothest on Windows.
+2. Close editors/antivirus scans of the folder, then delete the half-made
+   `node_modules` folder and run again:
+   ```sh
+   npm cache verify
+   npm install
+   ```
+   Or just double-click `install.bat` — it does all of this for you.
+3. The `ExperimentalWarning: ... loading ES Module ... using require()` line
+   comes from npm itself on newer Node — it is harmless noise, not the
+   failure. The real reason is the `npm error code ...` line above it, or the
+   tail of the newest file in `%LOCALAPPDATA%\npm-cache\_logs\`.
+   (This project's old `.npmrc` hid those lines with `loglevel=error` —
+   that setting has been removed, so you will now see the reason.)
+4. Still stuck? Copy the whole terminal output (or the log tail) and send it
+   — it names the exact cause (`EBADENGINE`, `ERESOLVE`, `EPERM`, `ENET`…).
 
 ## Security log (WAF + anomaly)
 

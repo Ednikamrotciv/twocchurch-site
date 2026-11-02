@@ -139,9 +139,17 @@ number is unchanged. build-static.mjs stamps it from hooks.ts CODE_ID. -->
     }
     function paint() {
       if (document.getElementById("wom-maint-gate")) return;
+      /* Follow the visitor's own theme (stored by the site's switcher), so a
+         light-theme visitor never gets a dark flash before React boots — the
+         early paint matches the React notice either way. */
+      var light = false;
+      try {
+        var tv = window.localStorage.getItem("wom.theme");
+        if (tv && JSON.parse(tv) === "light") light = true;
+      } catch (_) {}
       var d = document.createElement("div");
       d.id = "wom-maint-gate";
-      d.setAttribute("style", "position:fixed;inset:0;z-index:99999;background:#07070a;color:#f5efe0;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:2rem;font-family:Georgia,serif;");
+      d.setAttribute("style", "position:fixed;inset:0;z-index:99999;background:" + (light ? "#f4efe4" : "#07070a") + ";color:" + (light ? "#16130d" : "#f5efe0") + ";display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:2rem;font-family:Georgia,serif;");
       d.innerHTML = '<div style="max-width:34rem;"><div style="font-size:0.8rem;letter-spacing:0.2em;opacity:0.7;margin-bottom:1rem;">MAINTENANCE</div><h1 style="font-size:2rem;margin:0 0 0.8rem;">We\u2019ll be right back</h1><p style="opacity:0.85;line-height:1.6;margin:0;">The site is being updated. Please check back shortly.</p></div>';
       try { document.documentElement.appendChild(d); } catch (_) { try { document.body.appendChild(d); } catch (_) {} }
     }

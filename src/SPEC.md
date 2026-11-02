@@ -76,7 +76,7 @@
 10. **Site-wide terminology switch: "campus" → "branch".** Supersedes note 9. Every user-facing
    occurrence of "campus"/"campuses"/"Campus"/"Campuses" is now "branch"/"branches"/"Branch"/
    "Branches" — all page copy, section headings, eyebrows, buttons, filter labels, table headers,
-   toasts, email/ICS bodies, the `$meta` description and tags, plus the matching code identifiers
+   toasts, email/ICS bodies, the page `description` meta and keywords, plus the matching code identifiers
    (`campusId`→`branchId`, `setCampusId`→`setBranchId`, the local `campus` variable, the contact/
    ministries `campus` form field), the `localStorage` key (`wom.campus`→`wom.branch`), the CSS
    class/id names (`.branch-chip`, `.branch-detail`, `.mini-branch`, `.schedule-table__branch`,
@@ -84,8 +84,8 @@
 11. **Removed the "Annual report (PDF)" button** from the giving page header (it had no destination).
     The giving page head now carries a single action, "Give now".
 12. **New tagline and hero copy.** The tagline "Raising overcomers in every nation" became
-    **"Where Champions are raised in Christ"** everywhere it appears (`main.pjs` `churchTagline`, the
-    `$meta.title` suffix, the `SITE.tagline` fallback, the `index.html` splash, and therefore the
+    **"Where Champions are raised in Christ"** everywhere it appears (the `churchTagline` window global, the
+    the page-title suffix, the `SITE.tagline` fallback, the `index.html` splash, and therefore the
     footer). The home hero headline is now "Where *Champions* / are raised in Christ" and its lede
     paragraph became the CARE statement: "We are Christ-centered, People of Accountability &
     integrity, Relationship designed and We are people of Excellence (CARE)."
@@ -202,8 +202,8 @@
    values, statement of faith, our story and the headline numbers — 19 sections, all driven by
    the field schema in `src/lib/cmsSchema.ts`, with a dashboard, activity log, draft/preview,
    publish, JSON backup + restore, undo and "restore the shipped content".
-   Content is stored on a new server-plugin content server in `index.html` (one UTF-16 blob per
-   `section` in durable `state`, patched on publish, nudged to every visitor over pub/sub) and
+   Content is stored on the site's own content server (`scripts/serve.mjs` — one UTF-16 blob per
+   `section` in durable `state`, patched on publish, relayed to every visitor) and
    gated behind a SHA-256-hashed admin password. New content type `src/data/announcements.ts`
    renders as a dismissible notice strip under the header. See `README.md` §"The church admin
    console" for the architecture and the password-rotation recipe.
@@ -219,7 +219,7 @@
      `**bold**`, `[label](/route)`, `{{tokens}}` — rendered by the new `<Rich>` component in
      `src/components/ui.tsx`; `ct(id, vars?)` is the accessor every page calls. **Deliberately still
      locked:** the church name and the logo. The `site` section's Church-name field was removed and
-     its `read()`/`bind()` strip and never write `name`, so `SITE.name` (surfaced from `main.pjs`
+     its `read()`/`bind()` strip and never write `name`, so `SITE.name` (surfaced from the `churchName` window global
      via `pick()`) cannot be overwritten; the logo has no field at all and continues to come from
      `src/assets/logo*.png`.
    - *"The streams should be YouTube and Facebook option stream."* New **`src/data/live.ts`**
@@ -259,7 +259,7 @@
      **Photos & covers** group (4 sections: Main photos, Ministries & programmes, Leadership photos,
      Sermon series covers) shows the picture currently in place and offers three ways to change it:
      **upload a photo** from the device (shrunk in the browser by the new `compressImageBlob` and
-     hosted via `uploadPlugin`, imported in `main.pjs` — only the URL is stored, so a published
+     hosted on the office server (`data/uploads/`) — only the URL is stored, so a published
      revision stays a few KB), pick one of the bundled photos, or paste a link. Empty means "use the
      original", with a *Use the original photo* button. The **logo and the church name stay
      locked**, as before.
@@ -633,7 +633,7 @@
   file address and `VideoPlayer` renders a `<video controls playsinline preload="metadata">` for it
   (YouTube and Facebook still use an `<iframe>`). The sermon section gained a `video` field type with
   `uploadUrl`, wired to `VideoUpload` in `src/components/editor.tsx`, which uploads through
-  `root.uploadPlugin` and — if the file is too large for permanent storage — retries with a one-year
+  the office-server upload door (`/data/uploads/`) and — if the file is too large for permanent storage — retries with a one-year
   expiry and tells the office the date, pointing them at YouTube/Facebook for a permanent home.
 - **Verified live:** `/watch-live` renders six sections in the right order with no *Where to tune in*
   / *Broadcast partners*, four in-place cards (Last message + three recent services) each with a
@@ -1853,8 +1853,7 @@ every line it named is listed in the bullets that follow):
   so it would leave the screen saying "Live now" all week.
 - **Why the check is not a `fetch`.** YouTube sends no CORS headers, and a browser `fetch` of
   youtube.com is refused ("Failed to fetch" — verified live). The check therefore goes through
-  platform's proxy: `main.pjs` now imports `super-fetch-plugin` as `superFetch`, read as
-  `window.root.superFetch` (the pattern `src/components/editor.tsx` already uses for `uploadPlugin`).
+  the office-server proxy: the live check reads the channel page through the same-origin `/__yt` door (same server that serves the site), falling back to public CORS proxies.
   `checkLiveStream()` times the request out at 15s and returns **`unknown`** on any failure — never
   `off` — so a flaky proxy can only fall back to the old behaviour, never fake an ended stream.
 - **The screen has three states now** (`src/pages/WatchLive.tsx`):
@@ -2651,7 +2650,7 @@ branches were written and read by nothing at all.
 **The clock.** `src/lib/store.ts` now owns one, built on the platform's own `Intl` data (no
 hard-coded offsets, so Chicago's and Toronto's daylight saving is handled for us):
 
-- `DEFAULT_TIMEZONE = "Africa/Lagos"` — the church's home clock. Overridable from `main.pjs`
+- `DEFAULT_TIMEZONE = "Africa/Lagos"` — the church's home clock. Overridable as a window global
   (`churchTimezone`) and, day to day, from the drawer: *Church profile → **Time zone*** (new field;
   its `bind` hands the value to `setSiteTimezone` as soon as the section is applied, so a published
   profile and the running page agree).
@@ -2720,8 +2719,8 @@ on the very first frame; the answer is re-checked once it is more than half a da
   the clock. If none answers (offline, blocked, an outage) the visitor's *device* zone is used
   (`Intl.DateTimeFormat().resolvedOptions().timeZone`, `source: "device"`) and, failing even that,
   the site stays on the church's clock — which is where it was before any of this existed.
-- **The lookup is a plain `fetch`, and that is the whole trick.** `superFetch` (used for the YouTube
-  live check) sends the request from *platform's server* — the service would see platform's address
+- **The lookup is a plain `fetch`, and that is the whole trick.** a server-side proxy (like the one used for the YouTube
+  live check) sends the request from *that server* — the service would see platform's address
   and answer with platform's location, so every visitor on earth would be told the same city. A
   browser `fetch` goes from the visitor's own machine, which is the only way an IP lookup can mean
   anything. The endpoints are CORS-open, so no proxy is needed. (Verified in the live preview: the
@@ -3323,7 +3322,7 @@ money is read back in that country's currency.
   SH → SHP, ZW → USD.
 - **The rate comes from the visitor's own browser.** `src/lib/rates.ts` (new) is the second half of
   the module pair — it fetches a keyless, CORS-open daily feed *directly* from the visitor's machine
-  (the same reason the clock lookup is a plain `fetch` and not `superFetch`), caches it under
+  (the same reason the clock lookup is a plain `fetch` and not a proxy), caches it under
   `wom.fxRates` for half a day, and tries the feed's second mirror and then a different provider
   before giving up. It only fetches when a rate has something to do: `ratesNeeded()` is false for a
   reader whose own currency *is* the church's, so those readers cause no request at all (the app
@@ -3331,7 +3330,7 @@ money is read back in that country's currency.
   unknown). Until — and if — the fetch lands, the shipped snapshot is what converts, so no page ever
   waits on money, and the figures are simply a day or two old rather than missing.
 - **Where the money lives.** The money section of `src/lib/store.ts`: `baseCurrency()` (the church's
-  own — `Church profile → Currency`, or `churchCurrency` in `main.pjs`, USD by default),
+  own — `Church profile → Currency`, or the `churchCurrency` window global, USD by default),
   `currencyOfCountry()`, `visitorCurrency()`, `displayCurrency()` (the visitor's own when it is known,
   the switch is on, and a rate exists for it; the church's otherwise), `convertMoney()`, `fmtMoney()`
   — which now converts, and rounds a converted amount to three significant figures so a rate cannot
@@ -3918,7 +3917,7 @@ recent services"*.
   the stream ended and not which side said so; the toast names YouTube or Facebook. *When the service ends* now says
   nothing has to be pressed, and the live section's blurb says the same. A Facebook ending is not seeded (`Recent
   services` is built out of YouTube videos, and a Facebook id is not one) — the poke alone is right.
-- **Verified live, end to end, with a fake channel.** With the office's own drawer and `superFetch` stubbed for the
+- **Verified live, end to end, with a fake channel.** With the office's own drawer and the live check stubbed for the
   channel's `/live` page: on air → the check found the broadcast (platform `youtube`, id and headline from the page) →
   the stream went off → the *first* "off" answer left the session alone (still *You are on air right now*) → the second
   stopped it by itself, 45 seconds later, with `liveCut` equal to `endedAt`, `liveEndedBy: "channel"`, the finished
@@ -4601,7 +4600,7 @@ not sit on the same page. Now there is **one frame**, and pictures are re-cut in
   each side, and vision, asked to judge it, called it intentional and finished with all its poster
   text legible and nothing cut off.
 - **The three pictures already posted were re-cut for real** (before the panel was removed): the
-  draft's three slide pictures are now `https://user.uploads.dev/file/…` at exactly **1600×1200**
+  draft's three slide pictures are now hosted uploads at exactly **1600×1200**
   each, and the panel reported *“3 pictures re-cut to the frame”*. Nothing was published — the
   change sat in the draft for the office to publish.
 - **Re-verified after the change**: the band is 4:3 at every width (**759.3×569.5** in the office's

@@ -62,8 +62,8 @@
    Nigerian branches, `America/Chicago` / `America/New_York` / `America/Toronto` for the North
    American ones): it is the clock that branch's next gathering is counted down to (SPEC note 84).
 6. Check the social links in `src/data/site.ts` (`SITE.socials`) — they are placeholders.
-7. Optional: set a nicer `$meta.image` (a worship photo) instead of the logo, and add
-   `$meta.dynamic` if listings should vary per branch (`dynamic-metadata` skill).
+7. Optional: set nicer social-sharing tags (a worship photo for `og:image`) if link
+   previews should vary per branch.
 8. **Post the church's own announcements in the slide space** (SPEC notes 116, 117, 122). The home
    page's welcome band is a designed announcement **slider** now — the slide runs the full length of
    the page (edge to edge) with the welcome copy underneath it (SPEC note 121) — and **every slide is
