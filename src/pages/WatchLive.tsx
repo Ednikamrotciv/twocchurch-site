@@ -20,8 +20,17 @@ import { Countdown, RecentServiceCard, SermonWatch, VideoPlayer, WatchCards, pla
 import { useCmsVersion } from "../lib/cms";
 
 export function WatchLive() {
-  const [branchId] = useLocalState<string>(KEYS.branch, DEFAULT_BRANCH_ID);
-  const branch = BRANCHES.find((b) => b.id === branchId) || BRANCHES[0];
+  /* Fix v5 (screenshot 1): defensive guards — a corrupt CMS draft, an empty
+     BRANCHES/SERVICES list, or a failed backend read must never throw during
+     render (which would drop /admin/watch-live to the error card). Every
+     risky read below falls back to a safe empty value; the screen shows the
+     offline/waiting state instead of crashing. */
+  let branchId: string = DEFAULT_BRANCH_ID;
+  try {
+    const [bid] = useLocalState<string>(KEYS.branch, DEFAULT_BRANCH_ID);
+    if (typeof bid === "string" && bid) branchId = bid;
+  } catch { branchId = DEFAULT_BRANCH_ID; }
+  const branch = (Array.isArray(BRANCHES) && (BRANCHES.find((b) => b && b.id === branchId) || BRANCHES[0])) || ({ id: DEFAULT_BRANCH_ID, name: "", city: "", country: "", address: "" } as any);
   const [reminders, setReminders] = useLocalState<Record<string, boolean>>("wom.reminders", {});
   const now = useNow(1000);
   /* Published Play/Stop words mutate LIVE in place with no event of their own —
@@ -29,10 +38,14 @@ export function WatchLive() {
      waiting out the 1s clock above. Cheap on this page: visitors never type. */
   useCmsVersion();
   /* The office's Weekly services card, read on the church's own clock. */
-  const info = nextService(SERVICES, now, churchTimezone());
+  let info: any = null;
+  try { info = nextService(Array.isArray(SERVICES) ? SERVICES : [], now, churchTimezone()); } catch { info = null; }
   /* When the next gathering happens — read on the visitor's own clock (SPEC note 85). */
-  const when = info ? clockHere(info.slot.time, info.slot.day, churchTimezone()) : null;
-  const replays = sermonsNewestFirst();
+  let when: any = null;
+  try { when = info ? clockHere(info.slot.time, info.slot.day, churchTimezone()) : null; } catch { when = null; }
+  let replays: any[] = [];
+  try { replays = sermonsNewestFirst() || []; } catch { replays = []; }
+  if (!Array.isArray(replays)) replays = [];
   /* The message playing above everything else. */
   const latest = replays[0];
 
@@ -42,14 +55,15 @@ export function WatchLive() {
      or no — so a YouTube start shows in seconds and the waiting clock vanishes
      with it, on live and on local alike. */
   const air = useLiveStream(true, false, true);
-  const justNow = !!info && (onAir(info) || info.msUntil < 45 * 60 * 1000);
+  let justNow = false;
+  try { justNow = !!info && (onAir(info) || (info as any).msUntil < 45 * 60 * 1000); } catch { justNow = !!info; }
   /* Instant-open warm-up: the page is open because someone came to watch, so
      pre-connect to the stream doors at once (player assets included) — the
-     autoplay iframe opens with no DNS/TLS wait. Runs once per page open;
-     analytics, background checks and other nonessential work never block it. */
+     autoplay iframe opens with no DNS/TLS wait. Fix v5: full hint set —
+     youtube, youtube-nocookie, googlevideo, ytimg, noembed. */
   useEffect(() => {
     try {
-      for (const href of ["https://www.youtube.com", "https://www.youtube-nocookie.com", "https://i.ytimg.com", "https://s.ytimg.com", "https://noembed.com"]) {
+      for (const href of ["https://www.youtube.com", "https://www.youtube-nocookie.com", "https://s.ytimg.com", "https://i.ytimg.com", "https://noembed.com"]) {
         if (document.querySelector('link[rel="preconnect"][href="' + href + '"]')) continue;
         const l = document.createElement("link");
         l.rel = "preconnect";
@@ -57,15 +71,15 @@ export function WatchLive() {
         l.crossOrigin = "anonymous";
         document.head.appendChild(l);
       }
-      for (const href of ["https://www.googlevideo.com", "https://www.youtube-nocookie.com"]) {
+      for (const href of ["//googlevideo.com", "//ytimg.com", "//www.youtube-nocookie.com"]) {
         if (document.querySelector('link[rel="dns-prefetch"][href="' + href + '"]')) continue;
-        const l = document.createElement("link");
-        l.rel = "dns-prefetch";
-        l.href = href;
-        document.head.appendChild(l);
+        const d = document.createElement("link");
+        d.rel = "dns-prefetch";
+        d.href = href;
+        document.head.appendChild(d);
       }
     } catch {}
-  }, []);
+  }, [justNow, air.state]);
   /* Instant-live repair (no reload ever): the tab waking, or the network
      returning, re-asks at once — a YouTube start shows in seconds and the
      waiting clock vanishes with it. Stays on site. */
@@ -438,7 +452,11 @@ export function WatchLive() {
               </p>
             )}
 
-            <div className="live-panel__frame">
+            <div className="live-panel__frame" style={{ aspectRatio: "16 / 9", minHeight: "240px" }}>
+              {/* Fix v5 (screenshot 1): the live screen is isolated — a player
+                 crash clears to the inline fallback below, never to the page's
+                 error card. Config + lists + admin panel stay usable. */}
+              <SectionBoundary label="live-screen">
               {available.length > 1 && (
                 <div className="platform-pick">
                   <span className="platform-pick__label">{ct("live.platform.label")}</span>
@@ -468,13 +486,14 @@ export function WatchLive() {
                   hideEscape
                   source={liveSource}
                   title={liveName || ct("auto.live.bc108377bb47f9e6")}
+                  poster={cover}
                   compact
                   live
                   /* The check says live, so the screen plays by itself (notes
-                     384, 388) — a verified broadcast, a walled channel follow,
-                     or the stream link all open with no tap, WITH SOUND: no
-                     live from a channel is ever muted, and the audio opens by
-                     itself the moment the broadcast starts. */
+                     384, 388) — audible-first with muted fallback (fix v5, no
+                     custom sound button): tries WITH SOUND, falls back to
+                     muted only if the browser blocks it. Standard controls
+                     stay visible so the visitor unmutes normally. */
                   autoPlay={streaming && watchable}
                   reloadSignal={reloadSignal}
                 />
@@ -483,11 +502,12 @@ export function WatchLive() {
                   hideEscape
                   source={{ platform: "youtube", youtubeId: "", youtubeChannelId: overrideId }}
                   title={liveName || ct("auto.live.bc108377bb47f9e6")}
+                  poster={cover}
                   compact
                   live
                   /* The office commanded the slot and the read is walled —
                      main and guest alike open their commanded channel by
-                     itself instead of the waiting clock, WITH SOUND like
+                     itself instead of the waiting clock, audible-first like
                      every live. A verified off still waits; a detected
                      broadcast still wins. */
                   autoPlay
@@ -548,6 +568,7 @@ export function WatchLive() {
                   <b>{ct("live.fallback.title")}</b> {ct("live.fallback.text")}
                 </Notice>
               )}
+              </SectionBoundary>
             </div>
 
             {available.length > 0 && (
