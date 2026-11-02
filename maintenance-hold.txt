@@ -1,0 +1,5 @@
+# LOCKED deploy marker. Every build holds fresh visitors on the
+# maintenance notice until the office publishes — new code or old, each
+# deploy looks new (fresh opaque deploy ID, no numbers). Publishing from
+# the deployed copy releases it; no file delete is needed, and deleting
+# this file no longer switches the hold off (the lock is in the code).

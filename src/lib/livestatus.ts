@@ -47,18 +47,18 @@ export const LIVE_STATUS_KEY = "wom.livestatus";
 
 /** A status younger than this is trusted on mount instead of re-checked —
     unless a watcher asks urgent (the Watch page does: it checks at once). */
-const FRESH_MS = 3_000;
+const FRESH_MS = 6_000;
 /** Give the proxy this long before calling the check a failure.
     Fast live: 3.5s is plenty for YouTube to answer; the old 15s held the
     Watch screen on the waiting clock past the moment the broadcast started. */
-const CHECK_TIMEOUT_MS = 4_000;
+const CHECK_TIMEOUT_MS = 8_000;
 /** Poll cadence (note 310): fast while a broadcast is expected or the Watch
     page is open — a YouTube start shows in seconds and the waiting clock
     vanishes with it — slower in the quiet week. Live and local share this
     poller; only the fetch door differs (same-origin /__yt on local runs, the
     office server when joined, else the public proxy). */
-export const SOON_MS = 10_000;
-export const IDLE_MS = 45_000;
+export const SOON_MS = 20_000;
+export const IDLE_MS = 90_000;
 
 const EMPTY: LiveStatus = { state: "unset", platform: "", videoId: "", title: "", channelId: "", target: "", checkedAt: 0, endedAt: 0 };
 
@@ -495,6 +495,24 @@ async function resolveYoutube(
   return unverifiedChannelAnswer(parsed.live, parsed.title, parsed.live ? extractChannelId(html, target.url) : "", designatedId);
 }
 
+/** Bounded channel resolve (production fix): the sequential candidate watch
+    reads can stack timeouts on a bad network day (3 x 8s) and hold the Watch
+    screen past a live start — and a Render cold start adds its own wait. Cap
+    the whole resolve at 15s: on timeout the answer is unknown (never off,
+    never a guess) — the player keeps its still and the poller tries again,
+    instead of mounting an unconfirmed frame. */
+async function resolveYoutubeBounded(
+  target: { url: string; kind: "channel" | "video" },
+  html: string,
+  ms = 15_000
+): Promise<{ state: LiveState; videoId: string; title: string; channelId: string }> {
+  try {
+    return await withTimeout(resolveYoutube(target, html), ms);
+  } catch {
+    return { state: "unknown" as const, videoId: "", title: "", channelId: "" };
+  }
+}
+
 /** Facebook can only confirm a broadcast (two markers); never trusts "off". */
 export function parseFacebookLivePage(html: string): { live: boolean; videoId: string; title: string } {
   const text = String(html || "");
@@ -825,7 +843,7 @@ export async function checkLiveStream(opts: { facebook?: boolean } = {}): Promis
       : { state: "off", videoId: "", title: "", channelId: "" }
     : guestHtml === null
     ? { state: "unknown", videoId: "", title: "", channelId: "" }
-    : await resolveYoutube(guest, guestHtml);
+    : await resolveYoutubeBounded(guest, guestHtml);
   const html = target && !officeHit ? await mainHtmlP : null;
   const youtube: { state: LiveState; videoId: string; title: string; channelId: string } = !target
     ? { state: "unset", videoId: "", title: "", channelId: "" }
@@ -835,7 +853,7 @@ export async function checkLiveStream(opts: { facebook?: boolean } = {}): Promis
       : { state: "off", videoId: "", title: "", channelId: "" }
     : html === null
     ? { state: "unknown", videoId: "", title: "", channelId: "" }
-    : await resolveYoutube(target, html);
+    : await resolveYoutubeBounded(target, html);
 
   /* Facebook is asked only when YouTube has not already answered "live" — it is
      the office's drawer that asks, and this is the one case it can add
@@ -1109,7 +1127,7 @@ function delay() {
   /* The Watch page (urgent watcher) polls faster than the quiet week without
      changing the shared cadence above: a YouTube start shows in seconds where
      someone is actually watching, while background tabs stay cheap. */
-  if (wantsUrgent()) return 4_000;
+  if (wantsUrgent()) return 8_000;
   return wantsSoon() ? SOON_MS : IDLE_MS;
 }
 
@@ -1124,7 +1142,7 @@ function schedule(ms: number) {
   window.clearTimeout(timer);
   /* Jitter: every open tab polling on the exact second hammers the proxy as
      one burst mid-service. +/-1s spreads the load; timing stays the same. */
-  const jitter = Math.floor(Math.random() * 800) - 400;
+  const jitter = Math.floor(Math.random() * 2000) - 1000;
   timer = window.setTimeout(run, Math.max(0, ms + jitter));
 }
 
@@ -1164,7 +1182,7 @@ async function run() {
      the proxy's time on a screen nobody is looking at). */
   const hidden = document.visibilityState === "hidden";
   if (hidden && snapshot.status.state !== "live") {
-    schedule(15_000);
+    schedule(30_000);
     return;
   }
   const facebook = wantsFacebook();
@@ -1319,7 +1337,7 @@ export function useLiveStream(soon = false, watchFacebook = false, urgent = fals
    fetch (no proxy door needed); cached 5 minutes; in-flight asks shared. */
 
 const VERIFY_TTL_MS = 5 * 60_000;
-const VERIFY_TIMEOUT_MS = 3_500;
+const VERIFY_TIMEOUT_MS = 4_000;
 const verifyCache = new Map<string, { ok: boolean; at: number }>();
 const verifyInflight = new Map<string, Promise<boolean | null>>();
 
@@ -1363,7 +1381,7 @@ async function noembedVerdict(id: string, signal?: AbortSignal): Promise<boolean
     Dead verdicts expire fast (60s): an embedding flip or a restarted stream can
     turn the same id playable again, and a cached dead must never hold the
     screen on the fallback. Playable verdicts keep the full 5 minutes. */
-const VERIFY_DEAD_TTL_MS = 30_000;
+const VERIFY_DEAD_TTL_MS = 60_000;
 export function peekVerified(videoId: string): boolean | null {
   const id = parseYoutubeId(videoId);
   if (!id) return false;

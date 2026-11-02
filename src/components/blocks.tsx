@@ -237,7 +237,9 @@ export function AnnouncementBanner() {
    swaps to the dead fallback (centered arrow + Watch on YouTube). If the API
    never loads (offline, blocked) everything behaves exactly as before. */
 let ytApiPromise: Promise<any> | null = null;
-function loadYtPlayerApi(): Promise<any> {
+/* Prefetchable (Watch page warms it on open): loading the API early means a
+   verified live id creates its player with no script wait. */
+export function loadYtPlayerApi(): Promise<any> {
   try {
     const w = window as any;
     if (w.YT && w.YT.Player) return Promise.resolve(w.YT);
@@ -255,7 +257,7 @@ function loadYtPlayerApi(): Promise<any> {
         document.head.appendChild(tag);
         /* If the API never loads (offline, blocked), give up quietly — the
            verifier + escape link remain the net. */
-        window.setTimeout(() => resolve(w.YT || null), 5000);
+        window.setTimeout(() => resolve(w.YT || null), 10000);
       } catch { resolve(null); }
     });
     return ytApiPromise;
@@ -283,176 +285,214 @@ export function VideoPlayer({
   live?: boolean;
   /** Start the player without a click — used when a live stream is detected. */
   autoPlay?: boolean;
-  /** Hide the "Can't see the video?" escape link — the live screen drops it (its red button is the way out). */
+  /** Hide the "Can't see the video?" escape link — the live screen drops it. */
   hideEscape?: boolean;
-  /** Kept so existing callers still type-check. */
+  /** Kept so existing callers still type-check: the dead fallback no longer
+      renders the dead-text line on any screen — poster, reload arrow and a
+      way out are the whole fallback now. */
   hideDeadText?: boolean;
   /** Office Reload press (published liveReloadAt): the general fix. When it
-      changes, the player repairs once — drops what it learned, re-asks
-      what's live now, remounts the frame fresh. No page reload. */
+      changes, the player force-repairs — drops what it learned, re-asks
+      what's live now, remounts the frame on a fresh address — any error or
+      blank heals with no page reload, staying on this site. */
   reloadSignal?: number;
 }) {
   const [failed, setFailed] = useState(false);
-  /* Only bare YouTube ids are verifiable (oEmbed). Channel follows and files
-     cannot be asked — they play directly, with the player's own error net. */
+  /* Dead-video net (note 333, hardened note 413): a removed or private video must never sit on
+     the black "unavailable" frame — the player says so and offers the
+     platform link instead. Channel follows and files cannot be asked, so
+     only bare YouTube ids are verified. Autoplay never opens an unverified id. */
   const ytId = source?.platform === "facebook" || source?.platform === "upload" ? "" : parseYoutubeId(source?.youtubeId || "");
   const followId = live && source?.platform !== "facebook" && source?.platform !== "upload" ? String(source?.youtubeChannelId || "") : "";
+  /* Frame remount key: bumped by the visitor retry and the office Reload —
+     the iframe reloads in place, no page reload, stays on this site. */
   const [iframeKey, setIframeKey] = useState(0);
+  /* Fresh-frame key: bumped with the remount key on every force repair. The
+     plain-frame address carries it as a dummy query, so the browser cannot
+     repaint a cached blank frame — each repair loads truly fresh. */
   const [forceKey, setForceKey] = useState(0);
-  /* Live mounts at once (poster + frame together): the screen already says
-     live, so there is nothing to wait for. Cards wait for a tap. A proven-dead
-     id never mounts — it goes straight to the error fallback below. */
-  const [playing, setPlaying] = useState(() => {
-    if (!autoPlay) return false;
-    if (live) return true;
-    if (ytId && peekVerified(ytId) !== true) return false;
-    if (!ytId && followId) return false;
-    return true;
-  });
+  /* Poster-first (production fix): the player NEVER mounts a YouTube frame
+     blind. Every open starts on the still/poster; the frame mounts only after
+     the address verifies, and the still stays over it until YouTube reports
+     the first real PLAYING frame. That ends the black "unavailable" flash: an
+     offline channel or a dead id can no longer paint before the check answers.
+     Sound-first: every opening requests audio; a browser that holds sound
+     autoplay raises the one-tap control below instead of a muted frame. */
+  const [playing, setPlaying] = useState(false);
+  /* Sound-first, zero taps (production fix v6): every opening requests audio
+     at full volume. If the browser holds sound autoplay, the player drops to
+     muted autoplay the same second (motion + first frame fast, never a held
+     black frame) and the FIRST gesture anywhere on the page restores full
+     sound automatically — no buttons, no overlays, no retry loops. */
+  const mutedFallbackRef = useRef(false);
+  /* First real video frame received (YT PLAYING): only then does the still
+     lift and replace the poster. */
+  const [firstFrame, setFirstFrame] = useState(false);
+  /* Plain-frame load flag (channel/Facebook embeds report nothing
+     cross-origin): the still stays until the frame itself loads. */
+  const [frameLoaded, setFrameLoaded] = useState(false);
+  /* The API player instance, so the first-gesture upgrade restores sound. */
+  const playerRef = useRef<any>(null);
+  /* One automatic attempt per source — never a retry loop. */
+  const autoplayTriedRef = useRef(false);
+  /* A channel with no video id cannot be asked of oEmbed (note 342): tapping
+     it used to open the channel embed blind — when no broadcast is live,
+     YouTube answers "unavailable" inside the frame. The tap now asks the
+     check first and plays the verified broadcast id instead. Only the live
+     panel follows channels; every other sourceless tap plays as before. */
   const [dead, setDead] = useState(false);
   const [checking, setChecking] = useState(false);
   const [notLive, setNotLive] = useState(false);
   const [liveVideoId, setLiveVideoId] = useState("");
-  /* Sound is automatic: browsers may still hold sound until the first tap
-     anywhere — so the player keeps asking for sound by itself and unlocks on
-     the first gesture anywhere. There is no tap gate and never a muted fake. */
-  const [blocked, setBlocked] = useState(false);
-  /* First real frame ready: the still underneath drops away then, never before
-     — no black flash, no layout shift (the shell keeps 16/9 throughout). */
-  const [ready, setReady] = useState(false);
+  /* One-press FORCE repair (visitor arrow + office Reload share it): drop
+     stale verdicts, re-ask what's live now, and play the current broadcast
+     by its fresh verified ID — a restarted stream's new video, a stale
+     resolution, a hung frame, a cached blank frame. A channel follow
+     re-asks the check and plays the current broadcast by its own verified
+     id; anything else remounts with a cache-busted address and replays (the
+     verifier + in-frame error decide). Never replays a stale dead id blind. */
   const [repairing, setRepairing] = useState(false);
-  const playerRef = useRef<any>(null);
-  const apiHostRef = useRef<HTMLDivElement | null>(null);
-  const frameLoadedRef = useRef(false);
-  const mountedRef = useRef(true);
-  const blockedTimerRef = useRef(0);
-  const autoTriedRef = useRef("");
-  const tapCount = useRef(0);
-  const autoRepairCount = useRef(0);
-  useEffect(() => {
-    mountedRef.current = true;
-    return () => {
-      mountedRef.current = false;
-      try { window.clearTimeout(blockedTimerRef.current); } catch {}
-    };
-  }, []);
-
-  const shown = tx(title);
-  const sourceKey = embedSrc(source, true);
-  const src = liveVideoId ? embedSrc({ platform: "youtube", youtubeId: liveVideoId }, true) : sourceKey;
-  const freshSrc = forceKey > 0 && src ? src + (src.indexOf("?") === -1 ? "?" : "&") + "womfresh=" + forceKey : src;
-  const file = fileSrc(source);
-  const still = poster && !failed ? poster : posterFor(source);
-  const platform: VideoPlatform = source?.platform === "facebook" ? "facebook" : source?.platform === "upload" ? "upload" : "youtube";
-  const shell = "player" + (compact ? " player--compact" : "") + (playing ? " player--playing" : "");
-
-  /* A new source starts unjudged — one mount, no churn. */
-  useEffect(() => {
-    try { tapCount.current = 0; } catch {}
-    try { autoRepairCount.current = 0; } catch {}
-    setDead(false);
-    setChecking(false);
-    setNotLive(false);
-    setLiveVideoId("");
-    setBlocked(false);
-    setReady(false);
-    frameLoadedRef.current = false;
-    autoTriedRef.current = "";
-    setIframeKey((k) => k + 1);
-  }, [sourceKey]);
-
-  /* One-press repair (grey arrow, error-only + office Reload share it): drop
-     stale verdicts, re-ask what's live now, remount fresh with sound. The
-     first tap repairs in place; a tap that finds the frame still dead reloads
-     the page — so Reload always fixes. Automatic work above stops after two. */
   const repair = () => {
-    tapCount.current++;
-    if (tapCount.current >= 3) {
-      try { window.location.reload(); } catch {}
-      return;
-    }
-    try { forgetAllVerified(); } catch {}
-    try { if (ytId) forgetVerified(ytId); } catch {}
-    try { if (liveVideoId) forgetVerified(liveVideoId); } catch {}
+    try {
+      forgetAllVerified();
+    } catch {}
+    try {
+      if (ytId) forgetVerified(ytId);
+    } catch {}
+    try {
+      if (liveVideoId) forgetVerified(liveVideoId);
+    } catch {}
     setDead(false);
     setFailed(false);
     setNotLive(false);
     setChecking(false);
-    setBlocked(false);
-    setReady(false);
-    frameLoadedRef.current = false;
     setLiveVideoId("");
+    mutedFallbackRef.current = false;
+    setFirstFrame(false);
+    setFrameLoaded(false);
+    autoplayTriedRef.current = false;
+    /* Fresh address + fresh mount together: the remount alone can repaint a
+       cached blank frame, so the frame address changes too — the browser
+       must fetch the player again instead of reusing what it has. */
     setForceKey((k) => k + 1);
-    setIframeKey((k) => k + 1);
     setRepairing(true);
-    try { recheckLiveNow(); } catch {}
+    try {
+      recheckLiveNow();
+    } catch {}
+    const settledRepair = () => {
+      try {
+        setRepairing(false);
+      } catch {}
+    };
+    /* A channel follow re-resolves (the fix for "unavailable" after the
+       office restarted the stream): re-ask what's live now and play the
+       current broadcast by its fresh verified id. Anything else remounts
+       with the fresh address and replays. */
     if (live && followId) {
-      checkChannelUpgrade();
-      try { window.setTimeout(() => { try { setRepairing(false); } catch {} }, 1500); } catch {}
+      checkChannelThenPlay();
+      try {
+        window.setTimeout(settledRepair, 1500);
+      } catch {
+        settledRepair();
+      }
     } else {
+      setIframeKey((k) => k + 1);
       setPlaying(true);
-      try { onPlay?.(); } catch {}
-      try { setRepairing(false); } catch {}
+      try {
+        onPlay?.();
+      } catch {}
+      settledRepair();
     }
   };
+  /* Office Reload repair (published liveReloadAt): the general fix for any
+     livestream-screen error — dead frame, blank frame, dead id, hung load,
+     blocked autoplay. Runs the shared force repair above: re-asks the on-air
+     check and reopens on what's live now. No page reload, stays on this site. */
   const reloadSeen = useRef(typeof reloadSignal === "number" ? reloadSignal : 0);
   useEffect(() => {
     if (!live || !reloadSignal) return;
     if (reloadSeen.current === reloadSignal) return;
     reloadSeen.current = reloadSignal;
     repair();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [live, reloadSignal]);
-  const retry = () => { repair(); };
-
-  /* Background upgrade (once per source, never a loop): a live channel follow
-     already mounted its channel frame above — when the check names the real
-     verified broadcast id, swap to it so errors report properly. Never marks
-     anything dead: a mere off/unknown leaves the frame the screen opened. */
-  const checkChannelUpgrade = () => {
-    checkLiveStream({ facebook: !!facebookTarget() })
-      .then((st) => {
-        if (!mountedRef.current) return;
-        const guestWatchUrl = guestTarget()?.url || "";
-        const mainUrl = liveTarget()?.url || "";
-        const stamped = (!!mainUrl && isStatusForTarget(st, mainUrl)) || (!!guestWatchUrl && isStatusForTarget(st, guestWatchUrl));
-        if (!stamped) return;
-        const designatedId = designatedChannelIdForTarget(mainUrl);
-        if (!isDesignatedChannel(st.channelId || "", designatedId) && !(guestWatchUrl && isGuestTargetUrl(st.target || "", guestWatchUrl))) return;
-        const vid = parseYoutubeId(st.videoId || "");
-        if (st.state === "live" && vid) {
-          verifyYoutubeId(vid).then((v) => {
-            if (!mountedRef.current) return;
-            if (v === false) return;
-            setLiveVideoId((cur) => (cur === vid ? cur : vid));
-          }).catch(() => {
-            if (!mountedRef.current) return;
-            setLiveVideoId((cur) => (cur === vid ? cur : vid));
-          });
-        }
-      })
-      .catch(() => {});
+  /* Visitor retry: the circular arrow in the center of the screen. Live
+     broadcasts also carry an always-on centered arrow OVER the playing frame
+     (see the playing branch below), because YouTube's own "unavailable" text
+     is cross-origin invisible and no detector can reveal an arrow after the
+     fact. One tap runs the shared force repair above — it finds what's live
+     now and plays it fresh. */
+  const retry = () => {
+    repair();
   };
+  /* No host ref, no innerHTML: the frame below is a plain React iframe, so
+     nothing outside React ever replaces or removes a node it owns. */
+  /* Sound on (note 388): every opening plays with its audio — a tap, or a
+     broadcast the site starts by itself the moment it goes live. Every live
+     from a channel carries its sound. */
+  const shown = tx(title);
+  const sourceKey = embedSrc(source, true);
+  const src = liveVideoId ? embedSrc({ platform: "youtube", youtubeId: liveVideoId }, true) : sourceKey;
+  /* Force-fresh address: after a repair the plain frame must load again, not
+     repaint a cached blank — the dummy query makes each repair an address the
+     browser has never seen. The API-managed frame takes the id, not a URL, so
+     its remount is already fresh. */
+  const freshSrc = forceKey > 0 && src ? src + (src.indexOf("?") === -1 ? "?" : "&") + "womfresh=" + forceKey : src;
+  const file = fileSrc(source);
+  const still = poster && !failed ? poster : posterFor(source);
+  const platform: VideoPlatform = source?.platform === "facebook" ? "facebook" : source?.platform === "upload" ? "upload" : "youtube";
+  const shell = "player" + (compact ? " player--compact" : "") + (playing ? " player--playing" : "");
 
-  /* A tap on a card (non-live): never opens a known-dead video. Unknown ids
-     are asked first; dead ones go straight to the fallback. */
+  /* A new source starts unjudged (poster-first): reset every verdict, but do
+     NOT destroy the frame here — the API player below swaps video by id and
+     the plain frame navigates by src, so no remount churn while zapping. */
+  useEffect(() => {
+    setDead(false);
+    setChecking(false);
+    setNotLive(false);
+    setLiveVideoId("");
+    mutedFallbackRef.current = false;
+    setFirstFrame(false);
+    setFrameLoaded(false);
+    autoplayTriedRef.current = false;
+  }, [sourceKey]);
+
+  /* A click never opens a known-dead video: unknown ids are asked first
+     (a beat of "checking"), dead ones go straight to the fallback below. */
+  /* A channel tap asks first (note 342): a live broadcast plays by its own
+     verified id; silence shows the waiting poster, never YouTube's
+     "unavailable". Anything unclear plays the channel as before. */
   const checkChannelThenPlay = () => {
     setNotLive(false);
     setChecking(true);
+    setIframeKey((k) => k + 1);
+    /* Facebook-only services (note 111): the tap must ask Facebook too, or a
+       Facebook-only live answers "not live" on tap while it plays by itself. */
     checkLiveStream({ facebook: !!facebookTarget() })
       .then((st) => {
-        if (!mountedRef.current) return;
+        /* Only the handle's answer opens the player (note 350): a tap that
+           lands after the office moved the channel waits instead of playing
+           the old address's video. The temporary guest's own answer opens it
+           the same way while IT is live (note 380). */
         const guestWatchUrl = guestTarget()?.url || "";
         if (!isStatusForTarget(st, liveTarget()?.url || "") && !(guestWatchUrl && isStatusForTarget(st, guestWatchUrl))) {
           setChecking(false);
           setNotLive(true);
+          /* Stale address with a frame already open: land on the centered
+             arrow fallback instead of a silent poster — the visitor's tap
+             asked, and the arrow is the way back to what's live now. */
           try { if (playing) setDead(true); } catch {}
           return;
         }
+        /* Only the designated channel opens the player (note 358): a live
+           answer from another channel — or an unverified channel follow
+           with no video — waits instead of playing. The guest's own stamped
+           answer passes while IT is live (note 380). */
         const designatedId = designatedChannelIdForTarget(liveTarget()?.url || "");
         if (!isDesignatedChannel(st.channelId || "", designatedId) && !(guestWatchUrl && isGuestTargetUrl(st.target || "", guestWatchUrl))) {
           setChecking(false);
           setNotLive(true);
+          /* Somebody else's video can never play here: the centered arrow
+             fallback names the fix instead of a silent poster. */
           try { if (playing) setDead(true); } catch {}
           return;
         }
@@ -460,15 +500,16 @@ export function VideoPlayer({
         if (st.state === "live" && vid) {
           verifyYoutubeId(vid)
             .then((v) => {
-              if (!mountedRef.current) return;
               setChecking(false);
-              if (v === false) { setDead(true); return; }
+              if (v === false) {
+                setDead(true);
+                return;
+              }
               setLiveVideoId(vid);
               setPlaying(true);
               onPlay?.();
             })
             .catch(() => {
-              if (!mountedRef.current) return;
               setChecking(false);
               setLiveVideoId(vid);
               setPlaying(true);
@@ -484,6 +525,9 @@ export function VideoPlayer({
         } else if (st.state === "off") {
           setChecking(false);
           setNotLive(true);
+          /* Proven off while a channel frame plays: that frame is YouTube's
+             own "unavailable" text, so swap it for the centered arrow
+             fallback at once — the arrow re-asks and reopens. */
           try { setDead(true); } catch {}
         } else {
           setChecking(false);
@@ -491,11 +535,14 @@ export function VideoPlayer({
         }
       })
       .catch(() => {
-        if (!mountedRef.current) return;
+        /* Probe down, not proof of off (note 420): keep the frame the screen
+           already opened — the poller and the self-heal re-ask, and a truly
+           ended broadcast still closes at the screen level. */
         setChecking(false);
       });
   };
   const open = () => {
+    mutedFallbackRef.current = false;
     if (!ytId && !followId) {
       setPlaying(true);
       onPlay?.();
@@ -518,7 +565,6 @@ export function VideoPlayer({
     setChecking(true);
     verifyYoutubeId(ytId)
       .then((v) => {
-        if (!mountedRef.current) return;
         setChecking(false);
         if (v === false) setDead(true);
         else {
@@ -527,27 +573,48 @@ export function VideoPlayer({
         }
       })
       .catch(() => {
-        if (!mountedRef.current) return;
         setChecking(false);
         setPlaying(true);
         onPlay?.();
       });
   };
 
-  /* Autoplay verifies behind the poster: a proven-dead id never mounts the
-     black "unavailable" frame. Unknown (offline, probe down, still checking)
-     mounts anyway — the player itself is the net. Single attempt, no loop. */
+  /* Autoplay, poster-first (production fix): the frame mounts only AFTER the
+     address verifies — an unverified id waits on the poster and a dead id
+     falls to the fallback instead of the black frame. A channel follow never
+     mounts blind either: it verifies first, so an offline channel keeps its
+     poster instead of YouTube's "unavailable" text. Unknown (probe down)
+     still opens for live — the API path reports a truly dead id and swaps to
+     the fallback, with the still up until then, so nothing flashes. Exactly
+     one automatic attempt per source — never a retry loop. */
   useEffect(() => {
-    if (!autoPlay || !ytId || dead) return;
-    if (playing) return;
-    if (autoTriedRef.current === ytId) return;
-    autoTriedRef.current = ytId;
+    if (!autoPlay) return;
+    if (autoplayTriedRef.current) return;
+    if (playing || dead) return;
+    if (!ytId) {
+      if (source?.platform === "facebook") {
+        autoplayTriedRef.current = true;
+        if (!playing) setPlaying(true);
+        return;
+      }
+      if (followId) {
+        /* Live channel follow: verify first, mount after (never blind). */
+        autoplayTriedRef.current = true;
+        checkChannelThenPlay();
+        return;
+      }
+      autoplayTriedRef.current = true;
+      if (!playing) setPlaying(true);
+      return;
+    }
     const peek = peekVerified(ytId);
     if (peek === true) {
+      autoplayTriedRef.current = true;
       setPlaying(true);
       return;
     }
     if (peek === false) {
+      autoplayTriedRef.current = true;
       setDead(true);
       return;
     }
@@ -555,50 +622,222 @@ export function VideoPlayer({
     setChecking(true);
     verifyYoutubeId(ytId)
       .then((v) => {
-        if (!alive || !mountedRef.current) return;
+        if (!alive) return;
         setChecking(false);
+        autoplayTriedRef.current = true;
         if (v === false) setDead(true);
         else setPlaying(true);
       })
       .catch(() => {
-        if (!alive || !mountedRef.current) return;
+        if (!alive) return;
         setChecking(false);
+        autoplayTriedRef.current = true;
+        /* Probe down, not proof of off: live still opens (the API is the
+           net); a card stays on its poster until the visitor taps. */
+        if (live) setPlaying(true);
       });
-    return () => { alive = false; };
-  }, [autoPlay, ytId, sourceKey, dead, playing]);
+    return () => {
+      alive = false;
+    };
+  }, [autoPlay, ytId, sourceKey]);
 
-  /* While a verified id plays, a single background re-check keeps it honest:
-     no interval, no remount — only a proven-dead verdict flips to fallback. */
+  /* Bounded re-ask for an unverified live follow (production fix): while a
+     live autoplay follow still has no frame (probe down at open), re-ask on a
+     capped backoff — 10s, then 20s, 40s, then 60s — pausing in hidden tabs.
+     It stops the moment a frame mounts, a dead verdict lands, or the screen
+     unmounts. Never a fast infinite loop. */
+  useEffect(() => {
+    if (!autoPlay || !live || playing || dead) return;
+    if (ytId || !followId) return;
+    if (!src) return;
+    let cancelled = false;
+    let n = 0;
+    let timer = 0;
+    const tick = () => {
+      if (cancelled) return;
+      try {
+        if (typeof document !== "undefined" && document.visibilityState === "hidden") {
+          timer = window.setTimeout(tick, 30_000);
+          return;
+        }
+      } catch {
+        /* visibility unreadable — ask anyway */
+      }
+      try {
+        checkChannelThenPlay();
+      } catch {
+        /* stay on the poster — the next round tries again */
+      }
+      n += 1;
+      const wait = n <= 1 ? 10_000 : n === 2 ? 20_000 : n === 3 ? 40_000 : 60_000;
+      timer = window.setTimeout(tick, wait);
+    };
+    timer = window.setTimeout(tick, 5_000);
+    return () => {
+      cancelled = true;
+      try {
+        window.clearTimeout(timer);
+      } catch {}
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoPlay, live, playing, dead, ytId, followId, src]);
+
+  /* Autoplay verifies behind the player: a dead id swaps to the fallback
+     instead of sitting on the black frame (unknown plays as before). */
+  useEffect(() => {
+    if (!playing || !ytId || dead) return;
+    if (peekVerified(ytId) === false) {
+      setDead(true);
+      return;
+    }
+    if (peekVerified(ytId) === null) {
+      let alive = true;
+      verifyYoutubeId(ytId)
+        .then((v) => {
+          if (alive && v === false) setDead(true);
+        })
+        .catch(() => {});
+      return () => {
+        alive = false;
+      };
+    }
+  }, [playing, ytId, dead, src]);
+
+  /* While a video plays, the verdict is re-asked every minute (note 344):
+     a broadcast taken down mid-play swaps to the fallback — centered arrow
+     included — instead of sitting on the black frame. Cached verdicts make
+     each re-ask free; hidden tabs skip it. The in-frame error above usually
+     beats this; this is the net beneath it. */
   useEffect(() => {
     if (!playing || dead) return;
     const vid = liveVideoId || ytId;
     if (!vid) return;
-    if (peekVerified(vid) === false) {
-      setDead(true);
-      return;
-    }
-    if (peekVerified(vid) === null) {
-      let alive = true;
+    const t = window.setInterval(() => {
+      try {
+        if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
+      } catch {
+        /* visibility unreadable — ask anyway */
+      }
       verifyYoutubeId(vid)
-        .then((v) => { if (alive && mountedRef.current && v === false) setDead(true); })
+        .then((v) => {
+          if (v === false) setDead(true);
+        })
         .catch(() => {});
-      return () => { alive = false; };
-    }
-  }, [playing, dead, liveVideoId, ytId, src]);
+    }, 60 * 1000);
+    return () => window.clearInterval(t);
+  }, [playing, dead, liveVideoId, ytId]);
 
-  /* Channel-follow upgrade: run once when a live channel frame mounts without
-     a verified id. The verified id (when it lands) swaps the frame to the API
-     path, which reports errors properly. No interval — one shot per source. */
+  /* Self-healing while live: a screen that landed on the dead fallback while
+     the broadcast is STILL on air (embedding flipped on, a restarted
+     stream's new id resolving late, a late admin Reload) re-resolves by
+     itself every 15s and reopens the moment a verified live id answers — no
+     arrow tap, no office Reload needed. Anything but a verified live id
+     stays put, so a truly ended broadcast never loops. Pause in hidden tabs
+     (the visibility return below covers the wake-up instead). */
   useEffect(() => {
-    if (!playing || dead || liveVideoId || ytId || !followId || !live) return;
-    checkChannelUpgrade();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [playing, dead, liveVideoId, ytId, followId, live, sourceKey]);
+    if (!live || !dead) return;
+    let cancelled = false;
+    const t = window.setInterval(() => {
+      (async () => {
+        try {
+          const st = await checkLiveStream();
+          if (cancelled) return;
+          if (st.state !== "live" || !st.videoId) return;
+          const mainUrl = liveTarget()?.url || "";
+          const guestWatchUrl = guestTarget()?.url || "";
+          const stamped =
+            (!!mainUrl && isStatusForTarget(st, mainUrl)) || (!!guestWatchUrl && isStatusForTarget(st, guestWatchUrl));
+          if (!stamped) return;
+          const vid = parseYoutubeId(st.videoId);
+          if (!vid) return;
+          /* Same id counts too: an embedding flip or late probe can turn
+             the current id from dead to playable while the fallback shows.
+             Forget first so a cached dead verdict never vetoes the fresh
+             ask — only a verified live id reopens, so a truly ended
+             broadcast never loops. */
+          try {
+            if (liveVideoId) forgetVerified(liveVideoId);
+          } catch {}
+          try {
+            if (ytId) forgetVerified(ytId);
+          } catch {}
+          const v = await verifyYoutubeId(vid).catch(() => null);
+          if (cancelled) return;
+          if (v !== true) return;
+          try {
+            if (liveVideoId) forgetVerified(liveVideoId);
+          } catch {}
+          try {
+            if (ytId) forgetVerified(ytId);
+          } catch {}
+          setLiveVideoId(vid);
+          setDead(false);
+          setFailed(false);
+          setNotLive(false);
+          setChecking(false);
+          setPlaying(true);
+          try {
+            onPlay?.();
+          } catch {}
+          try {
+            recheckLiveNow();
+          } catch {}
+        } catch {
+          /* stay on the fallback — the next round tries again */
+        }
+      })();
+    }, 15_000);
+    return () => {
+      cancelled = true;
+      try {
+        window.clearInterval(t);
+      } catch {}
+    };
+  }, [live, dead, liveVideoId, ytId]);
 
-  /* Official IFrame API for bare video ids: reports errors (100 gone, 101/150
-     embedding disabled, 105 region) + autoplay-blocked + real playback state.
-     Plain React iframe for channel follows / Facebook (no cross-origin error
-     signal there — the watchdog + upgrade above are the net). */
+  /* Wake-up retry for a stuck dead fallback (production fix v6): the tab
+     returning, or the network coming back, re-runs one bounded repair when
+     the screen sits on the fallback while live — at most one attempt per
+     minute, so a truly ended broadcast never loops. Covers the "grey arrow
+     that needed a tap after sleep" case: it fixes itself. */
+  const lastWakeRepairRef = useRef(0);
+  useEffect(() => {
+    if (!live || !dead) return;
+    const maybe = () => {
+      try {
+        if (Date.now() - lastWakeRepairRef.current < 60_000) return;
+        lastWakeRepairRef.current = Date.now();
+        repair();
+      } catch {}
+    };
+    const onVis = () => {
+      try { if (document.visibilityState === "visible") maybe(); } catch {}
+    };
+    try {
+      document.addEventListener("visibilitychange", onVis);
+      window.addEventListener("online", maybe);
+      window.addEventListener("focus", maybe);
+    } catch {}
+    return () => {
+      try { document.removeEventListener("visibilitychange", onVis); } catch {}
+      try { window.removeEventListener("online", maybe); } catch {}
+      try { window.removeEventListener("focus", maybe); } catch {}
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [live, dead, liveVideoId, ytId]);
+
+  /* In-frame signal + sound-first autoplay (see loader above): a bare video id
+     plays through the API's own host div, which reports errors AND the real
+     playback state. YouTube's own onError (100 gone, 101/150 embedding
+     disabled, 105, 5, 2) swaps to the dead fallback at once — the centered
+     arrow appears instead of the black "unavailable" frame. The still stays
+     over the frame until the first PLAYING state (the first real video
+     frame). Sound is requested at full volume on ready; a browser that holds
+     sound autoplay drops to muted autoplay at once and restores sound on the
+     first gesture anywhere — never a silent stuck frame, never an overlay.
+     Channel follows and files keep the
+     plain frame + verifier below. */
+  const apiHostRef = useRef<HTMLDivElement | null>(null);
   useEffect(() => {
     if (!playing || dead) return;
     if (platform !== "youtube") return;
@@ -608,27 +847,19 @@ export function VideoPlayer({
     if (!host) return;
     let player: any = null;
     let cancelled = false;
+    /* Watchdog: a frame that reports neither ready nor error within 12s is
+       hung (blocked API, stalled load) — show the fallback with its arrow
+       instead of a silent black box. Normal loads settle far sooner. The
+       still stays up the whole time, so the watchdog never flashes black. */
     let settled = false;
     const fail = (why: string, code?: number) => {
-      if (settled || cancelled || !mountedRef.current) return;
+      if (settled || cancelled) return;
       settled = true;
-      try { window.clearTimeout(blockedTimerRef.current); } catch {}
+      /* Never log the address beyond the video id: no tokens, no URLs. */
       try { console.warn("church player: showing fallback", { videoId: vid, why, code }); } catch {}
       try { setDead(true); } catch {}
-      try { setBlocked(false); } catch {}
     };
-    const watchdog = window.setTimeout(() => fail("watchdog"), 6_000);
-    /* Sound is automatic: while PLAYING has not arrived, keep asking the
-       frame for sound instead of parking on a tap gate. */
-    try { window.clearTimeout(blockedTimerRef.current); } catch {}
-    blockedTimerRef.current = window.setTimeout(() => {
-      if (cancelled || settled || !mountedRef.current) return;
-      try {
-        const p = playerRef.current;
-        if (p) { try { p.unMute(); } catch {} try { p.setVolume(100); } catch {} try { p.playVideo(); } catch {} }
-      } catch {}
-      /* No gate: stay silent-flagged only so the next gesture unlocks at once. */
-    }, 2_000);
+    const watchdog = window.setTimeout(() => fail("watchdog"), 12_000);
     loadYtPlayerApi()
       .then((api) => {
         if (cancelled || !api || !api.Player) return;
@@ -638,48 +869,75 @@ export function VideoPlayer({
             videoId: vid,
             playerVars: { autoplay: 1, rel: 0, modestbranding: 1, playsinline: 1 },
             events: {
-              onReady: (e: any) => {
+              onReady: (ev: any) => {
                 try {
-                  const p = e && e.target;
-                  playerRef.current = p;
-                  try { p.unMute(); } catch {}
-                  try { p.setVolume(100); } catch {}
-                  try { p.playVideo(); } catch {}
+                  /* Sound-first, once per mount: full volume, unmuted,
+                     playing. If the browser holds sound autoplay it answers
+                     with onAutoplayBlocked (or never reaches PLAYING) — the
+                     watch below then drops to muted autoplay the same
+                     second, and the first gesture anywhere restores sound. */
+                  const p = ev && ev.target ? ev.target : null;
+                  try { if (p && typeof p.unMute === "function") p.unMute(); } catch {}
+                  try { if (p && typeof p.setVolume === "function") p.setVolume(100); } catch {}
+                  try { if (p && typeof p.playVideo === "function") p.playVideo(); } catch {}
                 } catch {}
-              },
-              onStateChange: (e: any) => {
-                const s = Number(e && (e as any).data);
-                /* 1 = PLAYING: first real frame — drop the still + loading. */
-                if (s === 1) {
-                  settled = true;
-                  try { window.clearTimeout(watchdog); } catch {}
-                  try { window.clearTimeout(blockedTimerRef.current); } catch {}
-                  if (!mountedRef.current) return;
-                  try { setReady(true); } catch {}
-                  try { setBlocked(false); } catch {}
-                }
+                try { window.clearTimeout(watchdog); } catch {}
+                settled = true;
+                /* Held-autoplay watch (2.5s): a sound autoplay the browser
+                   holds never reaches PLAYING — drop to muted autoplay at
+                   once (motion + first frame fast, never a held black
+                   frame). Sound returns automatically on the first gesture
+                   anywhere on the page (see the upgrade effect below), or
+                   via YouTube's own volume control. No overlay, no loop. */
+                const goMuted = () => {
+                  try {
+                    if (cancelled || mutedFallbackRef.current) return;
+                    mutedFallbackRef.current = true;
+                    try { if (player && typeof player.mute === "function") player.mute(); } catch {}
+                    try { if (player && typeof player.playVideo === "function") player.playVideo(); } catch {}
+                    try { console.warn("church player: sound autoplay held — muted autoplay, sound on first gesture"); } catch {}
+                  } catch {}
+                };
+                try { (player as any)._womGoMuted = goMuted; } catch {}
+                try {
+                  window.setTimeout(() => {
+                    try {
+                      if (cancelled) return;
+                      const cur = player && typeof player.getPlayerState === "function" ? Number(player.getPlayerState()) : -99;
+                      /* 1 = PLAYING. Anything else 2.5s in means the browser
+                         is holding sound autoplay. */
+                      if (cur !== 1) goMuted();
+                    } catch {}
+                  }, 2500);
+                } catch {}
               },
               onAutoplayBlocked: () => {
-                try { window.clearTimeout(blockedTimerRef.current); } catch {}
-                if (!mountedRef.current || cancelled) return;
-                /* Browsers hold sound until a gesture: keep the frame asking
-                   with sound and unlock on the first gesture (see unlock
-                   listener below) — never park on a button. */
                 try {
-                  const p = (typeof playerRef !== "undefined" && playerRef.current) || null;
-                  if (p) { try { p.unMute(); } catch {} try { p.setVolume(100); } catch {} try { p.playVideo(); } catch {} }
+                  const g = player && (player as any)._womGoMuted;
+                  if (typeof g === "function") g();
                 } catch {}
-                try { setBlocked(true); } catch {}
+              },
+              onStateChange: (ev: any) => {
+                try {
+                  if (Number(ev && ev.data) === 1) {
+                    /* First real video frame with sound genuinely playing:
+                       lift the still, drop the tap control. */
+                    setFirstFrame(true);
+                    mutedFallbackRef.current = false;
+                  }
+                } catch {}
               },
               onError: (e: any) => {
                 const code = Number(e && (e as any).data);
                 try { window.clearTimeout(watchdog); } catch {}
-                try { window.clearTimeout(blockedTimerRef.current); } catch {}
-                if (code === 100 || code === 101 || code === 105 || code === 150) fail("youtube-error", code);
+                if (code === 100 || code === 101 || code === 105 || code === 150 || code === 5 || code === 2) fail("youtube-error", code);
                 else { settled = true; }
               },
             },
           });
+          try {
+            playerRef.current = player;
+          } catch {}
         } catch {
           try { window.clearTimeout(watchdog); } catch {}
         }
@@ -688,19 +946,55 @@ export function VideoPlayer({
     return () => {
       cancelled = true;
       try { window.clearTimeout(watchdog); } catch {}
-      try { window.clearTimeout(blockedTimerRef.current); } catch {}
+      try { if (playerRef.current === player) playerRef.current = null; } catch {}
       try { if (player && typeof player.destroy === "function") player.destroy(); } catch {}
-      playerRef.current = null;
     };
   }, [playing, dead, liveVideoId, ytId, platform, iframeKey]);
 
-  /* Plain-frame net (channel follows, Facebook): no cross-origin error signal,
-     so a hung frame lands on the same grey arrow after 10s. A fresh verified
-     broadcast upgrades to its own id (API path above); a proven-off channel
-     while the parent still says live simply waits — the parent unmounts on a
-     real end, so no false error when starting or reconnecting. */
+  /* First-gesture sound upgrade (production fix v6): the moment the visitor
+     interacts anywhere on the page — any tap, click or key — a muted
+     fallback restores full sound automatically. Runs in-gesture, so the
+     browser permits audio. One-shot listeners, removed on unmount. */
+  useEffect(() => {
+    if (!playing || dead) return;
+    const upgrade = () => {
+      try {
+        const p = playerRef.current;
+        if (!p) return;
+        let muted = mutedFallbackRef.current;
+        try { if (!muted && typeof p.isMuted === "function" && p.isMuted()) muted = true; } catch {}
+        if (!muted) return;
+        try { if (typeof p.unMute === "function") p.unMute(); } catch {}
+        try { if (typeof p.setVolume === "function") p.setVolume(100); } catch {}
+        try { if (typeof p.playVideo === "function") p.playVideo(); } catch {}
+        mutedFallbackRef.current = false;
+      } catch {}
+    };
+    const h = () => {
+      try { upgrade(); } catch {}
+    };
+    try {
+      window.addEventListener("pointerdown", h, true);
+      window.addEventListener("touchend", h, true);
+      window.addEventListener("keydown", h, true);
+    } catch {}
+    return () => {
+      try { window.removeEventListener("pointerdown", h, true); } catch {}
+      try { window.removeEventListener("touchend", h, true); } catch {}
+      try { window.removeEventListener("keydown", h, true); } catch {}
+    };
+  }, [playing, dead]);
+
+  /* Plain-frame net (channel follows, Facebook, other non-API frames): these
+     iframes never report content errors cross-origin, so a dead channel embed
+     would otherwise sit on the black "video unavailable" frame with no way
+     out. Watchdog re-asks what's live now: a fresh verified broadcast upgrades
+     to its own id (API path above, which does report errors); a proven-off
+     channel and any never-loaded frame land on the same grey arrow above. */
+  const frameLoadedRef = useRef(false);
   useEffect(() => {
     frameLoadedRef.current = false;
+    setFrameLoaded(false);
   }, [sourceKey, iframeKey]);
   useEffect(() => {
     if (!playing || dead) return;
@@ -709,112 +1003,120 @@ export function VideoPlayer({
     if (!src) return;
     if (platform !== "youtube" && platform !== "facebook") return;
     let cancelled = false;
+    const fail = () => {
+      if (cancelled) return;
+      try {
+        console.warn("church player: showing fallback", { why: "plain-frame" });
+      } catch {}
+      try {
+        setDead(true);
+      } catch {}
+    };
     const watchdog = window.setTimeout(() => {
-      if (cancelled || !mountedRef.current) return;
-      if (!frameLoadedRef.current) {
-        try { console.warn("church player: showing fallback", { why: "plain-frame" }); } catch {}
-        try { setDead(true); } catch {}
-      }
-    }, 6_000);
+      (async () => {
+        if (cancelled) return;
+        if (platform === "youtube" && followId) {
+          try {
+            const st = await checkLiveStream();
+            if (cancelled) return;
+            const guestWatchUrl = guestTarget()?.url || "";
+            const mainUrl = liveTarget()?.url || "";
+            const stamped =
+              (!!mainUrl && isStatusForTarget(st, mainUrl)) || (!!guestWatchUrl && isStatusForTarget(st, guestWatchUrl));
+            if (stamped && st.state === "live" && st.videoId) {
+              const vid = parseYoutubeId(st.videoId);
+              if (vid) {
+                const v = await verifyYoutubeId(vid).catch(() => null);
+                if (cancelled) return;
+                if (v === false) {
+                  fail();
+                  return;
+                }
+                try {
+                  setLiveVideoId(vid);
+                } catch {}
+                return;
+              }
+            }
+            if (stamped && st.state === "off") {
+              fail();
+              return;
+            }
+          } catch {
+            /* probe down — fall through to the loaded check below */
+          }
+        }
+        if (!frameLoadedRef.current) fail();
+      })().catch(() => {
+        if (!frameLoadedRef.current) fail();
+      });
+    }, live ? 7_000 : 12_000);
     return () => {
       cancelled = true;
-      try { window.clearTimeout(watchdog); } catch {}
+      try {
+        window.clearTimeout(watchdog);
+      } catch {}
     };
   }, [playing, dead, liveVideoId, ytId, platform, freshSrc, file, followId, iframeKey, sourceKey, forceKey]);
 
-  /* Automatic sound: any gesture anywhere unlocks audio. API path unmutes in
-     place; plain frames remount (the gesture carries autoplay permission).
-     There is no sound button — this runs by itself. */
-  const unblock = () => {
-    try {
-      const p = playerRef.current;
-      if (p && typeof p.unMute === "function") {
-        try { p.unMute(); } catch {}
-        try { p.setVolume(100); } catch {}
-        try { p.playVideo(); } catch {}
-        setBlocked(false);
-        setReady(true);
-        try { onPlay?.(); } catch {}
-        return;
-      }
-    } catch {}
-    setBlocked(false);
-    setForceKey((k) => k + 1);
-    setIframeKey((k) => k + 1);
-    setPlaying(true);
-    try { onPlay?.(); } catch {}
-  };
-
-  /* Automatic sound unlock: the first tap/keypress anywhere unmutes and
-     plays — no button to find. Runs while mounted; never throws. */
+  /* Channel-follow auto-recovery (unavailable-frame net): a live channel embed
+     reports no errors cross-origin, so a stale/refused channel frame would sit
+     on YouTube's own "unavailable" text with no arrow. Every 20s while a live
+     channel follow plays with no verified id, re-ask what's live now: a fresh
+     verified broadcast upgrades to its own id (API path, which DOES report
+     errors); a proven-off channel lands on the same grey-arrow fallback as
+     every other failure. Never throws; hidden tabs skip. */
   useEffect(() => {
-    if (!playing || dead) return;
-    const unlock = () => {
-      try {
-        const p = playerRef.current;
-        if (p && typeof p.unMute === "function") {
-          try { p.unMute(); } catch {}
-          try { p.setVolume(100); } catch {}
-          try { p.playVideo(); } catch {}
-        }
-      } catch {}
-      try { setBlocked(false); } catch {}
+    if (!playing || dead || !live) return;
+    if (liveVideoId || ytId) return;
+    if (!followId) return;
+    if (platform !== "youtube") return;
+    let cancelled = false;
+    const tick = () => {
+      (async () => {
+        try {
+          if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
+        } catch {}
+        try {
+          const st = await checkLiveStream();
+          if (cancelled) return;
+          const guestWatchUrl = guestTarget()?.url || "";
+          const mainUrl = liveTarget()?.url || "";
+          const stamped =
+            (!!mainUrl && isStatusForTarget(st, mainUrl)) || (!!guestWatchUrl && isStatusForTarget(st, guestWatchUrl));
+          if (!stamped) return;
+          if (st.state === "live" && st.videoId) {
+            const vid = parseYoutubeId(st.videoId);
+            if (!vid) return;
+            const v = await verifyYoutubeId(vid).catch(() => null);
+            if (cancelled) return;
+            if (v === false) return;
+            try { setLiveVideoId(vid); } catch {}
+            return;
+          }
+          if (stamped && st.state === "off") {
+            try { setDead(true); } catch {}
+          }
+        } catch {}
+      })().catch(() => {});
     };
-    const opts = { passive: true } as AddEventListenerOptions;
-    try {
-      window.addEventListener("pointerdown", unlock, opts);
-      window.addEventListener("touchstart", unlock, opts);
-      window.addEventListener("keydown", unlock as any);
-    } catch {}
-    return () => {
-      try {
-        window.removeEventListener("pointerdown", unlock);
-        window.removeEventListener("touchstart", unlock);
-        window.removeEventListener("keydown", unlock as any);
-      } catch {}
-    };
-  }, [playing, dead, iframeKey]);
-
-  /* Self-heal for the grey-arrow fallback: a dead frame repairs by itself
-     (re-ask + remount with sound), and any return/online/focus repairs too —
-     so the arrow rarely sits long enough to tap. The office Reload (see
-     reloadSignal below) repairs through the same path. Manual taps always
-     work; automatic work stops after two tries to avoid a loop. */
-  useEffect(() => {
-    if (!dead) return;
-    autoRepairCount.current = 0;
-    let alive = true;
-    const t1 = window.setTimeout(() => { if (alive && mountedRef.current) { autoRepairCount.current++; try { repair(); } catch {} } }, 4000);
-    const t2 = window.setTimeout(() => { if (alive && mountedRef.current && autoRepairCount.current < 2) { autoRepairCount.current++; try { repair(); } catch {} } }, 12000);
-    const onReturn = () => { try { if (mountedRef.current) repair(); } catch {} };
-    const onVis = () => { try { if (document.visibilityState === "visible" && mountedRef.current) repair(); } catch {} };
-    try {
-      window.addEventListener("online", onReturn);
-      window.addEventListener("focus", onReturn);
-      document.addEventListener("visibilitychange", onVis);
-    } catch {}
-    return () => {
-      alive = false;
-      try { window.clearTimeout(t1); } catch {}
-      try { window.clearTimeout(t2); } catch {}
-      try { window.removeEventListener("online", onReturn); } catch {}
-      try { window.removeEventListener("focus", onReturn); } catch {}
-      try { document.removeEventListener("visibilitychange", onVis); } catch {}
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [dead, sourceKey]);
+    const iv = window.setInterval(tick, 20_000);
+    return () => { cancelled = true; try { window.clearInterval(iv); } catch {} };
+  }, [playing, dead, live, liveVideoId, ytId, followId, platform]);
 
   /* Grey centered circle arrow, error-only: rendered ONLY while the player
-     reports an error and hidden whenever the screen is fine — the dead +
-     empty branches below are the only places it exists. No YouTube link is
-     handed here: the Watch page's own red button is the single way out, so an
-     embedding-off / private / region / age-blocked video that survives arrow +
-     Reload is fixed in YouTube Studio, not in this player. */
+     reports an error (video unavailable + every other failure) and hidden
+     whenever the screen is fine — the dead + empty branches below are the
+     only places it exists. One click runs the shared repair above.
+     No YouTube link is handed here: the Watch page's own red button is the
+     single way out, so an embedding-off / private / region / age-blocked
+     video that survives arrow + Reload + Publish is fixed in YouTube Studio
+     (enable embedding or swap the video), not in this player. */
   if (dead) {
     return (
       <div className={shell + " player--dead"}>
         {still ? (
-          <img src={still} alt="" loading="lazy" decoding="async" onError={() => setFailed(true)} />
+          <img src={still} alt="" loading="lazy" onError={() => setFailed(true)} />
         ) : (
           <span className={"player__still player__still--" + platform}>
             <Icon name={platform === "upload" ? "play" : platform} size={54} />
@@ -848,6 +1150,8 @@ export function VideoPlayer({
   }
 
   if (file) {
+    /* A video the office uploaded plays in the browser itself. Any failure
+       lands on the same grey arrow above (error-only) — one click repairs. */
     return (
       <div className={shell + " player--file"}>
         <video
@@ -870,6 +1174,9 @@ export function VideoPlayer({
     );
   }
 
+  /* Blank with no address carries the grey arrow too: a sourceless player
+     never heals by itself, so the same force repair sits on the blank — one
+     tap re-asks what's live now and opens the current broadcast fresh. */
   if (!src) {
     return (
       <div className={shell + " player--empty"}>
@@ -887,7 +1194,7 @@ export function VideoPlayer({
           <svg viewBox="0 0 24 24" width="44" height="44" aria-hidden="true">
             <path
               fill="currentColor"
-              d="M12 5V1L7 6l5 5V7c3.3 0 6 2.7 6 6s-2.7 6-6-6-6-2.7-6-6H4c0 4.4 3.6 8 8 8s8-3.6 8-8-3.6-8-8-8z"
+              d="M12 5V1L7 6l5 5V7c3.3 0 6 2.7 6 6s-2.7 6-6 6-6-2.7-6-6H4c0 4.4 3.6 8 8 8s8-3.6 8-8-3.6-8-8-8z"
             />
           </svg>
         </button>
@@ -907,26 +1214,42 @@ export function VideoPlayer({
     <div className={shell}>
       {playing ? (
         <>
-          {/* Still underneath until the first real frame: instant thumbnail,
-             no black flash, no layout shift (shell keeps 16/9). */}
-          {!ready && still ? (
-            <img
-              src={still}
-              alt=""
-              
-              decoding="async"
-              onError={() => setFailed(true)}
-              style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "cover" }}
-            />
-          ) : null}
-          {!ready && still ? <span className="player__scrim" /> : null}
           {(platform === "youtube" && (liveVideoId || ytId)) ? (
-            <div key={iframeKey} ref={apiHostRef} className="player__frame-host" style={!ready ? { opacity: 0, visibility: "hidden" } : undefined} />
+            <>
+            {/* API-managed frame (bare video id): the API injects its own
+               iframe into this host div and reports its own errors and
+               playback state; React never touches what's inside it. */}
+            <div key={iframeKey} ref={apiHostRef} className="player__frame-host" />
+            {/* Still-first cover: the broadcast still stays over the frame
+               until the first real PLAYING frame arrives — never a black or
+               "unavailable" flash while YouTube spins up. */}
+            {!firstFrame && !dead && (
+              <div className="player__cover" aria-hidden="true">
+                {still ? (
+                  <img src={still} alt="" loading="eager" onError={() => setFailed(true)} />
+                ) : (
+                  <span className={"player__still player__still--" + platform}>
+                    <Icon name={platform === "upload" ? "play" : platform} size={54} />
+                  </span>
+                )}
+                <span className="player__scrim" />
+                <span className="player__spin" />
+                {live && (
+                  <span className="player__live">
+                    <span className="live-dot" /> {ct("live.player.badge")}
+                  </span>
+                )}
+              </div>
+            )}
+            {/* No blocking overlay: a held sound autoplay falls back to
+               muted autoplay with the still lifting on the first frame, and
+               the first gesture anywhere restores sound automatically. */}
+            </>
           ) : (
+          <>
           <iframe
             key={iframeKey}
             className="player__frame"
-            style={!ready ? { opacity: 0, visibility: "hidden" } : undefined}
             src={freshSrc}
             title={shown}
             referrerPolicy={EMBED_REFERRER_POLICY}
@@ -936,11 +1259,9 @@ export function VideoPlayer({
               try {
                 frameLoadedRef.current = true;
               } catch {}
-              /* Plain frames have no PLAYING signal — loaded is ready enough
-                 to drop the still. API frames drop it on PLAYING instead. */
-              if (!(platform === "youtube" && (liveVideoId || ytId))) {
-                try { setReady(true); } catch {}
-              }
+              try {
+                setFrameLoaded(true);
+              } catch {}
             }}
             onError={() => {
               try {
@@ -948,16 +1269,37 @@ export function VideoPlayer({
               } catch {}
             }}
           />
+          {/* Plain frames report nothing cross-origin: keep the still over the
+             frame until it loads, so a slow channel embed never shows a blank
+             box — and the watchdog below still answers real errors. */}
+          {!frameLoaded && (
+            <div className="player__cover" aria-hidden="true">
+              {still ? (
+                <img src={still} alt="" loading="eager" onError={() => setFailed(true)} />
+              ) : (
+                <span className={"player__still player__still--" + platform}>
+                  <Icon name={platform === "upload" ? "play" : platform} size={54} />
+                </span>
+              )}
+              <span className="player__scrim" />
+              <span className="player__spin" />
+              {live && (
+                <span className="player__live">
+                  <span className="live-dot" /> {ct("live.player.badge")}
+                </span>
+              )}
+            </div>
           )}
-          {/* Loading, only when necessary: verifying or mounting, never an
-             error flash. Blocked autoplay shows the tap control instead. */}
-          {(checking || (playing && !ready && !dead)) ? (
-            <span className="player__reload-label">{tx("Connecting…")}</span>
-          ) : null}
-          {/* Sound is automatic: no tap gate. While the browser holds sound,
-             the frame keeps asking with sound and the first gesture anywhere
-             unlocks it (see unlock listener). Nothing to tap here. */}
-          {platform === "youtube" && (liveVideoId || ytId) && !hideEscape && !live ? (
+          </>
+          )}
+          {/* The frame itself never reports a failure (note 344): a video
+              YouTube refuses to embed, blocks in this country, or takes down
+              mid-play swaps to the grey-arrow fallback above via the
+              verifier / in-frame error / watchdogs — the arrow only ever
+              shows on error, never over a healthy live frame. The Watch
+              page's own red button is the permanent way out (not a second
+              link here): on YouTube itself it always plays or says why. */}
+          {platform === "youtube" && (liveVideoId || ytId) && !hideEscape && (
             <a
               className="player__escape"
               href={watchUrl({ platform: "youtube", youtubeId: liveVideoId || ytId }) || ""}
@@ -966,30 +1308,20 @@ export function VideoPlayer({
             >
               {tx("Can't see the video? Watch on YouTube")}
             </a>
-          ) : null}
-          {live && ready && !dead ? (
-            <span className="player__live">
-              <span className="live-dot" /> {ct("live.player.badge")}
-            </span>
-          ) : live && !ready ? (
-            <span className="player__live">
-              <span className="live-dot" /> {ct("live.player.badge")}
-            </span>
-          ) : null}
+          )}
         </>
       ) : live ? (
-        /* Live waits quietly — dimmed still only, no gold button, no status
-           line. The frame opens by itself with sound the moment it can; the
-           still itself stays tappable as a fallback. */
+        /* Live waits quietly — no icon, no status line: while the broadcast
+           is not yet open only the dimmed still shows (or the bare frame).
+           The frame still opens by itself with sound the moment it can. */
         <div className="player__poster player__poster--live" aria-live="polite">
           {still ? (
-            <img src={still} alt=""  decoding="async" loading="eager" onError={() => setFailed(true)} />
+            <img src={still} alt="" loading="lazy" onError={() => setFailed(true)} />
           ) : null}
           <span className="player__scrim" />
           <span className={"player__source player__source--" + platform}>
             <Icon name={platform === "upload" ? "play" : platform} size={13} /> {platformLabel(platform)}
           </span>
-          {checking ? <span className="player__reload-label">{tx("Checking the broadcast…")}</span> : null}
           {live && (
             <span className="player__live">
               <span className="live-dot" /> {ct("live.player.badge")}
@@ -1005,7 +1337,7 @@ export function VideoPlayer({
           aria-label={ct("auto.site.c358a9fa66e1e8e3", { "title": shown })}
         >
           {still ? (
-            <img src={still} alt="" loading="lazy" decoding="async" onError={() => setFailed(true)} />
+            <img src={still} alt="" loading="lazy" onError={() => setFailed(true)} />
           ) : (
             <span className={"player__still player__still--" + platform}>
               <Icon name={platform === "upload" ? "play" : platform} size={54} />

@@ -2,14 +2,10 @@ import React from "react";
 import { Btn, Icon, Section } from "./ui";
 
 /** Keeps a broken page from taking the whole site down with it. */
-export class ErrorBoundary extends React.Component<{ children: React.ReactNode }, { error: Error | null; route: string; stack: string; nonce: number; retriedRoute: string; retryFailed: boolean; scroll: number; autoTried: boolean }> {
-  private autoTimer = 0;
+export class ErrorBoundary extends React.Component<{ children: React.ReactNode }, { error: Error | null; route: string; stack: string; nonce: number; retriedRoute: string; retryFailed: boolean; scroll: number }> {
   constructor(props: { children: React.ReactNode }) {
     super(props);
-    this.state = { error: null, route: "", stack: "", nonce: 0, retriedRoute: "", retryFailed: false, scroll: 0, autoTried: false };
-  }
-  componentWillUnmount() {
-    try { window.clearTimeout(this.autoTimer); } catch {}
+    this.state = { error: null, route: "", stack: "", nonce: 0, retriedRoute: "", retryFailed: false, scroll: 0 };
   }
   static getDerivedStateFromError(error: Error) {
     return { error };
@@ -39,46 +35,10 @@ export class ErrorBoundary extends React.Component<{ children: React.ReactNode }
          itself is broken, so the next tap takes the full reload instead. */
       retryFailed: !!s.retriedRoute && s.retriedRoute === route,
       retriedRoute: "",
-      autoTried: false,
     }));
     console.error("World Overcomers app error:", { route, error, stack });
-    /* Self-heal: the card repairs by itself — one automatic in-place retry
-       after 2.5s (same as tapping Reload), and a full page reload 2.5s after
-       that if the render is still broken (once per tab — a deterministic
-       crash must never loop reloads). The office Reload (liveReloadAt)
-       and any online/visible return also retry via the listeners below. */
-    try { window.clearTimeout(this.autoTimer); } catch {}
-    try {
-      this.autoTimer = window.setTimeout(() => {
-        try {
-          if (this.state.error && !this.state.autoTried) {
-            this.setState({ autoTried: true });
-            this.retry();
-          }
-        } catch {}
-      }, 2500);
-    } catch {}
   }
   componentDidUpdate(_prevProps: { children: React.ReactNode }) {
-    /* A self-heal that crashed again is a broken render, not a hiccup:
-       reload onto fresh code by itself instead of sitting on the card. */
-    if (this.state.error && (this.state.retryFailed || this.state.autoTried)) {
-      let already = false;
-      try { already = !!window.sessionStorage.getItem("wom.eb.autoreloaded"); } catch {}
-      if (!already) {
-        try { window.clearTimeout(this.autoTimer); } catch {}
-        try {
-          this.autoTimer = window.setTimeout(() => {
-            try {
-              if (this.state.error) {
-                try { window.sessionStorage.setItem("wom.eb.autoreloaded", "1"); } catch {}
-                window.location.reload();
-              }
-            } catch {}
-          }, 2500);
-        } catch {}
-      }
-    }
     /* Self-heal on navigation: leaving the page that broke clears the card,
        so one bad frame can never trap the visitor — going home and back, or
        the livestream remounting, paints fresh with no reload. */
@@ -87,7 +47,7 @@ export class ErrorBoundary extends React.Component<{ children: React.ReactNode }
       try {
         here = readBoundaryRoute();
       } catch {}
-      if (here && here !== this.state.route) { try { window.clearTimeout(this.autoTimer); } catch {} this.setState({ error: null, route: "", stack: "", retriedRoute: "", retryFailed: false, scroll: 0, autoTried: false }); }
+      if (here && here !== this.state.route) this.setState({ error: null, route: "", stack: "", retriedRoute: "", retryFailed: false, scroll: 0 });
     } else if (this.state.retriedRoute) {
       /* A retry that survived: forget it once the visitor moves on, so a
          later crash elsewhere still gets its own in-place retry first. */
@@ -98,16 +58,15 @@ export class ErrorBoundary extends React.Component<{ children: React.ReactNode }
       if (here && here !== this.state.retriedRoute) this.setState({ retriedRoute: "", retryFailed: false });
     }
   }
-  /* One tap brings the SAME page back: the card retries the page subtree in
-     place first — same address, same synced words, same on-air answer — and
-     only a crash that repeats on the same route takes the full reload. Before
-     either path, volatile live caches are dropped (stale on-air/verdict
-     answers can never re-poison the retry) and a chunk-load failure — a new
-     deploy landing mid-visit — goes straight to the full reload, since the
-     in-place retry would only re-request the same missing chunk. Either way
-     one tap fixes it; the second tap always reloads. */
+  /* One tap brings the SAME page back: volatile live caches are dropped first
+     (stale on-air/verdict/recent answers can never re-poison the retry). A
+     deterministic render crash (ReferenceError/TypeError/chunk-load failure —
+     re-rendering the same tree can only crash again, and React.lazy caches a
+     failed chunk import) goes straight to the full reload, so the first tap
+     always fixes it. Anything else retries the page subtree in place first —
+     same address, same synced words, same on-air answer — and the second tap
+     always reloads. */
   private retry = () => {
-    try { window.clearTimeout(this.autoTimer); } catch {}
     try {
       import("../lib/livestatus").then((m) => {
         try { m.forgetAllVerified(); } catch {}
@@ -117,10 +76,16 @@ export class ErrorBoundary extends React.Component<{ children: React.ReactNode }
       localStorage.removeItem("wom.livestatus");
     } catch {}
     try {
+      localStorage.removeItem("wom.recentstreams");
+    } catch {}
+    try {
+      localStorage.removeItem("wom.ytchannel");
+    } catch {}
+    try {
       sessionStorage.removeItem("wom.live.targetNote");
     } catch {}
     const msg = String((this.state.error && (this.state.error as any).message) || "") + "\n" + this.state.stack;
-    if (this.state.retryFailed || isChunkError(msg)) {
+    if (this.state.retryFailed || isChunkError(msg) || isDeterministicRenderError(msg)) {
       try {
         window.location.reload();
       } catch {
@@ -156,7 +121,7 @@ export class ErrorBoundary extends React.Component<{ children: React.ReactNode }
             We are sorry — this page failed to load. Reloading usually fixes it. If it keeps happening, please let the church office
             know exactly what you clicked.
           </p>
-          <p className="muted">Nothing was lost — your place is saved. One tap brings the page back. Fixing automatically…</p>
+          <p className="muted">Nothing was lost — your place is saved. One tap brings the page back.</p>
           <p className="muted">{`Page: ${this.state.route}`}</p>
           <div className="btn-row center">
             <Btn onClick={this.retry} icon="refresh">
@@ -185,6 +150,31 @@ function isChunkError(text: string): boolean {
       t.includes("loading chunk") ||
       t.includes("failed to fetch") ||
       t.includes("importing a module")
+    );
+  } catch {
+    return false;
+  }
+}
+
+/* A deterministic render crash (re-rendering the same tree can only crash
+   again — including React.lazy, which caches a failed chunk import): the
+   retry must reload instead of remounting in place. Never throws. */
+function isDeterministicRenderError(text: string): boolean {
+  try {
+    const t = String(text || "").toLowerCase();
+    return (
+      t.includes("before initialization") ||
+      t.includes("cannot read propert") ||
+      t.includes("undefined is not an object") ||
+      t.includes("null is not an object") ||
+      t.includes("is not a function") ||
+      t.includes("is not defined") ||
+      t.includes("referenceerror") ||
+      t.includes("typeerror") ||
+      t.includes("syntaxerror") ||
+      t.includes("invalid hook call") ||
+      t.includes("minified react error") ||
+      t.includes("cannot read properties")
     );
   } catch {
     return false;
