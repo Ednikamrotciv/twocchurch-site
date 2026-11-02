@@ -1415,40 +1415,28 @@ export async function verifyYoutubeId(videoId: string): Promise<boolean | null> 
   const running = verifyInflight.get(id);
   if (running) return running;
   const job = (async (): Promise<boolean | null> => {
-    /* Bounded retries with increasing delays (transient probe/network
-       failures): true/false return at once; only unknown (null) retries, at
-       most 3 attempts (~0s, ~0.8s, ~2s). A proven answer caches; unknown never
-       does — the player mounts anyway and verifies behind the frame. */
-    let attempt = 0;
     try {
-      while (true) {
-        attempt += 1;
-        try {
-          const ctrl = typeof AbortController !== "undefined" ? new AbortController() : null;
-          const timer = ctrl ? window.setTimeout(() => ctrl.abort(), VERIFY_TIMEOUT_MS) : 0;
-          try {
-            /* CORS-open door first (note 420): the direct oEmbed read below can
-               fail on headers while the video plays fine, so ask the mirror that
-               answers cross-origin — and keep oEmbed itself as the fallback, with
-               the same `oembedPlayable` reading, for the networks that reach it. */
-            const viaMirror = await noembedVerdict(id, ctrl ? ctrl.signal : undefined);
-            if (viaMirror !== null) {
-              verifyCache.set(id, { ok: viaMirror, at: Date.now() });
-              return viaMirror;
-            }
-            const res = await fetch(oembedUrl(id), { cache: "no-store", signal: ctrl ? ctrl.signal : undefined });
-            const verdict = oembedPlayable(res.status);
-            if (verdict !== null) verifyCache.set(id, { ok: verdict, at: Date.now() });
-            if (verdict !== null || attempt >= 3) return verdict;
-          } finally {
-            if (timer) window.clearTimeout(timer);
-          }
-        } catch {
-          if (attempt >= 3) return null;
+      const ctrl = typeof AbortController !== "undefined" ? new AbortController() : null;
+      const timer = ctrl ? window.setTimeout(() => ctrl.abort(), VERIFY_TIMEOUT_MS) : 0;
+      try {
+        /* CORS-open door first (note 420): the direct oEmbed read below can
+           fail on headers while the video plays fine, so ask the mirror that
+           answers cross-origin — and keep oEmbed itself as the fallback, with
+           the same `oembedPlayable` reading, for the networks that reach it. */
+        const viaMirror = await noembedVerdict(id, ctrl ? ctrl.signal : undefined);
+        if (viaMirror !== null) {
+          verifyCache.set(id, { ok: viaMirror, at: Date.now() });
+          return viaMirror;
         }
-        /* Unknown only — back off before retrying, never a loop. */
-        await new Promise((r) => setTimeout(r, attempt === 1 ? 800 : 2000));
+        const res = await fetch(oembedUrl(id), { cache: "no-store", signal: ctrl ? ctrl.signal : undefined });
+        const verdict = oembedPlayable(res.status);
+        if (verdict !== null) verifyCache.set(id, { ok: verdict, at: Date.now() });
+        return verdict;
+      } finally {
+        if (timer) window.clearTimeout(timer);
       }
+    } catch {
+      return null;
     } finally {
       verifyInflight.delete(id);
     }

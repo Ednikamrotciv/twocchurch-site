@@ -30,10 +30,8 @@ export function WatchLive() {
   useCmsVersion();
   /* The office's Weekly services card, read on the church's own clock. */
   const info = nextService(SERVICES, now, churchTimezone());
-  /* When the next gathering happens — read on the visitor's own clock (SPEC note 85).
-     Never throws: a half-typed draft slot reads as no time, not a crash. */
-  let when: ReturnType<typeof clockHere> | null = null;
-  try { when = info ? clockHere(info.slot.time, info.slot.day, churchTimezone()) : null; } catch { when = null; }
+  /* When the next gathering happens — read on the visitor's own clock (SPEC note 85). */
+  const when = info ? clockHere(info.slot.time, info.slot.day, churchTimezone()) : null;
   const replays = sermonsNewestFirst();
   /* The message playing above everything else. */
   const latest = replays[0];
@@ -51,7 +49,7 @@ export function WatchLive() {
      analytics, background checks and other nonessential work never block it. */
   useEffect(() => {
     try {
-      for (const href of ["https://www.youtube.com", "https://www.youtube-nocookie.com", "https://i.ytimg.com", "https://s.ytimg.com", "https://www.googlevideo.com", "https://noembed.com"]) {
+      for (const href of ["https://www.youtube.com", "https://www.youtube-nocookie.com", "https://i.ytimg.com", "https://s.ytimg.com", "https://noembed.com"]) {
         if (document.querySelector('link[rel="preconnect"][href="' + href + '"]')) continue;
         const l = document.createElement("link");
         l.rel = "preconnect";
@@ -181,16 +179,12 @@ export function WatchLive() {
   const idOk = idVerdict === true || idVerdict === null;
   const playableId = detectedId && idOk && (isDesignatedChannel(airForTarget.channelId, designatedId) || (guestLive && isGuestTargetUrl(screenAir.target, guestUrl))) ? detectedId : "";
   const verifiedFallbackId = fallbackId && (fallbackVerdict === true || fallbackVerdict === null) ? fallbackId : "";
-  /* A named id YouTube says is gone never reaches the iframe (root-cause fix):
-     it is named here only so the screen waits on the clock instead of
-     flashing an error while the next poll names the real broadcast. The
-     player's own grey-arrow fallback (VideoPlayer dead branch) is the only
-     error UI — YouTube's black "unavailable" frame never mounts. */
+  /* A named id YouTube says is gone still reaches the player (note 420): the
+     player's own dead fallback names it and offers the platform link — never
+     the black "unavailable" frame, and never the ticking clock for a live
+     that is already on air. */
   const deadLiveId = detectedId && idVerdict === false && (isDesignatedChannel(airForTarget.channelId, designatedId) || (guestLive && isGuestTargetUrl(screenAir.target, guestUrl))) ? detectedId : "";
-  /* Root-cause fix (unavailable): a proven-dead id is never watchable — it must
-     never reach the iframe. It stays named in deadLiveId so the screen waits
-     (clock) instead of flashing an error while the next poll corrects it. */
-  const watchable = !!playableId || !!detectedChannel || fbLive || !!verifiedFallbackId;
+  const watchable = !!playableId || !!deadLiveId || !!detectedChannel || fbLive || !!verifiedFallbackId;
   /* Dead-video gate (note 413, opened note 420): a named id reaches the
      player while its verdict is still unknown — offline, probe down, still
      checking — and the player verifies behind the frame, swapping to its
@@ -274,11 +268,11 @@ export function WatchLive() {
      Play-override channel was available. */
   const available: VideoPlatform[] = (() => {
     const list: VideoPlatform[] = [];
-    if ((detectedId && idVerdict !== false) || detectedChannel || overrideId || (!hasChannel && parseYoutubeId(LIVE.youtubeId))) list.push("youtube");
+    if (detectedId || detectedChannel || overrideId || (!hasChannel && parseYoutubeId(LIVE.youtubeId))) list.push("youtube");
     if (isFacebookVideoUrl(LIVE.facebookUrl)) list.push("facebook");
     return list;
   })();
-  const preferred: VideoPlatform = fbLive ? "facebook" : ((detectedId && idVerdict !== false) || detectedChannel || overrideId) ? "youtube" : LIVE.provider === "facebook" ? "facebook" : "youtube";
+  const preferred: VideoPlatform = fbLive ? "facebook" : detectedId || detectedChannel || overrideId ? "youtube" : LIVE.provider === "facebook" ? "facebook" : "youtube";
   const [chosen, setChosen] = useState<VideoPlatform>(preferred);
   /* The service notepad behind the *Service notes* arrow (note 223). */
   const [notesOpen, setNotesOpen] = useState(false);
@@ -288,7 +282,7 @@ export function WatchLive() {
       ? { platform: "facebook", facebookUrl: LIVE.facebookUrl }
       : platform === "facebook"
       ? { platform: "facebook", facebookUrl: LIVE.facebookUrl }
-      : { platform: "youtube", youtubeId: playableId || verifiedFallbackId, youtubeChannelId: detectedChannel || (!streaming && overrideId) || undefined };
+      : { platform: "youtube", youtubeId: playableId || deadLiveId || verifiedFallbackId, youtubeChannelId: detectedChannel || (!streaming && overrideId) || undefined };
   /* The grace window replays the last playable address: a fresh off keeps the
      frame on exactly what was playing instead of an empty follow. */
   const graceRef = useRef<VideoSource | null>(null);
@@ -315,8 +309,7 @@ export function WatchLive() {
      the headline, since the church schedule never names a guest event. */
   const guestForcedOnly = (guestLive || !!(LIVE as any).guestIsLive) && !LIVE.isLive && airForTarget.state !== "live";
   const liveName = tx(air.title || (guestForcedOnly ? LIVE.liveTitle : info?.slot.name || LIVE.liveTitle) || "");
-  let streamCountdown: ReturnType<typeof countdownParts> | null = null;
-  try { streamCountdown = info ? countdownParts(info.msUntil) : null; } catch { streamCountdown = null; }
+  const streamCountdown = info ? countdownParts(info.msUntil) : null;
   /* Office Reload repair press (published liveReloadAt): the general fix for
      any livestream-screen error. The live players below remount + rejoin on
      it (see VideoPlayer reloadSignal); the screen also re-asks the on-air
@@ -416,7 +409,6 @@ export function WatchLive() {
       />
 
       {/* ---- the screen: the service plays right here on the site ---------- */}
-      <SectionBoundary label="live-panel">
       <Section>
         <div className={"live-panel" + (onAirNow ? " live-panel--on" : "")}>
           <div className="live-panel__stage">
@@ -639,7 +631,6 @@ export function WatchLive() {
           </aside>
         </div>
       </Section>
-      </SectionBoundary>
 
       {/* ---- the last message, playing on this page ------------------------ */}
       {latest && (

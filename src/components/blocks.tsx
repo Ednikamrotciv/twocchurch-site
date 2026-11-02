@@ -304,15 +304,7 @@ export function VideoPlayer({
      id never mounts — it goes straight to the error fallback below. */
   const [playing, setPlaying] = useState(() => {
     if (!autoPlay) return false;
-    /* Root-cause fix (unavailable): a proven-dead id never mounts — live or
-       not. Live mounts at once otherwise (poster + frame together); cards
-       wait for a tap. Unknown (offline, probe down, still checking) mounts
-       anyway — the player itself is the net and swaps to the grey-arrow
-       fallback if the id proves dead. */
-    if (live) {
-      if (ytId && peekVerified(ytId) === false) return false;
-      return true;
-    }
+    if (live) return true;
     if (ytId && peekVerified(ytId) !== true) return false;
     if (!ytId && followId) return false;
     return true;
