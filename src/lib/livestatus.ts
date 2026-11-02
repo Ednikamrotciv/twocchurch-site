@@ -808,6 +808,94 @@ async function fetchLiveReport(): Promise<LiveReport | null> {
   }
 }
 
+/* Published-stamp fast path (production fix v7): the office's Play press
+   stamps the verified broadcast id (+title/channel/at) into the published
+   words — but nothing on the visitor side ever read it, so a deployed host
+   whose scrape is bot-walled sat on the ticking clock through a properly
+   started service. A fresh office-on-air stamp now wins at once (verified
+   playable through the CORS-open verifier doors, which work fine on deployed
+   hosts), with the scrape still running behind it for end-detection: a
+   definitive scrape OFF still ends it, and the office Stop clears the stamp.
+   Stamps older than STAMP_MAX_AGE_MS fall back to the scrape, so a forgotten
+   Stop can never pin yesterday's recording as "live" forever. Never throws. */
+const STAMP_MAX_AGE_MS = 12 * 60 * 60_000;
+type StampAnswer = { state: LiveState; videoId: string; title: string; channelId: string };
+async function publishedStamp(guest: boolean): Promise<StampAnswer | null> {
+  try {
+    const live = LIVE as any;
+    const on = guest ? !!live.guestIsLive : !!live.isLive;
+    if (!on) return null;
+    const id = parseYoutubeId(guest ? live.guestVideoId : live.liveVideoId);
+    if (!id) return null;
+    const at = Number(guest ? live.guestVideoAt : live.liveVideoAt) || 0;
+    if (!(at > 0) || Date.now() - at > STAMP_MAX_AGE_MS) return null;
+    /* The stamp is the office's own verified intent; the verifier only
+       confirms the video still exists. A dead stamp falls through to the
+       scrape. An unreadable probe (offline) still plays the office's video —
+       the player and the scrape-behind are the net. */
+    const v = await verifyYoutubeId(id).catch(() => null);
+    if (v === false) return null;
+    return {
+      state: "live" as const,
+      videoId: id,
+      title: String(guest ? live.guestVideoTitle : live.liveVideoTitle) || "",
+      channelId: String(guest ? live.guestVideoChannelId : live.liveVideoChannelId) || "",
+    };
+  } catch {
+    return null;
+  }
+}
+
+/* Authoritative live door (production fix v7): the backend answers /__live
+   from the YouTube Data API (YT_API_KEY lives only in server env, never in
+   frontend code) behind a short server-side cache, so 100 visitors still
+   cost ~1 quota unit/min, not 100. Without a key the door answers 404 and
+   the stamp + scrape below decide, exactly like before. Split deploys are
+   covered too: same-origin first, then the joined office server. */
+type LiveApiAnswer = { state: "live" | "off"; videoId: string; title: string; channelId: string };
+const LIVE_API_TIMEOUT_MS = 8_000;
+async function fetchLiveApiOnce(base: string, channelId: string): Promise<LiveApiAnswer | null> {
+  try {
+    const res = await withTimeout(fetch(`${base}/__live?channel=${encodeURIComponent(channelId)}`, { cache: "no-store" }), LIVE_API_TIMEOUT_MS);
+    if (!res || !res.ok) return null;
+    let data: any = null;
+    try {
+      data = await res.json();
+    } catch {
+      return null;
+    }
+    if (!data || typeof data !== "object") return null;
+    if (data.state === "live" && parseYoutubeId(data.videoId)) {
+      const cid = String(data.channelId || "");
+      return { state: "live", videoId: parseYoutubeId(data.videoId), title: String(data.title || ""), channelId: /^UC[\w-]{20,24}$/.test(cid) ? cid : channelId };
+    }
+    if (data.state === "off") return { state: "off", videoId: "", title: "", channelId: "" };
+    return null;
+  } catch {
+    return null;
+  }
+}
+async function fetchLiveApiFor(targetUrl: string): Promise<LiveApiAnswer | null> {
+  try {
+    /* The API names channels by id: the designated map answers @twocorg (and
+       any raw UC address) with no page read; anything else stays on the
+       stamp + scrape below. */
+    const channelId = designatedChannelIdForTarget(String(targetUrl || ""));
+    if (!/^UC[\w-]{20,24}$/.test(channelId)) return null;
+    const same = await fetchLiveApiOnce("", channelId);
+    if (same) return same;
+    try {
+      const base = serverUrl();
+      if (base) return await fetchLiveApiOnce(base, channelId);
+    } catch {
+      /* standalone — the same-origin miss above stands */
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
 /** Ask YouTube whether we are broadcasting, right now. */
 export async function checkLiveStream(opts: { facebook?: boolean } = {}): Promise<LiveStatus> {
   const target = liveTarget();
@@ -831,29 +919,50 @@ export async function checkLiveStream(opts: { facebook?: boolean } = {}): Promis
   /* The guest's own report, matched the same way (note 380): only an answer
      stamped for the guest address may stand for the guest. */
   const officeGuest = guest && officeRep && officeRep.target === guest.url && reportCarriesVideo(officeRep) ? officeRep : null;
+  /* Fix v7: the published Play stamp and the Data API door race the scrape —
+     on deployed hosts the scrape is routinely bot-walled while these answer
+     in milliseconds. All three start together; the first usable answer wins. */
+  const stampGuestP: Promise<StampAnswer | null> = guest && !officeGuest ? publishedStamp(true) : Promise.resolve(null);
+  const stampMainP: Promise<StampAnswer | null> = target && !officeHit ? publishedStamp(false) : Promise.resolve(null);
+  const apiP: Promise<LiveApiAnswer | null> = target && !officeHit ? fetchLiveApiFor(target.url) : Promise.resolve(null);
   /* Fast path: guest + main pages fetch in parallel (were sequential). */
   const guestHtmlP: Promise<string | null> = guest && !officeGuest ? fetchPage(guest.url) : Promise.resolve(null);
   const mainHtmlP: Promise<string | null> = target && !officeHit ? fetchPage(target.url) : Promise.resolve(null);
-  const guestHtml = guest && !officeGuest ? await guestHtmlP : null;
+  const stampGuest = guest && !officeGuest ? await stampGuestP : null;
+  const guestHtml = guest && !officeGuest && !stampGuest ? await guestHtmlP : null;
   const guestAns: { state: LiveState; videoId: string; title: string; channelId: string } = !guest
     ? { state: "unset", videoId: "", title: "", channelId: "" }
     : officeGuest
     ? officeGuest.state === "live"
       ? { state: "live", videoId: officeGuest.videoId, title: officeGuest.title, channelId: officeGuest.channelId }
       : { state: "off", videoId: "", title: "", channelId: "" }
+    : stampGuest
+    ? stampGuest
     : guestHtml === null
     ? { state: "unknown", videoId: "", title: "", channelId: "" }
     : await resolveYoutubeBounded(guest, guestHtml);
-  const html = target && !officeHit ? await mainHtmlP : null;
-  const youtube: { state: LiveState; videoId: string; title: string; channelId: string } = !target
+  const stampMain = target && !officeHit ? await stampMainP : null;
+  const apiAns = target && !officeHit && !stampMain ? await apiP : null;
+  const html = target && !officeHit && !stampMain && !(apiAns && apiAns.state === "live") ? await mainHtmlP : null;
+  let youtube: { state: LiveState; videoId: string; title: string; channelId: string } = !target
     ? { state: "unset", videoId: "", title: "", channelId: "" }
     : officeHit
     ? officeHit.state === "live"
       ? { state: "live", videoId: officeHit.videoId, title: officeHit.title, channelId: officeHit.channelId }
       : { state: "off", videoId: "", title: "", channelId: "" }
+    : stampMain
+    ? stampMain
+    : apiAns && apiAns.state === "live"
+    ? { state: "live", videoId: apiAns.videoId, title: apiAns.title, channelId: apiAns.channelId }
     : html === null
     ? { state: "unknown", videoId: "", title: "", channelId: "" }
     : await resolveYoutubeBounded(target, html);
+  /* Authoritative API off (fix v7): the Data API is reachable and says no
+     broadcast is live — an unreadable scrape degrades to OFF instead of
+     sitting on the ticking clock. A readable scrape always wins above. */
+  if (youtube.state === "unknown" && apiAns && apiAns.state === "off" && !stampMain) {
+    youtube = { state: "off", videoId: "", title: "", channelId: "" };
+  }
 
   /* Facebook is asked only when YouTube has not already answered "live" — it is
      the office's drawer that asks, and this is the one case it can add
