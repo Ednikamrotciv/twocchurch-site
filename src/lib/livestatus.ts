@@ -49,16 +49,16 @@ export const LIVE_STATUS_KEY = "wom.livestatus";
     unless a watcher asks urgent (the Watch page does: it checks at once). */
 const FRESH_MS = 3_000;
 /** Give the proxy this long before calling the check a failure.
-    Fast live: 5s is plenty for YouTube to answer (was 8s); the old hold kept
-    the Watch screen on the waiting clock past the moment the broadcast started. */
-const CHECK_TIMEOUT_MS = 5_000;
+    Fast live: 3.5s is plenty for YouTube to answer; the old 15s held the
+    Watch screen on the waiting clock past the moment the broadcast started. */
+const CHECK_TIMEOUT_MS = 4_000;
 /** Poll cadence (note 310): fast while a broadcast is expected or the Watch
     page is open — a YouTube start shows in seconds and the waiting clock
     vanishes with it — slower in the quiet week. Live and local share this
     poller; only the fetch door differs (same-origin /__yt on local runs, the
     office server when joined, else the public proxy). */
-export const SOON_MS = 12_000;
-export const IDLE_MS = 90_000;
+export const SOON_MS = 10_000;
+export const IDLE_MS = 45_000;
 
 const EMPTY: LiveStatus = { state: "unset", platform: "", videoId: "", title: "", channelId: "", target: "", checkedAt: 0, endedAt: 0 };
 
@@ -1124,7 +1124,7 @@ function schedule(ms: number) {
   window.clearTimeout(timer);
   /* Jitter: every open tab polling on the exact second hammers the proxy as
      one burst mid-service. +/-1s spreads the load; timing stays the same. */
-  const jitter = Math.floor(Math.random() * 2000) - 1000;
+  const jitter = Math.floor(Math.random() * 800) - 400;
   timer = window.setTimeout(run, Math.max(0, ms + jitter));
 }
 
@@ -1164,7 +1164,7 @@ async function run() {
      the proxy's time on a screen nobody is looking at). */
   const hidden = document.visibilityState === "hidden";
   if (hidden && snapshot.status.state !== "live") {
-    schedule(30_000);
+    schedule(15_000);
     return;
   }
   const facebook = wantsFacebook();
@@ -1234,7 +1234,7 @@ async function run() {
 
 function onWake() {
   if (document.visibilityState !== "visible") return;
-  if (Date.now() - lastCheckAt < 2_000) return;
+  if (Date.now() - lastCheckAt < 4_000) return;
   schedule(0);
 }
 
@@ -1363,7 +1363,7 @@ async function noembedVerdict(id: string, signal?: AbortSignal): Promise<boolean
     Dead verdicts expire fast (60s): an embedding flip or a restarted stream can
     turn the same id playable again, and a cached dead must never hold the
     screen on the fallback. Playable verdicts keep the full 5 minutes. */
-const VERIFY_DEAD_TTL_MS = 60_000;
+const VERIFY_DEAD_TTL_MS = 30_000;
 export function peekVerified(videoId: string): boolean | null {
   const id = parseYoutubeId(videoId);
   if (!id) return false;

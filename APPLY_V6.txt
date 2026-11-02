@@ -1,0 +1,7 @@
+# Apply (v6)
+Copy each file over the same path in your project, then: npm run dev:fresh + restart backend, hard refresh, Publish once signed in.
+
+- src/components/blocks.tsx : black frame never shows, no sound gate, grey-arrow self-heal, faster watchdogs
+- src/components/ErrorBoundary.tsx : /admin/watch-live crash self-heals (auto retry + guarded auto reload)
+- src/lib/livestatus.ts : check 8s->4s, verify 6s->3.5s, soon/idle halved
+- src/lib/recentstreams.ts : timeout 8s->4s, soon/idle halved
