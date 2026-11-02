@@ -2113,6 +2113,7 @@ export async function publishSection(sectionId: string, note: string): Promise<P
        server stamp, converge and live relay as every other publish. */
     if (!(await sectionJoinP)) {
       markDeployPublished();
+      clearUnrecordedLive();
       try {
         notePublishAt(Date.now());
       } catch {}
@@ -7180,6 +7181,18 @@ export async function publish(note: string, content?: Snapshot): Promise<Publish
          The stamp is cached with the words (note 306), so a host sleep
          afterwards changes nothing. */
       markDeployPublished();
+      /* No-change publish still leaves the drawer clean: the in-memory draft
+         is already null, so drop every unsaved trace with it (dirty, undos,
+         preview, stored draft) — otherwise the next reload resurrects the old
+         draft from DRAFT_KEY and the unsaved list is back. */
+      clearUnrecordedLive();
+      dirty = {};
+      editUndos = [];
+      previewBase = null;
+      previewing = false;
+      try {
+        localStorage.removeItem(DRAFT_KEY);
+      } catch {}
       /* Device-only click still lifts every tab of this browser at once, and
          keeps carrying the words to live in the background. */
       try {
@@ -7217,6 +7230,15 @@ export async function publish(note: string, content?: Snapshot): Promise<Publish
     rev = bless.rev ?? rev + 1;
     setPublishedNotes(BUILD_NOTES);
     clearUnrecordedLive();
+    /* Same unsaved-clean as every other publish: draft is null, so drop dirty,
+       undos, preview and the stored draft or the next reload resurrects them. */
+    dirty = {};
+    editUndos = [];
+    previewBase = null;
+    previewing = false;
+    try {
+      localStorage.removeItem(DRAFT_KEY);
+    } catch {}
     writeCache();
     notify();
     return { ok: true, live: bless.relay !== "missed", relayMsg: relayStatus().msg };
