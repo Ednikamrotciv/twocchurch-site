@@ -122,10 +122,6 @@ const publishWatch = createPublishWatch({
 });
 // last network address seen per conn id (for RPC attribution; best effort)
 const lastIpByConn = new Map();
-
-/* Authoritative live-answer cache (fix v7): one entry per channel, 75s TTL —
-   100 visitors polling still cost the YouTube Data API ~1 unit/min total. */
-const liveApiCache = new Map();
 function rpcAnomaly({ connId, rpc, ok, err }) {
   try {
     anomaly.observeRpc({ connId, ip: lastIpByConn.get(String(connId || "")) || "-", rpc, ok, err });
@@ -573,65 +569,6 @@ const server = http.createServer(async (req, res) => {
           "content-length": body.length,
           "cache-control": "no-store",
         });
-        res.end(body);
-      } catch {
-        res.writeHead(502, { "cache-control": "no-store" });
-        res.end("unreachable");
-      }
-      return;
-    }
-
-    /* Authoritative live answer (fix v7): the channel's current live
-       broadcast, read from the YouTube Data API instead of scraped HTML
-       (datacenter IPs are routinely bot-walled, which is why deployed
-       visitors sat on the ticking clock mid-service). The key lives ONLY in
-       server env (Render dashboard → Environment → YT_API_KEY, then redeploy)
-       — the browser never sees it. Quota-safe: served from a 75s server
-       cache, and search.list costs 100 units per MISS (not per visitor).
-       No key → 404, and visitors fall back to the published stamp + scrape,
-       exactly like before. This door answers YouTube only (same SSRF guard
-       shape as /__yt above). */
-    if (pathname === "/__live" && req.method === "GET") {
-      const channel = url.searchParams.get("channel") || "";
-      if (!/^UC[\w-]{20,24}$/.test(channel)) {
-        res.writeHead(400, { "cache-control": "no-store" });
-        res.end("bad channel");
-        return;
-      }
-      const key = process.env.YT_API_KEY || "";
-      if (!key) {
-        res.writeHead(404, { "cache-control": "no-store" });
-        res.end("no key");
-        return;
-      }
-      try {
-        const now = Date.now();
-        const hit = liveApiCache.get(channel);
-        if (hit && now - hit.at < 75_000) {
-          const body = Buffer.from(JSON.stringify(hit.data), "utf8");
-          res.writeHead(200, { "content-type": "application/json; charset=utf-8", "content-length": body.length, "cache-control": "no-store" });
-          res.end(body);
-          return;
-        }
-        const apiUrl = `https://www.googleapis.com/youtube/v3/search?part=snippet&channelId=${encodeURIComponent(channel)}&eventType=live&type=video&maxResults=1&key=${encodeURIComponent(key)}`;
-        const upstream = await fetch(apiUrl, {
-          headers: { accept: "application/json" },
-          signal: typeof AbortSignal !== "undefined" && typeof AbortSignal.timeout === "function" ? AbortSignal.timeout(8000) : undefined,
-        });
-        const data = await upstream.json().catch(() => null);
-        if (!upstream.ok || !data) {
-          res.writeHead(502, { "cache-control": "no-store" });
-          res.end("unreachable");
-          return;
-        }
-        const item = Array.isArray(data.items) ? data.items[0] : null;
-        const videoId = item && item.id && typeof item.id.videoId === "string" ? item.id.videoId : "";
-        const out = videoId && /^[\w-]{11}$/.test(videoId)
-          ? { state: "live", videoId, title: String((item.snippet && item.snippet.title) || ""), channelId: channel }
-          : { state: "off", videoId: "", title: "", channelId: "" };
-        liveApiCache.set(channel, { at: now, data: out });
-        const body = Buffer.from(JSON.stringify(out), "utf8");
-        res.writeHead(200, { "content-type": "application/json; charset=utf-8", "content-length": body.length, "cache-control": "no-store" });
         res.end(body);
       } catch {
         res.writeHead(502, { "cache-control": "no-store" });

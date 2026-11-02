@@ -49,16 +49,17 @@ export function parseYoutubeId(input: string): string {
 export function youtubeEmbed(id: string, autoplay = true): string {
   const video = parseYoutubeId(id);
   if (!video) return "";
-  /* Sound on (note 388): every live from a channel plays with its audio —
-     anything the site plays, tapped or self-started, carries its sound, and
-     the stream's audio opens by itself the moment the broadcast starts.
-     enablejsapi lets the player hear YouTube's own error events.
+  /* Sound on: every live from a channel plays with its audio — anything the
+     site plays, tapped or self-started, carries its sound, and the stream's
+     audio opens by itself the moment the broadcast starts. enablejsapi lets
+     the player hear YouTube's own error + autoplay-blocked events.
+     nocookie host: fewer cookie blocks, same player, same videos.
      origin (fix): without it enablejsapi throws cross-origin on the deployed
      host and the API frame never reports ready/error — the watchdog then
      swaps a good live to the fallback. */
   let origin = "";
   try { origin = typeof location !== "undefined" && location.origin ? `&origin=${encodeURIComponent(location.origin)}` : ""; } catch { origin = ""; }
-  return `https://www.youtube.com/embed/${video}?rel=0&modestbranding=1&playsinline=1&enablejsapi=1${autoplay ? "&autoplay=1" : ""}${origin}`;
+  return `https://www.youtube-nocookie.com/embed/${video}?rel=0&modestbranding=1&playsinline=1&enablejsapi=1${autoplay ? "&autoplay=1" : ""}${origin}`;
 }
 
 /** A channel id (`UC…`): the only address the channel player takes. */
@@ -70,13 +71,14 @@ export function isYoutubeChannelId(input: unknown): boolean {
     deployed server cannot read watch pages (they answer 502 from its network
     while the channel page reads 200), so when the channel page is on air but
     names no verifiable video, the player follows the channel instead of
-    guessing a video — on live and on local alike. */
+    guessing a video — on live and on local alike. nocookie host, same as
+    the video embed above. */
 export function youtubeChannelEmbed(channelId: string, autoplay = true): string {
   if (!isYoutubeChannelId(channelId)) return "";
   const id = String(channelId).trim();
   let origin = "";
   try { origin = typeof location !== "undefined" && location.origin ? `&origin=${encodeURIComponent(location.origin)}` : ""; } catch { origin = ""; }
-  return `https://www.youtube.com/embed/live_stream?channel=${id}&rel=0&modestbranding=1&playsinline=1&enablejsapi=1${autoplay ? "&autoplay=1" : ""}${origin}`;
+  return `https://www.youtube-nocookie.com/embed/live_stream?channel=${id}&rel=0&modestbranding=1&playsinline=1&enablejsapi=1${autoplay ? "&autoplay=1" : ""}${origin}`;
 }
 
 export function youtubeWatch(id: string): string {
@@ -206,38 +208,4 @@ export function platformLabel(platform?: VideoPlatform): string {
   if (platform === "facebook") return "Facebook";
   if (platform === "upload") return "Uploaded video";
   return "YouTube";
-}
-
-/* Preconnect doors for an instant live open (production fix): every host the
-   player can touch on first paint — the page preconnects to all of these so
-   the stream iframe, thumbnails and the playable-check open with no DNS/TLS
-   wait. Sound-first: the live path always requests audio; the muted address
-   below is for silent preview stills only, never presented as sound-on. */
-export const YOUTUBE_PRECONNECTS = [
-  "https://www.youtube.com",
-  "https://youtube.com",
-  "https://www.youtube-nocookie.com",
-  "https://i.ytimg.com",
-  "https://s.ytimg.com",
-  "https://ytimg.com",
-  "https://googlevideo.com",
-  "https://noembed.com",
-];
-
-/** Muted embed address (silent-preview fallback only): the live player never
-    uses this as its sound path — a muted autoplay that pretended sound was on
-    is exactly what this fix removes. Available for muted preview stills. */
-export function youtubeEmbedMuted(id: string, autoplay = true): string {
-  const video = parseYoutubeId(id);
-  if (!video) return "";
-  let origin = "";
-  try { origin = typeof location !== "undefined" && location.origin ? `&origin=${encodeURIComponent(location.origin)}` : ""; } catch { origin = ""; }
-  return `https://www.youtube.com/embed/${video}?rel=0&modestbranding=1&playsinline=1&enablejsapi=1${autoplay ? "&autoplay=1&mute=1" : ""}${origin}`;
-}
-
-/** Muted variant of embedSrc (preview stills only — never the live path). */
-export function embedSrcMuted(source: VideoSource, autoplay = true): string {
-  if (!source) return "";
-  if (source.platform === "facebook" || source.platform === "upload") return "";
-  return youtubeEmbedMuted(source.youtubeId || "", autoplay) || "";
 }

@@ -421,12 +421,20 @@ export function parseServiceNoteKey(key: string): { date: string; name: string }
 
 export type ServiceSlot = { day: number; time: string; name: string; minutes: number };
 
-/** When a gathering next happens; pass the branch's zone (note 84). */
+/** When a gathering next happens; pass the branch's zone (note 84).
+    Never throws: a half-typed draft row (blank time/day while the office
+    edits) is skipped by nextService below instead of crashing the page. */
 export function nextOccurrence(slot: ServiceSlot, now = new Date(), tz = churchTimezone()): Date {
   const zone = zoneOr(tz);
-  const [h, m] = slot.time.split(":").map(Number);
+  const time = String((slot as any)?.time || "");
+  const mTime = /^(\d{1,2}):(\d{2})/.exec(time);
+  const day = Number((slot as any)?.day);
+  if (!mTime || !Number.isFinite(day) || day < 0 || day > 6) return new Date(NaN);
+  const h = Number(mTime[1]);
+  const m = Number(mTime[2]);
+  if (!Number.isFinite(h) || !Number.isFinite(m) || h > 23 || m > 59) return new Date(NaN);
   const p = zonedParts(now, zone);
-  const ahead = (slot.day - p.weekday + 7) % 7;
+  const ahead = (day - p.weekday + 7) % 7;
   let at = zonedTimeToUtc(p.year, p.month, p.day + ahead, h, m, zone);
   if (at.getTime() <= now.getTime()) at = zonedTimeToUtc(p.year, p.month, p.day + ahead + 7, h, m, zone);
   return at;
@@ -442,25 +450,45 @@ export type NextServiceInfo = {
 
 /** The gathering in progress, else the next one with its wait. Skips hand-ended ones (note 106). */
 export function nextService(schedule: ServiceSlot[], now = new Date(), tz = churchTimezone()): NextServiceInfo | null {
-  if (!schedule?.length) return null;
+  if (!Array.isArray(schedule) || !schedule.length) return null;
   const zone = zoneOr(tz);
-  const p = zonedParts(now, zone);
-  const enriched = schedule.map((slot) => {
+  let p: ReturnType<typeof zonedParts>;
+  try { p = zonedParts(now, zone); } catch { return null; }
+  /* A half-typed draft row never crashes the page: invalid slots are
+     skipped, and a schedule with nothing valid reads as no gathering. */
+  const valid = schedule.filter((slot) => {
+    try {
+      const at = nextOccurrence(slot, now, zone);
+      return slot && !isNaN(at.getTime());
+    } catch { return false; }
+  });
+  if (!valid.length) return null;
+  const enriched = valid.map((slot) => {
     const at = nextOccurrence(slot, now, zone);
     return { slot, at, msUntil: at.getTime() - now.getTime() };
   });
   enriched.sort((a, b) => a.msUntil - b.msUntil);
 
-  for (const slot of schedule) {
-    const [h, m] = slot.time.split(":").map(Number);
+  for (const slot of valid) {
+    let h = 0, m = 0;
+    try {
+      const mt = /^(\d{1,2}):(\d{2})/.exec(String((slot as any)?.time || ""));
+      if (!mt) continue;
+      h = Number(mt[1]); m = Number(mt[2]);
+    } catch { continue; }
     for (let back = 0; back <= 7; back++) {
-      const start = zonedTimeToUtc(p.year, p.month, p.day - back, h, m, zone);
-      if (zonedParts(start, zone).weekday !== slot.day) continue;
-      const end = new Date(start.getTime() + (slot.minutes || 120) * 60000);
+      let start: Date;
+      try {
+        start = zonedTimeToUtc(p.year, p.month, p.day - back, h, m, zone);
+        if (zonedParts(start, zone).weekday !== (slot as any).day) continue;
+      } catch { continue; }
+      const end = new Date(start.getTime() + ((slot as any).minutes || 120) * 60000);
       if (now >= start && now <= end) {
         /* Ended by hand — or by the stream itself? Then it is not this
            gathering's turn any more (SPEC notes 106, 133). */
-        if (Math.max(Number(LIVE.liveCut) || 0, streamCut()) >= start.getTime()) break;
+        try {
+          if (Math.max(Number((LIVE as any)?.liveCut) || 0, streamCut()) >= start.getTime()) break;
+        } catch { /* a bad cut never hides the gathering */ }
         return { slot, at: start, endsAt: end, msUntil: 0, isLive: true };
       }
     }

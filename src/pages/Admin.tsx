@@ -382,11 +382,14 @@ export function Admin() {
     setPanelOpen(true);
   };
 
-  /* The page behind re-renders on applied changes only, never remounts (note 61); office clock too (note 85). */
+  /* The page behind re-renders on applied changes only, never remounts (note 61); office clock too (note 85).
+     The crash card from a bad frame (e.g. a half-typed service row while
+     editing) clears on its own: a new route or a new content version resets
+     the boundary, so one bad frame can never trap the drawer. */
   const visitorClock = useVisitorClock();
   const pageNode = useMemo(
     () => (
-      <ErrorBoundary>
+      <ErrorBoundary key={resolved.to} resetKey={resolved.to + ":" + String(state.version)}>
         {/* No loader page: header, footer and edit bar stay on screen while the
             lazy page arrives — never a white page, never a Loading screen. */}
         <React.Suspense fallback={null}>

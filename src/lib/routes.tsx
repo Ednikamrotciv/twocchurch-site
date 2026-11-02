@@ -5,50 +5,20 @@ import { matchPath } from "./router";
 import { Home } from "../pages/Home";
 import { NotFound } from "../pages/NotFound";
 
-/* Chunk-failure-proof lazy pages (production fix v6): a new deploy landing
-   mid-visit (or a blip) breaks a dynamic chunk import — React.lazy caches
-   the rejection, so a plain retry would crash straight into the error card.
-   This retries the import once behind the scenes; if the chunk is truly
-   gone it reloads onto the fresh deploy instead of ever showing the crash
-   screen. Never throws. */
-function lazyRetry<T extends { default: React.ComponentType<any> }>(importer: () => Promise<T>) {
-  return React.lazy(() => {
-    try {
-      return importer().catch(() => {
-        return new Promise<T>((resolve, reject) => {
-          try {
-            window.setTimeout(() => {
-              try {
-                importer().then(resolve, reject);
-              } catch (e) {
-                reject(e);
-              }
-            }, 800);
-          } catch (e) {
-            reject(e as any);
-          }
-        });
-      });
-    } catch (e) {
-      return Promise.reject(e);
-    }
-  });
-}
-
-const About = lazyRetry(() => import("../pages/About").then((m) => ({ default: m.About })));
-const Locations = lazyRetry(() => import("../pages/Locations").then((m) => ({ default: m.Locations })));
-const Sermons = lazyRetry(() => import("../pages/Sermons").then((m) => ({ default: m.Sermons })));
-const SermonDetail = lazyRetry(() => import("../pages/SermonDetail").then((m) => ({ default: m.SermonDetail })));
-const WatchLive = lazyRetry(() => import("../pages/WatchLive").then((m) => ({ default: m.WatchLive })));
-const Events = lazyRetry(() => import("../pages/Events").then((m) => ({ default: m.Events })));
-const Testimonies = lazyRetry(() => import("../pages/Testimonies").then((m) => ({ default: m.Testimonies })));
-const Giving = lazyRetry(() => import("../pages/Giving").then((m) => ({ default: m.Giving })));
-const Prayer = lazyRetry(() => import("../pages/Prayer").then((m) => ({ default: m.Prayer })));
-const Contact = lazyRetry(() => import("../pages/Contact").then((m) => ({ default: m.Contact })));
-const Visit = lazyRetry(() => import("../pages/Visit").then((m) => ({ default: m.Visit })));
-const Devotional = lazyRetry(() => import("../pages/Devotional").then((m) => ({ default: m.Devotional })));
-const Ministries = lazyRetry(() => import("../pages/Ministries").then((m) => ({ default: m.Ministries })));
-const Library = lazyRetry(() => import("../pages/Library").then((m) => ({ default: m.Library })));
+const About = React.lazy(() => import("../pages/About").then((m) => ({ default: m.About })));
+const Locations = React.lazy(() => import("../pages/Locations").then((m) => ({ default: m.Locations })));
+const Sermons = React.lazy(() => import("../pages/Sermons").then((m) => ({ default: m.Sermons })));
+const SermonDetail = React.lazy(() => import("../pages/SermonDetail").then((m) => ({ default: m.SermonDetail })));
+const WatchLive = React.lazy(() => import("../pages/WatchLive").then((m) => ({ default: m.WatchLive })));
+const Events = React.lazy(() => import("../pages/Events").then((m) => ({ default: m.Events })));
+const Testimonies = React.lazy(() => import("../pages/Testimonies").then((m) => ({ default: m.Testimonies })));
+const Giving = React.lazy(() => import("../pages/Giving").then((m) => ({ default: m.Giving })));
+const Prayer = React.lazy(() => import("../pages/Prayer").then((m) => ({ default: m.Prayer })));
+const Contact = React.lazy(() => import("../pages/Contact").then((m) => ({ default: m.Contact })));
+const Visit = React.lazy(() => import("../pages/Visit").then((m) => ({ default: m.Visit })));
+const Devotional = React.lazy(() => import("../pages/Devotional").then((m) => ({ default: m.Devotional })));
+const Ministries = React.lazy(() => import("../pages/Ministries").then((m) => ({ default: m.Ministries })));
+const Library = React.lazy(() => import("../pages/Library").then((m) => ({ default: m.Library })));
 
 /* No-loader navigation (the site stays on screen, never a Loading page):
    fetch every page chunk behind the first paint, so taps land on the ready
