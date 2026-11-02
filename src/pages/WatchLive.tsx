@@ -18,19 +18,11 @@ import { LiveWaiting } from "../components/liveclock";
 import { SectionBoundary } from "../components/ErrorBoundary";
 import { Countdown, RecentServiceCard, SermonWatch, VideoPlayer, WatchCards, platformWatchLinks } from "../components/blocks";
 import { useCmsVersion } from "../lib/cms";
+import { loadYtPlayerApi } from "../components/blocks";
 
 export function WatchLive() {
-  /* Fix v5 (screenshot 1): defensive guards — a corrupt CMS draft, an empty
-     BRANCHES/SERVICES list, or a failed backend read must never throw during
-     render (which would drop /admin/watch-live to the error card). Every
-     risky read below falls back to a safe empty value; the screen shows the
-     offline/waiting state instead of crashing. */
-  let branchId: string = DEFAULT_BRANCH_ID;
-  try {
-    const [bid] = useLocalState<string>(KEYS.branch, DEFAULT_BRANCH_ID);
-    if (typeof bid === "string" && bid) branchId = bid;
-  } catch { branchId = DEFAULT_BRANCH_ID; }
-  const branch = (Array.isArray(BRANCHES) && (BRANCHES.find((b) => b && b.id === branchId) || BRANCHES[0])) || ({ id: DEFAULT_BRANCH_ID, name: "", city: "", country: "", address: "" } as any);
+  const [branchId] = useLocalState<string>(KEYS.branch, DEFAULT_BRANCH_ID);
+  const branch = BRANCHES.find((b) => b.id === branchId) || BRANCHES[0];
   const [reminders, setReminders] = useLocalState<Record<string, boolean>>("wom.reminders", {});
   const now = useNow(1000);
   /* Published Play/Stop words mutate LIVE in place with no event of their own —
@@ -38,14 +30,10 @@ export function WatchLive() {
      waiting out the 1s clock above. Cheap on this page: visitors never type. */
   useCmsVersion();
   /* The office's Weekly services card, read on the church's own clock. */
-  let info: any = null;
-  try { info = nextService(Array.isArray(SERVICES) ? SERVICES : [], now, churchTimezone()); } catch { info = null; }
+  const info = nextService(SERVICES, now, churchTimezone());
   /* When the next gathering happens — read on the visitor's own clock (SPEC note 85). */
-  let when: any = null;
-  try { when = info ? clockHere(info.slot.time, info.slot.day, churchTimezone()) : null; } catch { when = null; }
-  let replays: any[] = [];
-  try { replays = sermonsNewestFirst() || []; } catch { replays = []; }
-  if (!Array.isArray(replays)) replays = [];
+  const when = info ? clockHere(info.slot.time, info.slot.day, churchTimezone()) : null;
+  const replays = sermonsNewestFirst();
   /* The message playing above everything else. */
   const latest = replays[0];
 
@@ -55,15 +43,13 @@ export function WatchLive() {
      or no — so a YouTube start shows in seconds and the waiting clock vanishes
      with it, on live and on local alike. */
   const air = useLiveStream(true, false, true);
-  let justNow = false;
-  try { justNow = !!info && (onAir(info) || (info as any).msUntil < 45 * 60 * 1000); } catch { justNow = !!info; }
+  const justNow = !!info && (onAir(info) || info.msUntil < 45 * 60 * 1000);
   /* Instant-open warm-up: the page is open because someone came to watch, so
      pre-connect to the stream doors at once (player assets included) — the
-     autoplay iframe opens with no DNS/TLS wait. Fix v5: full hint set —
-     youtube, youtube-nocookie, googlevideo, ytimg, noembed. */
+     autoplay iframe opens with no DNS/TLS wait. */
   useEffect(() => {
     try {
-      for (const href of ["https://www.youtube.com", "https://www.youtube-nocookie.com", "https://s.ytimg.com", "https://i.ytimg.com", "https://noembed.com"]) {
+      for (const href of ["https://www.youtube.com", "https://youtube.com", "https://www.youtube-nocookie.com", "https://s.ytimg.com", "https://i.ytimg.com", "https://ytimg.com", "https://googlevideo.com", "https://noembed.com"]) {
         if (document.querySelector('link[rel="preconnect"][href="' + href + '"]')) continue;
         const l = document.createElement("link");
         l.rel = "preconnect";
@@ -71,19 +57,21 @@ export function WatchLive() {
         l.crossOrigin = "anonymous";
         document.head.appendChild(l);
       }
-      for (const href of ["//googlevideo.com", "//ytimg.com", "//www.youtube-nocookie.com"]) {
-        if (document.querySelector('link[rel="dns-prefetch"][href="' + href + '"]')) continue;
-        const d = document.createElement("link");
-        d.rel = "dns-prefetch";
-        d.href = href;
-        document.head.appendChild(d);
-      }
     } catch {}
   }, [justNow, air.state]);
   /* Instant-live repair (no reload ever): the tab waking, or the network
      returning, re-asks at once — a YouTube start shows in seconds and the
-     waiting clock vanishes with it. Stays on site. */
+     waiting clock vanishes with it. Stays on site. The player API warms in
+     parallel, so a verified live id creates its player with no script wait. */
   useEffect(() => {
+    try {
+      const warm =
+        (window as any).requestIdleCallback ||
+        ((fn: FrameRequestCallback) => window.setTimeout(() => fn(0 as any), 1200));
+      warm(() => {
+        try { loadYtPlayerApi().catch(() => {}); } catch {}
+      });
+    } catch {}
     try {
       const onVis = () => { if (document.visibilityState === "visible") { try { recheckLiveNow(); } catch {} } };
       const onNet = () => { try { recheckLiveNow(); } catch {} };
@@ -218,6 +206,13 @@ export function WatchLive() {
   const overrideMain = !!LIVE.isLive && hasChannel && !guestLive && screenAir.state !== "live" && airForTarget.state === "unknown" && !shutNow;
   const overrideGuest = !!(LIVE as any).guestIsLive && !!guestUrl && !guestLive && screenAir.state !== "live" && guestAir.state === "unknown" && !shutNow;
   const overrideId = overrideMain ? designatedChannelIdForTarget(targetUrl) : overrideGuest ? designatedChannelIdForTarget(guestUrl) : "";
+  /* V9: Play + stream link while walled (no channel override possible) — the
+     office pressed Play for a bare video id and published it, yet the read
+     cannot confirm a broadcast. The verified link opens by itself instead of
+     sitting on the waiting clock, same rule as the channel override above.
+     Only while the read says unknown (a verified off stays on the clock),
+     only with a verified playable link. A detected broadcast still wins. */
+  const manualFallback = !!LIVE.isLive && !!verifiedFallbackId && !guestLive && !fbLive && screenAir.state !== "live" && airForTarget.state === "unknown" && !shutNow && !officeStopped;
   /* Anywhere for the check to look — channel, stream link or Facebook page. */
   const configured = !!liveTarget() || !!facebookTarget();
   /* The shared on-air answer (notes 83, 133); `streaming` is the narrower screen question. Declared
@@ -231,7 +226,7 @@ export function WatchLive() {
      until Play. Press alone never autoplays — autoplay only works once the
      main livestream has started live on the channel. */
   const mainDetected = screenAir.state === "live" && !guestLive && !fbLive;
-  const streaming = (screenAir.state === "live" || offFresh) && !shutNow && !officeStopped && (guestLive || fbLive || mainDetected || offFresh);
+  const streaming = ((screenAir.state === "live" || offFresh) && !shutNow && !officeStopped && (guestLive || fbLive || mainDetected || offFresh)) || manualFallback;
 
   /* The two lists under the screen: recent services (read off the channel) and previous sermons (the office's write-ups). */
   const limit = recentLimit();
@@ -282,7 +277,7 @@ export function WatchLive() {
      Play-override channel was available. */
   const available: VideoPlatform[] = (() => {
     const list: VideoPlatform[] = [];
-    if (detectedId || detectedChannel || overrideId || (!hasChannel && parseYoutubeId(LIVE.youtubeId))) list.push("youtube");
+    if (detectedId || detectedChannel || overrideId || verifiedFallbackId || (!hasChannel && parseYoutubeId(LIVE.youtubeId))) list.push("youtube");
     if (isFacebookVideoUrl(LIVE.facebookUrl)) list.push("facebook");
     return list;
   })();
@@ -452,11 +447,7 @@ export function WatchLive() {
               </p>
             )}
 
-            <div className="live-panel__frame" style={{ aspectRatio: "16 / 9", minHeight: "240px" }}>
-              {/* Fix v5 (screenshot 1): the live screen is isolated — a player
-                 crash clears to the inline fallback below, never to the page's
-                 error card. Config + lists + admin panel stay usable. */}
-              <SectionBoundary label="live-screen">
+            <div className="live-panel__frame">
               {available.length > 1 && (
                 <div className="platform-pick">
                   <span className="platform-pick__label">{ct("live.platform.label")}</span>
@@ -490,10 +481,10 @@ export function WatchLive() {
                   compact
                   live
                   /* The check says live, so the screen plays by itself (notes
-                     384, 388) — audible-first with muted fallback (fix v5, no
-                     custom sound button): tries WITH SOUND, falls back to
-                     muted only if the browser blocks it. Standard controls
-                     stay visible so the visitor unmutes normally. */
+                     384, 388) — a verified broadcast, a walled channel follow,
+                     or the stream link all open with no tap, WITH SOUND: no
+                     live from a channel is ever muted, and the audio opens by
+                     itself the moment the broadcast starts. */
                   autoPlay={streaming && watchable}
                   reloadSignal={reloadSignal}
                 />
@@ -507,7 +498,7 @@ export function WatchLive() {
                   live
                   /* The office commanded the slot and the read is walled —
                      main and guest alike open their commanded channel by
-                     itself instead of the waiting clock, audible-first like
+                     itself instead of the waiting clock, WITH SOUND like
                      every live. A verified off still waits; a detected
                      broadcast still wins. */
                   autoPlay
@@ -568,7 +559,6 @@ export function WatchLive() {
                   <b>{ct("live.fallback.title")}</b> {ct("live.fallback.text")}
                 </Notice>
               )}
-              </SectionBoundary>
             </div>
 
             {available.length > 0 && (

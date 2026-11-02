@@ -1,19 +1,11 @@
 import React from "react";
 import { Btn, Icon, Section } from "./ui";
 
-/** Keeps a broken page from taking the whole site down with it.
-    Fix v5 (screenshot 1): the Reload button is a real recovery operation, not
-    a blind refresh. It (1) drops poisoned live/verdict caches, (2) retries the
-    failed backend/live checks, (3) remounts ONLY the failed subtree in place
-    (admin drawer, draft edits, scroll preserved), (4) reconnects the backend
-    without a full page reload, and (5) falls back to a full reload only when
-    the render itself is broken or a deploy swapped chunks. Bounded: max 1
-    in-place retry per crash, max 3 full reloads per 5 minutes — no infinite
-    loops, no duplicate concurrent retries. */
-export class ErrorBoundary extends React.Component<{ children: React.ReactNode }, { error: Error | null; route: string; stack: string; nonce: number; retriedRoute: string; retryFailed: boolean; scroll: number; retrying: boolean }> {
+/** Keeps a broken page from taking the whole site down with it. */
+export class ErrorBoundary extends React.Component<{ children: React.ReactNode }, { error: Error | null; route: string; stack: string; nonce: number; retriedRoute: string; retryFailed: boolean; scroll: number }> {
   constructor(props: { children: React.ReactNode }) {
     super(props);
-    this.state = { error: null, route: "", stack: "", nonce: 0, retriedRoute: "", retryFailed: false, scroll: 0, retrying: false };
+    this.state = { error: null, route: "", stack: "", nonce: 0, retriedRoute: "", retryFailed: false, scroll: 0 };
   }
   static getDerivedStateFromError(error: Error) {
     return { error };
@@ -55,7 +47,7 @@ export class ErrorBoundary extends React.Component<{ children: React.ReactNode }
       try {
         here = readBoundaryRoute();
       } catch {}
-      if (here && here !== this.state.route) this.setState({ error: null, route: "", stack: "", retriedRoute: "", retryFailed: false, scroll: 0, retrying: false });
+      if (here && here !== this.state.route) this.setState({ error: null, route: "", stack: "", retriedRoute: "", retryFailed: false, scroll: 0 });
     } else if (this.state.retriedRoute) {
       /* A retry that survived: forget it once the visitor moves on, so a
          later crash elsewhere still gets its own in-place retry first. */
@@ -66,71 +58,38 @@ export class ErrorBoundary extends React.Component<{ children: React.ReactNode }
       if (here && here !== this.state.retriedRoute) this.setState({ retriedRoute: "", retryFailed: false });
     }
   }
-  /* One tap brings the SAME page back (fix v5 — real recovery, not blind
-     refresh): the card retries the page subtree in place first — same address
-     (/admin/watch-live stays /admin/watch-live), same synced words, same
-     on-air answer, scroll + admin drawer + unsaved draft preserved — and only
-     a crash that repeats on the same route takes the full reload. Before
-     either path: (1) poisoned live/verdict caches are dropped so a stale
-     on-air answer can never re-poison the retry, (2) the backend + live check
-     are re-asked (Render cold-start / temporary disconnect heals without a
-     full reload), (3) a chunk-load failure — a new deploy landing mid-visit —
-     goes straight to the full reload, since in-place would re-request the
-     same missing chunk. Bounded: duplicate taps ignored while a retry is in
-     flight; max 3 full reloads per 5 minutes (sessionStorage counter) stops
-     infinite reload loops on a persistently broken render. */
+  /* One tap brings the SAME page back: volatile live caches are dropped first
+     (stale on-air/verdict/recent answers can never re-poison the retry). A
+     deterministic render crash (ReferenceError/TypeError/chunk-load failure —
+     re-rendering the same tree can only crash again, and React.lazy caches a
+     failed chunk import) goes straight to the full reload, so the first tap
+     always fixes it. Anything else retries the page subtree in place first —
+     same address, same synced words, same on-air answer — and the second tap
+     always reloads. */
   private retry = () => {
-    if (this.state.retrying) return;
-    this.setState({ retrying: true });
     try {
       import("../lib/livestatus").then((m) => {
         try { m.forgetAllVerified(); } catch {}
-        try { (m as any).recheckLiveNow?.(); } catch {}
       }).catch(() => {});
     } catch {}
     try {
       localStorage.removeItem("wom.livestatus");
     } catch {}
     try {
+      localStorage.removeItem("wom.recentstreams");
+    } catch {}
+    try {
+      localStorage.removeItem("wom.ytchannel");
+    } catch {}
+    try {
       sessionStorage.removeItem("wom.live.targetNote");
     } catch {}
-    /* Reconnect the backend without reloading the whole site (Render cold
-       start / temporary API failure): re-resolve the office server URL and
-       restart the CMS content sync in the background. Failures are silent —
-       the in-place remount below still repairs render-only crashes. */
-    try {
-      import("../lib/remoteserver").then((m) => {
-        try { (m as any).refreshServerUrl?.().catch(() => {}); } catch {}
-      }).catch(() => {});
-    } catch {}
-    try {
-      import("../lib/cms").then((m) => {
-        try { (m as any).startCms?.(); } catch {}
-        try { (m as any).checkStaleBuild?.().catch(() => {}); } catch {}
-      }).catch(() => {});
-    } catch {}
     const msg = String((this.state.error && (this.state.error as any).message) || "") + "\n" + this.state.stack;
-    if (this.state.retryFailed || isChunkError(msg)) {
-      /* Bounded full reloads: a persistently broken render must not loop the
-         whole site forever. After 3 reloads in 5 minutes, stay on the card
-         (which always offers "Try the home page") instead of reloading again. */
+    if (this.state.retryFailed || isChunkError(msg) || isDeterministicRenderError(msg)) {
       try {
-        const now = Date.now();
-        let rec: { n: number; at: number } = { n: 0, at: 0 };
-        try {
-          const raw = sessionStorage.getItem("wom.error.reloads");
-          if (raw) { const p = JSON.parse(raw); if (p && typeof p.n === "number") rec = p; }
-        } catch {}
-        if (now - (rec.at || 0) > 5 * 60_000) rec = { n: 0, at: now };
-        if ((rec.n || 0) >= 3) {
-          this.setState({ retrying: false, retryFailed: true });
-          return;
-        }
-        try { sessionStorage.setItem("wom.error.reloads", JSON.stringify({ n: (rec.n || 0) + 1, at: rec.at || now })); } catch {}
         window.location.reload();
       } catch {
         /* reload unavailable — the card stays with its way home */
-        this.setState({ retrying: false });
       }
       return;
     }
@@ -139,7 +98,7 @@ export class ErrorBoundary extends React.Component<{ children: React.ReactNode }
       here = readBoundaryRoute();
     } catch {}
     const y = this.state.scroll || 0;
-    this.setState((s) => ({ error: null, route: "", stack: "", nonce: s.nonce + 1, retriedRoute: here, retryFailed: false, retrying: false }));
+    this.setState((s) => ({ error: null, route: "", stack: "", nonce: s.nonce + 1, retriedRoute: here, retryFailed: false }));
     try {
       window.requestAnimationFrame(() => {
         try {
@@ -165,10 +124,10 @@ export class ErrorBoundary extends React.Component<{ children: React.ReactNode }
           <p className="muted">Nothing was lost — your place is saved. One tap brings the page back.</p>
           <p className="muted">{`Page: ${this.state.route}`}</p>
           <div className="btn-row center">
-            <Btn onClick={this.retry} icon="refresh" disabled={this.state.retrying}>
-              {this.state.retrying ? "Reloading…" : "Reload the page"}
+            <Btn onClick={this.retry} icon="refresh">
+              Reload the page
             </Btn>
-            <Btn variant="ghost" to="/" icon="home" onClick={() => this.setState({ error: null, route: "", stack: "", retriedRoute: "", retryFailed: false, retrying: false })}>
+            <Btn variant="ghost" to="/" icon="home" onClick={() => this.setState({ error: null })}>
               Try the home page
             </Btn>
           </div>
@@ -191,6 +150,31 @@ function isChunkError(text: string): boolean {
       t.includes("loading chunk") ||
       t.includes("failed to fetch") ||
       t.includes("importing a module")
+    );
+  } catch {
+    return false;
+  }
+}
+
+/* A deterministic render crash (re-rendering the same tree can only crash
+   again — including React.lazy, which caches a failed chunk import): the
+   retry must reload instead of remounting in place. Never throws. */
+function isDeterministicRenderError(text: string): boolean {
+  try {
+    const t = String(text || "").toLowerCase();
+    return (
+      t.includes("before initialization") ||
+      t.includes("cannot read propert") ||
+      t.includes("undefined is not an object") ||
+      t.includes("null is not an object") ||
+      t.includes("is not a function") ||
+      t.includes("is not defined") ||
+      t.includes("referenceerror") ||
+      t.includes("typeerror") ||
+      t.includes("syntaxerror") ||
+      t.includes("invalid hook call") ||
+      t.includes("minified react error") ||
+      t.includes("cannot read properties")
     );
   } catch {
     return false;

@@ -46,16 +46,19 @@ export function parseYoutubeId(input: string): string {
   return "";
 }
 
-export function youtubeEmbed(id: string, autoplay = true, muted = false): string {
+export function youtubeEmbed(id: string, autoplay = true): string {
   const video = parseYoutubeId(id);
   if (!video) return "";
-  /* Sound-first autoplay (fix v5): audible by default (mute=0 omitted), muted
-     fallback adds mute=1. enablejsapi lets the player report YouTube's own
-     error codes (100/101/150/105 = fatal, never retried). origin avoids
-     cross-origin API failures on the deployed host. */
+  /* Sound on (note 388): every live from a channel plays with its audio —
+     anything the site plays, tapped or self-started, carries its sound, and
+     the stream's audio opens by itself the moment the broadcast starts.
+     enablejsapi lets the player hear YouTube's own error events.
+     origin (fix): without it enablejsapi throws cross-origin on the deployed
+     host and the API frame never reports ready/error — the watchdog then
+     swaps a good live to the fallback. */
   let origin = "";
   try { origin = typeof location !== "undefined" && location.origin ? `&origin=${encodeURIComponent(location.origin)}` : ""; } catch { origin = ""; }
-  return `https://www.youtube.com/embed/${video}?rel=0&modestbranding=1&playsinline=1&enablejsapi=1${autoplay ? "&autoplay=1" : ""}${muted ? "&mute=1" : ""}${origin}`;
+  return `https://www.youtube.com/embed/${video}?rel=0&modestbranding=1&playsinline=1&enablejsapi=1${autoplay ? "&autoplay=1" : ""}${origin}`;
 }
 
 /** A channel id (`UC…`): the only address the channel player takes. */
@@ -68,12 +71,12 @@ export function isYoutubeChannelId(input: unknown): boolean {
     while the channel page reads 200), so when the channel page is on air but
     names no verifiable video, the player follows the channel instead of
     guessing a video — on live and on local alike. */
-export function youtubeChannelEmbed(channelId: string, autoplay = true, muted = false): string {
+export function youtubeChannelEmbed(channelId: string, autoplay = true): string {
   if (!isYoutubeChannelId(channelId)) return "";
   const id = String(channelId).trim();
   let origin = "";
   try { origin = typeof location !== "undefined" && location.origin ? `&origin=${encodeURIComponent(location.origin)}` : ""; } catch { origin = ""; }
-  return `https://www.youtube.com/embed/live_stream?channel=${id}&rel=0&modestbranding=1&playsinline=1&enablejsapi=1${autoplay ? "&autoplay=1" : ""}${muted ? "&mute=1" : ""}${origin}`;
+  return `https://www.youtube.com/embed/live_stream?channel=${id}&rel=0&modestbranding=1&playsinline=1&enablejsapi=1${autoplay ? "&autoplay=1" : ""}${origin}`;
 }
 
 export function youtubeWatch(id: string): string {
@@ -167,13 +170,13 @@ export function isFileVideo(source: VideoSource): boolean {
 }
 
 /** The <iframe> address — empty for an uploaded file (it plays in a <video>).
-    Sound-first (fix v5): audible by default; muted=true only for the fallback
-    after the browser blocks audible autoplay. */
-export function embedSrc(source: VideoSource, autoplay = true, muted = false): string {
+    Sound on (note 388): no silent path remains — every address plays with
+    its audio, tapped or self-started. */
+export function embedSrc(source: VideoSource, autoplay = true): string {
   if (!source) return "";
   if (source.platform === "facebook") return facebookEmbed(source.facebookUrl || "", autoplay);
   if (source.platform === "upload") return "";
-  return youtubeEmbed(source.youtubeId || "", autoplay, muted) || youtubeChannelEmbed(source.youtubeChannelId || "", autoplay, muted);
+  return youtubeEmbed(source.youtubeId || "", autoplay) || youtubeChannelEmbed(source.youtubeChannelId || "", autoplay);
 }
 
 /** The file address for an uploaded video. */
@@ -205,62 +208,36 @@ export function platformLabel(platform?: VideoPlatform): string {
   return "YouTube";
 }
 
-/* ---- YouTube error classification + sound preference (fix v5) ----------
-   Screenshot 2 root cause: the player mounted a video/channel embed that
-   YouTube itself refuses to play (private/deleted/ended/non-embeddable, or a
-   live_stream channel follow while offline) and the black "unavailable" frame
-   sat stuck. Official YT IFrame codes: 100 = gone (invalid/private/deleted),
-   101/150 = embedding disabled by owner, 105 = region/age block. Those are
-   FATAL: never retried, show offline/unavailable UI with the latest recording
-   instead. 2/5/network/timeout/watchdog = RETRYABLE: bounded retries with
-   exponential backoff (max 5). Unknown/null (offline/probe down) plays
-   through the player as before — the player is the net. */
-
-/** Fatal YouTube errors: retrying cannot fix them. */
-export const YOUTUBE_FATAL_ERRORS = new Set([100, 101, 105, 150]);
-/** Retryable player failures (network, buffering, startup, API load). */
-export const YOUTUBE_RETRYABLE_ERRORS = new Set([2, 5]);
-
-export function isFatalYoutubeError(code: unknown): boolean {
-  return YOUTUBE_FATAL_ERRORS.has(Number(code));
-}
-export function isRetryableYoutubeError(code: unknown): boolean {
-  const n = Number(code);
-  if (YOUTUBE_FATAL_ERRORS.has(n)) return false;
-  return n === 0 || YOUTUBE_RETRYABLE_ERRORS.has(n) || n === 2 || n === 5;
-}
-
-/** Bounded exponential backoff: 1s, 2s, 4s, 8s, 16s (max 5 retries). */
-export function retryDelayMs(attempt: number): number {
-  const n = Math.max(0, Math.min(4, Math.floor(attempt || 0)));
-  return Math.min(16000, 1000 * Math.pow(2, n));
-}
-
-/** Visitor sound choice, preserved across reconnections (fix v5). */
-const SOUND_PREF_KEY = "wom.player.sound";
-export function getSoundPref(): "audible" | "muted" | "" {
-  try {
-    const v = String(localStorage.getItem(SOUND_PREF_KEY) || "");
-    return v === "audible" || v === "muted" ? v : "";
-  } catch { return ""; }
-}
-export function setSoundPref(v: "audible" | "muted") {
-  try { localStorage.setItem(SOUND_PREF_KEY, v); } catch {}
-}
-
-/** Connection hints the Watch page preconnects so the player opens instantly. */
-export const YOUTUBE_PRECONNECT_URLS = [
+/* Preconnect doors for an instant live open (production fix): every host the
+   player can touch on first paint — the page preconnects to all of these so
+   the stream iframe, thumbnails and the playable-check open with no DNS/TLS
+   wait. Sound-first: the live path always requests audio; the muted address
+   below is for silent preview stills only, never presented as sound-on. */
+export const YOUTUBE_PRECONNECTS = [
   "https://www.youtube.com",
+  "https://youtube.com",
   "https://www.youtube-nocookie.com",
   "https://i.ytimg.com",
   "https://s.ytimg.com",
+  "https://ytimg.com",
+  "https://googlevideo.com",
   "https://noembed.com",
 ];
-export const YOUTUBE_DNS_PREFETCH_URLS = [
-  "//www.youtube.com",
-  "//www.youtube-nocookie.com",
-  "//i.ytimg.com",
-  "//s.ytimg.com",
-  "//googlevideo.com",
-  "//ytimg.com",
-];
+
+/** Muted embed address (silent-preview fallback only): the live player never
+    uses this as its sound path — a muted autoplay that pretended sound was on
+    is exactly what this fix removes. Available for muted preview stills. */
+export function youtubeEmbedMuted(id: string, autoplay = true): string {
+  const video = parseYoutubeId(id);
+  if (!video) return "";
+  let origin = "";
+  try { origin = typeof location !== "undefined" && location.origin ? `&origin=${encodeURIComponent(location.origin)}` : ""; } catch { origin = ""; }
+  return `https://www.youtube.com/embed/${video}?rel=0&modestbranding=1&playsinline=1&enablejsapi=1${autoplay ? "&autoplay=1&mute=1" : ""}${origin}`;
+}
+
+/** Muted variant of embedSrc (preview stills only — never the live path). */
+export function embedSrcMuted(source: VideoSource, autoplay = true): string {
+  if (!source) return "";
+  if (source.platform === "facebook" || source.platform === "upload") return "";
+  return youtubeEmbedMuted(source.youtubeId || "", autoplay) || "";
+}

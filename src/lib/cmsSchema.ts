@@ -1008,9 +1008,9 @@ const CONTENT_SECTIONS: SectionDef[] = [
     kind: "object",
     fields: [
       { path: "provider", label: "Plays by default", type: "select", options: STREAM_PLATFORMS, optionLabels: VIDEO_PLATFORM_LABELS },
-      { path: "youtubeId", label: "YouTube stream link", type: "text", placeholder: "https://www.youtube.com/watch?v=…", hint: "Paste the whole YouTube link — the address from your browser's bar, or the link the Share button gives you (https://youtu.be/…). Fix v5: if the Watch page shows “This video is unavailable”, the ID is invalid, private, deleted, or embedding is off — in YouTube Studio → Live Control Room set the broadcast Public + allow embedding. Leave empty to follow the channel below." },
-      { path: "youtubeChannel", label: "YouTube channel to watch for live", type: "text", placeholder: "@yourchurch", hint: "Handle, channel ID or link (e.g. @twocorg). The Watch page follows this channel's live broadcast automatically. If the channel is not live, visitors see the waiting screen — never a broken player." },
-      { path: "externalYoutubeChannel", label: "Guest channel", type: "text", placeholder: "@guestchannel", hint: "One-off livestream from another address. Empty unless needed." },
+      { path: "youtubeId", label: "YouTube stream link", type: "text", placeholder: "https://www.youtube.com/watch?v=…" },
+      { path: "youtubeChannel", label: "YouTube channel to watch for live", type: "text", placeholder: "@yourchurch" },
+      { path: "externalYoutubeChannel", label: "Guest channel", type: "text", placeholder: "@guestchannel" },
       { path: "facebookUrl", label: "Facebook stream link", type: "text", placeholder: "https://www.facebook.com/…/videos/…" },
       { path: "recentLimit", label: "How many recent services to show", type: "number", min: 1, max: 24 },
       { path: "turnaroundHours", label: "Hours until a service is written up", type: "number", min: 1, max: 72 },

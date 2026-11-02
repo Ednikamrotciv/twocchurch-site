@@ -6,7 +6,7 @@ import { navigate, useRoute } from "../lib/router";
 import { resolvePath } from "../lib/routes";
 import { Header, Footer, ScrollTop, SkipLink } from "../components/layout";
 import { Btn, Card, Icon, Input, Modal, Select, Toaster } from "../components/ui";
-import { ErrorBoundary, SectionBoundary } from "../components/ErrorBoundary";
+import { ErrorBoundary } from "../components/ErrorBoundary";
 import {
   ConfirmIcon,
   CurrentEventPanel,
@@ -382,11 +382,7 @@ export function Admin() {
     setPanelOpen(true);
   };
 
-  /* The page behind re-renders on applied changes only, never remounts (note 61); office clock too (note 85).
-     Fix v5 (screenshot 1): preview is doubly isolated — outer ErrorBoundary
-     (page-level crash → Reload card, drawer + draft preserved) + inner
-     SectionBoundary (player crash → inline "section failed", admin config UI
-     stays fully usable). A player failure can never take the admin console. */
+  /* The page behind re-renders on applied changes only, never remounts (note 61); office clock too (note 85). */
   const visitorClock = useVisitorClock();
   const pageNode = useMemo(
     () => (
@@ -394,9 +390,7 @@ export function Admin() {
         {/* No loader page: header, footer and edit bar stay on screen while the
             lazy page arrives — never a white page, never a Loading screen. */}
         <React.Suspense fallback={null}>
-          <SectionBoundary label="admin-preview">
-            {cloneElement(resolved.element as ReactElement)}
-          </SectionBoundary>
+          {cloneElement(resolved.element as ReactElement)}
         </React.Suspense>
       </ErrorBoundary>
     ),
