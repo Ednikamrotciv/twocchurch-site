@@ -1113,7 +1113,13 @@
 
 /* Error-only dead frame: dimmed still with the grey repair arrow. The arrow
    exists ONLY here (rendered only in the error state, hidden whenever the
-   screen is fine) and covers video-unavailable + every other player failure. */
+   screen is fine) and covers video-unavailable + every other player failure.
+   Position context is explicit so the centered arrow always measures against
+   the 16:9 livestream screen itself. */
+.player--dead,
+.player--empty {
+  position: relative;
+}
 .player--dead img {
   position: absolute;
   inset: 0;
@@ -1157,11 +1163,16 @@
 
 /* Grey centered circle arrow (error-only repair): one click runs the shared
    repair — drops stale verdicts, re-asks what's live now, plays the current
-   broadcast by its fresh verified id. */
+   broadcast by its fresh verified id. Bulletproof centering: top/left 50% +
+   translate keeps the circle at the exact center of the 16:9 livestream screen
+   on every viewport (the old inset+margin:auto centering collapsed to the top
+   on some browsers once the dead title/body painted below it). */
 .player__reload {
   position: absolute;
-  inset: 0;
-  margin: auto;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  margin: 0;
   width: 84px;
   height: 84px;
   border-radius: 50%;
@@ -1180,11 +1191,11 @@
 }
 
 .player__reload:hover {
-  transform: scale(1.07);
+  transform: translate(-50%, -50%) scale(1.07);
 }
 
 .player__reload:active {
-  transform: scale(0.97);
+  transform: translate(-50%, -50%) scale(0.97);
 }
 
 .player__reload.is-spinning svg {

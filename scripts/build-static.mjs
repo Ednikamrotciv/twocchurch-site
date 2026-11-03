@@ -300,6 +300,29 @@ try {
 } catch (err) {
   console.warn("code meta skipped:", err?.message || err);
 }
+/* Route re-sync after code stamp (v11 fix): route copies are made from the shell
+   above, but the code-word stamp patched only dist/index.html — so /admin,
+   /sermons, … carried the old word and could disagree with the gate.
+   Re-copy the final shell so every route inherits deploy + code. */
+try {
+  const routesSrc2 = await readFile(path.join(ROOT, "src", "lib", "routes.tsx"), "utf8");
+  const patterns2 = [...routesSrc2.matchAll(/pattern:\s*"([^"]+)"/g)]
+    .map((m) => m[1])
+    .filter((p) => !p.includes(":") && p !== "/")
+    .map((p) => p.replace(/^\//, ""));
+  const pages2 = [...new Set([...patterns2, "admin"])];
+  const shell2 = await readFile(path.join(OUT, "index.html"), "utf8");
+  for (const page of pages2) {
+    await mkdir(path.join(OUT, page), { recursive: true });
+    await writeFile(path.join(OUT, page, "index.html"), shell2);
+    await mkdir(path.join(OUT, "admin", page), { recursive: true });
+    await writeFile(path.join(OUT, "admin", page, "index.html"), shell2);
+  }
+  await writeFile(path.join(OUT, "404.html"), shell2);
+  console.log("route pages re-synced after code stamp: " + pages2.join(", "));
+} catch (err) {
+  console.warn("route re-sync skipped:", err?.message || err);
+}
 /* Entry files are never cached (note 302): without this, static hosts serve
    a stale index.html / version.json after an update, so visitors keep running
    the old bundle and never see the maintenance notice until a hard refresh.

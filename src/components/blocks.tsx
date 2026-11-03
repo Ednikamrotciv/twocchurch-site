@@ -360,10 +360,10 @@ export function VideoPlayer({
   /* One-press FORCE repair (visitor arrow + office Reload share it): drop
      stale verdicts, re-ask what's live now, and play the current broadcast
      by its fresh verified ID — a restarted stream's new video, a stale
-     resolution, a hung frame, a cached blank frame. Any YouTube live
+     resolution, a hung frame, a cached blank frame. A channel follow
      re-asks the check and plays the current broadcast by its own verified
-     id; Facebook/upload lives remount with a cache-busted address and replay
-     (the verifier + in-frame error decide). Never replays a stale dead id blind. */
+     id; anything else remounts with a cache-busted address and replays (the
+     verifier + in-frame error decide). Never replays a stale dead id blind. */
   const [repairing, setRepairing] = useState(false);
   const repair = () => {
     try {
@@ -397,14 +397,12 @@ export function VideoPlayer({
         setRepairing(false);
       } catch {}
     };
-    /* Any YouTube live re-resolves (the fix for "unavailable" after the
+    /* A channel follow re-resolves (the fix for "unavailable" after the
        office restarted the stream): re-ask what's live now and play the
-       current broadcast by its fresh verified id — channel follows AND bare
-       video ids alike. A restarted stream's new id is picked up instead of
-       remounting the old dead one. Facebook/upload lives remount below
-       (their frames are not YouTube verdicts). V9: the spinner stays until the
+       current broadcast by its fresh verified id. Anything else remounts
+       with the fresh address and replays. V9: the spinner stays until the
        re-resolve settles (up to 8s), not a fixed 1.5s that stopped early. */
-    if (live && platform === "youtube") {
+    if (live && followId) {
       try {
         const done = (checkChannelThenPlay() as unknown as Promise<void> | void) as any;
         if (done && typeof done.finally === "function") {
@@ -427,17 +425,13 @@ export function VideoPlayer({
   /* Office Reload repair (published liveReloadAt): the general fix for any
      livestream-screen error — dead frame, blank frame, dead id, hung load,
      blocked autoplay. Runs the shared force repair above: re-asks the on-air
-     check and reopens on what's live now. No page reload, stays on this site.
-     Ref-stable call: repair is recreated each render, so the effect below
-     always runs the latest one (fresh ids), never a stale closure. */
-  const repairRef = useRef(repair);
-  repairRef.current = repair;
+     check and reopens on what's live now. No page reload, stays on this site. */
   const reloadSeen = useRef(typeof reloadSignal === "number" ? reloadSignal : 0);
   useEffect(() => {
     if (!live || !reloadSignal) return;
     if (reloadSeen.current === reloadSignal) return;
     reloadSeen.current = reloadSignal;
-    try { repairRef.current(); } catch {}
+    repair();
   }, [live, reloadSignal]);
   /* Visitor retry: the circular arrow in the center of the screen. Live
      broadcasts also carry an always-on centered arrow OVER the playing frame
@@ -1323,22 +1317,6 @@ export function VideoPlayer({
               shows on error, never over a healthy live frame. The Watch
               page's own red button is the permanent way out (not a second
               link here): on YouTube itself it always plays or says why. */}
-          {live && playing && !dead && (
-            <button
-              type="button"
-              className={"player__mini-reload" + (repairing ? " is-spinning" : "")}
-              onClick={retry}
-              aria-label={tx("Reload the livestream")}
-              title={tx("Reload the livestream")}
-            >
-              <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
-                <path
-                  fill="currentColor"
-                  d="M12 5V1L7 6l5 5V7c3.3 0 6 2.7 6 6s-2.7 6-6 6-6-2.7-6-6H4c0 4.4 3.6 8 8 8s8-3.6 8-8-3.6-8-8-8z"
-                />
-              </svg>
-            </button>
-          )}
           {platform === "youtube" && (liveVideoId || ytId) && !hideEscape && (
             <a
               className="player__escape"

@@ -200,15 +200,6 @@ export class SectionBoundary extends React.Component<{ children: React.ReactNode
     } catch {}
   }
   private retry = () => {
-    try {
-      import("../lib/livestatus").then((m) => {
-        try { m.forgetAllVerified(); } catch {}
-      }).catch(() => {});
-    } catch {}
-    try { localStorage.removeItem("wom.livestatus"); } catch {}
-    try { localStorage.removeItem("wom.recentstreams"); } catch {}
-    try { localStorage.removeItem("wom.ytchannel"); } catch {}
-    try { sessionStorage.removeItem("wom.live.targetNote"); } catch {}
     this.setState((s) => ({ error: null, nonce: s.nonce + 1 }));
   };
   render() {

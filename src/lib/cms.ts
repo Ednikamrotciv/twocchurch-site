@@ -299,15 +299,12 @@ function serverHoldsPublish(): boolean {
     try {
       if (v.notes === BUILD_NOTES && v.at > 0 && deployFirstSeenAt > 0 && v.at + PUBLISH_AT_SKEW_MS > deployFirstSeenAt) return true;
     } catch {}
-    /* Shared-backend release (live-relay, one click clears all devices): this
-       update (or newer) with real words on the backend this copy reads means
-       live, with no deploy/code/clock matching. A late device, a rebuilt
-       device and the publishing device read the same answer and agree.
-       Genuinely new code (server behind this update) and empty/unreviewed
-       backends still wait via the checks above. */
-    try {
-      if (v.notes >= BUILD_NOTES && v.words > 0) return true;
-    } catch {}
+    /* No unconditional lift: a new deploy (new update number or new code word)
+       must hold until its own Publish even when the backend already carries
+       real words from this update number. The code/deploy/clock legs above
+       carry the live-relay (one Publish clears every copy that was around for
+       it, late joiners lift on the same code word or the same deploy); anything
+       else still waits. */
     return false;
   } catch {
     return false;
@@ -2113,6 +2110,7 @@ export async function publishSection(sectionId: string, note: string): Promise<P
        server stamp, converge and live relay as every other publish. */
     if (!(await sectionJoinP)) {
       markDeployPublished();
+      clearUnrecordedLive();
       try {
         notePublishAt(Date.now());
       } catch {}
@@ -7180,6 +7178,18 @@ export async function publish(note: string, content?: Snapshot): Promise<Publish
          The stamp is cached with the words (note 306), so a host sleep
          afterwards changes nothing. */
       markDeployPublished();
+      /* No-change publish still leaves the drawer clean: the in-memory draft
+         is already null, so drop every unsaved trace with it (dirty, undos,
+         preview, stored draft) — otherwise the next reload resurrects the old
+         draft from DRAFT_KEY and the unsaved list is back. */
+      clearUnrecordedLive();
+      dirty = {};
+      editUndos = [];
+      previewBase = null;
+      previewing = false;
+      try {
+        localStorage.removeItem(DRAFT_KEY);
+      } catch {}
       /* Device-only click still lifts every tab of this browser at once, and
          keeps carrying the words to live in the background. */
       try {
@@ -7217,6 +7227,15 @@ export async function publish(note: string, content?: Snapshot): Promise<Publish
     rev = bless.rev ?? rev + 1;
     setPublishedNotes(BUILD_NOTES);
     clearUnrecordedLive();
+    /* Same unsaved-clean as every other publish: draft is null, so drop dirty,
+       undos, preview and the stored draft or the next reload resurrects them. */
+    dirty = {};
+    editUndos = [];
+    previewBase = null;
+    previewing = false;
+    try {
+      localStorage.removeItem(DRAFT_KEY);
+    } catch {}
     writeCache();
     notify();
     return { ok: true, live: bless.relay !== "missed", relayMsg: relayStatus().msg };
