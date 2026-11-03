@@ -18,6 +18,7 @@ import { LiveWaiting } from "../components/liveclock";
 import { SectionBoundary } from "../components/ErrorBoundary";
 import { Countdown, RecentServiceCard, SermonWatch, VideoPlayer, WatchCards, platformWatchLinks } from "../components/blocks";
 import { useCmsVersion } from "../lib/cms";
+import { loadYtPlayerApi } from "../components/blocks";
 
 export function WatchLive() {
   const [branchId] = useLocalState<string>(KEYS.branch, DEFAULT_BRANCH_ID);
@@ -48,7 +49,7 @@ export function WatchLive() {
      autoplay iframe opens with no DNS/TLS wait. */
   useEffect(() => {
     try {
-      for (const href of ["https://www.youtube.com", "https://youtube.com", "https://www.youtube-nocookie.com", "https://i.ytimg.com", "https://s.ytimg.com", "https://ytimg.com", "https://googlevideo.com", "https://www.googlevideo.com", "https://gstatic.com", "https://noembed.com"]) {
+      for (const href of ["https://www.youtube.com", "https://youtube.com", "https://www.youtube-nocookie.com", "https://s.ytimg.com", "https://i.ytimg.com", "https://ytimg.com", "https://googlevideo.com", "https://noembed.com"]) {
         if (document.querySelector('link[rel="preconnect"][href="' + href + '"]')) continue;
         const l = document.createElement("link");
         l.rel = "preconnect";
@@ -60,8 +61,17 @@ export function WatchLive() {
   }, [justNow, air.state]);
   /* Instant-live repair (no reload ever): the tab waking, or the network
      returning, re-asks at once — a YouTube start shows in seconds and the
-     waiting clock vanishes with it. Stays on site. */
+     waiting clock vanishes with it. Stays on site. The player API warms in
+     parallel, so a verified live id creates its player with no script wait. */
   useEffect(() => {
+    try {
+      const warm =
+        (window as any).requestIdleCallback ||
+        ((fn: FrameRequestCallback) => window.setTimeout(() => fn(0 as any), 1200));
+      warm(() => {
+        try { loadYtPlayerApi().catch(() => {}); } catch {}
+      });
+    } catch {}
     try {
       const onVis = () => { if (document.visibilityState === "visible") { try { recheckLiveNow(); } catch {} } };
       const onNet = () => { try { recheckLiveNow(); } catch {} };
@@ -196,6 +206,13 @@ export function WatchLive() {
   const overrideMain = !!LIVE.isLive && hasChannel && !guestLive && screenAir.state !== "live" && airForTarget.state === "unknown" && !shutNow;
   const overrideGuest = !!(LIVE as any).guestIsLive && !!guestUrl && !guestLive && screenAir.state !== "live" && guestAir.state === "unknown" && !shutNow;
   const overrideId = overrideMain ? designatedChannelIdForTarget(targetUrl) : overrideGuest ? designatedChannelIdForTarget(guestUrl) : "";
+  /* V9: Play + stream link while walled (no channel override possible) — the
+     office pressed Play for a bare video id and published it, yet the read
+     cannot confirm a broadcast. The verified link opens by itself instead of
+     sitting on the waiting clock, same rule as the channel override above.
+     Only while the read says unknown (a verified off stays on the clock),
+     only with a verified playable link. A detected broadcast still wins. */
+  const manualFallback = !!LIVE.isLive && !!verifiedFallbackId && !guestLive && !fbLive && screenAir.state !== "live" && airForTarget.state === "unknown" && !shutNow && !officeStopped;
   /* Anywhere for the check to look — channel, stream link or Facebook page. */
   const configured = !!liveTarget() || !!facebookTarget();
   /* The shared on-air answer (notes 83, 133); `streaming` is the narrower screen question. Declared
@@ -209,7 +226,7 @@ export function WatchLive() {
      until Play. Press alone never autoplays — autoplay only works once the
      main livestream has started live on the channel. */
   const mainDetected = screenAir.state === "live" && !guestLive && !fbLive;
-  const streaming = (screenAir.state === "live" || offFresh) && !shutNow && !officeStopped && (guestLive || fbLive || mainDetected || offFresh);
+  const streaming = ((screenAir.state === "live" || offFresh) && !shutNow && !officeStopped && (guestLive || fbLive || mainDetected || offFresh)) || manualFallback;
 
   /* The two lists under the screen: recent services (read off the channel) and previous sermons (the office's write-ups). */
   const limit = recentLimit();
@@ -260,7 +277,7 @@ export function WatchLive() {
      Play-override channel was available. */
   const available: VideoPlatform[] = (() => {
     const list: VideoPlatform[] = [];
-    if (detectedId || detectedChannel || overrideId || (!hasChannel && parseYoutubeId(LIVE.youtubeId))) list.push("youtube");
+    if (detectedId || detectedChannel || overrideId || verifiedFallbackId || (!hasChannel && parseYoutubeId(LIVE.youtubeId))) list.push("youtube");
     if (isFacebookVideoUrl(LIVE.facebookUrl)) list.push("facebook");
     return list;
   })();
@@ -460,19 +477,15 @@ export function WatchLive() {
                   hideEscape
                   source={liveSource}
                   title={liveName || ct("auto.live.bc108377bb47f9e6")}
+                  poster={cover}
                   compact
                   live
-                  /* Fix 441: only a VERIFIED live video id autoplays (notes
-                     384, 388). A channel-only live (walled read, no video id),
-                     a Play override with no detected broadcast, or a dead id
-                     never autoplay — they mounted live_stream?channel= blind
-                     and filled the frame with YouTube's own "This live is
-                     unavailable". Those now wait on the poster with a one-tap
-                     "watch live with sound" control (see VideoPlayer): one tap,
-                     sound on, no loop. WITH SOUND: no live is ever muted; a
-                     browser block surfaces the tap control instead of silent
-                     playback. */
-                  autoPlay={streaming && (!!playableId || fbLive)}
+                  /* The check says live, so the screen plays by itself (notes
+                     384, 388) — a verified broadcast, a walled channel follow,
+                     or the stream link all open with no tap, WITH SOUND: no
+                     live from a channel is ever muted, and the audio opens by
+                     itself the moment the broadcast starts. */
+                  autoPlay={streaming && watchable}
                   reloadSignal={reloadSignal}
                 />
               ) : (overrideMain || overrideGuest) && overrideId ? (
@@ -480,15 +493,15 @@ export function WatchLive() {
                   hideEscape
                   source={{ platform: "youtube", youtubeId: "", youtubeChannelId: overrideId }}
                   title={liveName || ct("auto.live.bc108377bb47f9e6")}
+                  poster={cover}
                   compact
                   live
-                  /* Fix 441: a commanded channel with no detected broadcast
-                     never autoplays (it was the "unavailable" frame on every
-                     early Play press). It waits on the poster with the same
-                     one-tap control as above — one tap opens the channel WITH
-                     SOUND once the visitor gestures. A verified off still
-                     waits; a detected broadcast still wins above. */
-                  autoPlay={false}
+                  /* The office commanded the slot and the read is walled —
+                     main and guest alike open their commanded channel by
+                     itself instead of the waiting clock, WITH SOUND like
+                     every live. A verified off still waits; a detected
+                     broadcast still wins. */
+                  autoPlay
                   reloadSignal={reloadSignal}
                 />
               ) : !onAirNow && !waitingForClick ? (
@@ -500,7 +513,7 @@ export function WatchLive() {
                    ends its thumbnails are already on the screen. */
                 <>
                 <div className="live-ended">
-                  {cover && <img className="live-ended__bg" src={cover} alt="" loading="eager" fetchPriority="high" decoding="async" draggable={false} onError={(e) => { try { e.currentTarget.style.display = "none"; } catch {} }} />}
+                  {cover && <img className="live-ended__bg" src={cover} alt="" loading="lazy" onError={(e) => { try { e.currentTarget.style.display = "none"; } catch {} }} />}
                   <span className="live-ended__scrim" aria-hidden="true" />
                   <div className="live-ended__body">
                     <h3 className="live-ended__title">

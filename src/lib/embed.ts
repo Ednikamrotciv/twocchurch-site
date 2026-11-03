@@ -49,20 +49,16 @@ export function parseYoutubeId(input: string): string {
 export function youtubeEmbed(id: string, autoplay = true): string {
   const video = parseYoutubeId(id);
   if (!video) return "";
-  /* Sound on (fix 441): every live from a channel plays with its audio —
+  /* Sound on (note 388): every live from a channel plays with its audio —
      anything the site plays, tapped or self-started, carries its sound, and
      the stream's audio opens by itself the moment the broadcast starts.
-     mute=0 is explicit: the player requests sound and surfaces the browser's
-     autoplay block as a one-tap "watch live with sound" control instead of
-     silently muted playback. enablejsapi lets the player hear YouTube's own
-     error events (100 gone, 101/150 embedding disabled) so a dead id never
-     sits on the black "unavailable" frame.
+     enablejsapi lets the player hear YouTube's own error events.
      origin (fix): without it enablejsapi throws cross-origin on the deployed
      host and the API frame never reports ready/error — the watchdog then
      swaps a good live to the fallback. */
   let origin = "";
   try { origin = typeof location !== "undefined" && location.origin ? `&origin=${encodeURIComponent(location.origin)}` : ""; } catch { origin = ""; }
-  return `https://www.youtube.com/embed/${video}?rel=0&modestbranding=1&playsinline=1&enablejsapi=1&mute=0${autoplay ? "&autoplay=1" : ""}${origin}`;
+  return `https://www.youtube.com/embed/${video}?rel=0&modestbranding=1&playsinline=1&enablejsapi=1${autoplay ? "&autoplay=1" : ""}${origin}`;
 }
 
 /** A channel id (`UC…`): the only address the channel player takes. */
@@ -77,16 +73,10 @@ export function isYoutubeChannelId(input: unknown): boolean {
     guessing a video — on live and on local alike. */
 export function youtubeChannelEmbed(channelId: string, autoplay = true): string {
   if (!isYoutubeChannelId(channelId)) return "";
-  /* Fix 441: the channel follow (live_stream?channel=) shows YouTube's own
-     "This live is unavailable" whenever the channel is not currently live,
-     embedding is off, or the handle resolves slowly. It must NEVER autoplay
-     on page open — callers only mount it after an explicit tap, and the
-     live screen prefers a verified video id (see livestatus + WatchLive).
-     Autoplay here exists only for that post-tap mount (user gesture present). */
   const id = String(channelId).trim();
   let origin = "";
   try { origin = typeof location !== "undefined" && location.origin ? `&origin=${encodeURIComponent(location.origin)}` : ""; } catch { origin = ""; }
-  return `https://www.youtube.com/embed/live_stream?channel=${id}&rel=0&modestbranding=1&playsinline=1&enablejsapi=1&mute=0${autoplay ? "&autoplay=1" : ""}${origin}`;
+  return `https://www.youtube.com/embed/live_stream?channel=${id}&rel=0&modestbranding=1&playsinline=1&enablejsapi=1${autoplay ? "&autoplay=1" : ""}${origin}`;
 }
 
 export function youtubeWatch(id: string): string {
@@ -216,4 +206,38 @@ export function platformLabel(platform?: VideoPlatform): string {
   if (platform === "facebook") return "Facebook";
   if (platform === "upload") return "Uploaded video";
   return "YouTube";
+}
+
+/* Preconnect doors for an instant live open (production fix): every host the
+   player can touch on first paint — the page preconnects to all of these so
+   the stream iframe, thumbnails and the playable-check open with no DNS/TLS
+   wait. Sound-first: the live path always requests audio; the muted address
+   below is for silent preview stills only, never presented as sound-on. */
+export const YOUTUBE_PRECONNECTS = [
+  "https://www.youtube.com",
+  "https://youtube.com",
+  "https://www.youtube-nocookie.com",
+  "https://i.ytimg.com",
+  "https://s.ytimg.com",
+  "https://ytimg.com",
+  "https://googlevideo.com",
+  "https://noembed.com",
+];
+
+/** Muted embed address (silent-preview fallback only): the live player never
+    uses this as its sound path — a muted autoplay that pretended sound was on
+    is exactly what this fix removes. Available for muted preview stills. */
+export function youtubeEmbedMuted(id: string, autoplay = true): string {
+  const video = parseYoutubeId(id);
+  if (!video) return "";
+  let origin = "";
+  try { origin = typeof location !== "undefined" && location.origin ? `&origin=${encodeURIComponent(location.origin)}` : ""; } catch { origin = ""; }
+  return `https://www.youtube.com/embed/${video}?rel=0&modestbranding=1&playsinline=1&enablejsapi=1${autoplay ? "&autoplay=1&mute=1" : ""}${origin}`;
+}
+
+/** Muted variant of embedSrc (preview stills only — never the live path). */
+export function embedSrcMuted(source: VideoSource, autoplay = true): string {
+  if (!source) return "";
+  if (source.platform === "facebook" || source.platform === "upload") return "";
+  return youtubeEmbedMuted(source.youtubeId || "", autoplay) || "";
 }

@@ -58,14 +58,14 @@ export class ErrorBoundary extends React.Component<{ children: React.ReactNode }
       if (here && here !== this.state.retriedRoute) this.setState({ retriedRoute: "", retryFailed: false });
     }
   }
-  /* One tap brings the SAME page back: the card retries the page subtree in
-     place first — same address, same synced words, same on-air answer — and
-     only a crash that repeats on the same route takes the full reload. Before
-     either path, volatile live caches are dropped (stale on-air/verdict
-     answers can never re-poison the retry) and a chunk-load failure — a new
-     deploy landing mid-visit — goes straight to the full reload, since the
-     in-place retry would only re-request the same missing chunk. Either way
-     one tap fixes it; the second tap always reloads. */
+  /* One tap brings the SAME page back: volatile live caches are dropped first
+     (stale on-air/verdict/recent answers can never re-poison the retry). A
+     deterministic render crash (ReferenceError/TypeError/chunk-load failure —
+     re-rendering the same tree can only crash again, and React.lazy caches a
+     failed chunk import) goes straight to the full reload, so the first tap
+     always fixes it. Anything else retries the page subtree in place first —
+     same address, same synced words, same on-air answer — and the second tap
+     always reloads. */
   private retry = () => {
     try {
       import("../lib/livestatus").then((m) => {
@@ -76,10 +76,16 @@ export class ErrorBoundary extends React.Component<{ children: React.ReactNode }
       localStorage.removeItem("wom.livestatus");
     } catch {}
     try {
+      localStorage.removeItem("wom.recentstreams");
+    } catch {}
+    try {
+      localStorage.removeItem("wom.ytchannel");
+    } catch {}
+    try {
       sessionStorage.removeItem("wom.live.targetNote");
     } catch {}
     const msg = String((this.state.error && (this.state.error as any).message) || "") + "\n" + this.state.stack;
-    if (this.state.retryFailed || isChunkError(msg)) {
+    if (this.state.retryFailed || isChunkError(msg) || isDeterministicRenderError(msg)) {
       try {
         window.location.reload();
       } catch {
@@ -150,6 +156,31 @@ function isChunkError(text: string): boolean {
   }
 }
 
+/* A deterministic render crash (re-rendering the same tree can only crash
+   again — including React.lazy, which caches a failed chunk import): the
+   retry must reload instead of remounting in place. Never throws. */
+function isDeterministicRenderError(text: string): boolean {
+  try {
+    const t = String(text || "").toLowerCase();
+    return (
+      t.includes("before initialization") ||
+      t.includes("cannot read propert") ||
+      t.includes("undefined is not an object") ||
+      t.includes("null is not an object") ||
+      t.includes("is not a function") ||
+      t.includes("is not defined") ||
+      t.includes("referenceerror") ||
+      t.includes("typeerror") ||
+      t.includes("syntaxerror") ||
+      t.includes("invalid hook call") ||
+      t.includes("minified react error") ||
+      t.includes("cannot read properties")
+    );
+  } catch {
+    return false;
+  }
+}
+
 /* A per-section net for list-heavy pages (Watch live, sermons): one bad card
    (a corrupt write-up, a bad thumbnail, a translator miss) clears to a quiet
    placeholder instead of taking the whole page to the error card above. The
@@ -169,6 +200,15 @@ export class SectionBoundary extends React.Component<{ children: React.ReactNode
     } catch {}
   }
   private retry = () => {
+    try {
+      import("../lib/livestatus").then((m) => {
+        try { m.forgetAllVerified(); } catch {}
+      }).catch(() => {});
+    } catch {}
+    try { localStorage.removeItem("wom.livestatus"); } catch {}
+    try { localStorage.removeItem("wom.recentstreams"); } catch {}
+    try { localStorage.removeItem("wom.ytchannel"); } catch {}
+    try { sessionStorage.removeItem("wom.live.targetNote"); } catch {}
     this.setState((s) => ({ error: null, nonce: s.nonce + 1 }));
   };
   render() {
