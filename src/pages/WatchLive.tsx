@@ -186,14 +186,7 @@ export function WatchLive() {
      the black "unavailable" frame, and never the ticking clock for a live
      that is already on air. */
   const deadLiveId = detectedId && idVerdict === false && (isDesignatedChannel(airForTarget.channelId, designatedId) || (guestLive && isGuestTargetUrl(screenAir.target, guestUrl))) ? detectedId : "";
-  /* Live-but-idless fallback (clock fix): the check says live but the wall gave
-     no video or channel id — before this read as unwatchable and sat the screen
-     on the ticking clock for a broadcast already on air. Follow the live target
-     channel itself (designated id for @twocorg, raw id otherwise). */
-  const liveIdlessChannelId = screenAir.state === "live" && !playableId && !deadLiveId && !detectedChannel && !fbLive && !verifiedFallbackId
-    ? (guestLive ? designatedChannelIdForTarget(guestUrl) : designatedChannelIdForTarget(targetUrl))
-    : "";
-  const watchable = !!playableId || !!deadLiveId || !!detectedChannel || fbLive || !!verifiedFallbackId || !!liveIdlessChannelId;
+  const watchable = !!playableId || !!deadLiveId || !!detectedChannel || fbLive || !!verifiedFallbackId;
   /* Dead-video gate (note 413, opened note 420): a named id reaches the
      player while its verdict is still unknown — offline, probe down, still
      checking — and the player verifies behind the frame, swapping to its
@@ -201,24 +194,25 @@ export function WatchLive() {
      fallback below. Dead never plays blind into the black frame. */
   const checkingLiveId = !!detectedId && idVerdict === null;
   const checkingFallbackId = !!fallbackId && !playableId && !detectedChannel && !fbLive && fallbackVerdict === null;
-  /* Play means play (livestream clock fix): the office pressed Play for a slot
-     and published it, yet the read cannot confirm a broadcast (bot wall, stale
-     off, slow probe) — so the commanded channel opens by itself instead of
-     sitting on the waiting clock. A detected broadcast still wins first; a
-     published Stop still holds. Applies whenever the screen is not already
-     live (unknown, off or unset all open the commanded channel — the player
-     verifies behind the frame and a truly quiet channel keeps its poster). */
-  const overrideMain = !!LIVE.isLive && hasChannel && !guestLive && screenAir.state !== "live" && airForTarget.state !== "live" && !shutNow;
-  const overrideGuest = !!(LIVE as any).guestIsLive && !!guestUrl && !guestLive && screenAir.state !== "live" && guestAir.state !== "live" && !shutNow;
+  /* Play means play for the guest, patience for the main (notes 404, 410):
+     the office pressed Play for a slot and published it, yet the read cannot
+     confirm a broadcast (bot wall) — so the commanded GUEST channel opens by
+     itself instead of sitting on the waiting clock, while a pressed MAIN with
+     no detected broadcast waits on the clock below (autoplay only works once
+     the main livestream has started live on the channel). Only while the read
+     says unknown (a verified off stays on the clock), only the commanded
+     slot, only with a known channel id — and a detected broadcast still wins
+     first. */
+  const overrideMain = !!LIVE.isLive && hasChannel && !guestLive && screenAir.state !== "live" && airForTarget.state === "unknown" && !shutNow;
+  const overrideGuest = !!(LIVE as any).guestIsLive && !!guestUrl && !guestLive && screenAir.state !== "live" && guestAir.state === "unknown" && !shutNow;
   const overrideId = overrideMain ? designatedChannelIdForTarget(targetUrl) : overrideGuest ? designatedChannelIdForTarget(guestUrl) : "";
-  /* V9 + clock fix: Play + stream link while walled (no channel override
-     possible) — the office pressed Play for a bare video id and published it,
-     yet the read cannot confirm a broadcast. The verified link opens by itself
-     instead of sitting on the waiting clock, same rule as the channel override
-     above. Any non-live read (unknown, off or unset) opens it — the player
-     verifies behind the frame. Only with a verified playable link. A detected
-     broadcast still wins. */
-  const manualFallback = !!LIVE.isLive && !!verifiedFallbackId && !guestLive && !fbLive && screenAir.state !== "live" && airForTarget.state !== "live" && !shutNow && !officeStopped;
+  /* V9: Play + stream link while walled (no channel override possible) — the
+     office pressed Play for a bare video id and published it, yet the read
+     cannot confirm a broadcast. The verified link opens by itself instead of
+     sitting on the waiting clock, same rule as the channel override above.
+     Only while the read says unknown (a verified off stays on the clock),
+     only with a verified playable link. A detected broadcast still wins. */
+  const manualFallback = !!LIVE.isLive && !!verifiedFallbackId && !guestLive && !fbLive && screenAir.state !== "live" && airForTarget.state === "unknown" && !shutNow && !officeStopped;
   /* Anywhere for the check to look — channel, stream link or Facebook page. */
   const configured = !!liveTarget() || !!facebookTarget();
   /* The shared on-air answer (notes 83, 133); `streaming` is the narrower screen question. Declared
@@ -297,7 +291,7 @@ export function WatchLive() {
       ? { platform: "facebook", facebookUrl: LIVE.facebookUrl }
       : platform === "facebook"
       ? { platform: "facebook", facebookUrl: LIVE.facebookUrl }
-      : { platform: "youtube", youtubeId: playableId || deadLiveId || verifiedFallbackId, youtubeChannelId: detectedChannel || liveIdlessChannelId || overrideId || undefined };
+      : { platform: "youtube", youtubeId: playableId || deadLiveId || verifiedFallbackId, youtubeChannelId: detectedChannel || (!streaming && overrideId) || undefined };
   /* The grace window replays the last playable address: a fresh off keeps the
      frame on exactly what was playing instead of an empty follow. */
   const graceRef = useRef<VideoSource | null>(null);

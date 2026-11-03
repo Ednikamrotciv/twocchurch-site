@@ -528,7 +528,7 @@ export async function runAll(fs) {
      token and never wipe unsaved work. */
   const hooksJ8 = text["src/lib/hooks.ts"];
   const indexJ8 = text["index.html"];
-  ok("code word rotated", has(hooksJ8, 'CODE_ID = "unified438"') && has(indexJ8, 'wom-code" content="unified438"'), "the new word must retire the bundle that holds the 5 stuck rows");
+  ok("code word rotated", has(hooksJ8, 'CODE_ID = "unified441"') && has(indexJ8, 'wom-code" content="unified441"'), "the new word must retire the bundle that holds the 5 stuck rows");
   ok("dev token names the code", has(cms, '"n" + BUILD_NOTES + "c" + (runningCode'), "an unnumbered update must still prove a fresh deploy in local dev");
   ok("fresh clear takes after-save", has(cms, "localStorage.removeItem(AFTER_SAVE_KEY)"), "a queued publish-after-save must not republish stale words after the clear");
   /* J9. restore+publish reaches every copy (office request: works on one
