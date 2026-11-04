@@ -13,6 +13,14 @@ import { createWaf, getClientIp, isSafePath, endpointCategory, ipClass, normaliz
 import { createSessionAnomaly } from "./session-anomaly.mjs";
 import { createPublishWatch } from "./publish-watch.mjs";
 import { createHash } from "node:crypto";
+import { loadDotEnv } from "./dotenv.mjs";
+import { checkKeylessLive } from "./live-keyless.mjs";
+
+/* Livestream auto-detect key (press-free open): .env / .env.local are picked
+   up automatically — `npm run set-key -- <key>` writes it — while real
+   environment (Render dashboard) always wins. Presence is logged, never the
+   value. */
+await loadDotEnv(process.cwd());
 
 const ROOT = process.cwd();
 const PORT = Number(process.env.PORT || 5173);
@@ -41,6 +49,9 @@ try {
   process.exit(1);
 }
 console.log(`serving ${DIST} + admin backend  [code ${SITE_VERSION}]`);
+try {
+  console.log(`live auto-detect: ON (keyless — no key needed${process.env.YT_API_KEY ? "; Data API bonus on top" : ""})`);
+} catch {}
 
 /* Which update this folder carries vs what dist/ was built from (note 248):
    an old dist served by `npm start` can never pass silently again. */
@@ -127,6 +138,9 @@ const lastIpByConn = new Map();
    100 visitors polling still cost the YouTube Data API ~1 unit/min total. */
 const liveApiCache = new Map();
 const liveApiInflight = new Map();
+/* Keyless press-free door (no API key): redirect + page read, same TTLs. */
+const liveKeylessCache = new Map();
+const liveKeylessInflight = new Map();
 /* Short upstream-page cache for /__yt (livestream hammer fix): every open tab
    polls the same channel + watch pages every 8-90s through this backend, and
    each check used to refetch YouTube (datacenter IP, already rate-limited).
@@ -508,6 +522,22 @@ const server = http.createServer(async (req, res) => {
       return;
     }
 
+    /* Livestream auto-detect status (key setup): public, quota-free, leaks
+       nothing — just whether THIS backend can answer press-free live checks.
+       The admin console reads it to show ON/OFF beside the transport buttons,
+       so the office never has to guess or read docs. */
+    if (pathname === "/__live-status" && req.method === "GET") {
+      const body = JSON.stringify({ ok: true, keyless: true, autoOpen: true, hasKey: !!process.env.YT_API_KEY });
+      res.writeHead(200, {
+        "content-type": "application/json; charset=utf-8",
+        "content-length": Buffer.byteLength(body),
+        "cache-control": "no-store",
+        "access-control-allow-origin": "*",
+      });
+      res.end(body);
+      return;
+    }
+
 
     if ((pathname === "/__geo" || pathname === "/__rates") && req.method === "GET") {
       if (pathname === "/__geo") await geoProxy.handleGeo(req, res);
@@ -517,7 +547,7 @@ const server = http.createServer(async (req, res) => {
 
     /* Split-deploy browsers fetch the office doors cross-origin: answer the
        preflight here (no cookies, no credentials — public YouTube HTML only). */
-    if ((pathname === "/__yt" || pathname === "/__live") && req.method === "OPTIONS") {
+    if ((pathname === "/__yt" || pathname === "/__live" || pathname === "/__live2") && req.method === "OPTIONS") {
       res.writeHead(204, {
         "access-control-allow-origin": "*",
         "access-control-allow-methods": "GET, OPTIONS",
@@ -657,6 +687,55 @@ const server = http.createServer(async (req, res) => {
         res.end(msg === "too large" ? "too large" : "unreachable");
       } finally {
         try { ytPageInflight.delete(target); } catch {}
+      }
+      return;
+    }
+
+    /* Keyless live answer (no API key needed): redirect + page read,
+       same shape + TTLs as /__live. The Data API door below stays as an
+       optional bonus when YT_API_KEY is set — never required. */
+    if (pathname === "/__live2" && req.method === "GET") {
+      const channel = url.searchParams.get("channel") || "";
+      if (!/^UC[\w-]{20,24}$/.test(channel)) {
+        res.writeHead(400, { "cache-control": "no-store", "access-control-allow-origin": "*" });
+        res.end("bad channel");
+        return;
+      }
+      const LIVE_TTL_MS = 75_000;
+      const OFF_TTL_MS = 20_000;
+      const sendLive2 = (data) => {
+        const body = Buffer.from(JSON.stringify(data), "utf8");
+        res.writeHead(200, { "content-type": "application/json; charset=utf-8", "content-length": body.length, "cache-control": "no-store", "access-control-allow-origin": "*" });
+        res.end(body);
+      };
+      try {
+        const now = Date.now();
+        const hit = liveKeylessCache.get(channel);
+        if (hit) {
+          const ttl = hit.data && hit.data.state === "live" ? LIVE_TTL_MS : OFF_TTL_MS;
+          if (now - hit.at < ttl) { sendLive2(hit.data); return; }
+        }
+        const running = liveKeylessInflight.get(channel);
+        if (running) {
+          const shared = await running;
+          if (shared) sendLive2(shared); else { res.writeHead(502, { "cache-control": "no-store", "access-control-allow-origin": "*" }); res.end("unreachable"); }
+          return;
+        }
+      } catch {}
+      const live2Job = (async () => {
+        const out = await checkKeylessLive(channel);
+        if (!out) throw new Error("unreachable");
+        try { liveKeylessCache.set(channel, { at: Date.now(), data: out }); } catch {}
+        return out;
+      })();
+      try { liveKeylessInflight.set(channel, live2Job); } catch {}
+      try {
+        sendLive2(await live2Job);
+      } catch {
+        res.writeHead(502, { "cache-control": "no-store", "access-control-allow-origin": "*" });
+        res.end("unreachable");
+      } finally {
+        try { liveKeylessInflight.delete(channel); } catch {}
       }
       return;
     }

@@ -1,4 +1,6 @@
-/* On-air check: reads the channel's /live page for `isLiveNow` (never `isLiveContent`/`isLive`,
+/* On-air check (keyless — no YouTube API key needed anywhere): the published
+   Play stamp and the keyless /__live2 door answer first; the channel's /live
+   page scrape covers the rest. Reads the channel's /live page for `isLiveNow` (never `isLiveContent`/`isLive`,
    both traps, note 112) via the office-server proxy (no CORS). A bot-walled /live page can name the
    broadcast without playing it (note 322) — the check then follows the Live tab's video to its watch
    page, whose on-air chrome (`Live` indicator + `watching now`, measured on a real service) is the
@@ -882,12 +884,14 @@ async function stampedVideoEnded(videoId: string): Promise<boolean> {
   }
 }
 
-/* Authoritative live door (production fix v7): the backend answers /__live
-   from the YouTube Data API (YT_API_KEY lives only in server env, never in
-   frontend code) behind a short server-side cache, so 100 visitors still
-   cost ~1 quota unit/min, not 100. Without a key the door answers 404 and
-   the stamp + scrape below decide, exactly like before. Split deploys are
-   covered too: same-origin first, then the joined office server. */
+/* Authoritative live doors: the keyless /__live2 door is primary (no key
+   anywhere — redirect + page read, same TTLs, same shape). The Data API
+   /__live door (fix v7) stays as an optional bonus when YT_API_KEY happens
+   to be set in server env (never in frontend code): either door answering
+   live wins at once, either answering off ends a stale pin. Without a key
+   the Data door answers 404 and the keyless door + stamp + scrape decide,
+   exactly like before. Split deploys are covered too: same-origin first,
+   then the Netlify function, then the joined office server. */
 type LiveApiAnswer = { state: "live" | "off"; videoId: string; title: string; channelId: string };
 const LIVE_API_TIMEOUT_MS = 8_000;
 async function fetchLiveApiOnce(base: string, channelId: string): Promise<LiveApiAnswer | null> {
@@ -947,6 +951,57 @@ function knownChannelIdForTarget(targetUrl: string, allowPastedMain = true): str
   } catch {}
   return "";
 }
+/* Keyless live door (no API key): same-origin /__live2, then the Netlify
+   live2 function, then the joined office server — same shape as the Data
+   door above, same timeout. A 502/unreachable door is a miss, never off. */
+type KeylessAnswer = { state: "live" | "off"; videoId: string; title: string; channelId: string };
+const KEYLESS_TIMEOUT_MS = 10_000;
+async function fetchKeylessOnce(base: string, channelId: string): Promise<KeylessAnswer | null> {
+  try {
+    const res = await withTimeout(fetch(base + "/__live2?channel=" + encodeURIComponent(channelId), { cache: "no-store" }), KEYLESS_TIMEOUT_MS);
+    if (!res || !res.ok) return null;
+    let data: any = null;
+    try { data = await res.json(); } catch { return null; }
+    if (!data || typeof data !== "object") return null;
+    if (data.state === "live" && parseYoutubeId(data.videoId)) {
+      const cid = String(data.channelId || "");
+      return { state: "live", videoId: parseYoutubeId(data.videoId), title: String(data.title || ""), channelId: /^UC[\w-]{20,24}$/.test(cid) ? cid : channelId };
+    }
+    if (data.state === "off") return { state: "off", videoId: "", title: "", channelId: "" };
+    return null;
+  } catch { return null; }
+}
+async function fetchKeylessOnceNetlify(channelId: string): Promise<KeylessAnswer | null> {
+  try {
+    const res = await withTimeout(fetch("/.netlify/functions/live2?channel=" + encodeURIComponent(channelId), { cache: "no-store" }), KEYLESS_TIMEOUT_MS);
+    if (!res || !res.ok) return null;
+    let data: any = null;
+    try { data = await res.json(); } catch { return null; }
+    if (!data || typeof data !== "object") return null;
+    if (data.state === "live" && parseYoutubeId(data.videoId)) {
+      const cid = String(data.channelId || "");
+      return { state: "live", videoId: parseYoutubeId(data.videoId), title: String(data.title || ""), channelId: /^UC[\w-]{20,24}$/.test(cid) ? cid : channelId };
+    }
+    if (data.state === "off") return { state: "off", videoId: "", title: "", channelId: "" };
+    return null;
+  } catch { return null; }
+}
+async function fetchKeylessLiveFor(targetUrl: string, allowPastedMain = true): Promise<KeylessAnswer | null> {
+  try {
+    const channelId = knownChannelIdForTarget(String(targetUrl || ""), allowPastedMain);
+    if (!/^UC[\w-]{20,24}$/.test(channelId)) return null;
+    const same = await fetchKeylessOnce("", channelId);
+    if (same) return same;
+    const nf = await fetchKeylessOnceNetlify(channelId);
+    if (nf) return nf;
+    try {
+      const base = serverUrl();
+      if (base) return await fetchKeylessOnce(base, channelId);
+    } catch { /* standalone — the same-origin miss above stands */ }
+    return null;
+  } catch { return null; }
+}
+
 async function fetchLiveApiFor(targetUrl: string, allowPastedMain = true): Promise<LiveApiAnswer | null> {
   try {
     const channelId = knownChannelIdForTarget(String(targetUrl || ""), allowPastedMain);
@@ -1012,6 +1067,8 @@ export async function checkLiveStream(opts: { facebook?: boolean } = {}): Promis
     Promise.race([p, new Promise<boolean>((resolve) => window.setTimeout(() => resolve(false), ms))]).catch(() => false);
   const apiP: Promise<LiveApiAnswer | null> = target && !officeHit ? fetchLiveApiFor(target.url) : Promise.resolve(null);
   const apiGuestP: Promise<LiveApiAnswer | null> = guest && !officeGuest ? fetchLiveApiFor(guest.url, false) : Promise.resolve(null);
+  const keylessP: Promise<KeylessAnswer | null> = target && !officeHit ? fetchKeylessLiveFor(target.url) : Promise.resolve(null);
+  const keylessGuestP: Promise<KeylessAnswer | null> = guest && !officeGuest ? fetchKeylessLiveFor(guest.url, false) : Promise.resolve(null);
   const stampGuest = guest && !officeGuest ? await stampGuestP : null;
   /* A proven-ended stamp falls through (fix v8): the scrape is asked after
      all and its OFF ends the stale pin, exactly like no stamp — while a live
@@ -1022,7 +1079,9 @@ export async function checkLiveStream(opts: { facebook?: boolean } = {}): Promis
   const stampGuestDead = guest && !officeGuest && stampGuest ? await endGrace(stampGuestDeadP) : false;
   const liveStampGuest = stampGuest && !stampGuestDead ? stampGuest : null;
   const apiGuestAns = guest && !officeGuest && !liveStampGuest ? await apiGuestP : null;
-  const guestHtml = guest && !officeGuest && !liveStampGuest && !(apiGuestAns && apiGuestAns.state === "live") ? await fetchPage(guest.url) : null;
+  const keylessGuestAns = guest && !officeGuest && !liveStampGuest && !(apiGuestAns && apiGuestAns.state === "live") ? await keylessGuestP : null;
+  const guestDoorLive = (apiGuestAns && apiGuestAns.state === "live" ? apiGuestAns : null) || (keylessGuestAns && keylessGuestAns.state === "live" ? keylessGuestAns : null);
+  const guestHtml = guest && !officeGuest && !liveStampGuest && !guestDoorLive ? await fetchPage(guest.url) : null;
   const guestAns: { state: LiveState; videoId: string; title: string; channelId: string } = !guest
     ? { state: "unset", videoId: "", title: "", channelId: "" }
     : officeGuest
@@ -1031,8 +1090,8 @@ export async function checkLiveStream(opts: { facebook?: boolean } = {}): Promis
       : { state: "off", videoId: "", title: "", channelId: "" }
     : liveStampGuest
     ? liveStampGuest
-    : apiGuestAns && apiGuestAns.state === "live"
-    ? { state: "live", videoId: apiGuestAns.videoId, title: apiGuestAns.title, channelId: apiGuestAns.channelId }
+    : guestDoorLive
+    ? { state: "live", videoId: guestDoorLive.videoId, title: guestDoorLive.title, channelId: guestDoorLive.channelId }
     : guestHtml === null
     ? { state: "unknown", videoId: "", title: "", channelId: "" }
     : await resolveYoutubeBounded(guest, guestHtml);
@@ -1042,17 +1101,19 @@ export async function checkLiveStream(opts: { facebook?: boolean } = {}): Promis
      poll instead of pinning the player until the stamp ages out. An API "live"
      wins immediately with no scrape wait. */
   const apiAns = target && !officeHit ? await apiP : null;
+  const keylessAns = target && !officeHit && !(apiAns && apiAns.state === "live") ? await keylessP : null;
+  const doorLive = (apiAns && apiAns.state === "live" ? apiAns : null) || (keylessAns && keylessAns.state === "live" ? keylessAns : null);
   const stampMainDead = target && !officeHit && stampMain ? await endGrace(stampMainDeadP) : false;
   /* Proven-ended stamp falls through here too (fix v8, grace v9): the API
      door and the scrape below decide, so a forgotten Stop ends on the next
      poll instead of pinning until the stamp ages out — while a slow end-probe
      never holds the live start. An authoritative API off counts as proven. */
-  const apiSaysOff = !!(apiAns && apiAns.state === "off");
-  const liveStampMain = stampMain && !stampMainDead && !apiSaysOff ? stampMain : null;
+  const doorsSayOff = !!((apiAns && apiAns.state === "off") || (keylessAns && keylessAns.state === "off"));
+  const liveStampMain = stampMain && !stampMainDead && !doorsSayOff ? stampMain : null;
   /* Deferred scrape (waste fix): the channel page is fetched only now — after
      office report, stamp and API all missed — never in parallel with a stamp
      that discards it. */
-  const html = target && !officeHit && !liveStampMain && !(apiAns && apiAns.state === "live") ? await fetchPage(target.url) : null;
+  const html = target && !officeHit && !liveStampMain && !doorLive ? await fetchPage(target.url) : null;
   let youtube: { state: LiveState; videoId: string; title: string; channelId: string } = !target
     ? { state: "unset", videoId: "", title: "", channelId: "" }
     : officeHit
@@ -1061,15 +1122,15 @@ export async function checkLiveStream(opts: { facebook?: boolean } = {}): Promis
       : { state: "off", videoId: "", title: "", channelId: "" }
     : liveStampMain
     ? liveStampMain
-    : apiAns && apiAns.state === "live"
-    ? { state: "live", videoId: apiAns.videoId, title: apiAns.title, channelId: apiAns.channelId }
+    : doorLive
+    ? { state: "live", videoId: doorLive.videoId, title: doorLive.title, channelId: doorLive.channelId }
     : html === null
     ? { state: "unknown", videoId: "", title: "", channelId: "" }
     : await resolveYoutubeBounded(target, html);
-  /* Authoritative API off (fix v7): the Data API is reachable and says no
+  /* Authoritative door off (fix v7, keyless v9): a reachable door says no
      broadcast is live — an unreadable scrape degrades to OFF instead of
      sitting on the ticking clock. A readable scrape always wins above. */
-  if (youtube.state === "unknown" && apiAns && apiAns.state === "off" && !liveStampMain) {
+  if (youtube.state === "unknown" && doorsSayOff && !liveStampMain) {
     youtube = { state: "off", videoId: "", title: "", channelId: "" };
   }
 
@@ -1558,6 +1619,67 @@ export function useLiveStream(soon = false, watchFacebook = false, urgent = fals
     noteLiveTargetMayHaveChanged();
   }, [signature]);
   return { ...status, checking } as LiveStatus & { checking: boolean };
+}
+
+/* ----------------- auto-detect status (keyless): on/unknown for the admin
+   console. Asks the same backend the live doors live on — same-origin
+   /__live-status first (serve.mjs + vite dev), then the Netlify function probe
+   — so the office sees it beside the transport buttons without reading docs.
+   Keyless: any answering backend auto-opens with no key, so an answer always
+   means on. Quota-free (no YouTube call), cached, never throws. */
+
+export type LiveKeyStatus = "on" | "off" | "unknown";
+
+const keyStatusCache: { at: number; value: LiveKeyStatus } = { at: 0, value: "unknown" };
+const KEY_STATUS_TTL_MS = 60_000;
+const KEY_STATUS_UNKNOWN_TTL_MS = 15_000;
+
+async function readKeyStatus(url: string): Promise<LiveKeyStatus | null> {
+  try {
+    const res = await withTimeout(fetch(url, { cache: "no-store" }), 8_000);
+    if (!res || !res.ok) return null;
+    const data = await res.json().catch(() => null);
+    if (!data || typeof data !== "object" || (data as any).ok !== true) return null;
+    if ((data as any).autoOpen === true || (data as any).keyless === true) return "on";
+    if ((data as any).hasKey) return "on";
+    return "on";
+  } catch {
+    return null;
+  }
+}
+
+async function fetchLiveKeyStatus(): Promise<LiveKeyStatus> {
+  try {
+    const age = Date.now() - keyStatusCache.at;
+    const ttl = keyStatusCache.value === "unknown" ? KEY_STATUS_UNKNOWN_TTL_MS : KEY_STATUS_TTL_MS;
+    if (keyStatusCache.at > 0 && age < ttl) return keyStatusCache.value;
+    const same = await readKeyStatus("/__live-status");
+    const value = same || (await readKeyStatus("/.netlify/functions/live?status=1")) || "unknown";
+    keyStatusCache.at = Date.now();
+    keyStatusCache.value = value;
+    return value;
+  } catch {
+    return "unknown";
+  }
+}
+
+/** Auto-detect key status for the admin console ("on" = press-free auto-open
+    works; "off" = Play + Publish still opens the stream; "unknown" = the
+    backend did not answer — still shows nothing alarming). */
+export function useLiveKeyStatus(): LiveKeyStatus {
+  const [value, setValue] = useState<LiveKeyStatus>(() => keyStatusCache.value);
+  useEffect(() => {
+    let alive = true;
+    fetchLiveKeyStatus()
+      .then((v) => {
+        if (alive) setValue(v);
+      })
+      .catch(() => {});
+    return () => {
+      alive = false;
+    };
+  }, []);
+  return value;
 }
 
 /* ------------------------------- playable check (note 333): never embed a

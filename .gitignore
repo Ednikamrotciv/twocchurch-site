@@ -15,6 +15,10 @@ scratch/
 Thumbs.db
 server.json
 feed.json
+# YouTube API key for livestream auto-detect (set with: npm run set-key -- <key>).
+# Never commit it — Render/Netlify dashboards carry the deployed copy.
+.env
+.env.local
 # Security evidence stays on the office machine (IPs are personal data).
 data/security-events.jsonl
 data/security-report-latest.pdf
