@@ -471,6 +471,7 @@ export function WatchLive() {
                   hideEscape
                   source={liveSource}
                   title={liveName || ct("auto.live.bc108377bb47f9e6")}
+                  poster={cover}
                   compact
                   live
                   /* The check says live, so the screen plays by itself (notes
@@ -486,6 +487,7 @@ export function WatchLive() {
                   hideEscape
                   source={{ platform: "youtube", youtubeId: "", youtubeChannelId: overrideId }}
                   title={liveName || ct("auto.live.bc108377bb47f9e6")}
+                  poster={cover}
                   compact
                   live
                   /* The office commanded the slot and the read is walled —

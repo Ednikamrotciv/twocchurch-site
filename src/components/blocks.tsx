@@ -1323,14 +1323,34 @@ export function VideoPlayer({
           )}
         </>
       ) : live ? (
-        /* Live waits quietly — no icon, no status line: while the broadcast
-           is not yet open only the dimmed still shows (or the bare frame).
-           The frame still opens by itself with sound the moment it can. */
-        <div className="player__poster player__poster--live" aria-live="polite">
+        /* Live poster (never a bare black box): while the broadcast is not
+           yet open the still shows with a spinner and a status line — a
+           channel follow carries no video id, so without a passed poster
+           there is no still at all, and this branch used to render nothing
+           but the two badges over black (YOUTUBE top-left, LIVE top-right)
+           with no way out. Now it always paints the platform still as a
+           floor, spins while the check is in flight, names the state, and
+           stays tappable — a tap re-runs the same check the autoplay runs,
+           so a hung or failed check is recoverable. The frame still opens
+           by itself with sound the moment it can. */
+        <button
+          type="button"
+          className="player__poster player__poster--live"
+          onClick={open}
+          disabled={checking}
+          aria-live="polite"
+          aria-label={ct("auto.site.c358a9fa66e1e8e3", { "title": shown })}
+        >
           {still ? (
             <img src={still} alt="" loading="lazy" onError={() => setFailed(true)} />
-          ) : null}
+          ) : (
+            <span className={"player__still player__still--" + platform}>
+              <Icon name={platform === "upload" ? "play" : platform} size={54} />
+            </span>
+          )}
           <span className="player__scrim" />
+          {checking && <span className="player__spin" aria-hidden="true" />}
+          <span className="player__label">{checking ? tx("Connecting to the live broadcast…") : notLive ? tx("No broadcast right now — tap to check again.") : shown}</span>
           <span className={"player__source player__source--" + platform}>
             <Icon name={platform === "upload" ? "play" : platform} size={13} /> {platformLabel(platform)}
           </span>
@@ -1339,7 +1359,7 @@ export function VideoPlayer({
               <span className="live-dot" /> {ct("live.player.badge")}
             </span>
           )}
-        </div>
+        </button>
       ) : (
         <button
           type="button"
