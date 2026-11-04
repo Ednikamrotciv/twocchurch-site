@@ -38,6 +38,7 @@ export function parseYoutubeId(input: string): string {
     /youtube\.com\/embed\/([\w-]{11})/,
     /youtube\.com\/shorts\/([\w-]{11})/,
     /youtube\.com\/watch\/([\w-]{11})/,
+    /youtube\.com\/v\/([\w-]{11})/,
   ];
   for (const re of patterns) {
     const m = re.exec(value);

@@ -474,10 +474,17 @@ async function resolveYoutube(
   const liveTabFirst = liveTabId && cands.includes(liveTabId)
     ? [liveTabId, ...cands.filter((c) => c !== liveTabId)].slice(0, 3)
     : cands.slice(0, 3);
+  /* False-off guard: a bot-walled channel page names candidates we cannot
+     read (every watch page 502s / proxy down). With zero readable candidates
+     we know NOTHING — return unknown, never off — or a walled mid-service
+     read ends the service. Only a read candidate that is provably not live
+     counts toward off. */
+  let readAnyCandidate = false;
   for (const vid of liveTabFirst) {
     const url = `https://www.youtube.com/watch?v=${vid}`;
     const watchHtml = await fetchPage(url);
     if (watchHtml === null) continue;
+    readAnyCandidate = true;
     const watch = parseLivePage(watchHtml, url);
     if (watch.live && (watch.videoId || vid)) {
       if (!ownerAllowsCandidate(owner, watchChannelId(watchHtml))) continue;
@@ -485,6 +492,10 @@ async function resolveYoutube(
       return { state: "live" as const, videoId: watch.videoId || vid, title: watch.title, channelId: "" };
     }
   }
+  /* No readable candidate at all (empty Live tab + grab-bag miss, or every
+     watch read failed): the page proves nothing — unknown, never off. A
+     walled mid-service read must not end the service. */
+  if (!readAnyCandidate) return { state: "unknown" as const, videoId: "", title: "", channelId: "" };
   /* Walled but on air (note 331): the channel page carries the full on-air
      chrome yet no suggestion verifies — measured on a real service, every
      watch page answers 502 through the deployed server while the channel page
@@ -900,15 +911,50 @@ async function fetchLiveApiOnce(base: string, channelId: string): Promise<LiveAp
     return null;
   }
 }
-async function fetchLiveApiFor(targetUrl: string): Promise<LiveApiAnswer | null> {
+async function fetchLiveApiOnceNetlify(channelId: string): Promise<LiveApiAnswer | null> {
+  /* Static hosts with no /__live (Netlify/Vercel SPA): the Netlify function
+     door answers the same shape from the same Data API key (server env, never
+     the browser). 404 / missing function falls through to stamp + scrape. */
   try {
-    /* The API names channels by id: the designated map answers @twocorg (and
-       any raw UC address) with no page read; anything else stays on the
-       stamp + scrape below. */
-    const channelId = designatedChannelIdForTarget(String(targetUrl || ""));
+    const res = await withTimeout(fetch(`/.netlify/functions/live?channel=${encodeURIComponent(channelId)}`, { cache: "no-store" }), LIVE_API_TIMEOUT_MS);
+    if (!res || !res.ok) return null;
+    let data: any = null;
+    try { data = await res.json(); } catch { return null; }
+    if (!data || typeof data !== "object") return null;
+    if (data.state === "live" && parseYoutubeId(data.videoId)) {
+      const cid = String(data.channelId || "");
+      return { state: "live", videoId: parseYoutubeId(data.videoId), title: String(data.title || ""), channelId: /^UC[\w-]{20,24}$/.test(cid) ? cid : channelId };
+    }
+    if (data.state === "off") return { state: "off", videoId: "", title: "", channelId: "" };
+    return null;
+  } catch { return null; }
+}
+function knownChannelIdForTarget(targetUrl: string, allowPastedMain = true): string {
+  /* Designated map first (@twocorg with no page read); then any UC id carried
+     in the checked address — the API door works for every channel, not just
+     the designated one. The pasted-input fallback is main-only: a guest
+     address must never inherit the main channel's id (that would attribute
+     the main broadcast to the guest slot). */
+  try {
+    const d = designatedChannelIdForTarget(String(targetUrl || ""));
+    if (/^UC[\w-]{20,24}$/.test(d)) return d;
+    const inUrl = /(UC[\w-]{20,24})/.exec(String(targetUrl || ""));
+    if (inUrl) return inUrl[1];
+    if (!allowPastedMain) return "";
+    const raw = String((LIVE as any).youtubeChannel || "");
+    const inPasted = /(UC[\w-]{20,24})/.exec(raw);
+    if (inPasted) return inPasted[1];
+  } catch {}
+  return "";
+}
+async function fetchLiveApiFor(targetUrl: string, allowPastedMain = true): Promise<LiveApiAnswer | null> {
+  try {
+    const channelId = knownChannelIdForTarget(String(targetUrl || ""), allowPastedMain);
     if (!/^UC[\w-]{20,24}$/.test(channelId)) return null;
     const same = await fetchLiveApiOnce("", channelId);
     if (same) return same;
+    const nf = await fetchLiveApiOnceNetlify(channelId);
+    if (nf) return nf;
     try {
       const base = serverUrl();
       if (base) return await fetchLiveApiOnce(base, channelId);
@@ -947,6 +993,10 @@ export async function checkLiveStream(opts: { facebook?: boolean } = {}): Promis
   /* Fix v7: the published Play stamp and the Data API door race the scrape —
      on deployed hosts the scrape is routinely bot-walled while these answer
      in milliseconds. All three start together; the first usable answer wins. */
+  /* Scrape starts ONLY on stamp/API miss (livestream waste fix): firing the
+     channel + watch page reads on every poll while a stamp is live burned ~6
+     proxy reads per check for an answer that was discarded. Stamps verify via
+     the CORS-open noembed door (fast); the scrape starts after they miss. */
   const stampGuestP: Promise<StampAnswer | null> = guest && !officeGuest ? publishedStamp(true) : Promise.resolve(null);
   const stampMainP: Promise<StampAnswer | null> = target && !officeHit ? publishedStamp(false) : Promise.resolve(null);
   /* The end check races the stamp it judges (fix v8, hardened v9): it starts
@@ -961,9 +1011,7 @@ export async function checkLiveStream(opts: { facebook?: boolean } = {}): Promis
   const endGrace = (p: Promise<boolean>, ms = 1500): Promise<boolean> =>
     Promise.race([p, new Promise<boolean>((resolve) => window.setTimeout(() => resolve(false), ms))]).catch(() => false);
   const apiP: Promise<LiveApiAnswer | null> = target && !officeHit ? fetchLiveApiFor(target.url) : Promise.resolve(null);
-  /* Fast path: guest + main pages fetch in parallel (were sequential). */
-  const guestHtmlP: Promise<string | null> = guest && !officeGuest ? fetchPage(guest.url) : Promise.resolve(null);
-  const mainHtmlP: Promise<string | null> = target && !officeHit ? fetchPage(target.url) : Promise.resolve(null);
+  const apiGuestP: Promise<LiveApiAnswer | null> = guest && !officeGuest ? fetchLiveApiFor(guest.url, false) : Promise.resolve(null);
   const stampGuest = guest && !officeGuest ? await stampGuestP : null;
   /* A proven-ended stamp falls through (fix v8): the scrape is asked after
      all and its OFF ends the stale pin, exactly like no stamp — while a live
@@ -973,7 +1021,8 @@ export async function checkLiveStream(opts: { facebook?: boolean } = {}): Promis
      finished pin. */
   const stampGuestDead = guest && !officeGuest && stampGuest ? await endGrace(stampGuestDeadP) : false;
   const liveStampGuest = stampGuest && !stampGuestDead ? stampGuest : null;
-  const guestHtml = guest && !officeGuest && !liveStampGuest ? await guestHtmlP : null;
+  const apiGuestAns = guest && !officeGuest && !liveStampGuest ? await apiGuestP : null;
+  const guestHtml = guest && !officeGuest && !liveStampGuest && !(apiGuestAns && apiGuestAns.state === "live") ? await fetchPage(guest.url) : null;
   const guestAns: { state: LiveState; videoId: string; title: string; channelId: string } = !guest
     ? { state: "unset", videoId: "", title: "", channelId: "" }
     : officeGuest
@@ -982,18 +1031,28 @@ export async function checkLiveStream(opts: { facebook?: boolean } = {}): Promis
       : { state: "off", videoId: "", title: "", channelId: "" }
     : liveStampGuest
     ? liveStampGuest
+    : apiGuestAns && apiGuestAns.state === "live"
+    ? { state: "live", videoId: apiGuestAns.videoId, title: apiGuestAns.title, channelId: apiGuestAns.channelId }
     : guestHtml === null
     ? { state: "unknown", videoId: "", title: "", channelId: "" }
     : await resolveYoutubeBounded(guest, guestHtml);
   const stampMain = target && !officeHit ? await stampMainP : null;
+  /* Authoritative API answer arrives alongside the stamp (not after it): an
+     API "off" kills a stale stamp at once — a forgotten Stop ends on the next
+     poll instead of pinning the player until the stamp ages out. An API "live"
+     wins immediately with no scrape wait. */
+  const apiAns = target && !officeHit ? await apiP : null;
   const stampMainDead = target && !officeHit && stampMain ? await endGrace(stampMainDeadP) : false;
   /* Proven-ended stamp falls through here too (fix v8, grace v9): the API
      door and the scrape below decide, so a forgotten Stop ends on the next
-     poll instead of pinning the player until the stamp ages out — while a
-     slow end-probe never holds the live start. */
-  const liveStampMain = stampMain && !stampMainDead ? stampMain : null;
-  const apiAns = target && !officeHit && !liveStampMain ? await apiP : null;
-  const html = target && !officeHit && !liveStampMain && !(apiAns && apiAns.state === "live") ? await mainHtmlP : null;
+     poll instead of pinning until the stamp ages out — while a slow end-probe
+     never holds the live start. An authoritative API off counts as proven. */
+  const apiSaysOff = !!(apiAns && apiAns.state === "off");
+  const liveStampMain = stampMain && !stampMainDead && !apiSaysOff ? stampMain : null;
+  /* Deferred scrape (waste fix): the channel page is fetched only now — after
+     office report, stamp and API all missed — never in parallel with a stamp
+     that discards it. */
+  const html = target && !officeHit && !liveStampMain && !(apiAns && apiAns.state === "live") ? await fetchPage(target.url) : null;
   let youtube: { state: LiveState; videoId: string; title: string; channelId: string } = !target
     ? { state: "unset", videoId: "", title: "", channelId: "" }
     : officeHit
@@ -1371,13 +1430,28 @@ async function run() {
       return;
     }
   }
+  /* Fresh office stamp pins the live (retire fix): while Play is published
+     with a fresh verified id, an unreadable stretch must not retire the
+     broadcast — the stamp IS the confirmation, and the player + next poll are
+     the net. Without a stamp the cap below still retires a stale live. */
+  const stampPinsLive = (() => {
+    try {
+      const live = LIVE as any;
+      if (!live || !live.isLive) return false;
+      const id = parseYoutubeId(live.liveVideoId);
+      if (!id) return false;
+      const at = Number(live.liveVideoAt) || 0;
+      if (!(at > 0) || Date.now() - at > STAMP_MAX_AGE_MS) return false;
+      return true;
+    } catch { return false; }
+  })();
   /* Keep the last good answer when the check itself failed, so a hiccup never
      turns a live stream into an ended one — but only up to the cap: past
      ten minutes without a single confirmable read, the stale live retires
      to ended (with its last video, for the ended screen and recents) instead
      of sitting on a black frame no arrow can reach. A fresh live edge after
      that reopens by itself, with sound. */
-  if (next.state === "unknown" && snapshot.status.state === "live") {
+  if (next.state === "unknown" && snapshot.status.state === "live" && !stampPinsLive) {
     if (Date.now() - (lastDefinitiveAt || lastCheckAt) <= UNKNOWN_CAP_MS) {
       lastCheckAt = Date.now();
       schedule(delay());

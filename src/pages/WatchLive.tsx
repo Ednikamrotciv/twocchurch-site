@@ -11,7 +11,7 @@ import { KEYS, nextService, onAir, displayLive, to12h, DAY_NAMES, countdownParts
 import { isFacebookVideoUrl, parseYoutubeId, platformLabel, watchUrl, youtubeThumb, type VideoPlatform, type VideoSource } from "../lib/embed";
 import { useLiveStream, liveTarget, guestTarget, isGuestTargetUrl, facebookTarget, useYoutubeVerdict, isStatusForTarget, designatedChannelIdForTarget, isDesignatedChannel, nextScreenShut, officeStopActive, recheckLiveNow, forgetAllVerified, type ScreenShut } from "../lib/livestatus";
 import { useLibrary } from "../lib/collections";
-import { useRecentServices, designatedFallback } from "../lib/recentstreams";
+import { useRecentServices, designatedFallback, publishedChannelId } from "../lib/recentstreams";
 import { Badge, Btn, Icon, IconBtn, Modal, Notice, Reveal, Rich, Section, SectionHeading, Textarea } from "../components/ui";
 import { PageHead } from "../components/layout";
 import { LiveWaiting } from "../components/liveclock";
@@ -108,6 +108,23 @@ export function WatchLive() {
      from another channel, or an unverified channel follow for one, reads as
      waiting until the fresh check proves the handle is on air. */
   const designatedId = designatedChannelIdForTarget(targetUrl);
+  /* Channel fallback for Play overrides + idless follows (override fix): the
+     designated map only knows @twocorg — a pasted UC id, or the resolved id
+     the reads saved, must also open the commanded channel, or Play parks a
+     non-designated handle on the waiting clock. */
+  const channelIdOrFallback = (url: string, allowPublishedMain = true): string => {
+    try {
+      const d = designatedChannelIdForTarget(url);
+      if (d) return d;
+      const inUrl = /(UC[\w-]{20,24})/.exec(String(url || ""));
+      if (inUrl) return inUrl[1];
+      /* Main-only fallback: a guest address must never open the main channel. */
+      if (!allowPublishedMain) return "";
+      const known = publishedChannelId();
+      if (/^UC[\w-]{20,24}$/.test(known)) return known;
+    } catch {}
+    return "";
+  };
   const airForTarget = isStatusForTarget(air, targetUrl)
     ? air
     : { ...air, state: "unknown" as const, videoId: "", title: "", channelId: "" };
@@ -191,7 +208,7 @@ export function WatchLive() {
      on the ticking clock for a broadcast already on air. Follow the live target
      channel itself (designated id for @twocorg, raw id otherwise). */
   const liveIdlessChannelId = screenAir.state === "live" && !playableId && !deadLiveId && !detectedChannel && !fbLive && !verifiedFallbackId
-    ? (guestLive ? designatedChannelIdForTarget(guestUrl) : designatedChannelIdForTarget(targetUrl))
+    ? (guestLive ? channelIdOrFallback(guestUrl, false) : channelIdOrFallback(targetUrl))
     : "";
   const watchable = !!playableId || !!deadLiveId || !!detectedChannel || fbLive || !!verifiedFallbackId || !!liveIdlessChannelId;
   /* Dead-video gate (note 413, opened note 420): a named id reaches the
@@ -210,7 +227,7 @@ export function WatchLive() {
      verifies behind the frame and a truly quiet channel keeps its poster). */
   const overrideMain = !!LIVE.isLive && hasChannel && !guestLive && screenAir.state !== "live" && airForTarget.state !== "live" && !shutNow && !officeStopped;
   const overrideGuest = !!(LIVE as any).guestIsLive && !!guestUrl && !guestLive && screenAir.state !== "live" && guestAir.state !== "live" && !shutNow && !officeStopped;
-  const overrideId = overrideMain ? designatedChannelIdForTarget(targetUrl) : overrideGuest ? designatedChannelIdForTarget(guestUrl) : "";
+  const overrideId = overrideMain ? channelIdOrFallback(targetUrl) : overrideGuest ? channelIdOrFallback(guestUrl, false) : "";
   /* V9 + clock fix: Play + stream link while walled (no channel override
      possible) — the office pressed Play for a bare video id and published it,
      yet the read cannot confirm a broadcast. The verified link opens by itself
@@ -478,7 +495,7 @@ export function WatchLive() {
                 <LiveWaiting cover={cover} />
               /* Grace replay (flap guard): a fresh off replays the last playable
                  address instead of flashing the ended screen or clock. */
-) : ((streaming && watchable) || (offFresh && !!graceRef.current)) ? (
+) : ((streaming && watchable) || (offFresh && !!graceRef.current && !officeStopped)) ? (
                 <VideoPlayer
                   hideEscape
                   source={liveSource}
@@ -497,6 +514,7 @@ export function WatchLive() {
               ) : (overrideMain || overrideGuest) && overrideId ? (
                 <VideoPlayer
                   hideEscape
+                  trusted
                   source={{ platform: "youtube", youtubeId: "", youtubeChannelId: overrideId }}
                   title={liveName || ct("auto.live.bc108377bb47f9e6")}
                   poster={cover}
