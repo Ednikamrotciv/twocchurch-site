@@ -217,12 +217,28 @@ async function proxyDoor(url: string, proxyBase: string): Promise<string | null>
     return null;
   }
 }
+async function proxyGetDoor(url: string): Promise<string | null> {
+  /* allorigins JSON wrapper: a different cache path on the same infra — it
+     has answered while /raw was rate-limited, and vice versa. */
+  try {
+    const res = await withTimeout(fetch("https://api.allorigins.win/get?url=" + encodeURIComponent(url), { cache: "no-store" }), TIMEOUT_MS);
+    if (!res || !res.ok) return null;
+    const data = await res.json().catch(() => null);
+    const text = data && typeof (data as any).contents === "string" ? (data as any).contents : "";
+    if (typeof text !== "string" || text.length === 0) return null;
+    if (!isExpectedBody(url, text)) return null;
+    return text;
+  } catch {
+    return null;
+  }
+}
 async function fetchTextRemote(url: string): Promise<string | null> {
-  /* Three public doors race (was allorigins alone): one slow proxy held the
+  /* Public doors race (was allorigins alone): one slow proxy held the
      deployed feed up to a minute past a dead proxy. First VALID list wins. */
   try {
     return await firstValidText([
       proxyDoor(url, "https://api.allorigins.win/raw?url="),
+      proxyGetDoor(url),
       proxyDoor(url, "https://corsproxy.io/?url="),
       proxyDoor(url, "https://api.codetabs.com/v1/proxy?quest="),
     ]);
@@ -315,6 +331,104 @@ export function prettyAgo(text: string): string {
   const unit = units[m[2].toLowerCase()];
   if (!unit) return value;
   return `${n} ${unit}${n === 1 ? "" : "s"} ago`;
+}
+
+/* Invidious JSON door (deployed-recents fix, v11): the channel API names the
+   latest videos with unix publish dates — a few KB of JSON, unwalled where
+   YouTube HTML/RSS is walled, CORS-open on some instances and readable
+   through the working proxy on the rest. Same shape as parseFeed's answer so
+   it merges into the same maps below. Ongoing/upcoming broadcasts are not
+   recent services and are skipped; a proxy-cache mixup for another channel is
+   refused; an empty list is a miss (a real channel always names videos). */
+const INV_RECENT_INSTANCES = ["https://yt.chocolatemoo53.com", "https://iv.duti.dev"];
+async function fetchInvidiousFeedOnce(url: string, channelId: string): Promise<{ dates: Record<string, number>; titles: Record<string, string>; channel: string } | null> {
+  try {
+    const ctrl = typeof AbortController !== "undefined" ? new AbortController() : null;
+    const timer = ctrl ? window.setTimeout(() => ctrl.abort(), TIMEOUT_MS) : 0;
+    try {
+      const res = await fetch(url, { cache: "no-store", signal: ctrl ? ctrl.signal : undefined });
+      if (!res || !res.ok) return null;
+      const data = await res.json().catch(() => null);
+      if (!data || typeof data !== "object") return null;
+      const author = String((data as any).authorId || "");
+      if (author && author !== channelId) return null;
+      const list = (data as any).latestVideos;
+      if (!Array.isArray(list) || !list.length) return null;
+      const dates: Record<string, number> = {};
+      const titles: Record<string, string> = {};
+      for (const v of list) {
+        if (!v || typeof v !== "object") continue;
+        if ((v as any).liveNow === true || (v as any).isUpcoming === true) continue;
+        const id = parseYoutubeId(String((v as any).videoId || ""));
+        if (!id) continue;
+        const at = Number((v as any).published) > 0 ? Number((v as any).published) * 1000 : 0;
+        if (!at) continue;
+        if (!dates[id]) dates[id] = at;
+        const title = String((v as any).title || "").trim();
+        if (title && !titles[id]) titles[id] = title;
+      }
+      if (!Object.keys(dates).length) return null;
+      return { dates, titles, channel: "" };
+    } finally {
+      if (timer) window.clearTimeout(timer);
+    }
+  } catch {
+    return null;
+  }
+}
+async function fetchInvidiousFeed(channelId: string): Promise<{ dates: Record<string, number>; titles: Record<string, string>; channel: string } | null> {
+  try {
+    if (!/^UC[\w-]{20,24}$/.test(String(channelId || ""))) return null;
+    const jobs: Promise<{ dates: Record<string, number>; titles: Record<string, string>; channel: string } | null>[] = [];
+    for (const inst of INV_RECENT_INSTANCES) {
+      jobs.push(fetchInvidiousFeedOnce(inst + "/api/v1/channels/" + channelId + "?hl=en", channelId));
+    }
+    jobs.push(
+      fetchInvidiousFeedOnce(
+        "https://api.allorigins.win/raw?url=" + encodeURIComponent(INV_RECENT_INSTANCES[0] + "/api/v1/channels/" + channelId + "?hl=en"),
+        channelId
+      )
+    );
+    return await firstValidFeed(jobs);
+  } catch {
+    return null;
+  }
+}
+/* First non-null feed wins; all-miss reads null. */
+function firstValidFeed(jobs: Promise<{ dates: Record<string, number>; titles: Record<string, string>; channel: string } | null>[]): Promise<{ dates: Record<string, number>; titles: Record<string, string>; channel: string } | null> {
+  return new Promise((resolve) => {
+    let pending = jobs.length;
+    let done = false;
+    if (!pending) {
+      resolve(null);
+      return;
+    }
+    for (const job of jobs) {
+      Promise.resolve(job).then(
+        (value) => {
+          if (done) return;
+          if (value) {
+            done = true;
+            resolve(value);
+            return;
+          }
+          pending -= 1;
+          if (pending <= 0 && !done) {
+            done = true;
+            resolve(null);
+          }
+        },
+        () => {
+          if (done) return;
+          pending -= 1;
+          if (pending <= 0) {
+            done = true;
+            resolve(null);
+          }
+        }
+      );
+    }
+  });
 }
 
 /** The /videos list: newest first, no Shorts, with YouTube's age line each. */
@@ -412,13 +526,23 @@ export async function fetchRecentServices(): Promise<RecentServices | null> {
   if (!page) return null;
 
   const channelId = await resolveChannelId();
-  const [html, xml] = await Promise.all([
+  const [html, xml, inv] = await Promise.all([
     fetchText(`${page}/videos`),
     channelId ? fetchText(`https://www.youtube.com/feeds/videos.xml?channel_id=${channelId}`) : Promise.resolve(null),
+    channelId ? fetchInvidiousFeed(channelId) : Promise.resolve(null),
   ]);
 
   const now = Date.now();
   const feed = xml ? parseFeed(xml) : { dates: {} as Record<string, number>, titles: {} as Record<string, string>, channel: "" };
+  /* The JSON door fills the walled hole (v11): dates and titles YouTube's
+     own feed would have named, so inv-only uploads list exactly like feed
+     ones — with real dates, so the designated filter below keeps them. */
+  if (inv) {
+    for (const id of Object.keys(inv.dates)) {
+      if (!feed.dates[id]) feed.dates[id] = inv.dates[id];
+      if (!feed.titles[id] && inv.titles[id]) feed.titles[id] = inv.titles[id];
+    }
+  }
   const grid = html ? parseVideosPage(html) : [];
 
   /* The grid's own line for each video, and everything the feed knows that the

@@ -98,7 +98,50 @@ async function pageLive(channel) {
   }
 }
 
-/* The keyless answer for one channel: live | off | null (unknown). */
+/* Invidious JSON fallback (deployed-clock fix, v10): a few KB of JSON with a
+   liveNow flag per video — unwalled where YouTube HTML is walled. Live video
+   found = live; valid list with none live = off; anything else = null. The
+   authorId must match, so a proxy-cache mixup can never attribute another
+   channel's live. Never throws. */
+const INV_INSTANCES = ["https://yt.chocolatemoo53.com", "https://iv.duti.dev"];
+const ID_RE_LOCAL = /^[\w-]{11}$/;
+async function invidiousLive(channel) {
+  for (const inst of INV_INSTANCES) {
+    try {
+      const ctrl = typeof AbortController !== "undefined" ? new AbortController() : null;
+      const timer = ctrl ? setTimeout(() => { try { ctrl.abort(); } catch {} }, 8000) : 0;
+      try {
+        const res = await fetch(inst + "/api/v1/channels/" + channel + "?hl=en", {
+          headers: { accept: "application/json" },
+          signal: ctrl ? ctrl.signal : undefined,
+        });
+        if (!res || !res.ok) continue;
+        const data = await res.json().catch(() => null);
+        if (!data || typeof data !== "object") continue;
+        if (String(data.authorId || "") && String(data.authorId) !== channel) continue;
+        const list = data.latestVideos;
+        if (!Array.isArray(list) || !list.length) continue;
+        let live = null;
+        for (const v of list) {
+          if (v && typeof v === "object" && v.liveNow === true && ID_RE_LOCAL.test(String(v.videoId || ""))) {
+            live = { state: "live", videoId: String(v.videoId), title: String(v.title || ""), channelId: channel };
+            break;
+          }
+        }
+        if (live) return live;
+        return { state: "off", videoId: "", title: "", channelId: "" };
+      } finally {
+        if (timer) clearTimeout(timer);
+      }
+    } catch {
+      /* next instance */
+    }
+  }
+  return null;
+}
+
+/* The keyless answer for one channel: live | off | null (unknown). Freshest
+   first — redirect, then page — Invidious only fills the walled hole. */
 export async function checkKeylessLive(channel) {
   try {
     const ch = String(channel || "").trim();
@@ -106,7 +149,8 @@ export async function checkKeylessLive(channel) {
     const hit = await redirectLive(ch);
     if (hit) return hit;
     const page = await withTimeout(pageLive(ch), 12000).catch(() => null);
-    return page;
+    if (page) return page;
+    return await invidiousLive(ch);
   } catch {
     return null;
   }

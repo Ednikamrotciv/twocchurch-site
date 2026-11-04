@@ -20,6 +20,22 @@ async function keylessLive(channel) {
         return { state: "live", videoId: m[1], title: "", channelId: channel };
       }
     } finally { if (timer) clearTimeout(timer); }
+    /* Invidious JSON fallback (v10): unwalled where YouTube HTML is walled. */
+    for (const inst of ["https://yt.chocolatemoo53.com", "https://iv.duti.dev"]) {
+      const ctrlI = typeof AbortController !== "undefined" ? new AbortController() : null;
+      const timerI = ctrlI ? setTimeout(() => { try { ctrlI.abort(); } catch {} }, 8000) : 0;
+      try {
+        const ir = await fetch(inst + "/api/v1/channels/" + channel + "?hl=en", { headers: { accept: "application/json" }, signal: ctrlI ? ctrlI.signal : undefined });
+        if (ir && ir.ok) {
+          const jd = await ir.json().catch(() => null);
+          if (jd && typeof jd === "object" && (!jd.authorId || String(jd.authorId) === channel) && Array.isArray(jd.latestVideos) && jd.latestVideos.length) {
+            const lv = jd.latestVideos.find((v) => v && typeof v === "object" && v.liveNow === true && ID_RE.test(String(v.videoId || "")));
+            if (lv) return { state: "live", videoId: String(lv.videoId), title: String(lv.title || ""), channelId: channel };
+            return { state: "off", videoId: "", title: "", channelId: "" };
+          }
+        }
+      } catch {} finally { if (timerI) clearTimeout(timerI); }
+    }
     const ctrl2 = typeof AbortController !== "undefined" ? new AbortController() : null;
     const timer2 = ctrl2 ? setTimeout(() => { try { ctrl2.abort(); } catch {} }, 10000) : 0;
     try {

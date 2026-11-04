@@ -127,6 +127,48 @@ New/changed files: `scripts/dotenv.mjs`, `scripts/set-key.mjs`,
 (status line), `package.json` (`set-key`, `key-status`), `.gitignore`
 (`.env`), `render.yaml` (`sync: false` prompt).
 
+## Deployed ticking clock fixed (v10 — Invidious JSON door)
+
+Local worked while deployed sat on the waiting clock: the deployed server's
+datacenter IP is bot-walled (redirect + page reads fail), the public HTML
+proxies had rotted to a single working door (allorigins raw — corsproxy.io
+now 401s, codetabs times out), and nothing else could answer. New layers:
+
+- Client: Invidious channel JSON (liveNow flags, a few KB) from two
+  instances — direct where CORS allows, plus the same JSON through the
+  working allorigins proxy as an independent route. A liveNow video opens
+  the screen; a valid list with none live ends it.
+- Stale-cache guard: Invidious live never skips the scrape (a readable page
+  overrules it) and Invidious off never kills the office's Play stamp — only
+  API/keyless-server off do. The 2-off end debounce still covers blips.
+- Scrape: allorigins /get JSON wrapper added as a second route on the same
+  working infra.
+- Server (serve.mjs, vite backend, both Netlify functions): Invidious tried
+  after redirect/page, so Render answers even fully walled.
+
+New/changed files (v10): src/lib/livestatus.ts (InvAnswer, firstDecisive,
+fetchInvidiousLiveFor, reconcile + upgrade), scripts/live-keyless.mjs
+(invidiousLive), netlify/functions/live.mjs + live2.mjs (same inline),
+proxyGetDoor in fetchPageRemote.
+
+## Recent services not updating fixed (v11 — same wall, same cure)
+
+The Watch-page clock and the recents list shared one root cause: Render's
+datacenter IP is bot-walled and the public HTML proxies had rotted to a
+single working door, so deployed reads of the channel page + RSS feed failed
+while local (home IP) worked. The list then sat on the Oct-30 baked fallback.
+
+- Client (src/lib/recentstreams.ts): Invidious channel JSON merges into the
+  feed maps (real unix publish dates, so designated-channel filtering keeps
+  inv-only uploads), fetched in parallel with the page + RSS; plus the
+  allorigins /get wrapper as a second HTML route.
+- Bake (scripts/bake-recent.mjs): RSS + Invidious race, union by video id
+  (feed wins conflicts, newest-first), so the 20-minute office/Render bake
+  and every build heal even fully walled.
+
+Ongoing/upcoming broadcasts never list as recent; another channel's list is
+refused by authorId; an empty JSON list is a miss, never a wipe.
+
 ## What was deliberately NOT changed
 
 - Maintenance hold still gates fresh deploys until Publish (by design — stale
