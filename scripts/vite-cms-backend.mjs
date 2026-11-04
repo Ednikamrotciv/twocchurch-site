@@ -138,8 +138,17 @@ export function cmsBackend() {
       return false;
     }
   }
-  /* Authoritative live-answer cache (dev parity with serve.mjs, v9): live 75s, off 15min, errors 60s, quota 10min. */
+  /* Authoritative live-answer cache (dev parity with serve.mjs, v9): live 75s, off 15min, errors 60s, quota 10min. Capped. */
   const liveApiCache = new Map();
+  function liveApiCacheSet(channel, entry) {
+    try {
+      liveApiCache.set(channel, entry);
+      if (liveApiCache.size > 50) {
+        const oldest = liveApiCache.keys().next();
+        if (!oldest.done) liveApiCache.delete(oldest.value);
+      }
+    } catch {}
+  }
   let siteVersion = "vite";
   let outDir = path.join(ROOT, "dist");
   return {
@@ -892,7 +901,7 @@ export function cmsBackend() {
               const data = await upstream.json().catch(() => null);
               const quotaHit = !upstream.ok && data && (data?.error?.errors?.[0]?.reason === "quotaExceeded" || data?.error?.status === "RESOURCE_EXHAUSTED" || upstream.status === 403 || upstream.status === 429);
               if (!upstream.ok || !data) {
-                liveApiCache.set(channel, { at: now, err: true, quota: !!quotaHit });
+                liveApiCacheSet(channel, { at: now, err: true, quota: !!quotaHit });
                 res.writeHead(502, { "cache-control": "no-store" });
                 res.end("unreachable");
                 return;
@@ -902,12 +911,12 @@ export function cmsBackend() {
               const out = videoId && /^[\w-]{11}$/.test(videoId)
                 ? { state: "live", videoId, title: String((item.snippet && item.snippet.title) || ""), channelId: channel }
                 : { state: "off", videoId: "", title: "", channelId: "" };
-              liveApiCache.set(channel, { at: now, data: out });
+              liveApiCacheSet(channel, { at: now, data: out });
               const body = Buffer.from(JSON.stringify(out), "utf8");
               res.writeHead(200, { "content-type": "application/json; charset=utf-8", "content-length": body.length, "cache-control": "no-store" });
               res.end(body);
             } catch {
-              try { liveApiCache.set(channel, { at: Date.now(), err: true, quota: false }); } catch {}
+              try { liveApiCacheSet(channel, { at: Date.now(), err: true, quota: false }); } catch {}
               res.writeHead(502, { "cache-control": "no-store" });
               res.end("unreachable");
             }

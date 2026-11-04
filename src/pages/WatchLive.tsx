@@ -200,11 +200,12 @@ export function WatchLive() {
      itself instead of sitting on the waiting clock, while a pressed MAIN with
      no detected broadcast waits on the clock below (autoplay only works once
      the main livestream has started live on the channel). Only while the read
-     says unknown (a verified off stays on the clock), only the commanded
-     slot, only with a known channel id — and a detected broadcast still wins
-     first. */
-  const overrideMain = !!LIVE.isLive && hasChannel && !guestLive && screenAir.state !== "live" && (airForTarget.state === "unknown" || airForTarget.state === "off") && !shutNow;
-  const overrideGuest = !!(LIVE as any).guestIsLive && !!guestUrl && !guestLive && screenAir.state !== "live" && (guestAir.state === "unknown" || guestAir.state === "off") && !shutNow;
+     says unknown — a verified off stays on the clock, since opening the
+     channel follow for a proven-off channel mounts YouTube's own
+     "unavailable" frame — only the commanded slot, only with a known channel
+     id — and a detected broadcast still wins first. */
+  const overrideMain = !!LIVE.isLive && hasChannel && !guestLive && screenAir.state !== "live" && airForTarget.state === "unknown" && !shutNow;
+  const overrideGuest = !!(LIVE as any).guestIsLive && !!guestUrl && !guestLive && screenAir.state !== "live" && guestAir.state === "unknown" && !shutNow;
   const overrideId = overrideMain ? (designatedChannelIdForTarget(targetUrl) || publishedChannelId()) : overrideGuest ? (designatedChannelIdForTarget(guestUrl) || publishedChannelId()) : "";
   /* Anywhere for the check to look — channel, stream link or Facebook page. */
   const configured = !!liveTarget() || !!facebookTarget();

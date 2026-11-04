@@ -31,13 +31,19 @@ export function parseYoutubeId(input: string): string {
   const value = String(input || "").trim();
   if (!value) return "";
   if (/^[\w-]{11}$/.test(value)) return value;
+  /* Trailing boundary (?![\w-]): without it a 12+ char token donates its
+     first 11 chars and the player mounts a "video unavailable" frame. The
+     attribution pattern covers YouTube's share-redirect links. */
   const patterns = [
-    /[?&]v=([\w-]{11})/,
-    /youtu\.be\/([\w-]{11})/,
-    /youtube\.com\/live\/([\w-]{11})/,
-    /youtube\.com\/embed\/([\w-]{11})/,
-    /youtube\.com\/shorts\/([\w-]{11})/,
-    /youtube\.com\/watch\/([\w-]{11})/,
+    /[?&]v=([\w-]{11})(?![\w-])/,
+    /youtu\.be\/([\w-]{11})(?![\w-])/,
+    /youtube\.com\/live\/([\w-]{11})(?![\w-])/,
+    /youtube\.com\/embed\/([\w-]{11})(?![\w-])/,
+    /youtube\.com\/shorts\/([\w-]{11})(?![\w-])/,
+    /youtube\.com\/watch\/([\w-]{11})(?![\w-])/,
+    /youtube\.com\/v\/([\w-]{11})(?![\w-])/,
+    /[?&]u=%2Fwatch%3Fv%3D([\w-]{11})(?![\w-])/i,
+    /[?&]u=\/watch\?v=([\w-]{11})(?![\w-])/,
   ];
   for (const re of patterns) {
     const m = re.exec(value);

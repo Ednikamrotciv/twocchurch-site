@@ -256,8 +256,21 @@ export function loadYtPlayerApi(): Promise<any> {
         tag.async = true;
         document.head.appendChild(tag);
         /* If the API never loads (offline, blocked), give up quietly — the
-           verifier + escape link remain the net. */
-        window.setTimeout(() => resolve(w.YT || null), 10000);
+           verifier + escape link remain the net. The cached promise is
+           cleared on a miss so a later call (back online) retries instead of
+           replaying the miss forever. */
+        window.setTimeout(() => {
+          try {
+            if (w.YT && w.YT.Player) resolve(w.YT);
+            else {
+              if (ytApiPromise) ytApiPromise = null;
+              resolve(null);
+            }
+          } catch {
+            try { if (ytApiPromise) ytApiPromise = null; } catch {}
+            resolve(null);
+          }
+        }, 10000);
       } catch { resolve(null); }
     });
     return ytApiPromise;

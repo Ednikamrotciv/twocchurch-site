@@ -125,8 +125,18 @@ const lastIpByConn = new Map();
 
 /* Authoritative live-answer cache (fix v7, quota-hardened v9): one entry per
    channel — live hits 75s, off misses 15min (~96 searches/day quiet-week),
-   errors 60s, quota trips 10min. 100 visitors still cost ~1 poll/min total. */
+   errors 60s, quota trips 10min. 100 visitors still cost ~1 poll/min total.
+   Capped: a channel enumeration can never grow this without bound. */
 const liveApiCache = new Map();
+function liveApiCacheSet(channel, entry) {
+  try {
+    liveApiCacheSet(channel, entry);
+    if (liveApiCache.size > 50) {
+      const oldest = liveApiCache.keys().next();
+      if (!oldest.done) liveApiCache.delete(oldest.value);
+    }
+  } catch {}
+}
 function rpcAnomaly({ connId, rpc, ok, err }) {
   try {
     anomaly.observeRpc({ connId, ip: lastIpByConn.get(String(connId || "")) || "-", rpc, ok, err });
@@ -637,7 +647,7 @@ const server = http.createServer(async (req, res) => {
         const data = await upstream.json().catch(() => null);
         const quotaHit = !upstream.ok && data && (data?.error?.errors?.[0]?.reason === "quotaExceeded" || data?.error?.status === "RESOURCE_EXHAUSTED" || upstream.status === 403 || upstream.status === 429);
         if (!upstream.ok || !data) {
-          liveApiCache.set(channel, { at: now, err: true, quota: !!quotaHit });
+          liveApiCacheSet(channel, { at: now, err: true, quota: !!quotaHit });
           try { secLog.log({ level: quotaHit ? "high" : "low", kind: quotaHit ? "quota-exceeded" : "live-api-error", ip: "-", route: pathname, detail: quotaHit ? "YouTube Data API quota exceeded — backing off 10min, stamp+scrape carry live" : "YouTube Data API unreachable (" + (upstream.status || "fetch") + ") — backing off 60s", hint: quotaHit ? "raise quota or rely on Play-stamp + scrape until reset" : "scrape + stamp carry live meanwhile", source: "local" }); } catch {}
           res.writeHead(502, { "cache-control": "no-store" });
           res.end("unreachable");
@@ -648,10 +658,10 @@ const server = http.createServer(async (req, res) => {
         const out = videoId && /^[\w-]{11}$/.test(videoId)
           ? { state: "live", videoId, title: String((item.snippet && item.snippet.title) || ""), channelId: channel }
           : { state: "off", videoId: "", title: "", channelId: "" };
-        liveApiCache.set(channel, { at: now, data: out });
+        liveApiCacheSet(channel, { at: now, data: out });
         serveLiveHit({ data: out });
       } catch {
-        try { liveApiCache.set(channel, { at: Date.now(), err: true, quota: false }); } catch {}
+        try { liveApiCacheSet(channel, { at: Date.now(), err: true, quota: false }); } catch {}
         res.writeHead(502, { "cache-control": "no-store" });
         res.end("unreachable");
       }
