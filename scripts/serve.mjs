@@ -123,9 +123,20 @@ const publishWatch = createPublishWatch({
 // last network address seen per conn id (for RPC attribution; best effort)
 const lastIpByConn = new Map();
 
-/* Authoritative live-answer cache (fix v7): one entry per channel, 75s TTL —
-   100 visitors polling still cost the YouTube Data API ~1 unit/min total. */
+/* Authoritative live-answer cache (fix v7, quota-hardened v9): one entry per
+   channel — live hits 75s, off misses 15min (~96 searches/day quiet-week),
+   errors 60s, quota trips 10min. 100 visitors still cost ~1 poll/min total.
+   Capped: a channel enumeration can never grow this without bound. */
 const liveApiCache = new Map();
+function liveApiCacheSet(channel, entry) {
+  try {
+    liveApiCache.set(channel, entry);
+    if (liveApiCache.size > 50) {
+      const oldest = liveApiCache.keys().next();
+      if (!oldest.done) liveApiCache.delete(oldest.value);
+    }
+  } catch {}
+}
 function rpcAnomaly({ connId, rpc, ok, err }) {
   try {
     anomaly.observeRpc({ connId, ip: lastIpByConn.get(String(connId || "")) || "-", rpc, ok, err });
@@ -581,16 +592,19 @@ const server = http.createServer(async (req, res) => {
       return;
     }
 
-    /* Authoritative live answer (fix v7): the channel's current live
-       broadcast, read from the YouTube Data API instead of scraped HTML
-       (datacenter IPs are routinely bot-walled, which is why deployed
-       visitors sat on the ticking clock mid-service). The key lives ONLY in
-       server env (Render dashboard → Environment → YT_API_KEY, then redeploy)
-       — the browser never sees it. Quota-safe: served from a 75s server
-       cache, and search.list costs 100 units per MISS (not per visitor).
-       No key → 404, and visitors fall back to the published stamp + scrape,
-       exactly like before. This door answers YouTube only (same SSRF guard
-       shape as /__yt above). */
+    /* Authoritative live answer (fix v7, quota-hardened v9): the channel's
+       current live broadcast, read from the YouTube Data API instead of
+       scraped HTML (datacenter IPs are routinely bot-walled, which is why
+       deployed visitors sat on the ticking clock mid-service). The key lives
+       ONLY in server env (Render dashboard → Environment → YT_API_KEY, then
+       redeploy) — the browser never sees it. Quota-safe: search.list costs
+       100 units per MISS (not per visitor), so "live" answers cache 75s
+       while "off" answers cache 15min — a quiet week costs ~96 searches/day
+       (~9.6k units, inside the free 10k/day) and a live still opens within
+       ~75s of the API seeing it. Errors/quota trips cache briefly (60s/10min)
+       and fall back to the published stamp + scrape, exactly like before.
+       No key → 404. This door answers YouTube only (same SSRF guard shape as
+       /__yt above). */
     if (pathname === "/__live" && req.method === "GET") {
       const channel = url.searchParams.get("channel") || "";
       if (!/^UC[\w-]{20,24}$/.test(channel)) {
@@ -604,13 +618,25 @@ const server = http.createServer(async (req, res) => {
         res.end("no key");
         return;
       }
+      const LIVE_HIT_TTL_MS = 75_000;
+      const LIVE_MISS_TTL_MS = 15 * 60_000;
+      const LIVE_ERR_TTL_MS = 60_000;
+      const LIVE_QUOTA_TTL_MS = 10 * 60_000;
+      const serveLiveHit = (entry) => {
+        const body = Buffer.from(JSON.stringify(entry.data), "utf8");
+        res.writeHead(200, { "content-type": "application/json; charset=utf-8", "content-length": body.length, "cache-control": "no-store" });
+        res.end(body);
+      };
       try {
         const now = Date.now();
         const hit = liveApiCache.get(channel);
-        if (hit && now - hit.at < 75_000) {
-          const body = Buffer.from(JSON.stringify(hit.data), "utf8");
-          res.writeHead(200, { "content-type": "application/json; charset=utf-8", "content-length": body.length, "cache-control": "no-store" });
-          res.end(body);
+        if (hit && !hit.err && hit.data) {
+          const ttl = hit.data.state === "live" ? LIVE_HIT_TTL_MS : LIVE_MISS_TTL_MS;
+          if (now - hit.at < ttl) { serveLiveHit(hit); return; }
+        }
+        if (hit && hit.err && now - hit.at < (hit.quota ? LIVE_QUOTA_TTL_MS : LIVE_ERR_TTL_MS)) {
+          res.writeHead(502, { "cache-control": "no-store" });
+          res.end("unreachable");
           return;
         }
         const apiUrl = `https://www.googleapis.com/youtube/v3/search?part=snippet&channelId=${encodeURIComponent(channel)}&eventType=live&type=video&maxResults=1&key=${encodeURIComponent(key)}`;
@@ -619,7 +645,10 @@ const server = http.createServer(async (req, res) => {
           signal: typeof AbortSignal !== "undefined" && typeof AbortSignal.timeout === "function" ? AbortSignal.timeout(8000) : undefined,
         });
         const data = await upstream.json().catch(() => null);
+        const quotaHit = !upstream.ok && data && (data?.error?.errors?.[0]?.reason === "quotaExceeded" || data?.error?.status === "RESOURCE_EXHAUSTED" || upstream.status === 403 || upstream.status === 429);
         if (!upstream.ok || !data) {
+          liveApiCacheSet(channel, { at: now, err: true, quota: !!quotaHit });
+          try { secLog.log({ level: quotaHit ? "high" : "low", kind: quotaHit ? "quota-exceeded" : "live-api-error", ip: "-", route: pathname, detail: quotaHit ? "YouTube Data API quota exceeded — backing off 10min, stamp+scrape carry live" : "YouTube Data API unreachable (" + (upstream.status || "fetch") + ") — backing off 60s", hint: quotaHit ? "raise quota or rely on Play-stamp + scrape until reset" : "scrape + stamp carry live meanwhile", source: "local" }); } catch {}
           res.writeHead(502, { "cache-control": "no-store" });
           res.end("unreachable");
           return;
@@ -629,11 +658,10 @@ const server = http.createServer(async (req, res) => {
         const out = videoId && /^[\w-]{11}$/.test(videoId)
           ? { state: "live", videoId, title: String((item.snippet && item.snippet.title) || ""), channelId: channel }
           : { state: "off", videoId: "", title: "", channelId: "" };
-        liveApiCache.set(channel, { at: now, data: out });
-        const body = Buffer.from(JSON.stringify(out), "utf8");
-        res.writeHead(200, { "content-type": "application/json; charset=utf-8", "content-length": body.length, "cache-control": "no-store" });
-        res.end(body);
+        liveApiCacheSet(channel, { at: now, data: out });
+        serveLiveHit({ data: out });
       } catch {
+        try { liveApiCacheSet(channel, { at: Date.now(), err: true, quota: false }); } catch {}
         res.writeHead(502, { "cache-control": "no-store" });
         res.end("unreachable");
       }

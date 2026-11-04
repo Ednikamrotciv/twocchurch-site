@@ -931,7 +931,7 @@ export async function runAll(fs) {
   ok("no hand pull button", !has(edQ, "Pull from live now") && !has(edQ, "pullFromLive(") && has(edQ, "folds into this publish"), "the card is gone — Publish does it, and says so");
   ok("same-update reports only", has(liveQ, "reportMatchesBuild") && has(liveQ, "notes: BUILD_NOTES") && has(liveQ, "notes: number"), "an old bundle's wrong id must never steer this update");
   ok("server keeps the reporter update", has(srvQ, "rep.notes") && has(srvQ, "notes: notes"), "the store must carry notes without trusting them");
-  ok("player verifies before playing", has(blocksQ, "verifyYoutubeId") && has(blocksQ, "peekVerified") && has(blocksQ, "player--dead") && has(blocksQ, "can't be played here") && has(blocksQ, "Watch on YouTube"), "a dead video must say so with a way out, never the black frame");
+  ok("player verifies before playing", has(blocksQ, "verifyYoutubeId") && has(blocksQ, "peekVerified") && has(blocksQ, "player--dead") && !has(blocksQ, "can't be played here") && has(blocksQ, "Watch on YouTube") && has(blocksQ, "showWayOut"), "a dead video must never sit on the black frame or the dead text — poster, reload arrow and a way out instead (the livestream screen drops the yellow button while its red one is active)");
   ok("watch plays live by itself", has(watchQ, "useYoutubeVerdict") && has(watchQ, "autoPlay={streaming && watchable}") && has(watchQ, "watchable"), "when the check says live the screen must open with no tap");
   ok("hold ships with the update", has(text["maintenance-hold.txt"], "hold") && has(text["scripts/build-static.mjs"], "maintenance-hold.txt"), "fresh visitors must wait on maintenance until the office publishes");
   try {
@@ -961,7 +961,7 @@ export async function runAll(fs) {
     const decidePlayQ = liveModQ.exports.oembedPlayable;
     const matchBuildQ = liveModQ.exports.reportMatchesBuild;
     const peekQ = liveModQ.exports.peekVerified;
-    ok("oembed decision is strict", decidePlayQ(200) === true && decidePlayQ(400) === false && decidePlayQ(401) === false && decidePlayQ(403) === false && decidePlayQ(404) === false && decidePlayQ(410) === false && decidePlayQ(500) === null && decidePlayQ(0) === null, "200 plays, gone is gone, anything else waits");
+    ok("oembed decision is live-safe", decidePlayQ(200) === true && decidePlayQ(400) === false && decidePlayQ(404) === false && decidePlayQ(410) === false && decidePlayQ(401) === null && decidePlayQ(403) === null && decidePlayQ(500) === null && decidePlayQ(0) === null, "200 plays, 400/404/410 are gone; 401/403 are unknown (YouTube answers them for LIVE broadcasts too — only the player, with its in-frame errors behind the poster, can tell those apart), anything else waits");
     ok("same-update matching", buildNotesQ > 0 && matchBuildQ({ notes: buildNotesQ }) === true && matchBuildQ({ notes: buildNotesQ + 1 }) === false && matchBuildQ({}) === false && matchBuildQ({ notes: 0 }) === false, "only this update's office answers steer this update");
     ok("unasked is unknown", peekQ("dQw4w9WgXcQ") === null && peekQ("") === false, "no cache means ask, no id means dead");
     const rpcQ = loadVm(srvQ.replace('var liveDeny = sessionDeny(info.conn);\n    if (liveDeny) return fail(liveDeny === "unauthorized" ? "denied" : liveDeny);', 'if (false) return fail("denied");'), new Uint8Array(8 * 1024 * 1024));

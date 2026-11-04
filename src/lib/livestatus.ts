@@ -141,11 +141,28 @@ function decodeEntities(value: string): string {
     .replace(/&gt;/g, ">");
 }
 
+/** A datacenter login / consent wall: it carries enough YouTube scaffolding
+    to look "read" but names no broadcast. Reading it as `off` ended real
+    services mid-stream — it must read as unreadable (unknown). Only explicit
+    wall markers flip it: real channel/video pages never carry them, and the
+    locked parser fixtures (bare-ytInitialData traps, duration badges,
+    canonical markers) keep reading exactly as before. */
+export function isLoginWall(html: string): boolean {
+  const text = String(html || "");
+  if (/consent\.youtube\.com/i.test(text)) return true;
+  if (/accounts\.google\.com\/ServiceLogin/i.test(text)) return true;
+  if (/consentBumpV2|consentScreen/i.test(text)) return true;
+  return false;
+}
+
 /** Read a YouTube page; unreadable pages return "no answer", never "off". */
 export function parseLivePage(html: string, pageUrl = ""): { read: boolean; live: boolean; videoId: string; title: string } {
   const text = String(html || "");
   /* YouTube's own pages all carry the inlined page model — a consent wall or an
-     error page carries none of it. */
+     error page carries none of it. A marker-proven login/consent wall reads as
+     unreadable (unknown), never off, so a walled datacenter read can never end
+     a service. */
+  if (isLoginWall(text)) return { read: false, live: false, videoId: "", title: "" };
   const read = /ytInitialData/.test(text) || /"videoDetails":\{/.test(text);
   /* `isLiveNow` (or a live manifest) is the player saying it — but a bot-walled
      page can hide the player while still printing the broadcast's own chrome
@@ -604,12 +621,15 @@ function firstValidHtml(jobs: Promise<string | null>[]): Promise<string | null> 
 }
 
 /** True when this HTML actually came from YouTube (not a static host's SPA
-    fallback index.html answering /__yt with 200). index.html carries no
-    ytInitialData/videoDetails, so without this the live check would treat a
-    200 fallback as "read, not live" and never try the doors that work. */
+    fallback index.html answering /__yt with 200, and not a login/consent
+    wall). index.html carries no ytInitialData/videoDetails, so without this
+    the live check would treat a 200 fallback as "read, not live" and never
+    try the doors that work. Walls fail here too, so a walled door never beats
+    a door carrying the real page. */
 function isYoutubeHtml(html: string): boolean {
   const text = String(html || "");
   if (text.length < 500) return false;
+  if (isLoginWall(text)) return false;
   return /ytInitialData/.test(text) || /"videoDetails":\{/.test(text) || /ytInitialPlayerResponse/.test(text);
 }
 
@@ -617,17 +637,28 @@ function isYoutubeHtml(html: string): boolean {
     server AND the deployed server both answer it, so every copy — local runs
     and deployed visitors alike — reads through its own host first instead of
     paying for the office or public doors. Static hosts answer nothing here
-    and fall through below, exactly as before. */
+    and fall through below, exactly as before. Both same-origin doors race in
+    parallel (was sequential: 2 x 8s worst case held every failed check). */
 async function fetchPageSameOrigin(url: string): Promise<string | null> {
+  const door = async (path: string): Promise<string | null> => {
+    try {
+      const res = await withTimeout(fetch(path, { cache: "no-store" }), CHECK_TIMEOUT_MS);
+      if (!res || !res.ok) return null;
+      const text = await res.text();
+      if (typeof text !== "string" || text.length === 0) return null;
+      /* Static hosts answer /__yt with the SPA fallback (200 index.html) —
+         that is not YouTube and must fall through to the doors that work. */
+      if (!isYoutubeHtml(text)) return null;
+      return text;
+    } catch {
+      return null;
+    }
+  };
   try {
-    const res = await withTimeout(fetch(`/__yt?url=${encodeURIComponent(url)}`, { cache: "no-store" }), CHECK_TIMEOUT_MS);
-    if (!res || !res.ok) return null;
-    const text = await res.text();
-    if (typeof text !== "string" || text.length === 0) return null;
-    /* Static hosts answer /__yt with the SPA fallback (200 index.html) — that
-       is not YouTube and must fall through to the doors that work. */
-    if (!isYoutubeHtml(text)) return null;
-    return text;
+    return await firstValidHtml([
+      door(`/__yt?url=${encodeURIComponent(url)}`),
+      door(`/.netlify/functions/yt?url=${encodeURIComponent(url)}`),
+    ]);
   } catch {
     return null;
   }
@@ -849,39 +880,16 @@ async function publishedStamp(guest: boolean): Promise<StampAnswer | null> {
   }
 }
 
-/* A watch page only PROVES its broadcast ended when the full player model
-   for that video loaded (fix v9): bot-walled reads keep ytInitialData while
-   dropping the videoDetails player (note 322) — readable but marker-less —
-   and must never kill the office's verified stamp mid-service. Ended pages
-   load the whole model, so the stamp falls through only then. Pure. */
-export function watchPageProvesEnded(html: string, videoId: string, pageUrl = ""): boolean {
-  try {
-    const id = parseYoutubeId(videoId);
-    if (!id) return false;
-    const text = String(html || "");
-    if (!text) return false;
-    const parsed = parseLivePage(text, pageUrl || `https://www.youtube.com/watch?v=${id}`);
-    if (!parsed.read || parsed.live) return false;
-    /* The page's own player names this video — a partial/walled read that
-       merely lacks markers proves nothing and the stamp stands. */
-    const details = new RegExp(`"videoDetails":\\{[^}]*?"videoId":"${id}"`).test(text);
-    if (!details) return false;
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-/* Stamped-video end check (production fix v8, hardened v9): the stamp path below skips
+/* Stamped-video end check (production fix v8, opened v9): the stamp path below skips
    the channel scrape, so without this a forgotten Stop would hold the player
    on an ended broadcast until the stamp ages out. The stamped video's own
-   watch page is the one cheap definitive read: a page that PROVES the video
-   loaded yet carries no live marker (watchPageProvesEnded above) means that
-   broadcast ended and the stamp is ignored. A page we cannot read — or one
-   that loads only partially behind the bot wall (no videoDetails) — proves
-   nothing: the stamp stands and the player itself is the net. Bounded and
-   never throws. Callers race it with the stamp promise, so the live start
-   waits on the verifier alone. */
+   watch page is the one cheap definitive read: readable with no live marker
+   means that broadcast ended and the stamp is ignored. A page we cannot read
+   (bot wall, offline, timeout) proves nothing — the stamp stands and the
+   player itself is the net. Bounded and never throws. The open decision races
+   it on a short budget (fix v9): the live start waits on the verifier alone,
+   never on this — a slow end-check resolves on the next poll instead of
+   holding the opening frame. */
 const STAMP_END_CHECK_MS = 10_000;
 async function stampedVideoEnded(videoId: string): Promise<boolean> {
   try {
@@ -890,23 +898,46 @@ async function stampedVideoEnded(videoId: string): Promise<boolean> {
     const url = `https://www.youtube.com/watch?v=${id}`;
     const html = await withTimeout(fetchPage(url), STAMP_END_CHECK_MS).catch(() => null);
     if (html === null) return false;
-    return watchPageProvesEnded(html, id, url);
+    return !parseLivePage(html, url).live;
   } catch {
     return false;
   }
 }
 
-/* Authoritative live door (production fix v7, extended v9): the backend answers /__live
+/* Open-budget race for the end check (fix v9): the stamped live opens on the
+   verifier alone — a slow watch-page read must never hold the opening frame.
+   Timeout means "not proven ended for this poll"; the next poll re-asks. */
+function endRace(p: Promise<boolean>, ms = 3_500): Promise<boolean> {
+  return Promise.race([
+    p,
+    new Promise<boolean>((resolve) => {
+      try { window.setTimeout(() => resolve(false), ms); } catch { resolve(false); }
+    }),
+  ]);
+}
+
+/* Authoritative live door (production fix v7): the backend answers /__live
    from the YouTube Data API (YT_API_KEY lives only in server env, never in
    frontend code) behind a short server-side cache, so 100 visitors still
    cost ~1 quota unit/min, not 100. Without a key the door answers 404 and
    the stamp + scrape below decide, exactly like before. Split deploys are
-   covered too: same-origin first, then the Netlify function door, then the
-   joined office server. */
+   covered too: same-origin first, then the joined office server. */
 type LiveApiAnswer = { state: "live" | "off"; videoId: string; title: string; channelId: string };
 const LIVE_API_TIMEOUT_MS = 8_000;
-function readLiveApiPayload(data: any, channelId: string): LiveApiAnswer | null {
+async function fetchLiveApiOnce(base: string, channelId: string): Promise<LiveApiAnswer | null> {
   try {
+    const res = await withTimeout(fetch(`${base}/__live?channel=${encodeURIComponent(channelId)}`, { cache: "no-store" }), LIVE_API_TIMEOUT_MS);
+    if (!res || !res.ok) return null;
+    let data: any = null;
+    try {
+      const ctype = String((res.headers && res.headers.get("content-type")) || "");
+      /* Static hosts answer unknown doors with the SPA fallback (200
+         index.html): that is not a live answer. Only JSON answers. */
+      if (ctype && !/application\/json/i.test(ctype)) return null;
+      data = await res.json();
+    } catch {
+      return null;
+    }
     if (!data || typeof data !== "object") return null;
     if (data.state === "live" && parseYoutubeId(data.videoId)) {
       const cid = String(data.channelId || "");
@@ -918,25 +949,11 @@ function readLiveApiPayload(data: any, channelId: string): LiveApiAnswer | null 
     return null;
   }
 }
-async function fetchLiveApiOnce(base: string, channelId: string): Promise<LiveApiAnswer | null> {
-  try {
-    const res = await withTimeout(fetch(`${base}/__live?channel=${encodeURIComponent(channelId)}`, { cache: "no-store" }), LIVE_API_TIMEOUT_MS);
-    if (!res || !res.ok) return null;
-    let data: any = null;
-    try {
-      data = await res.json();
-    } catch {
-      return null;
-    }
-    return readLiveApiPayload(data, channelId);
-  } catch {
-    return null;
-  }
-}
-/* Netlify-function live door (fix v9, mirrors netlify/functions/live.mjs):
-   static deploys have no /__live (the SPA fallback answers 200 index.html
-   there), so without this the only Data API path was the joined office
-   server. Same-origin, YouTube-only by design like /__live above. */
+/** Netlify-function live door (`netlify/functions/live.mjs`): static deploys
+    have no /__live (the SPA fallback answers 200 index.html there), so without
+    this the authoritative door never answered off-office. Same validation and
+    quota-safe cache as /__live; key lives in the function env, never in code.
+    Missing anywhere else -> null. */
 async function fetchLiveApiNetlify(channelId: string): Promise<LiveApiAnswer | null> {
   try {
     const res = await withTimeout(
@@ -950,7 +967,13 @@ async function fetchLiveApiNetlify(channelId: string): Promise<LiveApiAnswer | n
     } catch {
       return null;
     }
-    return readLiveApiPayload(data, channelId);
+    if (!data || typeof data !== "object") return null;
+    if (data.state === "live" && parseYoutubeId(data.videoId)) {
+      const cid = String(data.channelId || "");
+      return { state: "live", videoId: parseYoutubeId(data.videoId), title: String(data.title || ""), channelId: /^UC[\w-]{20,24}$/.test(cid) ? cid : channelId };
+    }
+    if (data.state === "off") return { state: "off", videoId: "", title: "", channelId: "" };
+    return null;
   } catch {
     return null;
   }
@@ -962,24 +985,49 @@ async function fetchLiveApiFor(targetUrl: string): Promise<LiveApiAnswer | null>
        stamp + scrape below. */
     const channelId = designatedChannelIdForTarget(String(targetUrl || ""));
     if (!/^UC[\w-]{20,24}$/.test(channelId)) return null;
-    const same = await fetchLiveApiOnce("", channelId);
-    if (same) return same;
-    /* Static-deploys door (fix v9): Netlify static has no /__live — the SPA
-       fallback would answer 200 index.html there (read as null, harmless but
-       wasted) — so the function door is asked before the office server. */
-    try {
-      const fn = await fetchLiveApiNetlify(channelId);
-      if (fn) return fn;
-    } catch {
-      /* fall through to the office door */
-    }
+    /* All API doors race: same-origin, Netlify function, then the joined
+       office server. First USABLE answer wins (nulls are ignored until every
+       door settles); a miss degrades to stamp + scrape exactly as before. */
+    const jobs: Promise<LiveApiAnswer | null>[] = [fetchLiveApiOnce("", channelId), fetchLiveApiNetlify(channelId)];
     try {
       const base = serverUrl();
-      if (base) return await fetchLiveApiOnce(base, channelId);
+      if (base) jobs.push(fetchLiveApiOnce(base, channelId));
     } catch {
-      /* standalone — the same-origin miss above stands */
+      /* standalone — the two doors above decide */
     }
-    return null;
+    return await new Promise<LiveApiAnswer | null>((resolve) => {
+      let pending = jobs.length;
+      let done = false;
+      if (!pending) {
+        resolve(null);
+        return;
+      }
+      for (const job of jobs) {
+        Promise.resolve(job).then(
+          (value) => {
+            if (done) return;
+            if (value && typeof value === "object") {
+              done = true;
+              resolve(value);
+              return;
+            }
+            pending -= 1;
+            if (pending <= 0 && !done) {
+              done = true;
+              resolve(null);
+            }
+          },
+          () => {
+            if (done) return;
+            pending -= 1;
+            if (pending <= 0) {
+              done = true;
+              resolve(null);
+            }
+          }
+        );
+      }
+    });
   } catch {
     return null;
   }
@@ -1020,11 +1068,6 @@ export async function checkLiveStream(opts: { facebook?: boolean } = {}): Promis
   const stampGuestDeadP: Promise<boolean> = stampGuestP.then((s) => (s ? stampedVideoEnded(s.videoId) : false));
   const stampMainDeadP: Promise<boolean> = stampMainP.then((s) => (s ? stampedVideoEnded(s.videoId) : false));
   const apiP: Promise<LiveApiAnswer | null> = target && !officeHit ? fetchLiveApiFor(target.url) : Promise.resolve(null);
-  /* Guest Data API door (fix v9): the temporary slot never had one — a guest
-     live with a walled scrape and no office press depended on the scrape
-     alone, so the office's Play refine (which races this same check) could
-     never stamp it either. Same doors as the main slot, same cost shape. */
-  const apiGuestP: Promise<LiveApiAnswer | null> = guest && !officeGuest ? fetchLiveApiFor(guest.url) : Promise.resolve(null);
   /* Fast path: guest + main pages fetch in parallel (were sequential). */
   const guestHtmlP: Promise<string | null> = guest && !officeGuest ? fetchPage(guest.url) : Promise.resolve(null);
   const mainHtmlP: Promise<string | null> = target && !officeHit ? fetchPage(target.url) : Promise.resolve(null);
@@ -1032,15 +1075,9 @@ export async function checkLiveStream(opts: { facebook?: boolean } = {}): Promis
   /* A proven-ended stamp falls through (fix v8): the scrape is asked after
      all and its OFF ends the stale pin, exactly like no stamp — while a live
      guest still wins below and its off/unknown still changes nothing. */
-  const stampGuestDead = guest && !officeGuest && stampGuest ? await stampGuestDeadP : false;
+  const stampGuestDead = guest && !officeGuest && stampGuest ? await endRace(stampGuestDeadP) : false;
   const liveStampGuest = stampGuest && !stampGuestDead ? stampGuest : null;
-  /* Guest API verdict (fix v9): a reachable Data API live answer wins like
-     the stamp — a readable scrape still runs below only when the API has no
-     live to report. An API "off" with an unreadable scrape stays unknown
-     here (unlike the main slot): the guest's off/unknown must never move the
-     main channel's screen, so only a verified live promotes. */
-  const apiGuestAns = guest && !officeGuest && !liveStampGuest ? await apiGuestP : null;
-  const guestHtml = guest && !officeGuest && !liveStampGuest && !(apiGuestAns && apiGuestAns.state === "live") ? await guestHtmlP : null;
+  const guestHtml = guest && !officeGuest && !liveStampGuest ? await guestHtmlP : null;
   const guestAns: { state: LiveState; videoId: string; title: string; channelId: string } = !guest
     ? { state: "unset", videoId: "", title: "", channelId: "" }
     : officeGuest
@@ -1049,13 +1086,11 @@ export async function checkLiveStream(opts: { facebook?: boolean } = {}): Promis
       : { state: "off", videoId: "", title: "", channelId: "" }
     : liveStampGuest
     ? liveStampGuest
-    : apiGuestAns && apiGuestAns.state === "live"
-    ? { state: "live", videoId: apiGuestAns.videoId, title: apiGuestAns.title, channelId: apiGuestAns.channelId }
     : guestHtml === null
     ? { state: "unknown", videoId: "", title: "", channelId: "" }
     : await resolveYoutubeBounded(guest, guestHtml);
   const stampMain = target && !officeHit ? await stampMainP : null;
-  const stampMainDead = target && !officeHit && stampMain ? await stampMainDeadP : false;
+  const stampMainDead = target && !officeHit && stampMain ? await endRace(stampMainDeadP) : false;
   /* Proven-ended stamp falls through here too (fix v8): the API door and the
      scrape below decide, so a forgotten Stop ends on the next poll instead of
      pinning the player until the stamp ages out. */
@@ -1568,10 +1603,14 @@ const VERIFY_TIMEOUT_MS = 4_000;
 const verifyCache = new Map<string, { ok: boolean; at: number }>();
 const verifyInflight = new Map<string, Promise<boolean | null>>();
 
-/** Pure for the verifier: an oEmbed answer in, playable or not. */
+/** Pure for the verifier: an oEmbed answer in, playable or not. 401/403 are
+    UNKNOWN, not dead: YouTube answers them for live broadcasts (and for
+    private/embedding-disabled/age-gated videos) — only the player, which
+    reports in-frame errors with the poster still up, can tell those apart.
+    Only 400/404/410 prove the id is gone. */
 export function oembedPlayable(status: number): boolean | null {
   if (status === 200) return true;
-  if (status === 400 || status === 401 || status === 403 || status === 404 || status === 410) return false;
+  if (status === 400 || status === 404 || status === 410) return false;
   return null;
 }
 
@@ -1592,12 +1631,21 @@ function noembedUrl(id: string): string {
 async function noembedVerdict(id: string, signal?: AbortSignal): Promise<boolean | null> {
   try {
     const res = await fetch(noembedUrl(id), { cache: "no-store", signal });
-    if (!res || !res.ok) return null;
+    if (!res || !res.ok) {
+      /* An HTTP-level failure proves nothing about the video (offline, probe
+         down, mirror hiccup) — unknown, never dead. The old code returned
+         null here already via the !ok path; kept explicit for the verifier. */
+      return null;
+    }
     const data = await res.json().catch(() => null);
     if (!data || typeof data !== "object") return null;
     const d = data as { html?: unknown; error?: unknown };
     if (typeof d.html === "string" && d.html.length > 0) return true;
-    if (d.error) return false;
+    /* A mirror `error` alone never kills the id: noembed mirrors oEmbed,
+       which answers error for live broadcasts too. Dead is decided below,
+       only when the direct oEmbed read agrees the id is gone (400/404/410).
+       Anything else is unknown and plays — the player is the net. */
+    if (d.error) return null;
     return null;
   } catch {
     return null;
@@ -1667,11 +1715,14 @@ export async function verifyYoutubeId(videoId: string): Promise<boolean | null> 
         /* CORS-open door first (note 420): the direct oEmbed read below can
            fail on headers while the video plays fine, so ask the mirror that
            answers cross-origin — and keep oEmbed itself as the fallback, with
-           the same `oembedPlayable` reading, for the networks that reach it. */
+           the same `oembedPlayable` reading, for the networks that reach it.
+           Dead needs the direct read to agree (400/404/410): the mirror
+           answers error for live broadcasts too, so its error alone is
+           unknown and the player decides. */
         const viaMirror = await noembedVerdict(id, ctrl ? ctrl.signal : undefined);
-        if (viaMirror !== null) {
-          verifyCache.set(id, { ok: viaMirror, at: Date.now() });
-          return viaMirror;
+        if (viaMirror === true) {
+          verifyCache.set(id, { ok: true, at: Date.now() });
+          return true;
         }
         const res = await fetch(oembedUrl(id), { cache: "no-store", signal: ctrl ? ctrl.signal : undefined });
         const verdict = oembedPlayable(res.status);

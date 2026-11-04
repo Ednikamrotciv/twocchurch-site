@@ -1,8 +1,19 @@
-APPLY THIS UPDATE (438) — ONE UNIFIED UPDATE (ALL OLD UPDATES REMOVED)
+APPLY THIS UPDATE (441) — ONE UNIFIED UPDATE (ALL OLD UPDATES REMOVED)
 =============================================================================
 Single update, one zip — every older update is superseded by this one. Extract fully
 incl. index.html on BOTH sides (office computer + any always-on host), then follow the
 ORDER below. What this build does:
+
+(0) LIVESTREAM FIXED (v10, on top of v7/v6/v5). Live broadcasts no longer verify
+as "dead" (oEmbed 401/403 = unknown, not gone — YouTube answers those for live
+broadcasts too; the mirror's error alone never kills an id; the player remains
+the net), login/consent walls no longer end services (explicit wall markers
+read as unknown, never off), a Play press no longer mounts the channel embed
+for a proven-off channel (override is unknown-only), static hosts get the
+authoritative Data-API door (new netlify/functions/live.mjs + frontend race:
+same-origin, Netlify function, office server), same-origin proxy doors race in
+parallel, YouTube ids need a trailing boundary, the player API retries after an
+offline miss, and the live cache is capped. Details: LIVESTREAM_FIX_V10.md.
 
 (1) MAINTENANCE HOLDS EVERY NEW DEPLOY, ONE PUBLISH CLEARS IT. Each build stamps a
 fresh opaque deploy ID (version.json + seed.json + entry page carry the same ID);
@@ -58,10 +69,10 @@ BOTH sides (same zip), `npm run dev:fresh` + restart the office backend, hard re
 sign in once (the new deploy asks for it; dev restarts keep you signed in); Publish
 ONCE from any signed-in admin copy — every copy lifts within seconds online (or at
 first sync); THEN bake-seed, commit+push full step-0 set, rebuild BOTH hosts; Publish
-on each host; reload ALL admin tabs. Proof: window.__womBuild = { notes: 438,
-code: "unified438" }; verifier sections GGG (no-change publish blesses deploy) + MMM
+on each host; reload ALL admin tabs. Proof: window.__womBuild = { notes: 441,
+code: "unified441" }; verifier sections GGG (no-change publish blesses deploy) + MMM
 (sessions) pass, plus the new live-lands-both-ways lock. Files: src/lib/hooks.ts
-(438/unified438) + index.html (wom-notes/code), src/lib/cms.ts (session-free live
+(441/unified441) + index.html (wom-notes/code), src/lib/cms.ts (session-free live
 adoption both directions + owed-record guard + prompt live tick), src/SPEC.md
 (note 438), src/tools/verify-update.mjs (438 payloads + both-ways lock),
 DEPLOY.md (bidirectional routine).

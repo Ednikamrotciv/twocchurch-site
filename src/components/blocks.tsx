@@ -17,7 +17,6 @@ import {
   platformLabel,
   posterFor,
   watchUrl,
-  youtubeChannelEmbed,
   youtubeChannelUrl,
   type VideoPlatform,
   type VideoSource,
@@ -257,8 +256,21 @@ export function loadYtPlayerApi(): Promise<any> {
         tag.async = true;
         document.head.appendChild(tag);
         /* If the API never loads (offline, blocked), give up quietly — the
-           verifier + escape link remain the net. */
-        window.setTimeout(() => resolve(w.YT || null), 10000);
+           verifier + escape link remain the net. The cached promise is
+           cleared on a miss so a later call (back online) retries instead of
+           replaying the miss forever. */
+        window.setTimeout(() => {
+          try {
+            if (w.YT && w.YT.Player) resolve(w.YT);
+            else {
+              if (ytApiPromise) ytApiPromise = null;
+              resolve(null);
+            }
+          } catch {
+            try { if (ytApiPromise) ytApiPromise = null; } catch {}
+            resolve(null);
+          }
+        }, 10000);
       } catch { resolve(null); }
     });
     return ytApiPromise;
@@ -308,10 +320,6 @@ export function VideoPlayer({
   /* Frame remount key: bumped by the visitor retry and the office Reload —
      the iframe reloads in place, no page reload, stays on this site. */
   const [iframeKey, setIframeKey] = useState(0);
-  /* Muted channel autoplay (fix v9): declared with the other player state so
-     every repair path below can reset it — the address itself is computed
-     with the source below. */
-  const [plainMuted, setPlainMuted] = useState(true);
   /* Fresh-frame key: bumped with the remount key on every force repair. The
      plain-frame address carries it as a dummy query, so the browser cannot
      repaint a cached blank frame — each repair loads truly fresh. */
@@ -376,7 +384,6 @@ export function VideoPlayer({
     setFirstFrame(false);
     setFrameLoaded(false);
     autoplayTriedRef.current = false;
-    try { setPlainMuted(true); } catch {}
     /* Fresh address + fresh mount together: the remount alone can repaint a
        cached blank frame, so the frame address changes too — the browser
        must fetch the player again instead of reusing what it has. */
@@ -437,19 +444,7 @@ export function VideoPlayer({
      from a channel carries its sound. */
   const shown = tx(title);
   const sourceKey = embedSrc(source, true);
-  /* Muted channel autoplay (fix v9): a live channel follow has no video id,
-     so it plays through the plain iframe — which, unlike the API path,
-     cannot drop to muted autoplay by itself when the browser holds sound.
-     It opens muted for motion the same second; the first gesture swaps the
-     sound back on in-gesture (see the upgrade effect below), and the
-     resolver upgrades to the verified video id behind it. Bare videos keep
-     the sound-first address — the API path handles their fallback. */
-  const plainChannelAuto = !!(live && autoPlay && followId && !ytId && !liveVideoId);
-  const src = liveVideoId
-    ? embedSrc({ platform: "youtube", youtubeId: liveVideoId }, true)
-    : plainChannelAuto && plainMuted
-    ? youtubeChannelEmbed(followId, true, true)
-    : sourceKey;
+  const src = liveVideoId ? embedSrc({ platform: "youtube", youtubeId: liveVideoId }, true) : sourceKey;
   /* Force-fresh address: after a repair the plain frame must load again, not
      repaint a cached blank — the dummy query makes each repair an address the
      browser has never seen. The API-managed frame takes the id, not a URL, so
@@ -472,7 +467,6 @@ export function VideoPlayer({
     setFirstFrame(false);
     setFrameLoaded(false);
     autoplayTriedRef.current = false;
-    setPlainMuted(true);
   }, [sourceKey]);
 
   /* A click never opens a known-dead video: unknown ids are asked first
@@ -923,19 +917,18 @@ export function VideoPlayer({
                     try {
                       if (cancelled) return;
                       const cur = player && typeof player.getPlayerState === "function" ? Number(player.getPlayerState()) : -99;
-                      /* 1 = PLAYING. Anything else 2.5s in means the browser
-                         is holding sound autoplay. */
-                      if (cur !== 1) goMuted();
+                      /* 1 = PLAYING, 3 = BUFFERING (slow network still arriving
+                         with sound — muting it would break audio that was
+                         about to play). Anything else 2.5s in means the
+                         browser is holding sound autoplay. */
+                      if (cur !== 1 && cur !== 3) goMuted();
                     } catch {}
                   }, 2500);
                 } catch {}
               },
-              onAutoplayBlocked: () => {
-                try {
-                  const g = player && (player as any)._womGoMuted;
-                  if (typeof g === "function") g();
-                } catch {}
-              },
+              /* NOTE: the YT IFrame API has no onAutoplayBlocked event — the
+                 2.5s watch above is the held-autoplay detector. Kept out
+                 deliberately so a future API rename cannot silently re-mute. */
               onStateChange: (ev: any) => {
                 try {
                   if (Number(ev && ev.data) === 1) {
@@ -1003,31 +996,6 @@ export function VideoPlayer({
       try { window.removeEventListener("keydown", h, true); } catch {}
     };
   }, [playing, dead]);
-
-  /* Plain muted-channel upgrade (fix v9): the channel follow opens muted
-     (see plainMuted above) so motion starts at once under a held sound
-     policy. The first gesture anywhere swaps the sound back on in-gesture —
-     the navigation happens inside the visitor's own tap, so the browser
-     permits audio. The resolver upgrades to the verified video id behind
-     it; this only covers the window before it does. */
-  useEffect(() => {
-    if (!playing || dead || liveVideoId || ytId) return;
-    if (!followId || !plainMuted) return;
-    if (platform !== "youtube") return;
-    const h = () => {
-      try { setPlainMuted(false); } catch {}
-    };
-    try {
-      window.addEventListener("pointerdown", h, true);
-      window.addEventListener("touchend", h, true);
-      window.addEventListener("keydown", h, true);
-    } catch {}
-    return () => {
-      try { window.removeEventListener("pointerdown", h, true); } catch {}
-      try { window.removeEventListener("touchend", h, true); } catch {}
-      try { window.removeEventListener("keydown", h, true); } catch {}
-    };
-  }, [playing, dead, liveVideoId, ytId, followId, plainMuted, platform]);
 
   /* Plain-frame net (channel follows, Facebook, other non-API frames): these
      iframes never report content errors cross-origin, so a dead channel embed
