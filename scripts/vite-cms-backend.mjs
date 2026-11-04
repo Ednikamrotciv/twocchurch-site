@@ -138,6 +138,8 @@ export function cmsBackend() {
       return false;
     }
   }
+  /* Authoritative live-answer cache (dev parity with serve.mjs, v9): live 75s, off 15min, errors 60s, quota 10min. */
+  const liveApiCache = new Map();
   let siteVersion = "vite";
   let outDir = path.join(ROOT, "dist");
   return {
@@ -844,12 +846,10 @@ export function cmsBackend() {
             }
           }
 
-          /* Authoritative live door (dev parity with scripts/serve.mjs fix v7):
-             the channel's current live broadcast from the YouTube Data API.
-             Same SSRF guard, key lives only in server env (YT_API_KEY) — never
-             in frontend code. No server cache in dev (single office user, quota
-             irrelevant; production caches 75s). No key → 404, and the stamp +
-             scrape decide, exactly like production. */
+          /* Authoritative live answer (dev parity with serve.mjs, v9): same
+             validation, same split TTLs (live 75s / off 15min / err 60s /
+             quota 10min). Key from server env only (YT_API_KEY); no key → 404
+             and visitors fall back to stamp + scrape. */
           if (pathname === "/__live" && req.method === "GET") {
             const channel = url.searchParams.get("channel") || "";
             if (!/^UC[\w-]{20,24}$/.test(channel)) {
@@ -863,14 +863,36 @@ export function cmsBackend() {
               res.end("no key");
               return;
             }
+            const LIVE_HIT_TTL_MS = 75_000;
+            const LIVE_MISS_TTL_MS = 15 * 60_000;
+            const LIVE_ERR_TTL_MS = 60_000;
+            const LIVE_QUOTA_TTL_MS = 10 * 60_000;
             try {
+              const now = Date.now();
+              const hit = liveApiCache.get(channel);
+              if (hit && !hit.err && hit.data) {
+                const ttl = hit.data.state === "live" ? LIVE_HIT_TTL_MS : LIVE_MISS_TTL_MS;
+                if (now - hit.at < ttl) {
+                  const body = Buffer.from(JSON.stringify(hit.data), "utf8");
+                  res.writeHead(200, { "content-type": "application/json; charset=utf-8", "content-length": body.length, "cache-control": "no-store" });
+                  res.end(body);
+                  return;
+                }
+              }
+              if (hit && hit.err && now - hit.at < (hit.quota ? LIVE_QUOTA_TTL_MS : LIVE_ERR_TTL_MS)) {
+                res.writeHead(502, { "cache-control": "no-store" });
+                res.end("unreachable");
+                return;
+              }
               const apiUrl = `https://www.googleapis.com/youtube/v3/search?part=snippet&channelId=${encodeURIComponent(channel)}&eventType=live&type=video&maxResults=1&key=${encodeURIComponent(key)}`;
               const upstream = await fetch(apiUrl, {
                 headers: { accept: "application/json" },
                 signal: typeof AbortSignal !== "undefined" && typeof AbortSignal.timeout === "function" ? AbortSignal.timeout(8000) : undefined,
               });
               const data = await upstream.json().catch(() => null);
+              const quotaHit = !upstream.ok && data && (data?.error?.errors?.[0]?.reason === "quotaExceeded" || data?.error?.status === "RESOURCE_EXHAUSTED" || upstream.status === 403 || upstream.status === 429);
               if (!upstream.ok || !data) {
+                liveApiCache.set(channel, { at: now, err: true, quota: !!quotaHit });
                 res.writeHead(502, { "cache-control": "no-store" });
                 res.end("unreachable");
                 return;
@@ -880,10 +902,12 @@ export function cmsBackend() {
               const out = videoId && /^[\w-]{11}$/.test(videoId)
                 ? { state: "live", videoId, title: String((item.snippet && item.snippet.title) || ""), channelId: channel }
                 : { state: "off", videoId: "", title: "", channelId: "" };
+              liveApiCache.set(channel, { at: now, data: out });
               const body = Buffer.from(JSON.stringify(out), "utf8");
               res.writeHead(200, { "content-type": "application/json; charset=utf-8", "content-length": body.length, "cache-control": "no-store" });
               res.end(body);
             } catch {
+              try { liveApiCache.set(channel, { at: Date.now(), err: true, quota: false }); } catch {}
               res.writeHead(502, { "cache-control": "no-store" });
               res.end("unreachable");
             }

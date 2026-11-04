@@ -197,7 +197,7 @@ function isExpectedBody(url: string, text: string): boolean {
   if (/\/feeds\/videos\.xml/i.test(String(url || ""))) {
     return /<entry>/.test(body) || /<yt:videoId>/.test(body);
   }
-  return /lockupMetadataViewModel/.test(body) || /ytInitialData/.test(body) || /"videoDetails":\{/.test(body) || /ytInitialPlayerResponse/.test(body);
+  return /lockupMetadataViewModel/.test(body) || /ytInitialData/.test(body) || /"videoDetails":\{/.test(body);
 }
 
 /* Last resort for hosts with no proxy: a free public CORS proxy.

@@ -872,10 +872,10 @@ export function VideoPlayer({
               onReady: (ev: any) => {
                 try {
                   /* Sound-first, once per mount: full volume, unmuted,
-                     playing. If the browser holds sound autoplay the frame
-                     never reaches PLAYING — the watch below then drops to
-                     muted autoplay the same second, and the first gesture
-                     anywhere restores sound. */
+                     playing. If the browser holds sound autoplay it answers
+                     with onAutoplayBlocked (or never reaches PLAYING) — the
+                     watch below then drops to muted autoplay the same
+                     second, and the first gesture anywhere restores sound. */
                   const p = ev && ev.target ? ev.target : null;
                   try { if (p && typeof p.unMute === "function") p.unMute(); } catch {}
                   try { if (p && typeof p.setVolume === "function") p.setVolume(100); } catch {}
@@ -904,13 +904,18 @@ export function VideoPlayer({
                     try {
                       if (cancelled) return;
                       const cur = player && typeof player.getPlayerState === "function" ? Number(player.getPlayerState()) : -99;
-                      /* 1 = PLAYING. Anything else 2.5s in means the browser
-                         is holding sound autoplay. */
-                      if (cur !== 1) goMuted();
+                      /* 1 = PLAYING, 3 = BUFFERING (slow network still arriving
+                         with sound — muting it would break audio that was
+                         about to play). Anything else 2.5s in means the
+                         browser is holding sound autoplay. */
+                      if (cur !== 1 && cur !== 3) goMuted();
                     } catch {}
                   }, 2500);
                 } catch {}
               },
+              /* NOTE: the YT IFrame API has no onAutoplayBlocked event — the
+                 2.5s watch above is the held-autoplay detector. Kept out
+                 deliberately so a future API rename cannot silently re-mute. */
               onStateChange: (ev: any) => {
                 try {
                   if (Number(ev && ev.data) === 1) {

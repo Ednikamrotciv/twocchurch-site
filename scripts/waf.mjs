@@ -218,7 +218,7 @@ export function endpointCategory(pathname, method = "GET") {
     if (STATUS_READ_RPCS.has(rpc)) return "status-read";
     return "api";
   }
-  if (p.startsWith("/__yt") || p.startsWith("/__geo") || p.startsWith("/__rates") || p.startsWith("/__live")) return "api";
+  if (p.startsWith("/__yt") || p.startsWith("/__geo") || p.startsWith("/__rates")) return "api";
   if (p.startsWith("/data/uploads/") || p.startsWith("/src/assets/")) return "static";
   if (SAFE_EXT.test(p)) return "static";
   return "other";

@@ -849,14 +849,16 @@ async function publishedStamp(guest: boolean): Promise<StampAnswer | null> {
   }
 }
 
-/* Stamped-video end check (production fix v8): the stamp path below skips
+/* Stamped-video end check (production fix v8, opened v9): the stamp path below skips
    the channel scrape, so without this a forgotten Stop would hold the player
    on an ended broadcast until the stamp ages out. The stamped video's own
    watch page is the one cheap definitive read: readable with no live marker
    means that broadcast ended and the stamp is ignored. A page we cannot read
    (bot wall, offline, timeout) proves nothing — the stamp stands and the
-   player itself is the net. Bounded and never throws. Callers race it with
-   the stamp promise, so the live start waits on the verifier alone. */
+   player itself is the net. Bounded and never throws. The open decision races
+   it on a short budget (fix v9): the live start waits on the verifier alone,
+   never on this — a slow end-check resolves on the next poll instead of
+   holding the opening frame. */
 const STAMP_END_CHECK_MS = 10_000;
 async function stampedVideoEnded(videoId: string): Promise<boolean> {
   try {
@@ -871,6 +873,18 @@ async function stampedVideoEnded(videoId: string): Promise<boolean> {
   }
 }
 
+/* Open-budget race for the end check (fix v9): the stamped live opens on the
+   verifier alone — a slow watch-page read must never hold the opening frame.
+   Timeout means "not proven ended for this poll"; the next poll re-asks. */
+function endRace(p: Promise<boolean>, ms = 3_500): Promise<boolean> {
+  return Promise.race([
+    p,
+    new Promise<boolean>((resolve) => {
+      try { window.setTimeout(() => resolve(false), ms); } catch { resolve(false); }
+    }),
+  ]);
+}
+
 /* Authoritative live door (production fix v7): the backend answers /__live
    from the YouTube Data API (YT_API_KEY lives only in server env, never in
    frontend code) behind a short server-side cache, so 100 visitors still
@@ -883,13 +897,6 @@ async function fetchLiveApiOnce(base: string, channelId: string): Promise<LiveAp
   try {
     const res = await withTimeout(fetch(`${base}/__live?channel=${encodeURIComponent(channelId)}`, { cache: "no-store" }), LIVE_API_TIMEOUT_MS);
     if (!res || !res.ok) return null;
-    /* Static hosts answer /__live with the SPA fallback (200 index.html) — that
-       is not a live answer. Only JSON answers count; anything else falls through
-       to the stamp + scrape below without burning a JSON-parse error. */
-    try {
-      const ctype = String((res.headers && res.headers.get("content-type")) || "");
-      if (ctype && !/application\/json/i.test(ctype)) return null;
-    } catch { /* no header — try to parse */ }
     let data: any = null;
     try {
       data = await res.json();
@@ -970,7 +977,7 @@ export async function checkLiveStream(opts: { facebook?: boolean } = {}): Promis
   /* A proven-ended stamp falls through (fix v8): the scrape is asked after
      all and its OFF ends the stale pin, exactly like no stamp — while a live
      guest still wins below and its off/unknown still changes nothing. */
-  const stampGuestDead = guest && !officeGuest && stampGuest ? await stampGuestDeadP : false;
+  const stampGuestDead = guest && !officeGuest && stampGuest ? await endRace(stampGuestDeadP) : false;
   const liveStampGuest = stampGuest && !stampGuestDead ? stampGuest : null;
   const guestHtml = guest && !officeGuest && !liveStampGuest ? await guestHtmlP : null;
   const guestAns: { state: LiveState; videoId: string; title: string; channelId: string } = !guest
@@ -985,7 +992,7 @@ export async function checkLiveStream(opts: { facebook?: boolean } = {}): Promis
     ? { state: "unknown", videoId: "", title: "", channelId: "" }
     : await resolveYoutubeBounded(guest, guestHtml);
   const stampMain = target && !officeHit ? await stampMainP : null;
-  const stampMainDead = target && !officeHit && stampMain ? await stampMainDeadP : false;
+  const stampMainDead = target && !officeHit && stampMain ? await endRace(stampMainDeadP) : false;
   /* Proven-ended stamp falls through here too (fix v8): the API door and the
      scrape below decide, so a forgotten Stop ends on the next poll instead of
      pinning the player until the stamp ages out. */
