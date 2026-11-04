@@ -322,7 +322,7 @@ export async function runAll(fs) {
   ok("stale fetch cache-busted", has(cms, '"t=" + Date.now()'), "version.json must bypass every cache");
   ok("stale bundle waits, never plays live", has(cms, "staleNewerNotes > BUILD_NOTES"), "old code must show maintenance once an update is known");
   ok("stale gate exported", has(cms, "export function useStaleBuild()"));
-  ok("app holds splash for the version check", has(app, "useStaleBuild()") && (has(app, "!stale.settled") || has(text["index.html"], "wom-maint-gate")), "live must not paint before the check settles");
+  ok("app holds splash for the version check", has(app, "useStaleBuild()") && has(app, "!stale.settled"), "live must not paint before the check settles");
   ok("app waits while stale", has(app, "stale.waiting || maintenance"));
   ok("app re-checks while open", has(app, "setInterval") && has(app, "checkStaleBuild"));
   ok("pre-bundle gate in the entry page", has(html, "wom.cms.notes") && has(html, "/version.json?t=") && has(html, "right back"), "the notice must paint before React boots");
@@ -528,7 +528,7 @@ export async function runAll(fs) {
      token and never wipe unsaved work. */
   const hooksJ8 = text["src/lib/hooks.ts"];
   const indexJ8 = text["index.html"];
-  ok("code word rotated", has(hooksJ8, 'CODE_ID = "unified440"') && has(indexJ8, 'wom-code" content="unified440"'), "the new word must retire the bundle that holds the 5 stuck rows");
+  ok("code word rotated", has(hooksJ8, 'CODE_ID = "unified438"') && has(indexJ8, 'wom-code" content="unified438"'), "the new word must retire the bundle that holds the 5 stuck rows");
   ok("dev token names the code", has(cms, '"n" + BUILD_NOTES + "c" + (runningCode'), "an unnumbered update must still prove a fresh deploy in local dev");
   ok("fresh clear takes after-save", has(cms, "localStorage.removeItem(AFTER_SAVE_KEY)"), "a queued publish-after-save must not republish stale words after the clear");
   /* J9. restore+publish reaches every copy (office request: works on one
@@ -588,7 +588,7 @@ export async function runAll(fs) {
      slides — both are deploy-gated now (returning browsers only, so a fresh
      device joining live words is never clobbered, and with no dirty, so
      rebuilds never re-mark slides as unsaved). */
-  ok("no-change publish sends the bless", !has(cms, "if (publishedNotes >= BUILD_NOTES)") && has(cms, "sendPatch({}, [], note.slice(0, 160), true, true"), "a local-only early return leaves the server and the live box behind while the office sees success");
+  ok("no-change publish sends the bless", !has(cms, "if (publishedNotes >= BUILD_NOTES)") && has(cms, "sendPatch({}, [], note.slice(0, 160), true, true)"), "a local-only early return leaves the server and the live box behind while the office sees success");
   ok("section publish blesses when unchanged", has(cms, "A no-change section Publish still blesses everywhere"), "a per-section publish with nothing changed must still lift the notice on the server and the live box");
   ok("offline bless ends the clean stage", has(cms, "An offline bless ends the clean stage on this copy too"), "an offline publish must not leave inbound words unstaged forever");
   ok("clean stage is per-deploy", has(cms, "freshDeploy && hadPriorBlessing()") && has(cms, "function hadPriorBlessing()"), "a returning browser on a new deploy must stage clean, not keep the former publish");
@@ -613,7 +613,7 @@ export async function runAll(fs) {
   ok("sync takes the witness", has(cms, "noteCodeWitness((res as any).code, res.notes)"), "every server answer must try the witness, not just deploys");
   ok("publish carries its code", has(cms, "code: bless ? runningCode"), "every publish must stamp the word it was blessed from, so answers attest on any backend");
   ok("server keeps the publish code", has(srvJ13, "validCodeWord(payload.code)") && has(srvJ13, "publishCode: PUBLISH_CODE"), "the publish word must persist like the deploy it names");
-  ok("waiting copies hurry", has(cms, "if (!maintenanceShouldWait()) return;") && has(cms, "syncFromFeed"), "a copy on maintenance must re-ask the stamp every 10 seconds, not only on the 30s loop");
+  ok("waiting copies hurry", has(cms, "10_000") && has(cms, "if (!maintenanceShouldWait()) return;"), "a copy on maintenance must re-ask the stamp every 10 seconds, not only on the 30s loop");
   ok("host file attests too", has(cms, "hostFileAttestsSameCode()") && has(cms, "hostFileCode = vCode"), "a same-update publish must release a deploy when the host itself serves this build, even if the backend never learned the word");
   ok("stale tabs never move the stamp", has(srvJ13, "notesAdvance") && has(srvJ13, "notesAdvanceAdopt") && has(srvJ13, "notesAdvanceFeed"), "words from an older update must still write, but only a same-or-newer update may move the deploy and code");
   ok("adopts forward the word", has(hostJ13, "code: typeof codeWord"), "live and feed adoptions must stamp the running word like a publish");
@@ -624,7 +624,7 @@ export async function runAll(fs) {
   ok("offline copies join on return", has(cms, "function startReturnJoin()") && has(cms, 'window.addEventListener("online", () => join(true))') && has(cms, "join(false)"), "an offline device must join the moment the network returns or it foregrounds, not wait out the backoff");
   ok("witness re-evaluates the notice", has(cms, "notesLifted || deployLifted || codeWitnessed"), "a witnessed publish must re-render instead of sticking with first paint");
   ok("clicks await the word relay", has(cms, "awaitRelay = false") && has(cms, ", true, true)"), "explicit clicks must wait out the bounded relay; background sends never wait");
-  ok("relay is bounded", has(cms, "relayFetch") && has(cms, "AbortController"), "awaiting the relay must never hold a click hostage on a stalled network");
+  ok("relay is bounded", has(cms, "25000") && has(cms, "relayFetch"), "awaiting the relay must never hold a click hostage on a stalled network");
   ok("result names live", has(cms, "live?: boolean") && has(cms, 'relay !== "missed"'), "the click result must say whether live visitors got it");
   ok("toasts tell the truth", has(ed, "The live site follows within a minute."), "a click live missed must say so, not claim every visitor");
   ok("undo relays too", has(cms, '"Undid the last publish"'), "an undo is a publish the other way — live must learn it at once");
@@ -683,7 +683,7 @@ export async function runAll(fs) {
   ok("watch checks at once", has(live, "urgent") && has(watch, "useLiveStream(true, false, true)"), "the Watch page must not wait out the freshness window");
   ok("app hurries on watch", has(app, "onWatchPage") && has(app, "expecting || onWatchPage"), "the header must follow the stream on the Watch page");
   ok("moved channel jumps the queue", has(live, "wom:live-target") && has(live, "noteLiveTargetMayHaveChanged") && has(live, "export function recheckLiveNow()") && has(cms, 'window.dispatchEvent(new Event("wom:live-target"))'), "a retyped channel must be re-checked at once on live and local");
-  ok("office buttons re-ask", has(ed, "recheckLiveNow()") && has(ed, 'from "../lib/livestatus"'), "Start/Continue/Stop must ask the channel at once");
+  ok("office buttons re-ask", has(ed, "recheckLiveNow()") && has(ed, 'import { readLiveStatus, recheckLiveNow, guestTarget, isGuestTargetUrl, useLiveStream, liveTarget, isStatusForTarget, clearGuestOnStop } from "../lib/livestatus"'), "Start/Continue/Stop must ask the channel at once");
   ok("section publish stamps offline", has(cms, "An offline click still moves last-published on this copy"), "a per-section Publish while offline must move the stamp like the whole-site one");
   ok("bless caches offline", has(cms, "The stamp is cached with"), "a bless-only Publish while offline must cache the stamp with the words");
   /* K. office-reported on-air answer (note 319): the deployed server cannot
@@ -893,8 +893,8 @@ export async function runAll(fs) {
     const chEmbed = embMod3.exports.youtubeChannelEmbed;
     const srcOf = embMod3.exports.embedSrc;
     const hasVid = embMod3.exports.hasVideo;
-    ok("channel embed is strict", chEmbed(OWNER, false).indexOf("https://www.youtube.com/embed/live_stream?channel=" + OWNER) === 0 && chEmbed(OWNER, false).indexOf("enablejsapi=1") !== -1 && chEmbed("short", false) === "" && chEmbed("", false) === "", "only a real channel id may build the player");
-    ok("video id still wins", srcOf({ platform: "youtube", youtubeId: "dQw4w9WgXcQ", youtubeChannelId: OWNER }, false).indexOf("https://www.youtube.com/embed/dQw4w9WgXcQ?") === 0 && srcOf({ platform: "youtube", youtubeId: "dQw4w9WgXcQ", youtubeChannelId: OWNER }, false).indexOf("enablejsapi=1") !== -1, "a verified video must keep playing by id");
+    ok("channel embed is strict", chEmbed(OWNER, false) === "https://www.youtube.com/embed/live_stream?channel=" + OWNER + "&rel=0&modestbranding=1&playsinline=1&enablejsapi=1" && chEmbed("short", false) === "" && chEmbed("", false) === "", "only a real channel id may build the player");
+    ok("video id still wins", srcOf({ platform: "youtube", youtubeId: "dQw4w9WgXcQ", youtubeChannelId: OWNER }, false) === "https://www.youtube.com/embed/dQw4w9WgXcQ?rel=0&modestbranding=1&playsinline=1&enablejsapi=1", "a verified video must keep playing by id");
     ok("channel plays without id", srcOf({ platform: "youtube", youtubeId: "", youtubeChannelId: OWNER }, false) === chEmbed(OWNER, false) && srcOf({ platform: "youtube" }, false) === "", "no id and no channel means no player, never a guess");
     ok("channel counts as video", hasVid({ platform: "youtube", youtubeChannelId: OWNER }) === true && hasVid({ platform: "youtube" }) === false, "the watch page must treat a followed channel as playable");
     const goodCh = { target: "https://www.youtube.com/@church/live", state: "live", videoId: "", title: "Sunday", channelId: OWNER, checkedAt: Date.now() };
@@ -1813,7 +1813,7 @@ export async function runAll(fs) {
   ok("cadence still hears the clock", has(storePP, "export function onAir(info?: NextServiceInfo | null): boolean") && has(appPP, "onAir(gathering)") && has(watchPP, "onAir(info) || info.msUntil"), "detection must stay armed around services");
   ok("badges ask displayLive", has(layPP, "displayLive(info)") && has(homePP, "displayLive(info)") && has(blocksPP, "displayLive(info)") && has(watchPP, "displayLive(info) && !shutNow"), "pill, hero, card and panel must all wait for the stream");
   ok("bare clock lights nothing", !has(layPP, "const live = onAir(info);") && !has(homePP, "{onAir(info) ? (") && !has(blocksPP, "const live = onAir(info);") && !has(watchPP, "const onAirNow = onAir(info);"), "no badge may read the clock answer");
-  ok("screen shuts after an end", has(watchPP, "nextScreenShut(shut, shutPrevRef.current, guestUrl, screenAir.state") && has(livePP2, "export function nextScreenShut(") && has(livePP2, "export type ScreenShut") && has(watchPP, "screenAir.state === \"off\""), "any end must close the screen, never hand another channel over");
+  ok("screen shuts after an end", has(watchPP, "nextScreenShut(shut, shutPrevRef.current, guestUrl, screenAir.state") && has(watchPP, "const streaming = screenAir.state === \"live\" && !shutNow && (guestLive || fbLive || !!LIVE.isLive);") && has(livePP2, "export function nextScreenShut(") && has(livePP2, "export type ScreenShut") && has(watchPP, "screenAir.state === \"off\""), "any end must close the screen, never hand another channel over");
   ok("guest still clears", has(cmsPP, "healDraftGuest()") && has(cmsPP, "(draft as any).live = { ...dLive, externalYoutubeChannel: \"\" }") && has(cmsPP, "guestCleared: guestCleared || undefined") && has(edPP, "res.guestCleared"), "untouched drafts and restores must follow the clear");
   ok("drawer carries no promise text", !has(edPP, "the LIVE badge and the player wait for the stream itself") && !has(edPP, "Play and pause are one button") && !has(edPP, "the site is showing live by itself") && has(edPP, "Nothing is set to play yet"), "the promise paragraph is gone but functional — the unconfigured warning stays");
   ok("apply leads with the shut", has(applyPP, "never plays another channel's livestream by itself"), "the office must meet the closed screen first");
@@ -1853,7 +1853,7 @@ export async function runAll(fs) {
     ok("same channel restart plays", shutFn(heldPP, "", GUEST_PP, true, MAIN_PP) === null);
     ok("guest restart re-arms", shutFn(heldPP, MAIN_PP, GUEST_PP, true, GUEST_PP) === null);
     ok("other new edge re-arms", shutFn(heldPP, MAIN_PP, GUEST_PP, true, OTHER_PP) === null);
-    const setupPP2 = "var LIVEP2 = { isLive: false, liveCut: 0, liveCommandAt: 0, liveSince: 0 };\nvar DETPP = { now: false, guest: false, endedAt: 0 };\nfunction liveNow(){ return DETPP.now; }\nfunction guestLiveNow(){ return DETPP.guest; }\nfunction liveEndedAt(){ return DETPP.endedAt; }\nfunction mainLiveNow(){ return false; }\nfunction officeStopActive(){ return false; }\n";
+    const setupPP2 = "var LIVEP2 = { isLive: false, liveCut: 0, liveCommandAt: 0, liveSince: 0 };\nvar DETPP = { now: false, guest: false, endedAt: 0 };\nfunction liveNow(){ return DETPP.now; }\nfunction guestLiveNow(){ return DETPP.guest; }\nfunction liveEndedAt(){ return DETPP.endedAt; }\n";
     const tcDisp = await ebPP2.default.transform(setupPP2 + grabPP2(storePP, "streamCut").replace(/LIVE/g, "LIVEP2") + "\n" + grabPP2(storePP, "displayLive").replace(/LIVE/g, "LIVEP2") + "\nmodule.exports = { displayLive: displayLive, __set: function (l, d) { Object.assign(LIVEP2, l); Object.assign(DETPP, d); } };", { loader: "ts", format: "cjs" });
     const modDisp = { exports: {} };
     new Function("module", "exports", tcDisp.code)(modDisp, modDisp.exports);
@@ -2106,7 +2106,7 @@ export async function runAll(fs) {
   const srvBBB = text["scripts/cms-server.js"];
   const applyBBB = text["APPLY_UPDATE.txt"];
   ok("pressed slot opens its walled channel", has(watchBBB, ") : (overrideMain || overrideGuest) && overrideId ? (") && has(watchBBB, "const overrideMain = ") && has(watchBBB, "const overrideGuest = "), "main and guest share one rule: a pressed slot opens its channel while the read is walled");
-  ok("detected main plays with sound", has(watchBBB, "mainDetected") && has(watchBBB, "!officeStopped") && has(watchBBB, "autoPlay={streaming && watchable}") && has(watchBBB, "const waitingForClick = !shutNow"), "detection must autoplay with sound, no press; a published Stop still holds");
+  ok("detected main plays with sound", has(watchBBB, "(mainDetected && !officeStopped)") && has(watchBBB, "autoPlay={streaming && watchable}") && has(watchBBB, "const waitingForClick = !shutNow"), "detection must autoplay with sound, no press; a published Stop still holds");
   ok("guest press still opens walled", has(watchBBB, "const overrideGuest = ") && has(watchBBB, 'guestAir.state === "unknown"'), "a published guest Play must still open its channel");
   ok("override is this update", has(srvBBB, "OVERRIDE_NO_414 = 414"), "first boot must re-run the clear");
   ok("apply leads with detection-gated autoplay", has(applyBBB, "AUTOPLAY ONLY WHEN THE MAIN IS LIVE"), "the office must meet the detection rule first");
@@ -2140,7 +2140,7 @@ export async function runAll(fs) {
   ok("override is 414", has(srvGGG, "OVERRIDE_NO_414 = 414"), "first boot must re-run the clear");
   ok("maintenance locked per deploy", has(text["scripts/build-static.mjs"], "const DEPLOY_ID =") && has(text["scripts/build-static.mjs"], "hold: true, deployId"), "every build must hold on a fresh deploy id");
   ok("deploy id number-free", has(cmsGGG, "wom.cms.deployPublished") && has(cmsGGG, "wom-deploy") && has(srvGGG, "PUBLISH_DEPLOY"), "old or new code must look new without numbers");
-  ok("publish releases its deploy", has(cmsGGG, "deploy: bless ?") && has(srvGGG, "publishDeploy: PUBLISH_DEPLOY"), "a publish from the deploy must release it");
+  ok("publish releases its deploy", has(cmsGGG, "deploy: bless ? currentDeployId") && has(srvGGG, "publishDeploy: PUBLISH_DEPLOY"), "a publish from the deploy must release it");
   ok("fresh deploy resets slides", has(cmsGGG, "resetSlidesForNewDeploy") && has(adminGGG, "resetSlidesForNewDeploy()"), "every deploy must start the admin slides as welcome-only");
   ok("no-change publish blesses deploy", has(cmsGGG, "a no-change Publish still blesses THIS deploy"), "publish with nothing changed must still lift the notice");
   ok("live screen drops the escape link", has(watchGGG, "hideEscape") && has(blocksGGG, "!hideEscape"), "the live players must not print Can't see the video");
@@ -2187,7 +2187,7 @@ const notes = Number((text["src/lib/hooks.ts"].match(/BUILD_NOTES = (\d+)/) || [
      code can never release the fix on vscode or on deploy. */
   const codeId = (text["src/lib/hooks.ts"].match(/export const CODE_ID = "([A-Za-z0-9_-]+)"/) || [])[1] || "";
   const cmsTail = text["src/lib/cms.ts"];
-  ok("code word unnumbered", codeId !== "" && codeId === text["index.html"].match(/name="wom-code" content="([A-Za-z0-9_-]+)"/)[1], "the fix must ship with no new number");
+  ok("code word unnumbered", codeId !== "" && !/\d/.test(codeId), "the fix must ship with no new number");
   ok("entry page names the code", has(text["index.html"], `name="wom-code" content="${codeId}"`), "the pre-bundle paint must know the running code");
   ok("entry gate holds unblessed code", has(text["index.html"], "wom.cms.codeBlessed"), "a stale stamp must never skip the early notice");
   ok("gates require the blessing", cmsTail.split("codeBlessedMatches()) return false").length - 1 >= 2, "both local gates must hold until Publish blesses this code");
@@ -2214,7 +2214,7 @@ const notes = Number((text["src/lib/hooks.ts"].match(/BUILD_NOTES = (\d+)/) || [
   ok("feed adopt never churns", has(srvKKK, "adoptFeed: function (info, raw)") && has(srvKKK, "never bumps the revision"), "the stamp must stay the feed's own");
   ok("feed address is pure", has(specKKK, "export function parseFeedSpec") && has(specKKK, "export function feedSeedUrls") && has(specKKK, "export async function peekFeedSeed"), "the live box must resolve the mirror like the tabs do");
   ok("publish converges now", has(cmsKKK, "function convergeNow()") && has(cmsKKK, "if (bless) convergeNow();"), "every bless must pull all lanes at once");
-  ok("slow lanes tick fast", has(cmsKKK, "syncFromFeed().catch(() => {})"), "server-less copies must read the mirror every minute");
+  ok("slow lanes tick fast", has(cmsKKK, "syncFromFeed().catch(() => {}), 60 * 1000"), "server-less copies must read the mirror every minute");
   ok("push rides faster", has(autoKKK, "DELAY_MS = 60000"), "the words must push a minute after the last save");
   try {
     const ebKKK = await import("https://esm.sh/esbuild-wasm@0.21.5?bundle");

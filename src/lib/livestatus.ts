@@ -1601,34 +1601,14 @@ export async function verifyYoutubeId(videoId: string): Promise<boolean | null> 
            answers cross-origin — and keep oEmbed itself as the fallback, with
            the same `oembedPlayable` reading, for the networks that reach it. */
         const viaMirror = await noembedVerdict(id, ctrl ? ctrl.signal : undefined);
-        if (viaMirror === true) {
-          verifyCache.set(id, { ok: true, at: Date.now() });
-          return true;
+        if (viaMirror !== null) {
+          verifyCache.set(id, { ok: viaMirror, at: Date.now() });
+          return viaMirror;
         }
-        /* A mirror "gone" is not trusted alone (a noembed hiccup once marked a
-           live broadcast dead and parked the screen on the fallback through a
-           service): confirm with oEmbed before declaring dead. A second "gone"
-           is dead; anything else is unknown and plays anyway with the player
-           itself as the net. */
-        try {
-          const res = await fetch(oembedUrl(id), { cache: "no-store", signal: ctrl ? ctrl.signal : undefined });
-          const verdict = oembedPlayable(res.status);
-          if (viaMirror === false && verdict === false) {
-            verifyCache.set(id, { ok: false, at: Date.now() });
-            return false;
-          }
-          if (verdict !== null) {
-            verifyCache.set(id, { ok: verdict, at: Date.now() });
-            return verdict;
-          }
-        } catch {
-          /* oEmbed unreachable — fall through to the mirror below */
-        }
-        if (viaMirror === false) {
-          verifyCache.set(id, { ok: false, at: Date.now() });
-          return false;
-        }
-        return null;
+        const res = await fetch(oembedUrl(id), { cache: "no-store", signal: ctrl ? ctrl.signal : undefined });
+        const verdict = oembedPlayable(res.status);
+        if (verdict !== null) verifyCache.set(id, { ok: verdict, at: Date.now() });
+        return verdict;
       } finally {
         if (timer) window.clearTimeout(timer);
       }
