@@ -21,6 +21,7 @@ import {
 import { PageHead } from "../components/layout";
 import { SearchBox, eventDate } from "../components/blocks";
 import { fireToast, useNow } from "../lib/hooks";
+import { parseYoutubeId } from "../lib/embed";
 import { readLiveStatus, recheckLiveNow, checkLiveStream, guestTarget, isGuestTargetUrl, useLiveStream, liveTarget, isStatusForTarget, clearGuestOnStop, forgetVerified, forgetAllVerified } from "../lib/livestatus";
 import { SITE, SERVICES, img } from "../data/site";
 import { recentLimit } from "../data/live";
@@ -910,6 +911,23 @@ export function LiveTransportButtons() {
         if (s && s.state === "live" && s.videoId && mainUrl && isStatusForTarget(s, mainUrl)) {
           const latest = cms.getDraft().live || {};
           cms.setSectionValue("live", { ...latest, liveVideoId: s.videoId, liveVideoTitle: s.title || (latest as any).liveTitle || "", liveVideoChannelId: s.channelId || (latest as any).liveVideoChannelId || "", liveVideoAt: Date.now() });
+          return;
+        }
+      } catch {}
+      /* No confirmed broadcast yet (walled read, stream not yet up, office a
+         step ahead of YouTube): stamp the office's own stream link instead so
+         Publish still carries a playable video at once (v10 — before this,
+         Play+Publish with no confirmed detection stamped NOTHING, and every
+         visitor fell back to the slow bot-walled scrape: the clock that took
+         too long and still never opened). The background refine below
+         replaces it with the detected broadcast id when the read lands. */
+      try {
+        const latest = cms.getDraft().live || {};
+        if (!String((latest as any).liveVideoId || "").trim()) {
+          const linkId = parseYoutubeId(String((latest as any).youtubeId || ""));
+          if (linkId) {
+            cms.setSectionValue("live", { ...latest, liveVideoId: linkId, liveVideoTitle: (latest as any).liveTitle || "", liveVideoChannelId: "", liveVideoAt: Date.now() });
+          }
         }
       } catch {}
     };
