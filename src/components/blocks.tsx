@@ -770,9 +770,11 @@ export function VideoPlayer({
         if (cancelled || !api || !api.Player) return;
         if (apiHostRef.current !== host) return;
         try {
+          let apiOrigin = "";
+          try { const w = (window as any); apiOrigin = w && w.location && w.location.origin ? String(w.location.origin) : ""; } catch { apiOrigin = ""; }
           player = new api.Player(host, {
             videoId: vid,
-            playerVars: { autoplay: 1, rel: 0, modestbranding: 1, playsinline: 1 },
+            playerVars: { autoplay: 1, rel: 0, modestbranding: 1, playsinline: 1, ...(apiOrigin ? { origin: apiOrigin } : {}) },
             events: {
               onReady: () => {
                 settled = true;

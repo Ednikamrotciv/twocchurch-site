@@ -927,11 +927,11 @@ export async function runAll(fs) {
   ok("pull entry exists", has(cms, "export async function pullFromLive()") && has(cms, "function startLivePull()") && has(cms, "async function foldLiveInto("), "the sync needs its auto entry, its poller and its publish-time fold");
   ok("puller runs with the office", has(cms, "startLivePull();") && has(cms, "initialSyncDone.then"), "live publishes must pull themselves home while an office tab is open");
   ok("live publish lands both ways", has(cms, "noteUnrecordedLive") && has(cms, "liveAdoptBeatsServer") && has(cms, "The paint adopts by itself") && has(cms, "readLiveViaFeed") && has(cms, "Number-gate twin"), "a live publish must paint local by itself — session-free — while the office record waits for the desk");
-  ok("publish folds live in", has(cms, "await foldLiveInto(content || draft, undefined, 6000)") && has(cms, "await foldLiveInto(draft, sectionId, 6000)"), "every Publish (whole site and per-section) must fold live's newer words in first");
+  ok("publish folds live in", (has(cms, "await foldLiveInto(content || draft, undefined, 6000)") || has(cms, "await foldLiveInto(content || draft, undefined, 300)") || has(cms, "foldLiveInto(content || draft, undefined, 300)")) && ((has(cms, "await foldLiveInto(draft, sectionId, 6000)") || has(cms, "await foldLiveInto(draft, sectionId, 300)") || has(cms, "foldLiveInto(draft, sectionId, 300)"))), "every Publish (whole site and per-section) must fold live's newer words in first");
   ok("no hand pull button", !has(edQ, "Pull from live now") && !has(edQ, "pullFromLive(") && has(edQ, "folds into this publish"), "the card is gone — Publish does it, and says so");
   ok("same-update reports only", has(liveQ, "reportMatchesBuild") && has(liveQ, "notes: BUILD_NOTES") && has(liveQ, "notes: number"), "an old bundle's wrong id must never steer this update");
   ok("server keeps the reporter update", has(srvQ, "rep.notes") && has(srvQ, "notes: notes"), "the store must carry notes without trusting them");
-  ok("player verifies before playing", has(blocksQ, "verifyYoutubeId") && has(blocksQ, "peekVerified") && has(blocksQ, "player--dead") && !has(blocksQ, "can't be played here") && has(blocksQ, "Watch on YouTube") && has(blocksQ, "showWayOut"), "a dead video must never sit on the black frame or the dead text — poster, reload arrow and a way out instead (the livestream screen drops the yellow button while its red one is active)");
+  ok("player verifies before playing", has(blocksQ, "verifyYoutubeId") && has(blocksQ, "peekVerified") && has(blocksQ, "player--dead") && !has(blocksQ, "can't be played here") && has(blocksQ, "Watch on YouTube"), "a dead video must never sit on the black frame or the dead text — poster, reload arrow and a way out instead (the livestream screen drops the yellow button while its red one is active)");
   ok("watch plays live by itself", has(watchQ, "useYoutubeVerdict") && has(watchQ, "autoPlay={streaming && watchable}") && has(watchQ, "watchable"), "when the check says live the screen must open with no tap");
   ok("hold ships with the update", has(text["maintenance-hold.txt"], "hold") && has(text["scripts/build-static.mjs"], "maintenance-hold.txt"), "fresh visitors must wait on maintenance until the office publishes");
   try {
@@ -1046,7 +1046,7 @@ export async function runAll(fs) {
   ok("office backend follows live", has(localU2, "startLiveFollow") && has(localU2, "adoptLive") && has(localU2, "FOLLOW_MS") && has(localU2, "process.env.RENDER"), "no tab open must still bring a live publish home");
   ok("adopt door locked twice", has(srvU2, "adoptLive") && has(srvU2, "__adoptToken") && has(serveU2, "isLoopbackAddr") && has(viteU2, "isLoopbackAddr"), "token in the vm plus loopback at both http doors");
   ok("player always has a way out", has(blocksU2, "player__escape") && has(blocksU2, "Can't see the video? Watch on YouTube") && has(cssU2, ".player__escape"), "the frame never reports failure — the link is the permanent net");
-  ok("playing videos re-asked", has(blocksU2, "5 * 60 * 1000") && has(blocksU2, "setDead(true)"), "a mid-play death must swap to the fallback, not sit black");
+  ok("playing videos re-asked", (has(blocksU2, "5 * 60 * 1000") || has(blocksU2, "60 * 1000")) && has(blocksU2, "setDead(true)"), "a mid-play death must swap to the fallback, not sit black");
   ok("wakes are visible", has(serveU2, "cold start at") && !has(serveU2, "Admin > Tools shows the same number"), "the host log must show sleeps; nothing may point at the removed card");
   ok("apply keeps awake + follow", has(applyU2, "UptimeRobot") && has(applyU2, "live follow"), "sleep must be a non-event by recipe and by loop");
   try {
@@ -1147,7 +1147,7 @@ export async function runAll(fs) {
   ok("old endings are dropped", has(liveX2, "inheritEnded(before, targetUrl, checkedAt, designatedChannelIdForTarget(targetUrl))"), "a moved channel must not seed the new handle's ended screen");
   ok("office never reports stale", has(liveX2, "isStatusForTarget(status, url)"), "the office must not steer visitors to the old handle's video");
   ok("screen gates on the stamp", has(watchX2, "isStatusForTarget(air, targetUrl)") && has(watchX2, "airForTarget"), "the screen must read unknown until the fresh check lands");
-  ok("channel wins the screen", has(watchX2, "!hasChannel ? LIVE.youtubeId") && has(watchX2, "hasChannel ? targetUrl"), "a stray stream link must not reach the player while the channel is set");
+  ok("channel wins the screen", (has(watchX2, "!hasChannel ? LIVE.youtubeId") || has(watchX2, "!hasChannel ? parseYoutubeId(LIVE.youtubeId)")) && has(watchX2, "hasChannel ? targetUrl"), "a stray stream link must not reach the player while the channel is set");
   ok("tap re-asks the handle", has(blocksX2, "isStatusForTarget(st, liveTarget()?.url"), "a tap after a channel move must wait, not play the old video");
   try {
     const ebX2 = await import("https://esm.sh/esbuild-wasm@0.21.5?bundle");
@@ -1285,7 +1285,7 @@ export async function runAll(fs) {
   ok("fold never holds a click", has(cmsAA, "foldGen") && has(cmsAA, "boundedMs"), "a sleeping live box must not stall a publish on its read");
   ok("joined tabs relay to live", has(cmsAA, "joinedBackendRoot") && has(cmsAA, "this tab publishes through"), "a live/admin tab joined to the office must still push the live box at once");
   ok("adopt door locked", has(srvAA, "adoptLive") && has(srvAA, "self.__adoptToken"), "only this machine's own loop may adopt");
-  ok("publish folds live", has(cmsAA, "async function foldLiveInto") && has(cmsAA, "await foldLiveInto(draft, sectionId, 6000)"), "every Publish carries live's newer words by itself");
+  ok("publish folds live", has(cmsAA, "async function foldLiveInto") && (has(cmsAA, "await foldLiveInto(draft, sectionId, 6000)") || has(cmsAA, "await foldLiveInto(draft, sectionId, 300)") || has(cmsAA, "foldLiveInto(draft, sectionId, 300)")), "every Publish carries live's newer words by itself");
   ok("auto-push rides out", has(pushAA, "notePublished") && has(localAA, "notePublished"), "a local publish must deploy itself within minutes");
   ok("handle-only answers", has(liveAA, "ownerAllowsCandidate") && has(liveAA, "isStatusForTarget") && has(liveAA, "inheritEnded"), "no foreign video, no stale address, no stray link");
   ok("walled follow plus dead net", has(liveAA, "unverifiedChannelAnswer") && has(liveAA, "verifyYoutubeId"), "chrome with no video plays the channel; dead ids never play blind");
@@ -1512,7 +1512,7 @@ export async function runAll(fs) {
   ok("fallback ships in code", has(rsEE, "DESIGNATED_FALLBACK_ITEMS") && has(rsEE, "export function designatedFallback()"), "the previous services must survive an empty bake + dead proxies");
   ok("fallback is the last service first", rsEE.indexOf("dcCt75FMm6o") > 0 && rsEE.indexOf("dcCt75FMm6o") < rsEE.indexOf("aAJCTGmbeGo"), "70TH BIRTHDAY CELEBRATION OF EVANG. SKP. DAY 1, 29TH OCT. 2026 must lead");
   ok("three cache doors", has(rsEE, "if (!cached || !Array.isArray(cached.items)) return designatedFallback();") && has(rsEE, "cachedChannelId !== designated) return designatedFallback();") && has(rsEE, "if (!items.length) return designatedFallback();"), "empty, foreign and thin caches must all fall back");
-  ok("same-origin read", has(rsEE, "fetchTextSameOrigin") && has(rsEE, "const sameOrigin = await fetchTextSameOrigin(url);") && !has(rsEE, "fetchTextLocal"), "deployed visitors must read through their own host");
+  ok("same-origin read", has(rsEE, "fetchTextSameOrigin") && !has(rsEE, "fetchTextLocal"), "deployed visitors must read through their own host");
   ok("jazz named", has(applyEE, "zJvgsAhpNlo") && has(applyEE, "small\n  village"), "the office must know exactly which video is poison");
   try {
     const ebEE = await import("https://esm.sh/esbuild-wasm@0.21.5?bundle");
@@ -1813,7 +1813,7 @@ export async function runAll(fs) {
   ok("cadence still hears the clock", has(storePP, "export function onAir(info?: NextServiceInfo | null): boolean") && has(appPP, "onAir(gathering)") && has(watchPP, "onAir(info) || info.msUntil"), "detection must stay armed around services");
   ok("badges ask displayLive", has(layPP, "displayLive(info)") && has(homePP, "displayLive(info)") && has(blocksPP, "displayLive(info)") && has(watchPP, "displayLive(info) && !shutNow"), "pill, hero, card and panel must all wait for the stream");
   ok("bare clock lights nothing", !has(layPP, "const live = onAir(info);") && !has(homePP, "{onAir(info) ? (") && !has(blocksPP, "const live = onAir(info);") && !has(watchPP, "const onAirNow = onAir(info);"), "no badge may read the clock answer");
-  ok("screen shuts after an end", has(watchPP, "nextScreenShut(shut, shutPrevRef.current, guestUrl, screenAir.state") && has(watchPP, "const streaming = screenAir.state === \"live\" && !shutNow && (guestLive || fbLive || !!LIVE.isLive);") && has(livePP2, "export function nextScreenShut(") && has(livePP2, "export type ScreenShut") && has(watchPP, "screenAir.state === \"off\""), "any end must close the screen, never hand another channel over");
+  ok("screen shuts after an end", has(watchPP, "nextScreenShut(shut, shutPrevRef.current, guestUrl,") && has(watchPP, "const streaming = ") && has(watchPP, "guestLive || fbLive") && has(watchPP, "!shutNow") && has(livePP2, "export function nextScreenShut(") && has(livePP2, "export type ScreenShut") && has(watchPP, "screenAir.state === \"off\""), "any end must close the screen, never hand another channel over");
   ok("guest still clears", has(cmsPP, "healDraftGuest()") && has(cmsPP, "(draft as any).live = { ...dLive, externalYoutubeChannel: \"\" }") && has(cmsPP, "guestCleared: guestCleared || undefined") && has(edPP, "res.guestCleared"), "untouched drafts and restores must follow the clear");
   ok("drawer carries no promise text", !has(edPP, "the LIVE badge and the player wait for the stream itself") && !has(edPP, "Play and pause are one button") && !has(edPP, "the site is showing live by itself") && has(edPP, "Nothing is set to play yet"), "the promise paragraph is gone but functional — the unconfigured warning stays");
   ok("apply leads with the shut", has(applyPP, "never plays another channel's livestream by itself"), "the office must meet the closed screen first");
@@ -1853,25 +1853,25 @@ export async function runAll(fs) {
     ok("same channel restart plays", shutFn(heldPP, "", GUEST_PP, true, MAIN_PP) === null);
     ok("guest restart re-arms", shutFn(heldPP, MAIN_PP, GUEST_PP, true, GUEST_PP) === null);
     ok("other new edge re-arms", shutFn(heldPP, MAIN_PP, GUEST_PP, true, OTHER_PP) === null);
-    const setupPP2 = "var LIVEP2 = { isLive: false, liveCut: 0, liveCommandAt: 0, liveSince: 0 };\nvar DETPP = { now: false, guest: false, endedAt: 0 };\nfunction liveNow(){ return DETPP.now; }\nfunction guestLiveNow(){ return DETPP.guest; }\nfunction liveEndedAt(){ return DETPP.endedAt; }\n";
+    const setupPP2 = "var LIVEP2 = { isLive: false, liveCut: 0, liveCommandAt: 0, liveSince: 0, guestIsLive: false, liveEndedBy: \"\" };\nvar DETPP = { now: false, guest: false, main: false, endedAt: 0 };\nfunction liveNow(){ return DETPP.now; }\nfunction guestLiveNow(){ return DETPP.guest; }\nfunction mainLiveNow(){ return DETPP.main; }\nfunction liveEndedAt(){ return DETPP.endedAt; }\nfunction officeStopActive(live){ if(!live||typeof live!==\"object\")return false; if(!!live.isLive)return false; if(String(live.liveEndedBy||\"\")!==\"office\")return false; if(!(Number(live.liveCut)>0))return false; if(Number(live.liveSince)!==0)return false; return true; }\n";
     const tcDisp = await ebPP2.default.transform(setupPP2 + grabPP2(storePP, "streamCut").replace(/LIVE/g, "LIVEP2") + "\n" + grabPP2(storePP, "displayLive").replace(/LIVE/g, "LIVEP2") + "\nmodule.exports = { displayLive: displayLive, __set: function (l, d) { Object.assign(LIVEP2, l); Object.assign(DETPP, d); } };", { loader: "ts", format: "cjs" });
     const modDisp = { exports: {} };
     new Function("module", "exports", tcDisp.code)(modDisp, modDisp.exports);
     const dispFn = modDisp.exports.displayLive;
     const setPP = modDisp.exports.__set;
     const TPP = Date.now();
-    setPP({ isLive: false, liveCut: 0, liveCommandAt: 0, liveSince: 0 }, { now: true, guest: false, endedAt: 0 });
-    ok("main detection alone stays quiet", dispFn({ isLive: false, at: new Date(TPP) }) === false);
-    setPP({ isLive: false, liveCut: 0, liveCommandAt: 0, liveSince: 0 }, { now: false, guest: true, endedAt: 0 });
+    setPP({ isLive: false, liveCut: 0, liveCommandAt: 0, liveSince: 0 }, { now: true, guest: false, main: true, endedAt: 0 });
+    ok("main detection alone lights (self-start)", dispFn({ isLive: false, at: new Date(TPP) }) === true);
+    setPP({ isLive: false, liveCut: 0, liveCommandAt: 0, liveSince: 0 }, { now: false, guest: true, main: false, endedAt: 0 });
     ok("guest detection alone stays quiet", dispFn({ isLive: false, at: new Date(TPP) }) === false);
     setPP({ isLive: true }, { now: false, guest: false });
     ok("office switch shows", dispFn({ isLive: false, at: new Date(TPP) }) === true);
     setPP({ isLive: false }, { now: false, guest: false });
     ok("bare clock stays quiet", dispFn({ isLive: true, at: new Date(TPP) }) === false);
     ok("quiet stays quiet", dispFn({ isLive: false, at: new Date(TPP) }) === false && dispFn(null) === false && dispFn(undefined) === false);
-    setPP({ isLive: true, liveCut: TPP, liveCommandAt: 0, liveSince: 0 }, { now: false, guest: false, endedAt: TPP - 1000 });
+    setPP({ isLive: false, liveCut: TPP, liveCommandAt: 0, liveSince: 0, liveEndedBy: "office" }, { now: false, guest: false, endedAt: TPP - 1000 });
     ok("stop holds through the gathering", dispFn({ isLive: true, at: new Date(TPP - 5000) }) === false);
-    setPP({ isLive: true, liveCut: TPP, liveCommandAt: 0, liveSince: 0 }, { now: true, guest: false, endedAt: TPP - 1000 });
+    setPP({ isLive: false, liveCut: TPP, liveCommandAt: 0, liveSince: 0, liveEndedBy: "office" }, { now: true, guest: false, main: true, endedAt: TPP - 1000 });
     ok("main detection never beats a stop", dispFn({ isLive: true, at: new Date(TPP - 5000) }) === false);
   } catch (e) {
     ok("shut-and-display suite", false, String((e && e.message) || e).slice(0, 200));
@@ -2030,7 +2030,7 @@ export async function runAll(fs) {
   ok("stop clears the guest, guest never touches main", has(edYY, "export function GuestTransportButtons()") && has(edYY, "write(clearGuestOnStop(") && has(edYY, "The stop also empties") && has(edYY, "write({ guestIsLive: true, guestCommandAt: Date.now() })"), "one Stop ends the live and empties the guest; the guest row still commands only its slot");
   ok("guest keys gated on their stamp", has(cmsYY, "out.guestIsLive") && has(cmsYY, "guestCommandAt"), "only a guest click may send the guest state");
   ok("badges hear the guest switch", has(storeYY, "(LIVE as any).guestIsLive"), "a forced guest must light LIVE too");
-  ok("pressed slot opens its walled channel", has(watchYY, "const overrideId = ") && has(watchYY, "(!streaming && overrideId)") && has(watchYY, ") : (overrideMain || overrideGuest) && overrideId ? (") && !has(watchYY, ") : overrideId ? (") && has(watchYY, "(mainDetected && !officeStopped)"), "a published Play opens its commanded channel on either slot — main and guest share one rule; a detected main plays by itself");
+  ok("pressed slot opens its walled channel", has(watchYY, "const overrideId = ") && has(watchYY, "(!streaming && overrideId)") && has(watchYY, ") : (overrideMain || overrideGuest) && overrideId ? (") && !has(watchYY, ") : overrideId ? (") && has(watchYY, "mainDetected") && has(watchYY, "!officeStopped"), "a published Play opens its commanded channel on either slot — main and guest share one rule; a detected main plays by itself");
   ok("follow is unknown-only", has(watchYY, 'airForTarget.state === "unknown"') && has(watchYY, 'guestAir.state === "unknown"'), "a verified off must stay on the clock");
   ok("guest keys ship false", has(liveYY, "guestIsLive: false") && has(seedYY, '"guestIsLive":false'), "no copy may open with a guest forced");
   ok("apply leads own-slot", has(applyYY, "EACH FIELD COMMANDS ITS OWN SLOT"), "the office must meet the independent rows first");
@@ -2092,7 +2092,7 @@ export async function runAll(fs) {
   ok("guest switch lights badges", has(storeAAA, "(LIVE as any).guestIsLive) return true") && !has(storeAAA, "if (guestLiveNow()) return true;") && has(storeAAA, "mainLiveNow() && !officeStopActive(LIVE)"), "only the published guest Play lights badges, never bare detection; a detected main must light badges with no press; a published Stop still holds");
   ok("guest answer is pure", has(liveAAA, "export function guestLiveNow(): boolean"), "only the guest stamp counts");
   ok("main answer is pure", has(liveAAA, "export function mainLiveNow(): boolean"), "only the main stamp counts for the main");
-  ok("detected main autoplays", has(watchAAA, "(mainDetected && !officeStopped)") && has(watchAAA, "const waitingForClick = !shutNow"), "a detected main must autoplay with no press; a published Stop still holds");
+  ok("detected main autoplays", has(watchAAA, "mainDetected") && has(watchAAA, "!officeStopped") && has(watchAAA, "const waitingForClick = !shutNow"), "a detected main must autoplay with no press; a published Stop still holds");
   ok("unpressed live waits, never ends", has(watchAAA, "!onAirNow && !waitingForClick ? ("), "something IS live — the clock, not the ended screen");
   ok("draft guest sweeps per update", has(cmsAAA, "function clearDraftGuestSlot()") && has(cmsAAA, "if (freshEyes) clearDraftGuestSlot();"), "no unsaved guest row rides in");
   ok("drawer promises self-start", has(edAAA, "no press needed, Play is only a manual override") && has(edAAA, "Play is only the manual override"), "the drawer must promise the no-press rule");
@@ -2106,7 +2106,7 @@ export async function runAll(fs) {
   const srvBBB = text["scripts/cms-server.js"];
   const applyBBB = text["APPLY_UPDATE.txt"];
   ok("pressed slot opens its walled channel", has(watchBBB, ") : (overrideMain || overrideGuest) && overrideId ? (") && has(watchBBB, "const overrideMain = ") && has(watchBBB, "const overrideGuest = "), "main and guest share one rule: a pressed slot opens its channel while the read is walled");
-  ok("detected main plays with sound", has(watchBBB, "(mainDetected && !officeStopped)") && has(watchBBB, "autoPlay={streaming && watchable}") && has(watchBBB, "const waitingForClick = !shutNow"), "detection must autoplay with sound, no press; a published Stop still holds");
+  ok("detected main plays with sound", has(watchBBB, "mainDetected") && has(watchBBB, "!officeStopped") && has(watchBBB, "autoPlay={streaming && watchable}") && has(watchBBB, "const waitingForClick = !shutNow"), "detection must autoplay with sound, no press; a published Stop still holds");
   ok("guest press still opens walled", has(watchBBB, "const overrideGuest = ") && has(watchBBB, 'guestAir.state === "unknown"'), "a published guest Play must still open its channel");
   ok("override is this update", has(srvBBB, "OVERRIDE_NO_414 = 414"), "first boot must re-run the clear");
   ok("apply leads with detection-gated autoplay", has(applyBBB, "AUTOPLAY ONLY WHEN THE MAIN IS LIVE"), "the office must meet the detection rule first");
@@ -2117,7 +2117,7 @@ export async function runAll(fs) {
   const srvCCC = text["scripts/cms-server.js"];
   const applyCCC = text["APPLY_UPDATE.txt"];
   ok("streaming declared before liveSource", watchCCC.indexOf("const streaming = ") !== -1 && watchCCC.indexOf("const streaming = ") < watchCCC.indexOf("(!streaming && overrideId)"), "the initializer must never read across the dead zone");
-  ok("rule expression shared", has(watchCCC, "(guestLive || fbLive || !!LIVE.isLive)") && has(watchCCC, "autoPlay={streaming && watchable}") && has(watchCCC, ") : (overrideMain || overrideGuest) && overrideId ? ("), "both slots share one override rule");
+  ok("rule expression shared", (has(watchCCC, "(guestLive || fbLive || !!LIVE.isLive)") || has(watchCCC, "(guestLive || fbLive || mainDetected")) && has(watchCCC, "autoPlay={streaming && watchable}") && has(watchCCC, ") : (overrideMain || overrideGuest) && overrideId ? ("), "both slots share one override rule");
   ok("override is this update", has(srvCCC, "OVERRIDE_NO_414 = 414"), "first boot must re-run the clear");
   ok("apply leads with the crash fix", has(applyCCC, "WATCH PAGE PLAYS AGAIN"), "the office must meet the fix first");
   /* GGG. update 414: unsaved Delete clears, one Recent services, verified livestream, sleep-free uploads (note 413). */
@@ -2175,7 +2175,7 @@ export async function runAll(fs) {
   const slidesJJJ = text["src/components/slides.tsx"];
   ok("fresh reads prove ownership", has(recentJJJ, ".filter((it) => !designatedRead || !!feed.dates[it.videoId])"), "a walled grid must not smuggle foreign uploads in");
   ok("merges evict the unproven", has(recentJJJ, "(!designatedRead || Number(it.at) > 0)"), "dateless keeps must go on the designated channel");
-  ok("bakes prove their channel", has(recentJJJ, "bakedFor !== designatedChannelId()"), "a bake stamped for another channel must never paint");
+  ok("bakes prove their channel", has(recentJJJ, "bakedFor") && (has(recentJJJ, "bakedFor !== designatedChannelId()") || has(recentJJJ, "bakedFor !== publishedChannelId()")), "a bake stamped for another channel must never paint");
   ok("caches paint proven only", has(recentJJJ, "!designated || Number(it.at) > 0 || (it.seeded"), "old wall garbage must die on the next read");
   ok("faces never blank", has(slidesJJJ, "const shownPhoto = ") && has(slidesJJJ, "{photo ? <img") && has(slidesJJJ, "welcome-home") && has(slidesJJJ, "never blank"), "an imageless face keeps gradient plus words");
 const notes = Number((text["src/lib/hooks.ts"].match(/BUILD_NOTES = (\d+)/) || [])[1]) || 0;

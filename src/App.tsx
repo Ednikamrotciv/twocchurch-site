@@ -110,7 +110,7 @@ export function App() {
     };
     const poll = window.setInterval(() => {
       void checkStaleBuild().catch(() => {});
-    }, 15_000);
+    }, 30_000);
     document.addEventListener("visibilitychange", onVis);
     window.addEventListener("online", onOnline);
     startVisitorClock();
