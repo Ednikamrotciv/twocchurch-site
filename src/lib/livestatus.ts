@@ -402,6 +402,24 @@ export function officeStopActive(live: any): boolean {
   return true;
 }
 
+/** Fresh office intent (v11), for the screen: the office pressed Play on a
+    slot and published it recently — a new live edge even for the SAME
+    address. The shut latch below must not swallow it: without this, a Play
+    pressed after an earlier ended broadcast never reopened the screen (same
+    target ⇒ no new-target lift), and visitors sat on the ticking clock
+    through a published Play. Mirrors the stamp's 12h window — a forgotten
+    Stop older than that never re-arms anything. Reads the published words
+    (LIVE), so visitors see it with no office tab open. */
+export function officePressFresh(): boolean {
+  try {
+    const live = LIVE as any;
+    const now = Date.now();
+    if (!!live.isLive && Number(live.liveCommandAt) > 0 && now - Number(live.liveCommandAt) < STAMP_MAX_AGE_MS) return true;
+    if (!!live.guestIsLive && Number(live.guestCommandAt) > 0 && now - Number(live.guestCommandAt) < STAMP_MAX_AGE_MS) return true;
+  } catch {}
+  return false;
+}
+
 /** Publish clears the guest with the stop (note 414), pure for the
     verifier: a stamped main stop empties the temporary slot in the same
     stroke, so no guest address — and no guest unsaved row — rides to the site

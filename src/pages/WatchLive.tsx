@@ -9,7 +9,7 @@ import { sermonsNewestFirst, sermonSource, sermonThumb } from "../data/sermons";
 import { useLocalState, useNow, fireToast } from "../lib/hooks";
 import { KEYS, nextService, onAir, displayLive, to12h, DAY_NAMES, countdownParts, addToCalendar, mailto, clockHere, tidyCount, churchTimezone, visitorPlace, fmtDate, downloadText, serviceNoteKey, type NextServiceInfo } from "../lib/store";
 import { isFacebookVideoUrl, parseYoutubeId, platformLabel, watchUrl, youtubeThumb, type VideoPlatform, type VideoSource } from "../lib/embed";
-import { useLiveStream, liveTarget, guestTarget, isGuestTargetUrl, facebookTarget, useYoutubeVerdict, isStatusForTarget, designatedChannelIdForTarget, isDesignatedChannel, nextScreenShut, officeStopActive, recheckLiveNow, forgetAllVerified, type ScreenShut } from "../lib/livestatus";
+import { useLiveStream, liveTarget, guestTarget, isGuestTargetUrl, facebookTarget, useYoutubeVerdict, isStatusForTarget, designatedChannelIdForTarget, isDesignatedChannel, nextScreenShut, officeStopActive, officePressFresh, recheckLiveNow, forgetAllVerified, type ScreenShut } from "../lib/livestatus";
 import { useLibrary } from "../lib/collections";
 import { useRecentServices, designatedFallback } from "../lib/recentstreams";
 import { Badge, Btn, Icon, IconBtn, Modal, Notice, Reveal, Rich, Section, SectionHeading, Textarea } from "../components/ui";
@@ -143,8 +143,13 @@ export function WatchLive() {
     if (shutNext !== shut) setShut(shutNext);
   });
   /* Fresh offs never shut (flap grace above): the latch only lands once the
-     broadcast has been quiet past the grace window, or the office stopped it. */
-  const shutNow = offFresh ? null : shutNext;
+     broadcast has been quiet past the grace window, or the office stopped it.
+     A fresh office Play lifts it outright (v11): pressing Play is a new live
+     edge for the SAME address, so a Play after an earlier ended broadcast
+     re-arms the screen instead of sitting on the clock through a published
+     Play. A forgotten Stop (>12h) never re-arms. */
+  const pressFresh = officePressFresh();
+  const shutNow = (offFresh || pressFresh) ? null : shutNext;
   /* Straight stop rule (note 414): the office pressed Stop and published it —
      the live is off, so the screen never sits on the ticking clock. It shows
      the main channel's previous livestream thumbnail instead (the cover chain
@@ -162,6 +167,30 @@ export function WatchLive() {
      autoplay — anything else waits. A live guest's own channel follows the
      same way (note 380): one tap, never autoplay. */
   const detectedChannel = screenAir.state === "live" && !screenAir.videoId && !!screenAir.channelId && (guestLive ? isGuestTargetUrl(screenAir.target, guestUrl) : (!designatedId || screenAir.channelId === designatedId)) ? screenAir.channelId : "";
+  /* One-tap way in (v11): detection can miss a real broadcast entirely (bot
+     wall, no API key, office never pressed Play) — and a bare ticking clock
+     is a dead end. So the waiting screen offers the channel itself: one tap,
+     in-gesture (sound allowed), opening the channel's live embed. A live
+     channel plays at once; a truly-offline one shows YouTube's own offline
+     card instead of our clock — honest either way. Strict like the follow
+     above: the designated owner first, else the page-named owner — and never
+     while the office has stopped the stream. The guest slot taps its own
+     channel while IT is the pressed address. */
+  const guestTapChannelId = guestUrl ? (designatedChannelIdForTarget(guestUrl) || (isGuestTargetUrl(guestAir.target, guestUrl) ? guestAir.channelId : "")) : "";
+  const mainTapChannelId = designatedId || airForTarget.channelId || "";
+  const tapGuest = !!guestUrl && (!!((LIVE as any).guestIsLive) || guestLive);
+  const tapChannelId = !officeStopped ? (tapGuest ? guestTapChannelId : mainTapChannelId) : "";
+  const tapPlay: VideoSource | null = tapChannelId ? { platform: "youtube", youtubeId: "", youtubeChannelId: tapChannelId } : null;
+  /* Declared here (note 412): the initializer below reads it, so it must not
+     sit below a later declaration — the watch-URL fallback lives beside it. */
+  const tapWatchUrl = (tapGuest ? guestUrl : targetUrl) || "";
+  const [tapOpen, setTapOpen] = useState(false);
+  /* A settled answer takes the screen back: once the check lands live the
+     autoplay player above owns the frame; once it lands ended the ended
+     screen does — the tap frame never lingers past its moment. */
+  useEffect(() => {
+    if (screenAir.state === "live" || screenAir.state === "off") setTapOpen(false);
+  }, [screenAir.state]);
   /* Dead-video gate (note 333): a named id that YouTube says is gone never
      autoplays into the black "unavailable" frame — and the unverified channel
      follow below is always one tap, never autoplay. Unknown (offline, probe
@@ -539,8 +568,43 @@ export function WatchLive() {
                 {/* Note 413: duplicate Recent services removed — see #recent-services below. */}
                 </>
               ) : configured ? (
-                /* Service on, stream not open yet: last still under the ticking clock (note 133). */
-                <LiveWaiting cover={cover} />
+                /* Service on, stream not open yet (note 133): last still under
+                   the ticking clock — plus a one-tap way in (v11). Detection
+                   can miss a real broadcast entirely, and a bare clock is a
+                   dead end, so the visitor opens the channel's live embed
+                   themselves: one tap, in-gesture, sound allowed. */
+                tapOpen && tapPlay ? (
+                  <VideoPlayer
+                    hideEscape
+                    source={tapPlay}
+                    title={liveName || ct("auto.live.bc108377bb47f9e6")}
+                    poster={cover}
+                    compact
+                    live
+                    autoPlay
+                    reloadSignal={reloadSignal}
+                  />
+                ) : (
+                  <LiveWaiting
+                    cover={cover}
+                    action={
+                      officeStopped ? undefined : (
+                        <div className="btn-row center">
+                          {tapPlay && (
+                            <Btn size="sm" variant="crimson" icon="play" onClick={() => setTapOpen(true)}>
+                              Watch live now
+                            </Btn>
+                          )}
+                          {tapWatchUrl && (
+                            <Btn size="sm" variant="ghost" href={tapWatchUrl} icon="youtube" iconRight="external">
+                              Watch on YouTube
+                            </Btn>
+                          )}
+                        </div>
+                      )
+                    }
+                  />
+                )
               ) : latest ? (
                 /* On air but pointed at nothing: play the most recent message. */
                 <>
