@@ -31,19 +31,13 @@ export function parseYoutubeId(input: string): string {
   const value = String(input || "").trim();
   if (!value) return "";
   if (/^[\w-]{11}$/.test(value)) return value;
-  /* Trailing boundary (?![\w-]): without it a 12+ char token donates its
-     first 11 chars and the player mounts a "video unavailable" frame. The
-     attribution pattern covers YouTube's share-redirect links. */
   const patterns = [
-    /[?&]v=([\w-]{11})(?![\w-])/,
-    /youtu\.be\/([\w-]{11})(?![\w-])/,
-    /youtube\.com\/live\/([\w-]{11})(?![\w-])/,
-    /youtube\.com\/embed\/([\w-]{11})(?![\w-])/,
-    /youtube\.com\/shorts\/([\w-]{11})(?![\w-])/,
-    /youtube\.com\/watch\/([\w-]{11})(?![\w-])/,
-    /youtube\.com\/v\/([\w-]{11})(?![\w-])/,
-    /[?&]u=%2Fwatch%3Fv%3D([\w-]{11})(?![\w-])/i,
-    /[?&]u=\/watch\?v=([\w-]{11})(?![\w-])/,
+    /[?&]v=([\w-]{11})/,
+    /youtu\.be\/([\w-]{11})/,
+    /youtube\.com\/live\/([\w-]{11})/,
+    /youtube\.com\/embed\/([\w-]{11})/,
+    /youtube\.com\/shorts\/([\w-]{11})/,
+    /youtube\.com\/watch\/([\w-]{11})/,
   ];
   for (const re of patterns) {
     const m = re.exec(value);
@@ -212,38 +206,4 @@ export function platformLabel(platform?: VideoPlatform): string {
   if (platform === "facebook") return "Facebook";
   if (platform === "upload") return "Uploaded video";
   return "YouTube";
-}
-
-/* Preconnect doors for an instant live open (production fix): every host the
-   player can touch on first paint — the page preconnects to all of these so
-   the stream iframe, thumbnails and the playable-check open with no DNS/TLS
-   wait. Sound-first: the live path always requests audio; the muted address
-   below is for silent preview stills only, never presented as sound-on. */
-export const YOUTUBE_PRECONNECTS = [
-  "https://www.youtube.com",
-  "https://youtube.com",
-  "https://www.youtube-nocookie.com",
-  "https://i.ytimg.com",
-  "https://s.ytimg.com",
-  "https://ytimg.com",
-  "https://googlevideo.com",
-  "https://noembed.com",
-];
-
-/** Muted embed address (silent-preview fallback only): the live player never
-    uses this as its sound path — a muted autoplay that pretended sound was on
-    is exactly what this fix removes. Available for muted preview stills. */
-export function youtubeEmbedMuted(id: string, autoplay = true): string {
-  const video = parseYoutubeId(id);
-  if (!video) return "";
-  let origin = "";
-  try { origin = typeof location !== "undefined" && location.origin ? `&origin=${encodeURIComponent(location.origin)}` : ""; } catch { origin = ""; }
-  return `https://www.youtube.com/embed/${video}?rel=0&modestbranding=1&playsinline=1&enablejsapi=1${autoplay ? "&autoplay=1&mute=1" : ""}${origin}`;
-}
-
-/** Muted variant of embedSrc (preview stills only — never the live path). */
-export function embedSrcMuted(source: VideoSource, autoplay = true): string {
-  if (!source) return "";
-  if (source.platform === "facebook" || source.platform === "upload") return "";
-  return youtubeEmbedMuted(source.youtubeId || "", autoplay) || "";
 }

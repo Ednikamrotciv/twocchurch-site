@@ -2033,12 +2033,11 @@ export function gateLiveCommand(live: any, publishedLive: any): any {
   } catch {}
   if (publishedLive && typeof publishedLive === "object") {
     if (!(at > pub)) {
-      for (const k of ["isLive", "liveSince", "liveCut", "liveCommandAt", "liveEndedBy", "liveVideoId", "liveVideoTitle", "liveVideoChannelId", "liveVideoAt"]) out[k] = (publishedLive as any)[k];
+      for (const k of ["isLive", "liveSince", "liveCut", "liveCommandAt", "liveEndedBy"]) out[k] = (publishedLive as any)[k];
     }
     if (!(gat > gpub)) {
       out.guestIsLive = (publishedLive as any).guestIsLive;
       out.guestCommandAt = (publishedLive as any).guestCommandAt;
-      for (const k of ["guestVideoId", "guestVideoTitle", "guestVideoChannelId", "guestVideoAt"]) out[k] = (publishedLive as any)[k];
     }
   }
   return out;

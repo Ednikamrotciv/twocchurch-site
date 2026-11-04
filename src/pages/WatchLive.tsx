@@ -11,14 +11,13 @@ import { KEYS, nextService, onAir, displayLive, to12h, DAY_NAMES, countdownParts
 import { isFacebookVideoUrl, parseYoutubeId, platformLabel, watchUrl, youtubeThumb, type VideoPlatform, type VideoSource } from "../lib/embed";
 import { useLiveStream, liveTarget, guestTarget, isGuestTargetUrl, facebookTarget, useYoutubeVerdict, isStatusForTarget, designatedChannelIdForTarget, isDesignatedChannel, nextScreenShut, officeStopActive, recheckLiveNow, forgetAllVerified, type ScreenShut } from "../lib/livestatus";
 import { useLibrary } from "../lib/collections";
-import { useRecentServices, designatedFallback, publishedChannelId } from "../lib/recentstreams";
+import { useRecentServices, designatedFallback } from "../lib/recentstreams";
 import { Badge, Btn, Icon, IconBtn, Modal, Notice, Reveal, Rich, Section, SectionHeading, Textarea } from "../components/ui";
 import { PageHead } from "../components/layout";
 import { LiveWaiting } from "../components/liveclock";
 import { SectionBoundary } from "../components/ErrorBoundary";
 import { Countdown, RecentServiceCard, SermonWatch, VideoPlayer, WatchCards, platformWatchLinks } from "../components/blocks";
 import { useCmsVersion } from "../lib/cms";
-import { loadYtPlayerApi } from "../components/blocks";
 
 export function WatchLive() {
   const [branchId] = useLocalState<string>(KEYS.branch, DEFAULT_BRANCH_ID);
@@ -42,14 +41,14 @@ export function WatchLive() {
      (note 310): a visitor who opened this page came to see the stream, schedule
      or no — so a YouTube start shows in seconds and the waiting clock vanishes
      with it, on live and on local alike. */
-  const air = useLiveStream(true, !!facebookTarget(), true);
+  const air = useLiveStream(true, false, true);
   const justNow = !!info && (onAir(info) || info.msUntil < 45 * 60 * 1000);
   /* Instant-open warm-up: the page is open because someone came to watch, so
      pre-connect to the stream doors at once (player assets included) — the
      autoplay iframe opens with no DNS/TLS wait. */
   useEffect(() => {
     try {
-      for (const href of ["https://www.youtube.com", "https://youtube.com", "https://www.youtube-nocookie.com", "https://s.ytimg.com", "https://i.ytimg.com", "https://ytimg.com", "https://googlevideo.com", "https://noembed.com"]) {
+      for (const href of ["https://www.youtube.com", "https://s.ytimg.com", "https://i.ytimg.com", "https://noembed.com"]) {
         if (document.querySelector('link[rel="preconnect"][href="' + href + '"]')) continue;
         const l = document.createElement("link");
         l.rel = "preconnect";
@@ -61,17 +60,8 @@ export function WatchLive() {
   }, [justNow, air.state]);
   /* Instant-live repair (no reload ever): the tab waking, or the network
      returning, re-asks at once — a YouTube start shows in seconds and the
-     waiting clock vanishes with it. Stays on site. The player API warms in
-     parallel, so a verified live id creates its player with no script wait. */
+     waiting clock vanishes with it. Stays on site. */
   useEffect(() => {
-    try {
-      const warm =
-        (window as any).requestIdleCallback ||
-        ((fn: FrameRequestCallback) => window.setTimeout(() => fn(0 as any), 1200));
-      warm(() => {
-        try { loadYtPlayerApi().catch(() => {}); } catch {}
-      });
-    } catch {}
     try {
       const onVis = () => { if (document.visibilityState === "visible") { try { recheckLiveNow(); } catch {} } };
       const onNet = () => { try { recheckLiveNow(); } catch {} };
@@ -102,7 +92,12 @@ export function WatchLive() {
   const guestAir = guestUrl && isStatusForTarget(air, guestUrl)
     ? air
     : { ...air, state: "unknown" as const, videoId: "", title: "", channelId: "" };
-  const guestLive = guestAir.state === "live";
+  /* Manual start only (note 439): a detected guest broadcast never opens the
+     screen by itself — only the office's published guest Play (guestIsLive)
+     does. The guest still wins while IT is live once started, and its ending
+     still returns to the main answer by itself (shut latch + auto-stop). */
+  const guestSwitchOn = !!((LIVE as any).guestIsLive);
+  const guestLive = guestSwitchOn && guestAir.state === "live";
   /* Only the designated channel ever reaches the screen (note 358): the
      livestream must not play until @twocorg itself is live — a named video
      from another channel, or an unverified channel follow for one, reads as
@@ -111,9 +106,10 @@ export function WatchLive() {
   const airForTarget = isStatusForTarget(air, targetUrl)
     ? air
     : { ...air, state: "unknown" as const, videoId: "", title: "", channelId: "" };
-  /* What the screen plays (note 380): the guest while IT is live, else the
-     main answer above. The still, the ended video and the lists below stay
-     main-owned — a guest ending returns every one of them untouched. */
+  /* What the screen plays (notes 380, 439): the MANUALLY STARTED guest while
+     IT is live, else the main answer above. The still, the ended video and
+     the lists below stay main-owned — a guest ending returns every one of
+     them untouched. */
   const screenAir = guestLive ? guestAir : airForTarget;
   /* Shut the moment a live ends (notes 386, 388): when the screen's broadcast
      reads off — the guest ending, the main ending, or the office stopping it —
@@ -200,13 +196,12 @@ export function WatchLive() {
      itself instead of sitting on the waiting clock, while a pressed MAIN with
      no detected broadcast waits on the clock below (autoplay only works once
      the main livestream has started live on the channel). Only while the read
-     says unknown — a verified off stays on the clock, since opening the
-     channel follow for a proven-off channel mounts YouTube's own
-     "unavailable" frame — only the commanded slot, only with a known channel
-     id — and a detected broadcast still wins first. */
+     says unknown (a verified off stays on the clock), only the commanded
+     slot, only with a known channel id — and a detected broadcast still wins
+     first. */
   const overrideMain = !!LIVE.isLive && hasChannel && !guestLive && screenAir.state !== "live" && airForTarget.state === "unknown" && !shutNow;
   const overrideGuest = !!(LIVE as any).guestIsLive && !!guestUrl && !guestLive && screenAir.state !== "live" && guestAir.state === "unknown" && !shutNow;
-  const overrideId = overrideMain ? (designatedChannelIdForTarget(targetUrl) || publishedChannelId()) : overrideGuest ? (designatedChannelIdForTarget(guestUrl) || publishedChannelId()) : "";
+  const overrideId = overrideMain ? designatedChannelIdForTarget(targetUrl) : overrideGuest ? designatedChannelIdForTarget(guestUrl) : "";
   /* Anywhere for the check to look — channel, stream link or Facebook page. */
   const configured = !!liveTarget() || !!facebookTarget();
   /* The shared on-air answer (notes 83, 133); `streaming` is the narrower screen question. Declared
@@ -471,7 +466,6 @@ export function WatchLive() {
                   hideEscape
                   source={liveSource}
                   title={liveName || ct("auto.live.bc108377bb47f9e6")}
-                  poster={cover}
                   compact
                   live
                   /* The check says live, so the screen plays by itself (notes
@@ -487,7 +481,6 @@ export function WatchLive() {
                   hideEscape
                   source={{ platform: "youtube", youtubeId: "", youtubeChannelId: overrideId }}
                   title={liveName || ct("auto.live.bc108377bb47f9e6")}
-                  poster={cover}
                   compact
                   live
                   /* The office commanded the slot and the read is walled —

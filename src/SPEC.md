@@ -7251,3 +7251,25 @@ Office request: home page and homepage phones should be the same. The separate "
 
 ## 438 refresh 4 (unversioned). Publish click restored to attached-422 behavior
 Office request: with the attached one-click-clears-all (422) copy as reference, one Publish click in live (deploy) lands in local, and one click in local lands in live — local was not responding to the admin Publish click. Root cause: post-422 gates at the top of `publish()`/`publishSection()` (`stopIfStale` + `requireSignedIn`) refused the click outright for signed-out, 15-minute-idle, or post-update tabs, and the re-login branches used the deploy/idle-scoped `silentSessionUsable()` (which pre-clears the saved session) instead of the saved session password — so the click ended in an error toast and nothing published anywhere. Restored exactly the attached behavior in these two click entry points only: no door refusal (the dialog's stale pre-check + reload stays, as in 422), silent re-login with the saved session password, signed-out/offline clicks publish device-locally with the queue + live relay carrying the words to the other copy. Untouched: the session machinery itself (`silentSessionUsable`, deploy binding, idle expiry, server-side locks), all other gated actions (undo/clear/import), the relay/live-follow/queue code (byte-identical to the attached copy), version/code-word (still 438/unified438, no new stale triggers).
+
+## 439. Guest opens only on manual start, main keeps self-start, ended button renamed
+
+Main channel automatic start and stop with manual control intact (unchanged): a
+detected @twocorg live plays by itself (`mainLiveNow()` + autoplay, no press), its
+ending closes the screen by itself (shut latch + recents refresh), Go live forces it
+open and releases a Stop, End holds it shut until the next Go live. Guest channel
+manual start with automatic stop and manual control intact (changed): a detected
+guest broadcast alone no longer opens anything — badges (`displayLive()` in
+`src/lib/store.ts`, the bare-detection line removed) and the Watch screen
+(`guestLive` in `src/pages/WatchLive.tsx`, now gated on the published guest switch)
+stay quiet until the office presses Guest Play and publishes it. The published guest
+Play still opens its walled channel while the read is blocked (overrideGuest
+unchanged), the guest still wins while IT is live once started, its ending still
+returns to the main screen by itself (shut latch + `useAutoStopLive`, which files
+nothing), Guest End still ends it by hand, and the still + recents stay main-owned.
+The ended-screen button stays *Catch up with recent services*
+(`auto.live.58511836749f04df` — the recent-services scroll action, unchanged). The pre-ship verifier needles asserting guest auto-open now assert the
+manual-start rule (MM screen gate, PP display matrix, AAA badge gate). Verified:
+edited files parse (esbuild transform), and the display matrix holds against the
+shipped sources — guest detection alone stays quiet, guest switch shows, main
+detection shows, Stop holds, pause does not read as stopped.

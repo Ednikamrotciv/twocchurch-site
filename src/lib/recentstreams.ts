@@ -189,15 +189,11 @@ function firstValidText(jobs: Promise<string | null>[]): Promise<string | null> 
 }
 
 /** True when this body is really what was asked for — not a static host's SPA
-    fallback index.html answering /__yt with 200, and not a login/consent
-    wall. Feed URLs carry entries; channel pages carry the video grid
-    scaffolding. Walls fail here so a walled door never beats the real list. */
+    fallback index.html answering /__yt with 200. Feed URLs carry entries;
+    channel pages carry the video grid scaffolding. */
 function isExpectedBody(url: string, text: string): boolean {
   const body = String(text || "");
   if (body.length < 500) return false;
-  if (/consent\.youtube\.com/i.test(body)) return false;
-  if (/accounts\.google\.com\/ServiceLogin/i.test(body)) return false;
-  if (/consentBumpV2|consentScreen/i.test(body)) return false;
   if (/\/feeds\/videos\.xml/i.test(String(url || ""))) {
     return /<entry>/.test(body) || /<yt:videoId>/.test(body);
   }
@@ -238,28 +234,28 @@ async function fetchTextRemote(url: string): Promise<string | null> {
 /** Same-origin YouTube read (`scripts/serve.mjs` /__yt, note 364): the office
     server AND the deployed server both answer it, so local runs and deployed
     visitors read through their own host instead of the dead public proxies.
-    Static hosts answer nothing here and fall through below. Both doors race
-    in parallel (was sequential: 2 x 8s worst case held the feed). */
+    Static hosts answer nothing here and fall through below. */
 async function fetchTextSameOrigin(url: string): Promise<string | null> {
-  const door = async (path: string): Promise<string | null> => {
-    try {
-      const res = await withTimeout(fetch(path, { cache: "no-store" }), TIMEOUT_MS);
-      if (!res || !res.ok) return null;
-      const text = await res.text();
-      /* Static hosts answer /__yt with the SPA fallback (200 index.html) —
-         not YouTube, so it must not beat the doors that work. */
-      if (typeof text !== "string" || text.length === 0) return null;
-      if (!isExpectedBody(url, text)) return null;
-      return text;
-    } catch {
-      return null;
-    }
-  };
   try {
-    return await firstValidText([
-      door(`/__yt?url=${encodeURIComponent(url)}`),
-      door(`/.netlify/functions/yt?url=${encodeURIComponent(url)}`),
-    ]);
+    const res = await withTimeout(fetch(`/__yt?url=${encodeURIComponent(url)}`, { cache: "no-store" }), TIMEOUT_MS);
+    if (res && res.ok) {
+      const text = await res.text();
+      /* Static hosts answer /__yt with the SPA fallback (200 index.html) — not
+         YouTube, so it must not beat the doors that work. */
+      if (typeof text === "string" && text.length > 0 && isExpectedBody(url, text)) return text;
+    }
+  } catch {
+    /* fall through to the Netlify-function door below */
+  }
+  /* Netlify-function door (netlify/functions/yt.mjs): static deploys have no
+     /__yt, so without this the public proxy was the only door left. */
+  try {
+    const res2 = await withTimeout(fetch(`/.netlify/functions/yt?url=${encodeURIComponent(url)}`, { cache: "no-store" }), TIMEOUT_MS);
+    if (!res2 || !res2.ok) return null;
+    const text2 = await res2.text();
+    if (typeof text2 !== "string" || text2.length === 0) return null;
+    if (!isExpectedBody(url, text2)) return null;
+    return text2;
   } catch {
     return null;
   }

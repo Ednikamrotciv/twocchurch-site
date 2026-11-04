@@ -961,7 +961,7 @@ export async function runAll(fs) {
     const decidePlayQ = liveModQ.exports.oembedPlayable;
     const matchBuildQ = liveModQ.exports.reportMatchesBuild;
     const peekQ = liveModQ.exports.peekVerified;
-    ok("oembed decision is live-safe", decidePlayQ(200) === true && decidePlayQ(400) === false && decidePlayQ(404) === false && decidePlayQ(410) === false && decidePlayQ(401) === null && decidePlayQ(403) === null && decidePlayQ(500) === null && decidePlayQ(0) === null, "200 plays, 400/404/410 are gone; 401/403 are unknown (YouTube answers them for LIVE broadcasts too — only the player, with its in-frame errors behind the poster, can tell those apart), anything else waits");
+    ok("oembed decision is strict", decidePlayQ(200) === true && decidePlayQ(400) === false && decidePlayQ(401) === false && decidePlayQ(403) === false && decidePlayQ(404) === false && decidePlayQ(410) === false && decidePlayQ(500) === null && decidePlayQ(0) === null, "200 plays, gone is gone, anything else waits");
     ok("same-update matching", buildNotesQ > 0 && matchBuildQ({ notes: buildNotesQ }) === true && matchBuildQ({ notes: buildNotesQ + 1 }) === false && matchBuildQ({}) === false && matchBuildQ({ notes: 0 }) === false, "only this update's office answers steer this update");
     ok("unasked is unknown", peekQ("dQw4w9WgXcQ") === null && peekQ("") === false, "no cache means ask, no id means dead");
     const rpcQ = loadVm(srvQ.replace('var liveDeny = sessionDeny(info.conn);\n    if (liveDeny) return fail(liveDeny === "unauthorized" ? "denied" : liveDeny);', 'if (false) return fail("denied");'), new Uint8Array(8 * 1024 * 1024));
@@ -1697,7 +1697,7 @@ export async function runAll(fs) {
   ok("guest never ends the main screen", has(liveMM, "const targetUrl = (guestLive && guest ? guest.url : target?.url)"), "the stamp — and the report after it — must say the winner");
   ok("office reports the winner", has(liveMM, 'const url = String(status.target || "") || liveTarget()?.url || ""'), "a guest-live answer must steer visitors to the guest");
   ok("retype still silences", has(liveMM, 'url !== (liveTarget()?.url || "") && url !== (guestTarget()?.url || "")'), "a moved channel must never report");
-  ok("screen plays the guest", has(watchMM, "const screenAir = guestLive ? guestAir : airForTarget") && has(watchMM, "const guestLive = guestAir.state"), "guest-live plays; its end returns the main screen");
+  ok("screen plays the guest on manual start", has(watchMM, "const screenAir = guestLive ? guestAir : airForTarget") && has(watchMM, "const guestLive = guestSwitchOn && guestAir.state"), "a started guest plays; detection alone never opens; its end returns the main screen");
   ok("guest follow is one tap", has(watchMM, "guestLive ? isGuestTargetUrl(screenAir.target, guestUrl)"), "a walled guest follows its own channel, never autoplay");
   ok("tap opens the guest", has(blocksMM, "guestTarget()?.url") && has(blocksMM, "isGuestTargetUrl(st.target"), "a tap on a guest-live screen must play, not wait");
   ok("guest never seeds recents", has(editorMM, "isGuestTargetUrl(aired.target"), "a guest ending files nothing");
@@ -1863,7 +1863,7 @@ export async function runAll(fs) {
     setPP({ isLive: false, liveCut: 0, liveCommandAt: 0, liveSince: 0 }, { now: true, guest: false, endedAt: 0 });
     ok("main detection alone stays quiet", dispFn({ isLive: false, at: new Date(TPP) }) === false);
     setPP({ isLive: false, liveCut: 0, liveCommandAt: 0, liveSince: 0 }, { now: false, guest: true, endedAt: 0 });
-    ok("guest detection opens", dispFn({ isLive: false, at: new Date(TPP) }) === true);
+    ok("guest detection alone stays quiet", dispFn({ isLive: false, at: new Date(TPP) }) === false);
     setPP({ isLive: true }, { now: false, guest: false });
     ok("office switch shows", dispFn({ isLive: false, at: new Date(TPP) }) === true);
     setPP({ isLive: false }, { now: false, guest: false });
@@ -2089,7 +2089,7 @@ export async function runAll(fs) {
   const boundAAA = text["src/components/ErrorBoundary.tsx"];
   const srvAAA = text["scripts/cms-server.js"];
   const applyAAA = text["APPLY_UPDATE.txt"];
-  ok("main detection lights badges", has(storeAAA, "if (guestLiveNow()) return true;") && has(storeAAA, "mainLiveNow() && !officeStopActive(LIVE)"), "a detected main must light badges with no press; a published Stop still holds");
+  ok("guest switch lights badges", has(storeAAA, "(LIVE as any).guestIsLive) return true") && !has(storeAAA, "if (guestLiveNow()) return true;") && has(storeAAA, "mainLiveNow() && !officeStopActive(LIVE)"), "only the published guest Play lights badges, never bare detection; a detected main must light badges with no press; a published Stop still holds");
   ok("guest answer is pure", has(liveAAA, "export function guestLiveNow(): boolean"), "only the guest stamp counts");
   ok("main answer is pure", has(liveAAA, "export function mainLiveNow(): boolean"), "only the main stamp counts for the main");
   ok("detected main autoplays", has(watchAAA, "(mainDetected && !officeStopped)") && has(watchAAA, "const waitingForClick = !shutNow"), "a detected main must autoplay with no press; a published Stop still holds");
