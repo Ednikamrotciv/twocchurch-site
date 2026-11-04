@@ -107,8 +107,8 @@ export function useLocalState<T>(key: string, initial: T) {
 /* Which shipped code is running here — the office can read it in
    version.json, and in the browser console as window.__womBuild. Bump NOTES with
    every SPEC note so a stale deploy is spotted, not guessed (note 244). */
-export const BUILD_NOTES = 441;
-export const BUILD_DATE = "2026-11-04";
+export const BUILD_NOTES = 440;
+export const BUILD_DATE = "2026-11-01";
 /* Unnumbered code identity (the stale fix ships with no new number): an opaque
    word naming the running code, compared by equality only — never ordered — so
    a stale cache can never invert it the way stale numbers did. An explicit

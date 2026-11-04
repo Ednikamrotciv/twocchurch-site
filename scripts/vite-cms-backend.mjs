@@ -40,6 +40,11 @@ export function cmsBackend() {
   const devDeployId =
     "dev-" + Date.now().toString(36) + "-" + Math.random().toString(36).slice(2, 8);
   const geoProxy = createGeoProxy();
+  /* Authoritative live-answer cache for `npm run dev` (fix v9): mirrors
+     scripts/serve.mjs — one entry per channel, 75s TTL — so the dev page
+     exercises the same Data API door as production instead of silently
+     falling back to scrape-only. */
+  const devLiveApiCache = new Map();
   let cms = null;
   /* Security shield for `npm run dev` (same as scripts/serve.mjs): WAF in
      front of every request, session anomaly detection, and a real-time
@@ -137,17 +142,6 @@ export function cmsBackend() {
     } catch {
       return false;
     }
-  }
-  /* Authoritative live-answer cache (dev parity with serve.mjs, v9): live 75s, off 15min, errors 60s, quota 10min. Capped. */
-  const liveApiCache = new Map();
-  function liveApiCacheSet(channel, entry) {
-    try {
-      liveApiCache.set(channel, entry);
-      if (liveApiCache.size > 50) {
-        const oldest = liveApiCache.keys().next();
-        if (!oldest.done) liveApiCache.delete(oldest.value);
-      }
-    } catch {}
   }
   let siteVersion = "vite";
   let outDir = path.join(ROOT, "dist");
@@ -855,10 +849,11 @@ export function cmsBackend() {
             }
           }
 
-          /* Authoritative live answer (dev parity with serve.mjs, v9): same
-             validation, same split TTLs (live 75s / off 15min / err 60s /
-             quota 10min). Key from server env only (YT_API_KEY); no key → 404
-             and visitors fall back to stamp + scrape. */
+          /* Authoritative live answer for `npm run dev` (fix v9): mirrors
+             scripts/serve.mjs exactly — same channel format, same env key
+             (YT_API_KEY), same 75s cache, same shapes — so a dev page with
+             the key set verifies the Data API door instead of silently
+             exercising scrape-only. No key → 404, same as production. */
           if (pathname === "/__live" && req.method === "GET") {
             const channel = url.searchParams.get("channel") || "";
             if (!/^UC[\w-]{20,24}$/.test(channel)) {
@@ -872,25 +867,13 @@ export function cmsBackend() {
               res.end("no key");
               return;
             }
-            const LIVE_HIT_TTL_MS = 75_000;
-            const LIVE_MISS_TTL_MS = 15 * 60_000;
-            const LIVE_ERR_TTL_MS = 60_000;
-            const LIVE_QUOTA_TTL_MS = 10 * 60_000;
             try {
               const now = Date.now();
-              const hit = liveApiCache.get(channel);
-              if (hit && !hit.err && hit.data) {
-                const ttl = hit.data.state === "live" ? LIVE_HIT_TTL_MS : LIVE_MISS_TTL_MS;
-                if (now - hit.at < ttl) {
-                  const body = Buffer.from(JSON.stringify(hit.data), "utf8");
-                  res.writeHead(200, { "content-type": "application/json; charset=utf-8", "content-length": body.length, "cache-control": "no-store" });
-                  res.end(body);
-                  return;
-                }
-              }
-              if (hit && hit.err && now - hit.at < (hit.quota ? LIVE_QUOTA_TTL_MS : LIVE_ERR_TTL_MS)) {
-                res.writeHead(502, { "cache-control": "no-store" });
-                res.end("unreachable");
+              const hit = devLiveApiCache.get(channel);
+              if (hit && now - hit.at < 75_000) {
+                const body = Buffer.from(JSON.stringify(hit.data), "utf8");
+                res.writeHead(200, { "content-type": "application/json; charset=utf-8", "content-length": body.length, "cache-control": "no-store" });
+                res.end(body);
                 return;
               }
               const apiUrl = `https://www.googleapis.com/youtube/v3/search?part=snippet&channelId=${encodeURIComponent(channel)}&eventType=live&type=video&maxResults=1&key=${encodeURIComponent(key)}`;
@@ -899,9 +882,7 @@ export function cmsBackend() {
                 signal: typeof AbortSignal !== "undefined" && typeof AbortSignal.timeout === "function" ? AbortSignal.timeout(8000) : undefined,
               });
               const data = await upstream.json().catch(() => null);
-              const quotaHit = !upstream.ok && data && (data?.error?.errors?.[0]?.reason === "quotaExceeded" || data?.error?.status === "RESOURCE_EXHAUSTED" || upstream.status === 403 || upstream.status === 429);
               if (!upstream.ok || !data) {
-                liveApiCacheSet(channel, { at: now, err: true, quota: !!quotaHit });
                 res.writeHead(502, { "cache-control": "no-store" });
                 res.end("unreachable");
                 return;
@@ -911,12 +892,11 @@ export function cmsBackend() {
               const out = videoId && /^[\w-]{11}$/.test(videoId)
                 ? { state: "live", videoId, title: String((item.snippet && item.snippet.title) || ""), channelId: channel }
                 : { state: "off", videoId: "", title: "", channelId: "" };
-              liveApiCacheSet(channel, { at: now, data: out });
+              devLiveApiCache.set(channel, { at: now, data: out });
               const body = Buffer.from(JSON.stringify(out), "utf8");
               res.writeHead(200, { "content-type": "application/json; charset=utf-8", "content-length": body.length, "cache-control": "no-store" });
               res.end(body);
             } catch {
-              try { liveApiCacheSet(channel, { at: Date.now(), err: true, quota: false }); } catch {}
               res.writeHead(502, { "cache-control": "no-store" });
               res.end("unreachable");
             }

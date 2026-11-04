@@ -31,19 +31,13 @@ export function parseYoutubeId(input: string): string {
   const value = String(input || "").trim();
   if (!value) return "";
   if (/^[\w-]{11}$/.test(value)) return value;
-  /* Trailing boundary (?![\w-]): without it a 12+ char token donates its
-     first 11 chars and the player mounts a "video unavailable" frame. The
-     attribution pattern covers YouTube's share-redirect links. */
   const patterns = [
-    /[?&]v=([\w-]{11})(?![\w-])/,
-    /youtu\.be\/([\w-]{11})(?![\w-])/,
-    /youtube\.com\/live\/([\w-]{11})(?![\w-])/,
-    /youtube\.com\/embed\/([\w-]{11})(?![\w-])/,
-    /youtube\.com\/shorts\/([\w-]{11})(?![\w-])/,
-    /youtube\.com\/watch\/([\w-]{11})(?![\w-])/,
-    /youtube\.com\/v\/([\w-]{11})(?![\w-])/,
-    /[?&]u=%2Fwatch%3Fv%3D([\w-]{11})(?![\w-])/i,
-    /[?&]u=\/watch\?v=([\w-]{11})(?![\w-])/,
+    /[?&]v=([\w-]{11})/,
+    /youtu\.be\/([\w-]{11})/,
+    /youtube\.com\/live\/([\w-]{11})/,
+    /youtube\.com\/embed\/([\w-]{11})/,
+    /youtube\.com\/shorts\/([\w-]{11})/,
+    /youtube\.com\/watch\/([\w-]{11})/,
   ];
   for (const re of patterns) {
     const m = re.exec(value);
@@ -76,13 +70,18 @@ export function isYoutubeChannelId(input: unknown): boolean {
     deployed server cannot read watch pages (they answer 502 from its network
     while the channel page reads 200), so when the channel page is on air but
     names no verifiable video, the player follows the channel instead of
-    guessing a video — on live and on local alike. */
-export function youtubeChannelEmbed(channelId: string, autoplay = true): string {
+    guessing a video — on live and on local alike.
+    Muted variant (fix v9): browsers hold sound autoplay until the visitor
+    interacts — a sound-first channel embed would sit paused instead of
+    moving. Autoplay opens muted for motion the same second; the first
+    gesture restores sound in-gesture (see VideoPlayer's plain-frame
+    upgrade), and the resolver upgrades to the verified video id behind it. */
+export function youtubeChannelEmbed(channelId: string, autoplay = true, muted = false): string {
   if (!isYoutubeChannelId(channelId)) return "";
   const id = String(channelId).trim();
   let origin = "";
   try { origin = typeof location !== "undefined" && location.origin ? `&origin=${encodeURIComponent(location.origin)}` : ""; } catch { origin = ""; }
-  return `https://www.youtube.com/embed/live_stream?channel=${id}&rel=0&modestbranding=1&playsinline=1&enablejsapi=1${autoplay ? "&autoplay=1" : ""}${origin}`;
+  return `https://www.youtube.com/embed/live_stream?channel=${id}&rel=0&modestbranding=1&playsinline=1&enablejsapi=1${autoplay ? "&autoplay=1" : ""}${autoplay && muted ? "&mute=1" : ""}${origin}`;
 }
 
 export function youtubeWatch(id: string): string {

@@ -9,7 +9,7 @@ import { startVisitorClock, useVisitorClock, useVisitorClockRefresh } from "./li
 import { useI18nTick, ensureI18n, setProtectedValues, i18nAsk, chooseLang, dismissAsk } from "./lib/i18n";
 import { allCopySources } from "./data/copy";
 import { startRates, useRates, useRatesRefresh } from "./lib/rates";
-import { useLiveStream, facebookTarget } from "./lib/livestatus";
+import { useLiveStream } from "./lib/livestatus";
 import { nextService, onAir, churchTimezone } from "./lib/store";
 import { useNow } from "./lib/hooks";
 import { SERVICES } from "./data/site";
@@ -90,7 +90,7 @@ export function App() {
       if (expecting || onWatchPage) import("./pages/WatchLive").catch(() => {});
     } catch {}
   }, [expecting, onWatchPage]);
-  useLiveStream(expecting || onWatchPage, !!facebookTarget(), onWatchPage);
+  useLiveStream(expecting || onWatchPage, false, onWatchPage);
 
   // Load the published content once; the version counter then re-renders the
   // page every time the office applies something.

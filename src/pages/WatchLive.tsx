@@ -11,7 +11,7 @@ import { KEYS, nextService, onAir, displayLive, to12h, DAY_NAMES, countdownParts
 import { isFacebookVideoUrl, parseYoutubeId, platformLabel, watchUrl, youtubeThumb, type VideoPlatform, type VideoSource } from "../lib/embed";
 import { useLiveStream, liveTarget, guestTarget, isGuestTargetUrl, facebookTarget, useYoutubeVerdict, isStatusForTarget, designatedChannelIdForTarget, isDesignatedChannel, nextScreenShut, officeStopActive, recheckLiveNow, forgetAllVerified, type ScreenShut } from "../lib/livestatus";
 import { useLibrary } from "../lib/collections";
-import { useRecentServices, designatedFallback, publishedChannelId } from "../lib/recentstreams";
+import { useRecentServices, designatedFallback } from "../lib/recentstreams";
 import { Badge, Btn, Icon, IconBtn, Modal, Notice, Reveal, Rich, Section, SectionHeading, Textarea } from "../components/ui";
 import { PageHead } from "../components/layout";
 import { LiveWaiting } from "../components/liveclock";
@@ -42,7 +42,7 @@ export function WatchLive() {
      (note 310): a visitor who opened this page came to see the stream, schedule
      or no — so a YouTube start shows in seconds and the waiting clock vanishes
      with it, on live and on local alike. */
-  const air = useLiveStream(true, !!facebookTarget(), true);
+  const air = useLiveStream(true, false, true);
   const justNow = !!info && (onAir(info) || info.msUntil < 45 * 60 * 1000);
   /* Instant-open warm-up: the page is open because someone came to watch, so
      pre-connect to the stream doors at once (player assets included) — the
@@ -200,13 +200,12 @@ export function WatchLive() {
      itself instead of sitting on the waiting clock, while a pressed MAIN with
      no detected broadcast waits on the clock below (autoplay only works once
      the main livestream has started live on the channel). Only while the read
-     says unknown — a verified off stays on the clock, since opening the
-     channel follow for a proven-off channel mounts YouTube's own
-     "unavailable" frame — only the commanded slot, only with a known channel
-     id — and a detected broadcast still wins first. */
+     says unknown (a verified off stays on the clock), only the commanded
+     slot, only with a known channel id — and a detected broadcast still wins
+     first. */
   const overrideMain = !!LIVE.isLive && hasChannel && !guestLive && screenAir.state !== "live" && airForTarget.state === "unknown" && !shutNow;
   const overrideGuest = !!(LIVE as any).guestIsLive && !!guestUrl && !guestLive && screenAir.state !== "live" && guestAir.state === "unknown" && !shutNow;
-  const overrideId = overrideMain ? (designatedChannelIdForTarget(targetUrl) || publishedChannelId()) : overrideGuest ? (designatedChannelIdForTarget(guestUrl) || publishedChannelId()) : "";
+  const overrideId = overrideMain ? designatedChannelIdForTarget(targetUrl) : overrideGuest ? designatedChannelIdForTarget(guestUrl) : "";
   /* Anywhere for the check to look — channel, stream link or Facebook page. */
   const configured = !!liveTarget() || !!facebookTarget();
   /* The shared on-air answer (notes 83, 133); `streaming` is the narrower screen question. Declared

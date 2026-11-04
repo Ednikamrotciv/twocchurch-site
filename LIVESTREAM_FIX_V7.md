@@ -30,7 +30,8 @@ site sat on the clock through a properly started service.
     scrape yields unknown (a readable scrape always wins).
 - `scripts/serve.mjs` — new `GET /__live?channel=UC…` endpoint (YouTube Data
   API `search.list`, `eventType=live`). Key lives **only in server env**
-  (`YT_API_KEY`), never in frontend code. split server-side cache (live 75s / off 15min — v9 quota fix) → a quiet week costs ~96 searches/day (~9.6k units, inside the free 10k/day); 100 visitors still share one cached answer. No key → 404 → stamp + scrape, as before.
+  (`YT_API_KEY`), never in frontend code. 75s server-side cache → 100
+  visitors cost ~1 quota unit/min. No key → 404 → stamp + scrape, as before.
   YouTube-only channel format (same SSRF guard shape as `/__yt`).
 
 CMS/admin, accounts, publishing, design untouched. No new dependencies.
@@ -46,7 +47,8 @@ CMS/admin, accounts, publishing, design untouched. No new dependencies.
    restrict it to that API + your server IP if you like), then Render
    dashboard → your service → Environment → add `YT_API_KEY` → Save (auto
    redeploy). The auto-open path (`@twocorg` live with no press) now works
-   on deployed too. Quota (v9 corrected): search.list costs 100 units per call, so the old flat 75s cache would have cost ~115k units/day (11× the free 10k/day). With the split cache (live 75s, off 15min) a quiet week costs ~96 calls/day (~9.6k units, inside free tier); errors back off 60s and quota trips 10min and fall back to stamp + scrape. If the key ever trips quota, live still opens via the Play stamp. Rotate like any credential; it never ships to browsers.
+   on deployed too. Quota: ~1150 search units/day worst case, free tier is
+   10,000/day. Rotate like any credential; it never ships to browsers.
 
 ## Verify on production
 
