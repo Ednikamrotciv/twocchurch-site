@@ -94,51 +94,6 @@ function parseFeed(xml) {
   return items;
 }
 
-
-/* Invidious JSON fallback (deployed-recents fix, v11): the same latest-videos
-   list as JSON — unwalled where the RSS feed is walled. Ongoing/upcoming
-   broadcasts are skipped; another channel's list is refused. Never throws. */
-const INV_INSTANCES = ["https://yt.chocolatemoo53.com", "https://iv.duti.dev"];
-async function fetchInvidiousItems(channelId) {
-  for (const inst of INV_INSTANCES) {
-    const ctrl = new AbortController();
-    const timer = setTimeout(() => ctrl.abort(), FETCH_MS);
-    try {
-      const res = await fetch(inst + "/api/v1/channels/" + channelId + "?hl=en", {
-        headers: { accept: "application/json" },
-        signal: ctrl.signal,
-      });
-      if (!res.ok) continue;
-      const data = await res.json().catch(() => null);
-      if (!data || typeof data !== "object") continue;
-      if (String(data.authorId || "") && String(data.authorId) !== channelId) continue;
-      const list = data.latestVideos;
-      if (!Array.isArray(list) || !list.length) continue;
-      const items = [];
-      for (const v of list) {
-        if (!v || typeof v !== "object") continue;
-        if (v.liveNow === true || v.isUpcoming === true) continue;
-        if (!/^[\w-]{11}$/.test(String(v.videoId || ""))) continue;
-        const at = Number(v.published) > 0 ? Number(v.published) * 1000 : 0;
-        if (!at) continue;
-        items.push({
-          videoId: String(v.videoId),
-          title: String(v.title || "").trim() || "Service",
-          at,
-          ago: "",
-          thumb: "https://i.ytimg.com/vi/" + v.videoId + "/hqdefault.jpg",
-        });
-      }
-      if (items.length) return items;
-    } catch {
-      /* next instance */
-    } finally {
-      clearTimeout(timer);
-    }
-  }
-  return [];
-}
-
 async function publishedChannel(rootDir) {
   try {
     const cms = await createCmsHost(rootDir);
@@ -168,21 +123,10 @@ export async function bakeRecent(rootDir) {
   if (!pasted) return { skipped: "no channel published yet", count: prevItems.length };
   const channelId = channelIdIn(pasted) || (await resolveChannelId(pasted).catch(() => ""));
   if (!channelId) return { skipped: "channel would not resolve", count: prevItems.length };
-  const [xml, invItems] = await Promise.all([
-    fetchText(`https://www.youtube.com/feeds/videos.xml?channel_id=${channelId}`).catch(() => ""),
-    fetchInvidiousItems(channelId).catch(() => []),
-  ]);
-  const byId = new Map();
-  try {
-    for (const it of parseFeed(xml || "")) {
-      if (it && it.videoId && !byId.has(it.videoId)) byId.set(it.videoId, it);
-    }
-  } catch { /* a bad feed never blocks the JSON door */ }
-  for (const it of invItems || []) {
-    if (it && it.videoId && !byId.has(it.videoId)) byId.set(it.videoId, it);
-  }
-  const items = [...byId.values()].sort((a, c) => c.at - a.at).slice(0, KEEP);
-  if (!items.length) return { skipped: xml ? "feed empty" : "feed unreachable", count: prevItems.length };
+  const xml = await fetchText(`https://www.youtube.com/feeds/videos.xml?channel_id=${channelId}`).catch(() => "");
+  if (!xml) return { skipped: "feed unreachable", count: prevItems.length };
+  const items = parseFeed(xml).slice(0, KEEP);
+  if (!items.length) return { skipped: "feed empty", count: prevItems.length };
 
   const before = prevItems.map((it) => it && it.videoId).join(",");
   const after = items.map((it) => it.videoId).join(",");

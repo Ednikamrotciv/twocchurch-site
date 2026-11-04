@@ -24,8 +24,6 @@
     "restore": "node scripts/backup-data.mjs restore",
     "adopt": "node scripts/backup-data.mjs adopt",
     "set-server": "node scripts/set-server.mjs",
-    "set-key": "node scripts/set-key.mjs",
-    "key-status": "node scripts/set-key.mjs --status",
     "security:report": "node scripts/security-report.mjs",
     "security:test": "node scripts/security-test.mjs",
     "typecheck": "tsc --noEmit",

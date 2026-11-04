@@ -286,7 +286,6 @@ export function VideoPlayer({
   compact,
   live,
   autoPlay,
-  trusted,
   hideEscape,
   hideDeadText,
   reloadSignal,
@@ -299,10 +298,6 @@ export function VideoPlayer({
   live?: boolean;
   /** Start the player without a click — used when a live stream is detected. */
   autoPlay?: boolean;
-  /** Office-commanded channel (Play pressed + published): mount at once without
-      re-verifying — the check that would verify it is the same walled scrape
-      that made the override necessary. The error nets below stay armed. */
-  trusted?: boolean;
   /** Hide the "Can't see the video?" escape link — the live screen drops it. */
   hideEscape?: boolean;
   /** Kept so existing callers still type-check: the dead fallback no longer
@@ -621,15 +616,9 @@ export function VideoPlayer({
         return;
       }
       if (followId) {
-        /* Live channel follow: mount at once (check already said live, or the
-           office commanded it). Re-verifying here re-ran the same walled
-           scrape that made the follow necessary and parked the screen on its
-           poster through a live service — the mount itself is the check now:
-           YouTube's frame loads in the visitor's browser (never datacenter-
-           walled), the error nets below catch a truly-off channel, and the
-           20s re-ask upgrades a verified id when one resolves. */
+        /* Live channel follow: verify first, mount after (never blind). */
         autoplayTriedRef.current = true;
-        if (!playing) setPlaying(true);
+        checkChannelThenPlay();
         return;
       }
       autoplayTriedRef.current = true;
@@ -1079,7 +1068,7 @@ export function VideoPlayer({
       })().catch(() => {
         if (!frameLoadedRef.current) fail();
       });
-    }, trusted ? 15_000 : live ? 7_000 : 12_000);
+    }, live ? 7_000 : 12_000);
     return () => {
       cancelled = true;
       try {

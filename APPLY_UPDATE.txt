@@ -1,4 +1,4 @@
-APPLY THIS UPDATE (441) — ONE UNIFIED UPDATE (ALL OLD UPDATES REMOVED)
+APPLY THIS UPDATE (440) — ONE UNIFIED UPDATE (ALL OLD UPDATES REMOVED)
 =============================================================================
 Single update, one zip — every older update is superseded by this one. Extract fully
 incl. index.html on BOTH sides (office computer + any always-on host), then follow the
@@ -58,13 +58,10 @@ BOTH sides (same zip), `npm run dev:fresh` + restart the office backend, hard re
 sign in once (the new deploy asks for it; dev restarts keep you signed in); Publish
 ONCE from any signed-in admin copy — every copy lifts within seconds online (or at
 first sync); THEN bake-seed, commit+push full step-0 set, rebuild BOTH hosts; Publish
-on each host; reload ALL admin tabs. Proof: window.__womBuild = { notes: 441,
-code: "unifiedlive" }; verifier sections GGG (no-change publish blesses deploy) + MMM
+on each host; reload ALL admin tabs. Proof: window.__womBuild = { notes: 440,
+code: "unified440" }; verifier sections GGG (no-change publish blesses deploy) + MMM
 (sessions) pass, plus the new live-lands-both-ways lock. Files: src/lib/hooks.ts
-(441/unifiedlive) + index.html (wom-notes/code), src/lib/cms.ts (session-free live
+(440/unified440) + index.html (wom-notes/code), src/lib/cms.ts (session-free live
 adoption both directions + owed-record guard + prompt live tick), src/SPEC.md
-(note 441), src/tools/verify-update.mjs (438 payloads + both-ways lock),
+(note 440), src/tools/verify-update.mjs (440 payloads + both-ways lock),
 DEPLOY.md (bidirectional routine).
-
-
-LIVESTREAM CLOCK FIX (441/unifiedlive): the Watch screen sat on the ticking clock while a broadcast was already on air — (1) live-but-idless reads (wall gives live marker, no video/channel id) now follow the live target channel itself instead of clocking; (2) an office Play opens its commanded channel on any non-live read (unknown, off or unset — before: unknown only), so a walled/slow/stale-off read never clocks a pressed slot; (3) bare-video Play links open on any non-live read too. The player still verifies behind the frame; a published Stop still holds; detection still wins first. Maintenance contract unchanged: fresh deploy holds, one Publish clears, wakes wiped, unsaved clean, relay intact, clean/new.

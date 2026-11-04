@@ -13,14 +13,6 @@ import { createWaf, getClientIp, isSafePath, endpointCategory, ipClass, normaliz
 import { createSessionAnomaly } from "./session-anomaly.mjs";
 import { createPublishWatch } from "./publish-watch.mjs";
 import { createHash } from "node:crypto";
-import { loadDotEnv } from "./dotenv.mjs";
-import { checkKeylessLive } from "./live-keyless.mjs";
-
-/* Livestream auto-detect key (press-free open): .env / .env.local are picked
-   up automatically — `npm run set-key -- <key>` writes it — while real
-   environment (Render dashboard) always wins. Presence is logged, never the
-   value. */
-await loadDotEnv(process.cwd());
 
 const ROOT = process.cwd();
 const PORT = Number(process.env.PORT || 5173);
@@ -49,9 +41,6 @@ try {
   process.exit(1);
 }
 console.log(`serving ${DIST} + admin backend  [code ${SITE_VERSION}]`);
-try {
-  console.log(`live auto-detect: ON (keyless — no key needed${process.env.YT_API_KEY ? "; Data API bonus on top" : ""})`);
-} catch {}
 
 /* Which update this folder carries vs what dist/ was built from (note 248):
    an old dist served by `npm start` can never pass silently again. */
@@ -137,17 +126,6 @@ const lastIpByConn = new Map();
 /* Authoritative live-answer cache (fix v7): one entry per channel, 75s TTL —
    100 visitors polling still cost the YouTube Data API ~1 unit/min total. */
 const liveApiCache = new Map();
-const liveApiInflight = new Map();
-/* Keyless press-free door (no API key): redirect + page read, same TTLs. */
-const liveKeylessCache = new Map();
-const liveKeylessInflight = new Map();
-/* Short upstream-page cache for /__yt (livestream hammer fix): every open tab
-   polls the same channel + watch pages every 8-90s through this backend, and
-   each check used to refetch YouTube (datacenter IP, already rate-limited).
-   12s TTL collapses a whole congregation's poll onto one upstream read. */
-const ytPageCache = new Map();
-const ytPageInflight = new Map();
-const YT_CACHE_MS = 12_000;
 function rpcAnomaly({ connId, rpc, ok, err }) {
   try {
     anomaly.observeRpc({ connId, ip: lastIpByConn.get(String(connId || "")) || "-", rpc, ok, err });
@@ -522,39 +500,10 @@ const server = http.createServer(async (req, res) => {
       return;
     }
 
-    /* Livestream auto-detect status (key setup): public, quota-free, leaks
-       nothing — just whether THIS backend can answer press-free live checks.
-       The admin console reads it to show ON/OFF beside the transport buttons,
-       so the office never has to guess or read docs. */
-    if (pathname === "/__live-status" && req.method === "GET") {
-      const body = JSON.stringify({ ok: true, keyless: true, autoOpen: true, hasKey: !!process.env.YT_API_KEY });
-      res.writeHead(200, {
-        "content-type": "application/json; charset=utf-8",
-        "content-length": Buffer.byteLength(body),
-        "cache-control": "no-store",
-        "access-control-allow-origin": "*",
-      });
-      res.end(body);
-      return;
-    }
-
 
     if ((pathname === "/__geo" || pathname === "/__rates") && req.method === "GET") {
       if (pathname === "/__geo") await geoProxy.handleGeo(req, res);
       else await geoProxy.handleRates(req, res);
-      return;
-    }
-
-    /* Split-deploy browsers fetch the office doors cross-origin: answer the
-       preflight here (no cookies, no credentials — public YouTube HTML only). */
-    if ((pathname === "/__yt" || pathname === "/__live" || pathname === "/__live2") && req.method === "OPTIONS") {
-      res.writeHead(204, {
-        "access-control-allow-origin": "*",
-        "access-control-allow-methods": "GET, OPTIONS",
-        "access-control-max-age": "86400",
-        "cache-control": "no-store",
-      });
-      res.end();
       return;
     }
 
@@ -568,55 +517,11 @@ const server = http.createServer(async (req, res) => {
       }
       const allowed = host === "www.youtube.com" || host === "youtube.com" || host === "m.youtube.com" || host === "youtu.be";
       if (!allowed) {
-        res.writeHead(400, { "cache-control": "no-store", "access-control-allow-origin": "*" });
+        res.writeHead(400, { "cache-control": "no-store" });
         res.end("bad url");
         return;
       }
-      /* Shared-visitor cache + coalesced miss: one upstream YouTube read serves
-         every tab polling inside the window, and concurrent misses share one
-         fetch instead of stampeding the datacenter-limited door. */
       try {
-        const now = Date.now();
-        const hit = ytPageCache.get(target);
-        if (hit && now - hit.at < YT_CACHE_MS) {
-          const accept = req.headers["accept-encoding"] || "";
-          if (hit.gz && accept.includes("gzip")) {
-            res.writeHead(200, {
-              "content-type": "text/html; charset=utf-8",
-              "content-length": hit.gz.length,
-              "content-encoding": "gzip",
-              "cache-control": "no-store",
-              "access-control-allow-origin": "*",
-              vary: "accept-encoding",
-            });
-            res.end(hit.gz);
-            return;
-          }
-          res.writeHead(200, {
-            "content-type": "text/html; charset=utf-8",
-            "content-length": hit.body.length,
-            "cache-control": "no-store",
-            "access-control-allow-origin": "*",
-          });
-          res.end(hit.body);
-          return;
-        }
-        const running = ytPageInflight.get(target);
-        if (running) {
-          const shared = await running;
-          if (shared && shared.body) {
-            res.writeHead(200, {
-              "content-type": "text/html; charset=utf-8",
-              "content-length": shared.body.length,
-              "cache-control": "no-store",
-              "access-control-allow-origin": "*",
-            });
-            res.end(shared.body);
-            return;
-          }
-        }
-      } catch {}
-      const ytJob = (async () => {
         const upstream = await fetch(target, {
           headers: {
             "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36",
@@ -644,98 +549,34 @@ const server = http.createServer(async (req, res) => {
           ytTooBig = true;
         }
         const text = ytTooBig ? "" : Buffer.concat(ytParts).toString("utf8");
-        if (!upstream.ok || !text) throw new Error(ytTooBig ? "too large" : "unreachable");
-        const body = Buffer.from(text, "utf8");
-        try {
-          if (body.length > 1024) {
-            const gz2 = gzipSync(body);
-            try { ytPageCache.set(target, { at: Date.now(), body, gz: gz2 }); } catch {}
-          } else {
-            try { ytPageCache.set(target, { at: Date.now(), body, gz: null }); } catch {}
-          }
-        } catch {}
-        return { body };
-      })();
-      try { ytPageInflight.set(target, ytJob); } catch {}
-      try {
-        const out = await ytJob;
-        if (!out || !out.body) throw new Error("unreachable");
-        const accept = req.headers["accept-encoding"] || "";
-        const cached = ytPageCache.get(target);
-        if (cached && cached.gz && accept.includes("gzip")) {
-          res.writeHead(200, {
-            "content-type": "text/html; charset=utf-8",
-            "content-length": cached.gz.length,
-            "content-encoding": "gzip",
-            "cache-control": "no-store",
-            "access-control-allow-origin": "*",
-            vary: "accept-encoding",
-          });
-          res.end(cached.gz);
-        } else {
-          res.writeHead(200, {
-            "content-type": "text/html; charset=utf-8",
-            "content-length": out.body.length,
-            "cache-control": "no-store",
-            "access-control-allow-origin": "*",
-          });
-          res.end(out.body);
-        }
-      } catch (e) {
-        const msg = String((e && e.message) || "unreachable");
-        res.writeHead(502, { "cache-control": "no-store", "access-control-allow-origin": "*" });
-        res.end(msg === "too large" ? "too large" : "unreachable");
-      } finally {
-        try { ytPageInflight.delete(target); } catch {}
-      }
-      return;
-    }
-
-    /* Keyless live answer (no API key needed): redirect + page read,
-       same shape + TTLs as /__live. The Data API door below stays as an
-       optional bonus when YT_API_KEY is set — never required. */
-    if (pathname === "/__live2" && req.method === "GET") {
-      const channel = url.searchParams.get("channel") || "";
-      if (!/^UC[\w-]{20,24}$/.test(channel)) {
-        res.writeHead(400, { "cache-control": "no-store", "access-control-allow-origin": "*" });
-        res.end("bad channel");
-        return;
-      }
-      const LIVE_TTL_MS = 75_000;
-      const OFF_TTL_MS = 20_000;
-      const sendLive2 = (data) => {
-        const body = Buffer.from(JSON.stringify(data), "utf8");
-        res.writeHead(200, { "content-type": "application/json; charset=utf-8", "content-length": body.length, "cache-control": "no-store", "access-control-allow-origin": "*" });
-        res.end(body);
-      };
-      try {
-        const now = Date.now();
-        const hit = liveKeylessCache.get(channel);
-        if (hit) {
-          const ttl = hit.data && hit.data.state === "live" ? LIVE_TTL_MS : OFF_TTL_MS;
-          if (now - hit.at < ttl) { sendLive2(hit.data); return; }
-        }
-        const running = liveKeylessInflight.get(channel);
-        if (running) {
-          const shared = await running;
-          if (shared) sendLive2(shared); else { res.writeHead(502, { "cache-control": "no-store", "access-control-allow-origin": "*" }); res.end("unreachable"); }
+        if (!upstream.ok || !text) {
+          res.writeHead(502, { "cache-control": "no-store" });
+          res.end(ytTooBig ? "too large" : "unreachable");
           return;
         }
-      } catch {}
-      const live2Job = (async () => {
-        const out = await checkKeylessLive(channel);
-        if (!out) throw new Error("unreachable");
-        try { liveKeylessCache.set(channel, { at: Date.now(), data: out }); } catch {}
-        return out;
-      })();
-      try { liveKeylessInflight.set(channel, live2Job); } catch {}
-      try {
-        sendLive2(await live2Job);
+        const body = Buffer.from(text, "utf8");
+        const accept = req.headers["accept-encoding"] || "";
+        if (body.length > 1024 && accept.includes("gzip")) {
+          const gz = gzipSync(body);
+          res.writeHead(200, {
+            "content-type": "text/html; charset=utf-8",
+            "content-length": gz.length,
+            "content-encoding": "gzip",
+            "cache-control": "no-store",
+            vary: "accept-encoding",
+          });
+          res.end(gz);
+          return;
+        }
+        res.writeHead(200, {
+          "content-type": "text/html; charset=utf-8",
+          "content-length": body.length,
+          "cache-control": "no-store",
+        });
+        res.end(body);
       } catch {
-        res.writeHead(502, { "cache-control": "no-store", "access-control-allow-origin": "*" });
+        res.writeHead(502, { "cache-control": "no-store" });
         res.end("unreachable");
-      } finally {
-        try { liveKeylessInflight.delete(channel); } catch {}
       }
       return;
     }
@@ -753,68 +594,48 @@ const server = http.createServer(async (req, res) => {
     if (pathname === "/__live" && req.method === "GET") {
       const channel = url.searchParams.get("channel") || "";
       if (!/^UC[\w-]{20,24}$/.test(channel)) {
-        res.writeHead(400, { "cache-control": "no-store", "access-control-allow-origin": "*" });
+        res.writeHead(400, { "cache-control": "no-store" });
         res.end("bad channel");
         return;
       }
       const key = process.env.YT_API_KEY || "";
       if (!key) {
-        res.writeHead(404, { "cache-control": "no-store", "access-control-allow-origin": "*" });
+        res.writeHead(404, { "cache-control": "no-store" });
         res.end("no key");
         return;
       }
-      /* Split TTL (live-start fix): a cached OFF held 75s delayed every live
-         start by over a minute for the whole congregation. OFF caches 20s so
-         a start shows promptly; LIVE caches 75s (quota-safe: ~1 unit/min per
-         channel for 100 polling visitors). Concurrent misses share one
-         upstream call — a cold-start thundering herd no longer burns a day's
-         quota in a minute. */
-      const LIVE_TTL_MS = 75_000;
-      const OFF_TTL_MS = 20_000;
-      const sendLive = (data) => {
-        const body = Buffer.from(JSON.stringify(data), "utf8");
-        res.writeHead(200, { "content-type": "application/json; charset=utf-8", "content-length": body.length, "cache-control": "no-store", "access-control-allow-origin": "*" });
-        res.end(body);
-      };
       try {
         const now = Date.now();
         const hit = liveApiCache.get(channel);
-        if (hit) {
-          const ttl = hit.data && hit.data.state === "live" ? LIVE_TTL_MS : OFF_TTL_MS;
-          if (now - hit.at < ttl) { sendLive(hit.data); return; }
-        }
-        const running = liveApiInflight.get(channel);
-        if (running) {
-          const shared = await running;
-          sendLive(shared);
+        if (hit && now - hit.at < 75_000) {
+          const body = Buffer.from(JSON.stringify(hit.data), "utf8");
+          res.writeHead(200, { "content-type": "application/json; charset=utf-8", "content-length": body.length, "cache-control": "no-store" });
+          res.end(body);
           return;
         }
-      } catch {}
-      const liveJob = (async () => {
         const apiUrl = `https://www.googleapis.com/youtube/v3/search?part=snippet&channelId=${encodeURIComponent(channel)}&eventType=live&type=video&maxResults=1&key=${encodeURIComponent(key)}`;
         const upstream = await fetch(apiUrl, {
           headers: { accept: "application/json" },
           signal: typeof AbortSignal !== "undefined" && typeof AbortSignal.timeout === "function" ? AbortSignal.timeout(8000) : undefined,
         });
         const data = await upstream.json().catch(() => null);
-        if (!upstream.ok || !data) throw new Error("unreachable");
+        if (!upstream.ok || !data) {
+          res.writeHead(502, { "cache-control": "no-store" });
+          res.end("unreachable");
+          return;
+        }
         const item = Array.isArray(data.items) ? data.items[0] : null;
         const videoId = item && item.id && typeof item.id.videoId === "string" ? item.id.videoId : "";
         const out = videoId && /^[\w-]{11}$/.test(videoId)
           ? { state: "live", videoId, title: String((item.snippet && item.snippet.title) || ""), channelId: channel }
           : { state: "off", videoId: "", title: "", channelId: "" };
-        try { liveApiCache.set(channel, { at: Date.now(), data: out }); } catch {}
-        return out;
-      })();
-      try { liveApiInflight.set(channel, liveJob); } catch {}
-      try {
-        const out = await liveJob;
-        sendLive(out);
+        liveApiCache.set(channel, { at: now, data: out });
+        const body = Buffer.from(JSON.stringify(out), "utf8");
+        res.writeHead(200, { "content-type": "application/json; charset=utf-8", "content-length": body.length, "cache-control": "no-store" });
+        res.end(body);
       } catch {
-        res.writeHead(502, { "cache-control": "no-store", "access-control-allow-origin": "*" });
+        res.writeHead(502, { "cache-control": "no-store" });
         res.end("unreachable");
-      } finally {
-        try { liveApiInflight.delete(channel); } catch {}
       }
       return;
     }

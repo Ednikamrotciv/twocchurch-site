@@ -11,10 +11,7 @@ import { getDraft, setSectionValue } from "./cms";
 
 /** Watches the guest address; on its live-to-off edge, stops the guest slot. */
 export function useAutoStopLive(enabled = true): null {
-  /* Urgent cadence (guest-end fix): the default quiet-week poll (90s) detected
-     a guest ending up to a minute and a half late, stranding visitors on the
-     guest broadcast. The Watch-page cadence ends it within seconds. */
-  const air = useLiveStream(true, false, true);
+  const air = useLiveStream();
   const guestUrl = guestTarget()?.url || "";
   const liveNow = !!guestUrl && air.state === "live" && isStatusForTarget(air, guestUrl);
   const offNow = !!guestUrl && air.state === "off" && isStatusForTarget(air, guestUrl);

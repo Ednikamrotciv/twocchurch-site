@@ -48,26 +48,8 @@ something similar — build command, output / publish directory):
 - Output / publish directory: `dist`
 - Framework preset: none / static / "other". A one-click framework preset that
   runs only the bundler would skip the baking step above and ship empty pages.
-- Environment variables: none for the frontend build. The repo builds with the Node version in
+- Environment variables: none. The repo builds with the Node version in
   `.nvmrc`.
-
-## Livestream auto-open (keyless — nothing to set)
-
-Press-free auto-open — the Watch page opening by itself the moment YouTube
-goes live, with no office press — needs nothing set anywhere. No YouTube API
-key, no dashboard value, no command. Play + Publish opens the stream, and a
-stream started straight from the YouTube app opens by itself too.
-
-- **Office computer:** nothing. The backend logs
-  `live auto-detect: ON (keyless — no key needed)` at boot.
-- **Render backend:** nothing — `render.yaml` asks for no keys.
-- **Netlify frontend:** nothing — the keyless live2 function ships with the
-  site.
-- **Check in one glance:** the admin console transport row shows "Auto-open
-  is on — …no key and no press needed" once the backend answers.
-- **Optional bonus only:** a `YT_API_KEY` in server env (never the frontend)
-  adds the Data API as a second opinion — `npm run set-key -- <key>` still
-  works for that — but the stream opens and ends perfectly without it.
 
 ## Holding visitors in maintenance
 

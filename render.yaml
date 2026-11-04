@@ -10,6 +10,3 @@ services:
     envVars:
       - key: NODE_VERSION
         value: 24
-      # Livestream auto-open is keyless — nothing to set. (An optional
-      # YT_API_KEY in the dashboard adds the Data API as a bonus door, but
-      # the stream opens and ends perfectly without it, so Render never asks.)

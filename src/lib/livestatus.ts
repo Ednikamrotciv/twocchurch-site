@@ -1,6 +1,4 @@
-/* On-air check (keyless — no YouTube API key needed anywhere): the published
-   Play stamp and the keyless /__live2 door answer first; the channel's /live
-   page scrape covers the rest. Reads the channel's /live page for `isLiveNow` (never `isLiveContent`/`isLive`,
+/* On-air check: reads the channel's /live page for `isLiveNow` (never `isLiveContent`/`isLive`,
    both traps, note 112) via the office-server proxy (no CORS). A bot-walled /live page can name the
    broadcast without playing it (note 322) — the check then follows the Live tab's video to its watch
    page, whose on-air chrome (`Live` indicator + `watching now`, measured on a real service) is the
@@ -476,17 +474,10 @@ async function resolveYoutube(
   const liveTabFirst = liveTabId && cands.includes(liveTabId)
     ? [liveTabId, ...cands.filter((c) => c !== liveTabId)].slice(0, 3)
     : cands.slice(0, 3);
-  /* False-off guard: a bot-walled channel page names candidates we cannot
-     read (every watch page 502s / proxy down). With zero readable candidates
-     we know NOTHING — return unknown, never off — or a walled mid-service
-     read ends the service. Only a read candidate that is provably not live
-     counts toward off. */
-  let readAnyCandidate = false;
   for (const vid of liveTabFirst) {
     const url = `https://www.youtube.com/watch?v=${vid}`;
     const watchHtml = await fetchPage(url);
     if (watchHtml === null) continue;
-    readAnyCandidate = true;
     const watch = parseLivePage(watchHtml, url);
     if (watch.live && (watch.videoId || vid)) {
       if (!ownerAllowsCandidate(owner, watchChannelId(watchHtml))) continue;
@@ -494,10 +485,6 @@ async function resolveYoutube(
       return { state: "live" as const, videoId: watch.videoId || vid, title: watch.title, channelId: "" };
     }
   }
-  /* No readable candidate at all (empty Live tab + grab-bag miss, or every
-     watch read failed): the page proves nothing — unknown, never off. A
-     walled mid-service read must not end the service. */
-  if (!readAnyCandidate) return { state: "unknown" as const, videoId: "", title: "", channelId: "" };
   /* Walled but on air (note 331): the channel page carries the full on-air
      chrome yet no suggestion verifies — measured on a real service, every
      watch page answers 502 through the deployed server while the channel page
@@ -663,25 +650,10 @@ async function proxyDoor(proxyUrl: string, url: string): Promise<string | null> 
     return null;
   }
 }
-async function proxyGetDoor(url: string): Promise<string | null> {
-  /* allorigins JSON wrapper: a different cache path on the same infra — it
-     has answered while /raw was rate-limited, and vice versa. */
-  try {
-    const res = await withTimeout(fetch("https://api.allorigins.win/get?url=" + encodeURIComponent(url), { cache: "no-store" }), CHECK_TIMEOUT_MS);
-    if (!res || !res.ok) return null;
-    const data = await res.json().catch(() => null);
-    const text = data && typeof (data as any).contents === "string" ? (data as any).contents : "";
-    if (!text || !isYoutubeHtml(text)) return null;
-    return text;
-  } catch {
-    return null;
-  }
-}
 async function fetchPageRemote(url: string): Promise<string | null> {
   try {
     return await firstValidHtml([
       proxyDoor("https://api.allorigins.win/raw?url=", url),
-      proxyGetDoor(url),
       proxyDoor("https://corsproxy.io/?url=", url),
       proxyDoor("https://api.codetabs.com/v1/proxy?quest=", url),
     ]);
@@ -899,14 +871,12 @@ async function stampedVideoEnded(videoId: string): Promise<boolean> {
   }
 }
 
-/* Authoritative live doors: the keyless /__live2 door is primary (no key
-   anywhere — redirect + page read, same TTLs, same shape). The Data API
-   /__live door (fix v7) stays as an optional bonus when YT_API_KEY happens
-   to be set in server env (never in frontend code): either door answering
-   live wins at once, either answering off ends a stale pin. Without a key
-   the Data door answers 404 and the keyless door + stamp + scrape decide,
-   exactly like before. Split deploys are covered too: same-origin first,
-   then the Netlify function, then the joined office server. */
+/* Authoritative live door (production fix v7): the backend answers /__live
+   from the YouTube Data API (YT_API_KEY lives only in server env, never in
+   frontend code) behind a short server-side cache, so 100 visitors still
+   cost ~1 quota unit/min, not 100. Without a key the door answers 404 and
+   the stamp + scrape below decide, exactly like before. Split deploys are
+   covered too: same-origin first, then the joined office server. */
 type LiveApiAnswer = { state: "live" | "off"; videoId: string; title: string; channelId: string };
 const LIVE_API_TIMEOUT_MS = 8_000;
 async function fetchLiveApiOnce(base: string, channelId: string): Promise<LiveApiAnswer | null> {
@@ -930,101 +900,15 @@ async function fetchLiveApiOnce(base: string, channelId: string): Promise<LiveAp
     return null;
   }
 }
-async function fetchLiveApiOnceNetlify(channelId: string): Promise<LiveApiAnswer | null> {
-  /* Static hosts with no /__live (Netlify/Vercel SPA): the Netlify function
-     door answers the same shape from the same Data API key (server env, never
-     the browser). 404 / missing function falls through to stamp + scrape. */
+async function fetchLiveApiFor(targetUrl: string): Promise<LiveApiAnswer | null> {
   try {
-    const res = await withTimeout(fetch(`/.netlify/functions/live?channel=${encodeURIComponent(channelId)}`, { cache: "no-store" }), LIVE_API_TIMEOUT_MS);
-    if (!res || !res.ok) return null;
-    let data: any = null;
-    try { data = await res.json(); } catch { return null; }
-    if (!data || typeof data !== "object") return null;
-    if (data.state === "live" && parseYoutubeId(data.videoId)) {
-      const cid = String(data.channelId || "");
-      return { state: "live", videoId: parseYoutubeId(data.videoId), title: String(data.title || ""), channelId: /^UC[\w-]{20,24}$/.test(cid) ? cid : channelId };
-    }
-    if (data.state === "off") return { state: "off", videoId: "", title: "", channelId: "" };
-    return null;
-  } catch { return null; }
-}
-function knownChannelIdForTarget(targetUrl: string, allowPastedMain = true): string {
-  /* Designated map first (@twocorg with no page read); then any UC id carried
-     in the checked address — the API door works for every channel, not just
-     the designated one. The pasted-input fallback is main-only: a guest
-     address must never inherit the main channel's id (that would attribute
-     the main broadcast to the guest slot). */
-  try {
-    const d = designatedChannelIdForTarget(String(targetUrl || ""));
-    if (/^UC[\w-]{20,24}$/.test(d)) return d;
-    const inUrl = /(UC[\w-]{20,24})/.exec(String(targetUrl || ""));
-    if (inUrl) return inUrl[1];
-    if (!allowPastedMain) return "";
-    const raw = String((LIVE as any).youtubeChannel || "");
-    const inPasted = /(UC[\w-]{20,24})/.exec(raw);
-    if (inPasted) return inPasted[1];
-  } catch {}
-  return "";
-}
-/* Keyless live door (no API key): same-origin /__live2, then the Netlify
-   live2 function, then the joined office server — same shape as the Data
-   door above, same timeout. A 502/unreachable door is a miss, never off. */
-type KeylessAnswer = { state: "live" | "off"; videoId: string; title: string; channelId: string };
-const KEYLESS_TIMEOUT_MS = 10_000;
-async function fetchKeylessOnce(base: string, channelId: string): Promise<KeylessAnswer | null> {
-  try {
-    const res = await withTimeout(fetch(base + "/__live2?channel=" + encodeURIComponent(channelId), { cache: "no-store" }), KEYLESS_TIMEOUT_MS);
-    if (!res || !res.ok) return null;
-    let data: any = null;
-    try { data = await res.json(); } catch { return null; }
-    if (!data || typeof data !== "object") return null;
-    if (data.state === "live" && parseYoutubeId(data.videoId)) {
-      const cid = String(data.channelId || "");
-      return { state: "live", videoId: parseYoutubeId(data.videoId), title: String(data.title || ""), channelId: /^UC[\w-]{20,24}$/.test(cid) ? cid : channelId };
-    }
-    if (data.state === "off") return { state: "off", videoId: "", title: "", channelId: "" };
-    return null;
-  } catch { return null; }
-}
-async function fetchKeylessOnceNetlify(channelId: string): Promise<KeylessAnswer | null> {
-  try {
-    const res = await withTimeout(fetch("/.netlify/functions/live2?channel=" + encodeURIComponent(channelId), { cache: "no-store" }), KEYLESS_TIMEOUT_MS);
-    if (!res || !res.ok) return null;
-    let data: any = null;
-    try { data = await res.json(); } catch { return null; }
-    if (!data || typeof data !== "object") return null;
-    if (data.state === "live" && parseYoutubeId(data.videoId)) {
-      const cid = String(data.channelId || "");
-      return { state: "live", videoId: parseYoutubeId(data.videoId), title: String(data.title || ""), channelId: /^UC[\w-]{20,24}$/.test(cid) ? cid : channelId };
-    }
-    if (data.state === "off") return { state: "off", videoId: "", title: "", channelId: "" };
-    return null;
-  } catch { return null; }
-}
-async function fetchKeylessLiveFor(targetUrl: string, allowPastedMain = true): Promise<KeylessAnswer | null> {
-  try {
-    const channelId = knownChannelIdForTarget(String(targetUrl || ""), allowPastedMain);
-    if (!/^UC[\w-]{20,24}$/.test(channelId)) return null;
-    const same = await fetchKeylessOnce("", channelId);
-    if (same) return same;
-    const nf = await fetchKeylessOnceNetlify(channelId);
-    if (nf) return nf;
-    try {
-      const base = serverUrl();
-      if (base) return await fetchKeylessOnce(base, channelId);
-    } catch { /* standalone — the same-origin miss above stands */ }
-    return null;
-  } catch { return null; }
-}
-
-async function fetchLiveApiFor(targetUrl: string, allowPastedMain = true): Promise<LiveApiAnswer | null> {
-  try {
-    const channelId = knownChannelIdForTarget(String(targetUrl || ""), allowPastedMain);
+    /* The API names channels by id: the designated map answers @twocorg (and
+       any raw UC address) with no page read; anything else stays on the
+       stamp + scrape below. */
+    const channelId = designatedChannelIdForTarget(String(targetUrl || ""));
     if (!/^UC[\w-]{20,24}$/.test(channelId)) return null;
     const same = await fetchLiveApiOnce("", channelId);
     if (same) return same;
-    const nf = await fetchLiveApiOnceNetlify(channelId);
-    if (nf) return nf;
     try {
       const base = serverUrl();
       if (base) return await fetchLiveApiOnce(base, channelId);
@@ -1032,103 +916,6 @@ async function fetchLiveApiFor(targetUrl: string, allowPastedMain = true): Promi
       /* standalone — the same-origin miss above stands */
     }
     return null;
-  } catch {
-    return null;
-  }
-}
-
-/* Keyless JSON door (deployed-clock fix, v10): the Invidious channel API
-   names every recent video with a liveNow flag — a few KB of JSON instead of
-   a 1MB wallable page, CORS-open on some instances, and readable through the
-   working proxy on the rest. A liveNow video is live; a valid list with none
-   live is off; anything else is unknown (never off). Stale-cache guard: a
-   live verdict here never skips the scrape — a readable page overrules it
-   below — and an off verdict never kills the office's published stamp. */
-type InvAnswer = { state: "live" | "off"; videoId: string; title: string; channelId: string };
-const INV_INSTANCES = ["https://yt.chocolatemoo53.com", "https://iv.duti.dev"];
-const INV_TIMEOUT_MS = 10_000;
-function parseInvidiousChannel(data: any, channelId: string): InvAnswer | null {
-  try {
-    if (!data || typeof data !== "object") return null;
-    const author = String((data as any).authorId || "");
-    /* A proxy-cache mixup must never attribute another channel's live. */
-    if (author && author !== channelId) return null;
-    const list = (data as any).latestVideos;
-    if (!Array.isArray(list) || !list.length) return null;
-    for (const v of list) {
-      if (v && typeof v === "object" && (v as any).liveNow === true) {
-        const vid = parseYoutubeId(String((v as any).videoId || ""));
-        if (vid) return { state: "live", videoId: vid, title: String((v as any).title || ""), channelId };
-      }
-    }
-    return { state: "off", videoId: "", title: "", channelId: "" };
-  } catch {
-    return null;
-  }
-}
-async function fetchInvidiousOnce(url: string, channelId: string): Promise<InvAnswer | null> {
-  try {
-    const res = await withTimeout(fetch(url, { cache: "no-store" }), INV_TIMEOUT_MS);
-    if (!res || !res.ok) return null;
-    const data = await res.json().catch(() => null);
-    return parseInvidiousChannel(data, channelId);
-  } catch {
-    return null;
-  }
-}
-/* First decisive (non-null) answer wins; all-miss reads null. */
-function firstDecisive(jobs: Promise<InvAnswer | null>[]): Promise<InvAnswer | null> {
-  return new Promise((resolve) => {
-    let pending = jobs.length;
-    let done = false;
-    if (!pending) {
-      resolve(null);
-      return;
-    }
-    for (const job of jobs) {
-      Promise.resolve(job).then(
-        (value) => {
-          if (done) return;
-          if (value) {
-            done = true;
-            resolve(value);
-            return;
-          }
-          pending -= 1;
-          if (pending <= 0 && !done) {
-            done = true;
-            resolve(null);
-          }
-        },
-        () => {
-          if (done) return;
-          pending -= 1;
-          if (pending <= 0) {
-            done = true;
-            resolve(null);
-          }
-        }
-      );
-    }
-  });
-}
-async function fetchInvidiousLiveFor(targetUrl: string, allowPastedMain = true): Promise<InvAnswer | null> {
-  try {
-    const channelId = knownChannelIdForTarget(String(targetUrl || ""), allowPastedMain);
-    if (!/^UC[\w-]{20,24}$/.test(channelId)) return null;
-    const jobs: Promise<InvAnswer | null>[] = [];
-    for (const inst of INV_INSTANCES) {
-      jobs.push(fetchInvidiousOnce(inst + "/api/v1/channels/" + channelId + "?hl=en", channelId));
-    }
-    /* Same JSON through the working HTML proxy: an independent route to the
-       same answer when an instance's own edge is down. */
-    jobs.push(
-      fetchInvidiousOnce(
-        "https://api.allorigins.win/raw?url=" + encodeURIComponent(INV_INSTANCES[0] + "/api/v1/channels/" + channelId + "?hl=en"),
-        channelId
-      )
-    );
-    return await firstDecisive(jobs);
   } catch {
     return null;
   }
@@ -1160,10 +947,6 @@ export async function checkLiveStream(opts: { facebook?: boolean } = {}): Promis
   /* Fix v7: the published Play stamp and the Data API door race the scrape —
      on deployed hosts the scrape is routinely bot-walled while these answer
      in milliseconds. All three start together; the first usable answer wins. */
-  /* Scrape starts ONLY on stamp/API miss (livestream waste fix): firing the
-     channel + watch page reads on every poll while a stamp is live burned ~6
-     proxy reads per check for an answer that was discarded. Stamps verify via
-     the CORS-open noembed door (fast); the scrape starts after they miss. */
   const stampGuestP: Promise<StampAnswer | null> = guest && !officeGuest ? publishedStamp(true) : Promise.resolve(null);
   const stampMainP: Promise<StampAnswer | null> = target && !officeHit ? publishedStamp(false) : Promise.resolve(null);
   /* The end check races the stamp it judges (fix v8, hardened v9): it starts
@@ -1178,11 +961,9 @@ export async function checkLiveStream(opts: { facebook?: boolean } = {}): Promis
   const endGrace = (p: Promise<boolean>, ms = 1500): Promise<boolean> =>
     Promise.race([p, new Promise<boolean>((resolve) => window.setTimeout(() => resolve(false), ms))]).catch(() => false);
   const apiP: Promise<LiveApiAnswer | null> = target && !officeHit ? fetchLiveApiFor(target.url) : Promise.resolve(null);
-  const apiGuestP: Promise<LiveApiAnswer | null> = guest && !officeGuest ? fetchLiveApiFor(guest.url, false) : Promise.resolve(null);
-  const keylessP: Promise<KeylessAnswer | null> = target && !officeHit ? fetchKeylessLiveFor(target.url) : Promise.resolve(null);
-  const keylessGuestP: Promise<KeylessAnswer | null> = guest && !officeGuest ? fetchKeylessLiveFor(guest.url, false) : Promise.resolve(null);
-  const invP: Promise<InvAnswer | null> = target && !officeHit ? fetchInvidiousLiveFor(target.url) : Promise.resolve(null);
-  const invGuestP: Promise<InvAnswer | null> = guest && !officeGuest ? fetchInvidiousLiveFor(guest.url, false) : Promise.resolve(null);
+  /* Fast path: guest + main pages fetch in parallel (were sequential). */
+  const guestHtmlP: Promise<string | null> = guest && !officeGuest ? fetchPage(guest.url) : Promise.resolve(null);
+  const mainHtmlP: Promise<string | null> = target && !officeHit ? fetchPage(target.url) : Promise.resolve(null);
   const stampGuest = guest && !officeGuest ? await stampGuestP : null;
   /* A proven-ended stamp falls through (fix v8): the scrape is asked after
      all and its OFF ends the stale pin, exactly like no stamp — while a live
@@ -1192,15 +973,7 @@ export async function checkLiveStream(opts: { facebook?: boolean } = {}): Promis
      finished pin. */
   const stampGuestDead = guest && !officeGuest && stampGuest ? await endGrace(stampGuestDeadP) : false;
   const liveStampGuest = stampGuest && !stampGuestDead ? stampGuest : null;
-  const apiGuestAns = guest && !officeGuest && !liveStampGuest ? await apiGuestP : null;
-  const keylessGuestAns = guest && !officeGuest && !liveStampGuest && !(apiGuestAns && apiGuestAns.state === "live") ? await keylessGuestP : null;
-  const guestDoorLive = (apiGuestAns && apiGuestAns.state === "live" ? apiGuestAns : null) || (keylessGuestAns && keylessGuestAns.state === "live" ? keylessGuestAns : null);
-  /* Invidious never skips the scrape (stale-cache guard, v10): a readable
-     page overrules it below; it only fills an unreadable one. */
-  const invGuestAns = guest && !officeGuest && !liveStampGuest && !guestDoorLive ? await invGuestP : null;
-  const invGuestLive = invGuestAns && invGuestAns.state === "live" ? invGuestAns : null;
-  const guestHtml = guest && !officeGuest && !liveStampGuest && !guestDoorLive ? await fetchPage(guest.url) : null;
-  const guestScraped = guestHtml === null ? null : await resolveYoutubeBounded(guest, guestHtml);
+  const guestHtml = guest && !officeGuest && !liveStampGuest ? await guestHtmlP : null;
   const guestAns: { state: LiveState; videoId: string; title: string; channelId: string } = !guest
     ? { state: "unset", videoId: "", title: "", channelId: "" }
     : officeGuest
@@ -1209,38 +982,18 @@ export async function checkLiveStream(opts: { facebook?: boolean } = {}): Promis
       : { state: "off", videoId: "", title: "", channelId: "" }
     : liveStampGuest
     ? liveStampGuest
-    : guestDoorLive
-    ? { state: "live", videoId: guestDoorLive.videoId, title: guestDoorLive.title, channelId: guestDoorLive.channelId }
-    : invGuestLive
-    ? guestScraped && guestScraped.state !== "unknown"
-      ? guestScraped
-      : { state: "live", videoId: invGuestLive.videoId, title: invGuestLive.title, channelId: invGuestLive.channelId }
-    : guestScraped
-    ? guestScraped
-    : { state: "unknown", videoId: "", title: "", channelId: "" };
+    : guestHtml === null
+    ? { state: "unknown", videoId: "", title: "", channelId: "" }
+    : await resolveYoutubeBounded(guest, guestHtml);
   const stampMain = target && !officeHit ? await stampMainP : null;
-  /* Authoritative API answer arrives alongside the stamp (not after it): an
-     API "off" kills a stale stamp at once — a forgotten Stop ends on the next
-     poll instead of pinning the player until the stamp ages out. An API "live"
-     wins immediately with no scrape wait. */
-  const apiAns = target && !officeHit ? await apiP : null;
-  const keylessAns = target && !officeHit && !(apiAns && apiAns.state === "live") ? await keylessP : null;
-  const invAns = target && !officeHit && !(apiAns && apiAns.state === "live") && !(keylessAns && keylessAns.state === "live") ? await invP : null;
-  const invLive = invAns && invAns.state === "live" ? invAns : null;
-  const invSaysOff = !!(invAns && invAns.state === "off");
-  const doorLive = (apiAns && apiAns.state === "live" ? apiAns : null) || (keylessAns && keylessAns.state === "live" ? keylessAns : null);
   const stampMainDead = target && !officeHit && stampMain ? await endGrace(stampMainDeadP) : false;
   /* Proven-ended stamp falls through here too (fix v8, grace v9): the API
      door and the scrape below decide, so a forgotten Stop ends on the next
-     poll instead of pinning until the stamp ages out — while a slow end-probe
-     never holds the live start. An authoritative API off counts as proven. */
-  const doorsSayOff = !!((apiAns && apiAns.state === "off") || (keylessAns && keylessAns.state === "off"));
-  const liveStampMain = stampMain && !stampMainDead && !doorsSayOff ? stampMain : null;
-  /* Deferred scrape (waste fix): the channel page is fetched only now — after
-     office report, stamp and API all missed — never in parallel with a stamp
-     that discards it. */
-  const html = target && !officeHit && !liveStampMain && !doorLive ? await fetchPage(target.url) : null;
-  const scraped = html === null ? null : await resolveYoutubeBounded(target, html);
+     poll instead of pinning the player until the stamp ages out — while a
+     slow end-probe never holds the live start. */
+  const liveStampMain = stampMain && !stampMainDead ? stampMain : null;
+  const apiAns = target && !officeHit && !liveStampMain ? await apiP : null;
+  const html = target && !officeHit && !liveStampMain && !(apiAns && apiAns.state === "live") ? await mainHtmlP : null;
   let youtube: { state: LiveState; videoId: string; title: string; channelId: string } = !target
     ? { state: "unset", videoId: "", title: "", channelId: "" }
     : officeHit
@@ -1249,21 +1002,15 @@ export async function checkLiveStream(opts: { facebook?: boolean } = {}): Promis
       : { state: "off", videoId: "", title: "", channelId: "" }
     : liveStampMain
     ? liveStampMain
-    : doorLive
-    ? { state: "live", videoId: doorLive.videoId, title: doorLive.title, channelId: doorLive.channelId }
-    : invLive
-    ? scraped && scraped.state !== "unknown"
-      ? scraped
-      : { state: "live", videoId: invLive.videoId, title: invLive.title, channelId: invLive.channelId }
-    : scraped
-    ? scraped
-    : { state: "unknown", videoId: "", title: "", channelId: "" };
-  /* Authoritative door off (fix v7, keyless v9, invidious v10): a reachable
-     door says no broadcast is live — an unreadable scrape degrades to OFF
-     instead of sitting on the ticking clock. A readable scrape always wins
-     above. Invidious off upgrades unknown like the rest, but never kills the
-     office's published stamp (stale-cache guard) — only API/keyless off do. */
-  if (youtube.state === "unknown" && (doorsSayOff || invSaysOff) && !liveStampMain) {
+    : apiAns && apiAns.state === "live"
+    ? { state: "live", videoId: apiAns.videoId, title: apiAns.title, channelId: apiAns.channelId }
+    : html === null
+    ? { state: "unknown", videoId: "", title: "", channelId: "" }
+    : await resolveYoutubeBounded(target, html);
+  /* Authoritative API off (fix v7): the Data API is reachable and says no
+     broadcast is live — an unreadable scrape degrades to OFF instead of
+     sitting on the ticking clock. A readable scrape always wins above. */
+  if (youtube.state === "unknown" && apiAns && apiAns.state === "off" && !liveStampMain) {
     youtube = { state: "off", videoId: "", title: "", channelId: "" };
   }
 
@@ -1624,28 +1371,13 @@ async function run() {
       return;
     }
   }
-  /* Fresh office stamp pins the live (retire fix): while Play is published
-     with a fresh verified id, an unreadable stretch must not retire the
-     broadcast — the stamp IS the confirmation, and the player + next poll are
-     the net. Without a stamp the cap below still retires a stale live. */
-  const stampPinsLive = (() => {
-    try {
-      const live = LIVE as any;
-      if (!live || !live.isLive) return false;
-      const id = parseYoutubeId(live.liveVideoId);
-      if (!id) return false;
-      const at = Number(live.liveVideoAt) || 0;
-      if (!(at > 0) || Date.now() - at > STAMP_MAX_AGE_MS) return false;
-      return true;
-    } catch { return false; }
-  })();
   /* Keep the last good answer when the check itself failed, so a hiccup never
      turns a live stream into an ended one — but only up to the cap: past
      ten minutes without a single confirmable read, the stale live retires
      to ended (with its last video, for the ended screen and recents) instead
      of sitting on a black frame no arrow can reach. A fresh live edge after
      that reopens by itself, with sound. */
-  if (next.state === "unknown" && snapshot.status.state === "live" && !stampPinsLive) {
+  if (next.state === "unknown" && snapshot.status.state === "live") {
     if (Date.now() - (lastDefinitiveAt || lastCheckAt) <= UNKNOWN_CAP_MS) {
       lastCheckAt = Date.now();
       schedule(delay());
@@ -1752,67 +1484,6 @@ export function useLiveStream(soon = false, watchFacebook = false, urgent = fals
     noteLiveTargetMayHaveChanged();
   }, [signature]);
   return { ...status, checking } as LiveStatus & { checking: boolean };
-}
-
-/* ----------------- auto-detect status (keyless): on/unknown for the admin
-   console. Asks the same backend the live doors live on — same-origin
-   /__live-status first (serve.mjs + vite dev), then the Netlify function probe
-   — so the office sees it beside the transport buttons without reading docs.
-   Keyless: any answering backend auto-opens with no key, so an answer always
-   means on. Quota-free (no YouTube call), cached, never throws. */
-
-export type LiveKeyStatus = "on" | "off" | "unknown";
-
-const keyStatusCache: { at: number; value: LiveKeyStatus } = { at: 0, value: "unknown" };
-const KEY_STATUS_TTL_MS = 60_000;
-const KEY_STATUS_UNKNOWN_TTL_MS = 15_000;
-
-async function readKeyStatus(url: string): Promise<LiveKeyStatus | null> {
-  try {
-    const res = await withTimeout(fetch(url, { cache: "no-store" }), 8_000);
-    if (!res || !res.ok) return null;
-    const data = await res.json().catch(() => null);
-    if (!data || typeof data !== "object" || (data as any).ok !== true) return null;
-    if ((data as any).autoOpen === true || (data as any).keyless === true) return "on";
-    if ((data as any).hasKey) return "on";
-    return "on";
-  } catch {
-    return null;
-  }
-}
-
-async function fetchLiveKeyStatus(): Promise<LiveKeyStatus> {
-  try {
-    const age = Date.now() - keyStatusCache.at;
-    const ttl = keyStatusCache.value === "unknown" ? KEY_STATUS_UNKNOWN_TTL_MS : KEY_STATUS_TTL_MS;
-    if (keyStatusCache.at > 0 && age < ttl) return keyStatusCache.value;
-    const same = await readKeyStatus("/__live-status");
-    const value = same || (await readKeyStatus("/.netlify/functions/live?status=1")) || "unknown";
-    keyStatusCache.at = Date.now();
-    keyStatusCache.value = value;
-    return value;
-  } catch {
-    return "unknown";
-  }
-}
-
-/** Auto-detect key status for the admin console ("on" = press-free auto-open
-    works; "off" = Play + Publish still opens the stream; "unknown" = the
-    backend did not answer — still shows nothing alarming). */
-export function useLiveKeyStatus(): LiveKeyStatus {
-  const [value, setValue] = useState<LiveKeyStatus>(() => keyStatusCache.value);
-  useEffect(() => {
-    let alive = true;
-    fetchLiveKeyStatus()
-      .then((v) => {
-        if (alive) setValue(v);
-      })
-      .catch(() => {});
-    return () => {
-      alive = false;
-    };
-  }, []);
-  return value;
 }
 
 /* ------------------------------- playable check (note 333): never embed a
@@ -1930,14 +1601,34 @@ export async function verifyYoutubeId(videoId: string): Promise<boolean | null> 
            answers cross-origin — and keep oEmbed itself as the fallback, with
            the same `oembedPlayable` reading, for the networks that reach it. */
         const viaMirror = await noembedVerdict(id, ctrl ? ctrl.signal : undefined);
-        if (viaMirror !== null) {
-          verifyCache.set(id, { ok: viaMirror, at: Date.now() });
-          return viaMirror;
+        if (viaMirror === true) {
+          verifyCache.set(id, { ok: true, at: Date.now() });
+          return true;
         }
-        const res = await fetch(oembedUrl(id), { cache: "no-store", signal: ctrl ? ctrl.signal : undefined });
-        const verdict = oembedPlayable(res.status);
-        if (verdict !== null) verifyCache.set(id, { ok: verdict, at: Date.now() });
-        return verdict;
+        /* A mirror "gone" is not trusted alone (a noembed hiccup once marked a
+           live broadcast dead and parked the screen on the fallback through a
+           service): confirm with oEmbed before declaring dead. A second "gone"
+           is dead; anything else is unknown and plays anyway with the player
+           itself as the net. */
+        try {
+          const res = await fetch(oembedUrl(id), { cache: "no-store", signal: ctrl ? ctrl.signal : undefined });
+          const verdict = oembedPlayable(res.status);
+          if (viaMirror === false && verdict === false) {
+            verifyCache.set(id, { ok: false, at: Date.now() });
+            return false;
+          }
+          if (verdict !== null) {
+            verifyCache.set(id, { ok: verdict, at: Date.now() });
+            return verdict;
+          }
+        } catch {
+          /* oEmbed unreachable — fall through to the mirror below */
+        }
+        if (viaMirror === false) {
+          verifyCache.set(id, { ok: false, at: Date.now() });
+          return false;
+        }
+        return null;
       } finally {
         if (timer) window.clearTimeout(timer);
       }
