@@ -238,40 +238,27 @@ export function AnnouncementBanner() {
    never loads (offline, blocked) everything behaves exactly as before. */
 let ytApiPromise: Promise<any> | null = null;
 /* Prefetchable (Watch page warms it on open): loading the API early means a
-   verified live id creates its player with no script wait. V9: a failed load
-   (offline, blocked) clears the cached promise so the next open retries
-   instead of replaying null forever — the verifier + escape link remain the
-   net until it loads. */
+   verified live id creates its player with no script wait. */
 export function loadYtPlayerApi(): Promise<any> {
   try {
     const w = window as any;
     if (w.YT && w.YT.Player) return Promise.resolve(w.YT);
     if (ytApiPromise) return ytApiPromise;
     ytApiPromise = new Promise((resolve) => {
-      let settled = false;
-      const done = (v: any) => {
-        if (settled) return;
-        settled = true;
-        if (!v) ytApiPromise = null;
-        resolve(v);
-      };
       try {
         const prev = w.onYouTubeIframeAPIReady;
         w.onYouTubeIframeAPIReady = () => {
           try { if (typeof prev === "function") prev(); } catch {}
-          done(w.YT);
+          resolve(w.YT);
         };
-        if (!document.querySelector('script[src="https://www.youtube.com/iframe_api"]')) {
-          const tag = document.createElement("script");
-          tag.src = "https://www.youtube.com/iframe_api";
-          tag.async = true;
-          (tag as any).onerror = () => done(null);
-          document.head.appendChild(tag);
-        }
-        /* If the API never loads (offline, blocked) give up quietly — the
+        const tag = document.createElement("script");
+        tag.src = "https://www.youtube.com/iframe_api";
+        tag.async = true;
+        document.head.appendChild(tag);
+        /* If the API never loads (offline, blocked), give up quietly — the
            verifier + escape link remain the net. */
-        window.setTimeout(() => done(w.YT && w.YT.Player ? w.YT : null), 10000);
-      } catch { done(null); }
+        window.setTimeout(() => resolve(w.YT || null), 10000);
+      } catch { resolve(null); }
     });
     return ytApiPromise;
   } catch { return Promise.resolve(null); }
@@ -400,16 +387,11 @@ export function VideoPlayer({
     /* A channel follow re-resolves (the fix for "unavailable" after the
        office restarted the stream): re-ask what's live now and play the
        current broadcast by its fresh verified id. Anything else remounts
-       with the fresh address and replays. V9: the spinner stays until the
-       re-resolve settles (up to 8s), not a fixed 1.5s that stopped early. */
+       with the fresh address and replays. */
     if (live && followId) {
+      checkChannelThenPlay();
       try {
-        const done = (checkChannelThenPlay() as unknown as Promise<void> | void) as any;
-        if (done && typeof done.finally === "function") {
-          done.finally(settledRepair);
-          // Safety: never spin forever if the probe hangs.
-          try { window.setTimeout(settledRepair, 8000); } catch {}
-        } else window.setTimeout(settledRepair, 8000);
+        window.setTimeout(settledRepair, 1500);
       } catch {
         settledRepair();
       }
@@ -479,13 +461,13 @@ export function VideoPlayer({
   /* A channel tap asks first (note 342): a live broadcast plays by its own
      verified id; silence shows the waiting poster, never YouTube's
      "unavailable". Anything unclear plays the channel as before. */
-  const checkChannelThenPlay = (): Promise<void> => {
+  const checkChannelThenPlay = () => {
     setNotLive(false);
     setChecking(true);
     setIframeKey((k) => k + 1);
     /* Facebook-only services (note 111): the tap must ask Facebook too, or a
        Facebook-only live answers "not live" on tap while it plays by itself. */
-    return checkLiveStream({ facebook: !!facebookTarget() })
+    checkLiveStream({ facebook: !!facebookTarget() })
       .then((st) => {
         /* Only the handle's answer opens the player (note 350): a tap that
            lands after the office moved the channel waits instead of playing
@@ -890,10 +872,10 @@ export function VideoPlayer({
               onReady: (ev: any) => {
                 try {
                   /* Sound-first, once per mount: full volume, unmuted,
-                     playing. If the browser holds sound autoplay it answers
-                     with onAutoplayBlocked (or never reaches PLAYING) — the
-                     watch below then drops to muted autoplay the same
-                     second, and the first gesture anywhere restores sound. */
+                     playing. If the browser holds sound autoplay the frame
+                     never reaches PLAYING — the watch below then drops to
+                     muted autoplay the same second, and the first gesture
+                     anywhere restores sound. */
                   const p = ev && ev.target ? ev.target : null;
                   try { if (p && typeof p.unMute === "function") p.unMute(); } catch {}
                   try { if (p && typeof p.setVolume === "function") p.setVolume(100); } catch {}
@@ -927,12 +909,6 @@ export function VideoPlayer({
                       if (cur !== 1) goMuted();
                     } catch {}
                   }, 2500);
-                } catch {}
-              },
-              onAutoplayBlocked: () => {
-                try {
-                  const g = player && (player as any)._womGoMuted;
-                  if (typeof g === "function") g();
                 } catch {}
               },
               onStateChange: (ev: any) => {

@@ -96,12 +96,8 @@ function ClockFace({ now }: { now: Date }) {
   );
 }
 
-/** The screen itself: last still, faded, under the clock (`cover` from WatchLive).
-    `action` (v11) is an optional way forward under the words — e.g. a
-    one-tap "Watch live now" that opens the channel's live embed when
-    detection itself cannot confirm the broadcast. A bare clock is a dead
-    end; the action guarantees the visitor can always reach the stream. */
-export function LiveWaiting({ cover, action }: { cover?: string; action?: React.ReactNode }) {
+/** The screen itself: last still, faded, under the clock (`cover` from WatchLive). */
+export function LiveWaiting({ cover }: { cover?: string }) {
   const now = useNow(1000);
   useTickSound();
 
@@ -116,7 +112,6 @@ export function LiveWaiting({ cover, action }: { cover?: string; action?: React.
           {ct("auto.live.cd89c755a4e3a29c")}</h3>
         <p className="live-wait__text">
           {ct("auto.live.e36e917e01a923ef")}</p>
-        {action ? <div className="live-wait__action">{action}</div> : null}
       </div>
     </div>
   );

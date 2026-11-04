@@ -5112,20 +5112,6 @@
   border-color: rgba(255, 255, 255, 0.55);
 }
 
-/* The one-tap way in (v11): breathing room between the waiting words and the
-   watch buttons, wrapping cleanly on narrow phones. */
-.live-wait__action {
-  margin-top: 0.4rem;
-  display: grid;
-  justify-items: center;
-  gap: 0.6rem;
-  width: 100%;
-}
-.live-wait__action .btn-row {
-  flex-wrap: wrap;
-  justify-content: center;
-}
-
 @media (max-width: 560px) {
   .live-ended__text,
   .live-wait__text {

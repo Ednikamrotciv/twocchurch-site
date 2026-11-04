@@ -1,4 +1,4 @@
-APPLY THIS UPDATE (438) — ONE UNIFIED UPDATE (ALL OLD UPDATES REMOVED)
+APPLY THIS UPDATE (441) — ONE UNIFIED UPDATE (ALL OLD UPDATES REMOVED)
 =============================================================================
 Single update, one zip — every older update is superseded by this one. Extract fully
 incl. index.html on BOTH sides (office computer + any always-on host), then follow the
@@ -53,15 +53,25 @@ click, so slides never go blank after a wipe.
 (6) PUBLISH AND PUBLISH NOW ARE THE SAME. Both buttons run the attached rule above —
 same pipeline, same note, same toasts, same everywhere-effect, both directions.
 
+(7) LIVESTREAM V9 (on top of v5–v8). Dev backend answers GET /__live like production
+(same SSRF guard, same YT_API_KEY env, 404 with no key); the WAF names /__live as an
+API door; the live-API client ignores non-JSON answers (static SPA fallback falls
+through to stamp + scrape at once instead of burning a parse); the player drops the
+non-existent YT onAutoplayBlocked event (the 2.5s PLAYING watch is the net — no
+behavior change, no more dead code); Recent services also accepts pages carrying
+ytInitialPlayerResponse. v5–v8 behavior untouched: poster-first player, muted
+fallback + first-gesture sound upgrade, published-stamp fast path + Data API door +
+stamped-video end check, channel-follow + guest rules, 15s self-heal + wake-up retry.
+
 Still ORDER: BACK UP FIRST (Tools backup, download it), extract fully incl. index.html
 BOTH sides (same zip), `npm run dev:fresh` + restart the office backend, hard refresh;
 sign in once (the new deploy asks for it; dev restarts keep you signed in); Publish
 ONCE from any signed-in admin copy — every copy lifts within seconds online (or at
 first sync); THEN bake-seed, commit+push full step-0 set, rebuild BOTH hosts; Publish
-on each host; reload ALL admin tabs. Proof: window.__womBuild = { notes: 438,
-code: "unified438" }; verifier sections GGG (no-change publish blesses deploy) + MMM
-(sessions) pass, plus the new live-lands-both-ways lock. Files: src/lib/hooks.ts
-(438/unified438) + index.html (wom-notes/code), src/lib/cms.ts (session-free live
+on each host; reload ALL admin tabs. Proof: window.__womBuild = { notes: 441,
+code: "unified441" }; verifier sections GGG (no-change publish blesses deploy) + MMM
+(sessions) pass, plus the live-lands-both-ways lock. Files: src/lib/hooks.ts
+(441/unified441) + index.html (wom-notes/code), src/lib/cms.ts (session-free live
 adoption both directions + owed-record guard + prompt live tick), src/SPEC.md
-(note 438), src/tools/verify-update.mjs (438 payloads + both-ways lock),
+(note 441), src/tools/verify-update.mjs (441 payloads + both-ways lock),
 DEPLOY.md (bidirectional routine).

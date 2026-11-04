@@ -844,6 +844,52 @@ export function cmsBackend() {
             }
           }
 
+          /* Authoritative live door (dev parity with scripts/serve.mjs fix v7):
+             the channel's current live broadcast from the YouTube Data API.
+             Same SSRF guard, key lives only in server env (YT_API_KEY) — never
+             in frontend code. No server cache in dev (single office user, quota
+             irrelevant; production caches 75s). No key → 404, and the stamp +
+             scrape decide, exactly like production. */
+          if (pathname === "/__live" && req.method === "GET") {
+            const channel = url.searchParams.get("channel") || "";
+            if (!/^UC[\w-]{20,24}$/.test(channel)) {
+              res.writeHead(400, { "cache-control": "no-store" });
+              res.end("bad channel");
+              return;
+            }
+            const key = process.env.YT_API_KEY || "";
+            if (!key) {
+              res.writeHead(404, { "cache-control": "no-store" });
+              res.end("no key");
+              return;
+            }
+            try {
+              const apiUrl = `https://www.googleapis.com/youtube/v3/search?part=snippet&channelId=${encodeURIComponent(channel)}&eventType=live&type=video&maxResults=1&key=${encodeURIComponent(key)}`;
+              const upstream = await fetch(apiUrl, {
+                headers: { accept: "application/json" },
+                signal: typeof AbortSignal !== "undefined" && typeof AbortSignal.timeout === "function" ? AbortSignal.timeout(8000) : undefined,
+              });
+              const data = await upstream.json().catch(() => null);
+              if (!upstream.ok || !data) {
+                res.writeHead(502, { "cache-control": "no-store" });
+                res.end("unreachable");
+                return;
+              }
+              const item = Array.isArray(data.items) ? data.items[0] : null;
+              const videoId = item && item.id && typeof item.id.videoId === "string" ? item.id.videoId : "";
+              const out = videoId && /^[\w-]{11}$/.test(videoId)
+                ? { state: "live", videoId, title: String((item.snippet && item.snippet.title) || ""), channelId: channel }
+                : { state: "off", videoId: "", title: "", channelId: "" };
+              const body = Buffer.from(JSON.stringify(out), "utf8");
+              res.writeHead(200, { "content-type": "application/json; charset=utf-8", "content-length": body.length, "cache-control": "no-store" });
+              res.end(body);
+            } catch {
+              res.writeHead(502, { "cache-control": "no-store" });
+              res.end("unreachable");
+            }
+            return;
+          }
+
           next();
         } catch {
           res.writeHead(500);
