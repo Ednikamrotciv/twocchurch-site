@@ -34,6 +34,11 @@ const FILES = [
   ["scripts/seed-fallback.mjs", "js"],
   ["src/lib/cms.ts", "ts"],
   ["src/lib/livestatus.ts", "ts"],
+  ["src/lib/repair.ts", "ts"],
+  ["src/lib/faults.ts", "ts"],
+  ["src/main.tsx", "tsx"],
+  ["src/lib/remoteserver.ts", "ts"],
+  ["src/pages/Testimonies.tsx", "tsx"],
   ["src/lib/embed.ts", "ts"],
   ["src/lib/recentstreams.ts", "ts"],
   ["src/pages/WatchLive.tsx", "tsx"],
@@ -2331,6 +2336,63 @@ const notes = Number((text["src/lib/hooks.ts"].match(/BUILD_NOTES = (\d+)/) || [
     ok("clean boot keeps the office password", liClean.ok === true, "err=" + liClean.err);
   } catch (e) {
     ok("session/auth suite", false, String((e && e.message) || e).slice(0, 200));
+  }
+  /* NNN. the error card repairs, the stream pushes harder: "Reload the page"
+     must fix the page instead of just reloading the browser, and the live
+     broadcast must reach the visitor sooner. The retry drops every volatile
+     live cache (never office words) and re-asks; a repeat crash reloads with
+     a session flag the boot consumes before reading the store. The Watch
+     urgent cadence is 5s; the player's live recovery ticks are 15s (channel
+     follow) and 20s (dead-while-live self-heal). */
+  try {
+    const repNNN = text["src/lib/repair.ts"];
+    const boundNNN = text["src/components/ErrorBoundary.tsx"];
+    const liveNNN = text["src/lib/livestatus.ts"];
+    const blocksNNN = text["src/components/blocks.tsx"];
+    ok("repair drops volatile only", has(repNNN, "forgetAllVerified") && has(repNNN, "clearRecentCaches") && has(repNNN, "wom.livestatus") && has(repNNN, "wom.live.targetNote") && !has(repNNN, "DRAFT_KEY") && !has(repNNN, "CACHE_KEY"), "every volatile live cache goes, no office words touched");
+    ok("retry repairs first", has(boundNNN, "repairLiveCaches()") && has(boundNNN, "repairReload()"), "both notices repair before remount/reload");
+    ok("reload boots clean", has(repNNN, 'sessionStorage.setItem(REPAIR_FLAG, "1")') && has(liveNNN, 'sessionStorage.getItem("wom.repair")'), "the flagged reload starts the next boot clean");
+    ok("urgent watch is 5s", has(liveNNN, "if (wantsUrgent()) return 5_000;"), "the Watch page must meet a live start in seconds");
+    ok("recovery ticks faster", has(blocksNNN, "setInterval(tick, 15_000)") && has(blocksNNN, "}, 20_000);"), "channel follows and dead-while-live heal sooner");
+  } catch (e) {
+    ok("repair/transmission suite", false, String((e && e.message) || e).slice(0, 200));
+  }
+  /* OOO. whole-site fault tolerance: post-boot errors are captured instead of
+     vanishing, images degrade to a placeholder, RPC cannot hang, the boot
+     installs the net once, and the testimony photo path cannot wedge. */
+  try {
+    const fOOO = text["src/lib/faults.ts"];
+    const mainOOO = text["src/main.tsx"];
+    const remOOO = text["src/lib/remoteserver.ts"];
+    const testOOO = text["src/pages/Testimonies.tsx"];
+    const srvOOO = text["scripts/serve.mjs"];
+    ok("global capture installed", has(fOOO, "unhandledrejection") && has(fOOO, "installFaultHandlers") && has(mainOOO, "installFaultHandlers()"), "runtime + rejection faults are recorded on every boot");
+    ok("faults never retry forever", has(fOOO, "Math.min(3") && has(fOOO, "http-") && has(fOOO, "never"), "retries are bounded, idempotent-only, never on HTTP errors");
+    ok("images degrade globally", has(fOOO, "BROKEN_IMAGE_PLACEHOLDER") && has(fOOO, ".player"), "broken images swap to a placeholder, players keep their stills");
+    ok("rpc cannot hang", has(remOOO, "RPC_TIMEOUT_MS = 30_000") && has(remOOO, "timed out"), "cold starts fail fast into the offline paths");
+    ok("photo path cannot wedge", has(testOOO, "15 * 1024 * 1024") && has(testOOO, "Couldn't read that photo"), "oversize/corrupt photos fail with a note, never a stuck spinner");
+    ok("sockets are bounded", has(srvOOO, "keepAliveTimeout = 65_000") && has(srvOOO, "requestTimeout = 300_000"), "no stalled client holds a worker slot forever");
+  } catch (e) {
+    ok("fault-tolerance suite", false, String((e && e.message) || e).slice(0, 200));
+  }
+  /* PPP. deploy lifecycle: the notice waits at every new deploy, one Publish
+     lifts it everywhere, the new deploy opens fresh/unsaved-clean with old
+     wakes wiped, and the live relay survives everything but a new deploy. */
+  try {
+    const cmsPPP = text["src/lib/cms.ts"];
+    const htmlPPP = text["index.html"];
+    const srvPPP = text["scripts/serve.mjs"];
+    const backPPP = text["scripts/cms-server.js"];
+    ok("notice waits at new deploy", has(htmlPPP, "wom-maint-gate") && has(cmsPPP, "function maintenanceShouldWait") && has(cmsPPP, "publishedDeployId !== currentDeployId"), "a new deploy holds visitors until its own publish");
+    ok("publish lifts everywhere", has(cmsPPP, "function markJustPublished") && has(cmsPPP, "justPublishedRecently()") && has(cmsPPP, "function postDeployPublishWitnessed") && has(cmsPPP, "function serverHoldsPublish"), "the click releases the tab, late devices and visitor boxes alike");
+    ok("new deploy opens unsaved-clean", has(cmsPPP, "localStorage.removeItem(DRAFT_KEY)") && has(cmsPPP, "localStorage.removeItem(PENDING_KEY)") && has(cmsPPP, "localStorage.removeItem(HISTORY_KEY)") && has(cmsPPP, "draft = null") && has(cmsPPP, 'localStorage.removeItem("wom.cms.relayPending")'), "old drafts, queues, undos and owed relays never ride into the new deploy");
+    ok("new deploy wipes old wakes", has(cmsPPP, "wipeOldWakes();") && has(cmsPPP, "caches.delete(k)"), "no retired worker or cached shell serves the previous deploy");
+    ok("publish clears unsaved rows", has(cmsPPP, "delete dirty[sectionId]"), "sent rows stop showing as unsaved");
+    ok("live relay survives reloads", has(cmsPPP, "function persistRelayPending") && has(cmsPPP, "function resumeRelayRetry") && has(cmsPPP, "wom.cms.relayPending"), "a closed tab or sleeping live box never strands published words");
+    ok("new empty falls back to seed", has(srvPPP, "answerWithSeedFallback"), "an emptied store still serves the baked words, never blank");
+    ok("sessions end, accounts persist", has(backPPP, "SESSION_MS = 15 * 60 * 1000") && has(cmsPPP, 'clearSession("deploy")'), "every deploy is a fresh review without losing the roster");
+  } catch (e) {
+    ok("deploy-lifecycle suite", false, String((e && e.message) || e).slice(0, 200));
   }
   return out.join("\n");
 }

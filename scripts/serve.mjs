@@ -932,6 +932,16 @@ const server = http.createServer(async (req, res) => {
   }
 });
 
+/* Bounded sockets: a stalled client must never hold a worker slot forever.
+   Generous on purpose — uploads ride this server, and Render's own proxy
+   idles first — but nothing hangs unbounded anymore. */
+try {
+  server.keepAliveTimeout = 65_000;
+  server.headersTimeout = 66_000;
+  server.requestTimeout = 300_000;
+  server.timeout = 300_000;
+} catch {}
+
 server.listen(PORT, () => {
   /* Cold-start marker (note 344): on hosts that sleep (Render free), every
      wake prints here with the time — the office can see in the host log when
