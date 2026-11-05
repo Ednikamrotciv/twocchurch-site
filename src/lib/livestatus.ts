@@ -159,8 +159,9 @@ export function parseLivePage(html: string, pageUrl = ""): { read: boolean; live
     (/"dateText":\{"simpleText":"Started streaming /.test(text) && / watching now"/.test(text)) ||
     (/"liveChatRenderer":\{"continuations"/.test(text) && / watching now"/.test(text)) ||
     /* concurrentViewers only exists on a live watch page — extra net for
-       markup shifts that hide the chrome above. */
-    (/"concurrentViewers":"[0-9,]+"/.test(text) && / watching now"/.test(text));
+       markup shifts that hide the chrome above. Served as a string or a
+       number depending on the page variant. */
+    ((/"concurrentViewers":(?:"[0-9,]+"|[0-9][0-9,]*)/.test(text)) && / watching now"/.test(text));
   const live = read && (/"isLiveNow":true/.test(text) || /"hlsManifestUrl":"https?:\/\//.test(text) || chromeLive);
   if (!live) return { read, live: false, videoId: "", title: "" };
   /* A bot-walled watch page drops the canonical link and the videoDetails id
