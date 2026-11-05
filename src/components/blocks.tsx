@@ -355,10 +355,7 @@ export function VideoPlayer({
      id; anything else remounts with a cache-busted address and replays (the
      verifier + in-frame error decide). Never replays a stale dead id blind. */
   const [repairing, setRepairing] = useState(false);
-  const repairBusy = useRef(false);
   const repair = () => {
-    if (repairBusy.current) return;
-    repairBusy.current = true;
     try {
       forgetAllVerified();
     } catch {}
@@ -386,100 +383,37 @@ export function VideoPlayer({
       try {
         setRepairing(false);
       } catch {}
-      repairBusy.current = false;
     };
-    /* Clean mount: for a live screen always re-ask what's live NOW and play
-       the fresh verified broadcast — a restarted stream's new video id, a
-       walled channel follow, or a fresh remount when nothing is live. Never
-       replays a stale dead id blind. Non-live cards just remount fresh. */
-    if (live) {
-      let cancelled = false;
-      checkLiveStream({ facebook: !!facebookTarget() })
-        .then(async (st) => {
-          if (cancelled) return;
-          try {
-            const mainUrl = liveTarget()?.url || "";
-            const guestWatchUrl = guestTarget()?.url || "";
-            const stamped =
-              (!!mainUrl && isStatusForTarget(st as any, mainUrl)) ||
-              (!!guestWatchUrl && isStatusForTarget(st as any, guestWatchUrl));
-            const s = st as any;
-            if (stamped && s && s.state === "live" && s.videoId) {
-              const vid = parseYoutubeId(String(s.videoId || ""));
-              if (vid) {
-                const v = await verifyYoutubeId(vid).catch(() => null);
-                if (cancelled) return;
-                /* Verified OR unknown plays (probe down still plays — the
-                   player is the net); only a proven-dead id is held back. */
-                if (v !== false) {
-                  setLiveVideoId(vid);
-                  setDead(false);
-                  setFailed(false);
-                  setNotLive(false);
-                  setChecking(false);
-                  setFrameConfirmed(false);
-                  setIframeKey((k) => k + 1);
-                  setPlaying(true);
-                  try {
-                    onPlay?.();
-                  } catch {}
-                  settledRepair();
-                  return;
-                }
-              }
-            }
-            if (stamped && s && s.state === "live" && s.channelId) {
-              /* Walled but on air: follow the channel fresh — the
-                 channel-follow effect upgrades to the verified id. */
-              setIframeKey((k) => k + 1);
-              setPlaying(true);
-              try {
-                onPlay?.();
-              } catch {}
-              settledRepair();
-              return;
-            }
-            /* Nothing live right now, or proven off/dead: remount fresh and
-               replay — the verifier / in-frame error / watchdogs decide, and
-               a truly ended broadcast still lands on the arrow via them. */
-            setIframeKey((k) => k + 1);
-            setPlaying(true);
-            try {
-              onPlay?.();
-            } catch {}
-            settledRepair();
-          } catch {
-            settledRepair();
-          }
-        })
-        .catch(() => {
-          /* Probe down: remount fresh anyway — the verifier decides. */
-          try {
-            setIframeKey((k) => k + 1);
-            setPlaying(true);
-          } catch {}
-          settledRepair();
-        });
-      return;
+    /* A channel follow re-resolves (the fix for "unavailable" after the
+       office restarted the stream): re-ask what's live now and play the
+       current broadcast by its fresh verified id. Anything else remounts
+       with the fresh address and replays. */
+    if (live && followId) {
+      checkChannelThenPlay();
+      try {
+        window.setTimeout(settledRepair, 1500);
+      } catch {
+        settledRepair();
+      }
+    } else {
+      setIframeKey((k) => k + 1);
+      setPlaying(true);
+      try {
+        onPlay?.();
+      } catch {}
+      settledRepair();
     }
-    setIframeKey((k) => k + 1);
-    setPlaying(true);
-    try {
-      onPlay?.();
-    } catch {}
-    settledRepair();
   };
   /* Office Reload repair (published liveReloadAt): the general fix for any
      livestream-screen error — dead frame, blank frame, dead id, hung load,
      blocked autoplay. Runs the shared force repair above: re-asks the on-air
      check and reopens on what's live now. No page reload, stays on this site. */
-  const reloadSeen = useRef<number>(0);
+  const reloadSeen = useRef(typeof reloadSignal === "number" ? reloadSignal : 0);
   useEffect(() => {
     if (!live || !reloadSignal) return;
     if (reloadSeen.current === reloadSignal) return;
     reloadSeen.current = reloadSignal;
     repair();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [live, reloadSignal]);
   /* Visitor retry: the circular arrow in the center of the screen. Live
      broadcasts also carry an always-on centered arrow OVER the playing frame
@@ -487,11 +421,7 @@ export function VideoPlayer({
      is cross-origin invisible and no detector can reveal an arrow after the
      fact. One tap runs the shared force repair above — it finds what's live
      now and plays it fresh. */
-  const autoRetriedRef = useRef(false);
-  const manualRetryRef = useRef(false);
   const retry = () => {
-    manualRetryRef.current = true;
-    autoRetriedRef.current = true;
     repair();
   };
   /* No host ref, no innerHTML: the frame below is a plain React iframe, so
@@ -538,35 +468,7 @@ export function VideoPlayer({
   const platform: VideoPlatform = source?.platform === "facebook" ? "facebook" : source?.platform === "upload" ? "upload" : "youtube";
   const shell = "player" + (compact ? " player--compact" : "") + (playing ? " player--playing" : "");
 
-  /* Automatic retry: 1s after the grey circle arrow appears, mount the same
-     clean fix — but only once per dead episode and only for live screens, so
-     a truly dead archive card never loops. A manual tap wins: it cancels the
-     pending auto fix (repair clears the arrow, disarming the timer below).
-     Suppressed while the first clean try is still spinning — that try is
-     already the clean mount, so a second one would double-fetch. */
-  useEffect(() => {
-    if (!live) return;
-    if (firstCleanActive) return;
-    const showsArrow = dead || !src;
-    if (!showsArrow) {
-      autoRetriedRef.current = false;
-      manualRetryRef.current = false;
-      return;
-    }
-    if (autoRetriedRef.current) return;
-    const t = window.setTimeout(() => {
-      if (manualRetryRef.current) return;
-      autoRetriedRef.current = true;
-      try {
-        repair();
-      } catch {}
-    }, 1000);
-    return () => window.clearTimeout(t);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [live, dead, src, sourceKey, firstCleanActive]);
-
-  /* A new source starts unjudged — and gets its own clean first try, so a
-     fresh publish spins into the new live instead of flashing the arrow. */
+  /* A new source starts unjudged. */
   useEffect(() => {
     setDead(false);
     setChecking(false);
@@ -574,10 +476,6 @@ export function VideoPlayer({
     setLiveVideoId("");
     setFrameConfirmed(false);
     setIframeKey((k) => k + 1);
-    if (live && autoPlay) {
-      firstCleanDone.current = false;
-      setFirstCleanActive(true);
-    }
   }, [sourceKey]);
 
   /* A click never opens a known-dead video: unknown ids are asked first
@@ -626,12 +524,7 @@ export function VideoPlayer({
             .then((v) => {
               setChecking(false);
               if (v === false) {
-                /* A fresh live id that proves dead is genuinely wrong (embedding
-                   off / private) — but a spinner that hasn't played yet never
-                   becomes the arrow for it when live; it waits instead, and the
-                   arrow appears only once a frame was open or a tap needs it. */
-                if (!live || playing) setDead(true);
-                else setNotLive(true);
+                setDead(true);
                 return;
               }
               setLiveVideoId(vid);
@@ -658,9 +551,8 @@ export function VideoPlayer({
           setNotLive(true);
           /* Proven off while a channel frame plays: that frame is YouTube's
              own "unavailable" text, so swap it for the centered arrow
-             fallback at once — the arrow re-asks and reopens. A spinner that
-             never played stays on the poster instead. */
-          try { if (playing) setDead(true); } catch {}
+             fallback at once — the arrow re-asks and reopens. */
+          try { setDead(true); } catch {}
         } else {
           setChecking(false);
           setNotLive(true);
@@ -685,10 +577,6 @@ export function VideoPlayer({
     }
     const peek = peekVerified(ytId);
     if (peek === false) {
-      /* A tap on a known-dead id still mounts the clean fix when live —
-         the spinner re-resolves what's live now instead of flashing the
-         arrow for a stale id. Archive cards keep the instant arrow. */
-      if (live) { try { repair(); } catch {} return; }
       setDead(true);
       return;
     }
@@ -701,10 +589,8 @@ export function VideoPlayer({
     verifyYoutubeId(ytId)
       .then((v) => {
         setChecking(false);
-        if (v === false) {
-          if (live) { try { repair(); } catch {} return; }
-          setDead(true);
-        } else {
+        if (v === false) setDead(true);
+        else {
           setPlaying(true);
           onPlay?.();
         }
@@ -716,121 +602,12 @@ export function VideoPlayer({
       });
   };
 
-  /* First-try clean: the first autoplay attempt never shows the grey arrow.
-     It spins on the poster while it resolves what's live NOW (fresh check +
-     verified id) and only afterwards allows the arrow. So the spinner leads
-     to the livestream fine in the common case. */
-  const [firstCleanActive, setFirstCleanActive] = useState(() => !!live && !!autoPlay);
-  const firstCleanDone = useRef(false);
   /* The stream can start while the visitor is already sitting on the page, so
      the player has to be able to open by itself after the first render.
      Note 413: autoplay verifies first — an unverified id waits (poster +
      "Checking…") and a dead id falls to the fallback instead of the black frame. */
   useEffect(() => {
     if (!autoPlay) return;
-    if (live) {
-      /* Live autoplay: clean first try — never arrow on the first attempt.
-         Verifies the current id once (forgetting a stale dead first), else
-         resolves the fresh live broadcast and plays it verified. Off/unknown
-         waits on the poster (notLive), never the arrow. */
-      let alive = true;
-      const runFirstClean = async () => {
-        /* A source change while playing still re-resolves fresh — the office
-           may have published a new live; staying on the old frame would miss
-           it. The spinner covers the swap, never the arrow. */
-        setChecking(true);
-        try {
-          if (ytId) {
-            const peek = peekVerified(ytId);
-            if (peek === true) {
-              if (!alive) return;
-              setChecking(false);
-              setPlaying(true);
-              try { onPlay?.(); } catch {}
-              setFirstCleanActive(false);
-              firstCleanDone.current = true;
-              return;
-            }
-            /* A stale dead verdict never ends the first try: forget and ask
-               once more clean before anything else. */
-            if (peek === false) { try { forgetVerified(ytId); } catch {} }
-            try {
-              const v = await verifyYoutubeId(ytId).catch(() => null);
-              if (!alive) return;
-              if (v !== false) {
-                setChecking(false);
-                setPlaying(true);
-                try { onPlay?.(); } catch {}
-                setFirstCleanActive(false);
-                firstCleanDone.current = true;
-                return;
-              }
-              /* Proven dead: fall through to the fresh live resolve below —
-                 a restarted stream's new video still opens clean. */
-            } catch { /* fall through to fresh resolve */ }
-          }
-          /* No usable id (empty, or proven dead above): ask what's live NOW. */
-          try {
-            const st = await checkLiveStream({ facebook: !!facebookTarget() }).catch(() => null);
-            if (!alive || !st) { if (alive) setChecking(false); setFirstCleanActive(false); firstCleanDone.current = true; return; }
-            const mainUrl = liveTarget()?.url || "";
-            const guestWatchUrl = guestTarget()?.url || "";
-            const stamped =
-              (!!mainUrl && isStatusForTarget(st as any, mainUrl)) ||
-              (!!guestWatchUrl && isStatusForTarget(st as any, guestWatchUrl));
-            const s = st as any;
-            if (stamped && s.state === "live" && s.videoId) {
-              const vid = parseYoutubeId(String(s.videoId || ""));
-              if (vid) {
-                const v = await verifyYoutubeId(vid).catch(() => null);
-                if (!alive) return;
-                if (v !== false) {
-                  setLiveVideoId(vid);
-                  setDead(false);
-                  setFailed(false);
-                  setNotLive(false);
-                  setChecking(false);
-                  setFrameConfirmed(false);
-                  setIframeKey((k) => k + 1);
-                  setPlaying(true);
-                  try { onPlay?.(); } catch {}
-                  setFirstCleanActive(false);
-                  firstCleanDone.current = true;
-                  return;
-                }
-              }
-            }
-            if (stamped && s.state === "live" && s.channelId) {
-              if (!alive) return;
-              setChecking(false);
-              setIframeKey((k) => k + 1);
-              setPlaying(true);
-              try { onPlay?.(); } catch {}
-              setFirstCleanActive(false);
-              firstCleanDone.current = true;
-              return;
-            }
-            /* Nothing live to play on the first try: wait on the poster,
-               never the arrow — the screen-level ended/waiting handles off,
-               and the self-heal/retry nets handle a late-resolving live. */
-            if (alive) {
-              setChecking(false);
-              if (!ytId && followId) {
-                try { checkChannelThenPlay(); } catch {}
-              } else {
-                setNotLive(true);
-              }
-            }
-          } catch {
-            if (alive) setChecking(false);
-          }
-        } finally {
-          if (alive) { setFirstCleanActive(false); firstCleanDone.current = true; }
-        }
-      };
-      runFirstClean();
-      return () => { alive = false; };
-    }
     if (!ytId) {
       /* Id-less autoplay (channel follow) verifies first: an offline channel
          must show the waiting poster, never the "unavailable" frame. */
@@ -879,7 +656,7 @@ export function VideoPlayer({
     return () => {
       alive = false;
     };
-  }, [autoPlay, live, ytId, sourceKey]);
+  }, [autoPlay, ytId, sourceKey]);
 
   /* Autoplay verifies behind the player: a dead id swaps to the fallback
      instead of sitting on the black frame (unknown plays as before). */
@@ -1198,29 +975,6 @@ export function VideoPlayer({
      single way out, so an embedding-off / private / region / age-blocked
      video that survives arrow + Reload + Publish is fixed in YouTube Studio
      (enable embedding or swap the video), not in this player. */
-  /* First try never arrows: while the clean resolve is still running, spin
-     on the poster instead of flashing the grey arrow for a beat. */
-  if (live && firstCleanActive && (dead || !src)) {
-    return (
-      <div className={shell}>
-        <div className="player__poster player__poster--live" aria-live="polite">
-          {still ? (
-            <img src={still} alt="" loading="lazy" onError={handleStillError} />
-          ) : fallbackThumb ? (
-            <img src={fallbackThumb} alt="" loading="lazy" onError={(e) => { try { e.currentTarget.style.display = "none"; } catch {} }} />
-          ) : null}
-          <span className="player__scrim" />
-          <span className="player__cover-spin" aria-hidden="true" />
-          <span className={"player__source player__source--" + platform}>
-            <Icon name={platform === "upload" ? "play" : platform} size={13} /> {platformLabel(platform)}
-          </span>
-          <span className="player__live">
-            <span className="live-dot" /> {ct("live.player.badge")}
-          </span>
-        </div>
-      </div>
-    );
-  }
   if (dead) {
     return (
       <div className={shell + " player--dead"}>
@@ -1417,23 +1171,17 @@ export function VideoPlayer({
             </a>
           )}
         </>
-     ) : live ? (
-       /* Live waits quietly — no icon, no status line: while the broadcast
-          is not yet open only the dimmed still shows, never blank.
-          The frame still opens by itself with sound the moment it can. */
-        /* Tappable (autoplay with sound is blocked until the visitor taps once):
-           one tap opens the broadcast with sound via the shared repair path.
+      ) : live ? (
+        /* Live waits quietly — no icon, no status line: while the broadcast
+           is not yet open only the dimmed still shows, never blank.
            The frame still opens by itself with sound the moment it can. */
-        <button type="button" className="player__poster player__poster--live" aria-live="polite" onClick={retry} aria-label={tx("Play the live broadcast")}>
+        <div className="player__poster player__poster--live" aria-live="polite">
           {still ? (
             <img src={still} alt="" loading="lazy" onError={handleStillError} />
           ) : fallbackThumb ? (
             <img src={fallbackThumb} alt="" loading="lazy" onError={(e) => { try { e.currentTarget.style.display = "none"; } catch {} }} />
           ) : null}
           <span className="player__scrim" />
-          <span className="player__play" aria-hidden="true">
-            <Icon name="play" size={26} />
-          </span>
           <span className={"player__source player__source--" + platform}>
             <Icon name={platform === "upload" ? "play" : platform} size={13} /> {platformLabel(platform)}
           </span>
@@ -1442,7 +1190,7 @@ export function VideoPlayer({
               <span className="live-dot" /> {ct("live.player.badge")}
             </span>
           )}
-        </button>
+        </div>
       ) : (
         <button
           type="button"

@@ -22,8 +22,7 @@ import { PageHead } from "../components/layout";
 import { SearchBox, eventDate } from "../components/blocks";
 import { fireToast, useNow } from "../lib/hooks";
 import { readLiveStatus, recheckLiveNow, guestTarget, isGuestTargetUrl, useLiveStream, liveTarget, isStatusForTarget, clearGuestOnStop } from "../lib/livestatus";
-import { checkLiveStream, forgetVerified, forgetAllVerified, verifyYoutubeId } from "../lib/livestatus";
-import { parseYoutubeId } from "../lib/embed";
+import { checkLiveStream, forgetVerified, forgetAllVerified } from "../lib/livestatus";
 import { SITE, SERVICES, img } from "../data/site";
 import { recentLimit } from "../data/live";
 import { ytWatch } from "../data/sermons";
@@ -994,37 +993,27 @@ export function LiveTransportButtons() {
     } catch {}
     write({ liveReloadAt: at, liveCommandAt: at });
     try {
-      /* Clean mount for the admin press too: only a presently-live,
-         verified broadcast is stamped — a dead id never ships to visitors. */
-      const stampBoth = async (s: any) => {
+      const stampBoth = (s: any) => {
         try {
           const mUrl = liveTarget()?.url || "";
-          const vid = parseYoutubeId(String((s && s.videoId) || ""));
-          if (s && s.state === "live" && vid && mUrl && isStatusForTarget(s, mUrl)) {
-            const v = await verifyYoutubeId(vid).catch(() => null);
-            if (v !== false) {
-              const cur = cms.getDraft().live || {};
-              cms.setSectionValue("live", { ...cur, liveVideoId: vid, liveVideoTitle: s.title || (cur as any).liveTitle || "", liveVideoChannelId: s.channelId || "", liveVideoAt: Date.now() });
-            }
+          if (s && s.state === "live" && s.videoId && mUrl && isStatusForTarget(s, mUrl)) {
+            const cur = cms.getDraft().live || {};
+            cms.setSectionValue("live", { ...cur, liveVideoId: s.videoId, liveVideoTitle: s.title || (cur as any).liveTitle || "", liveVideoChannelId: s.channelId || "", liveVideoAt: Date.now() });
           }
         } catch {}
         try {
           const gUrl = guestTarget(String((cms.getDraft().live as any)?.externalYoutubeChannel || ""))?.url || "";
-          const gvid = parseYoutubeId(String((s && s.videoId) || ""));
-          if (s && s.state === "live" && gvid && gUrl && isStatusForTarget(s, gUrl)) {
-            const v = await verifyYoutubeId(gvid).catch(() => null);
-            if (v !== false) {
-              const cur2 = cms.getDraft().live || {};
-              cms.setSectionValue("live", { ...cur2, guestVideoId: gvid, guestVideoTitle: s.title || (cur2 as any).liveTitle || "", guestVideoChannelId: s.channelId || "", guestVideoAt: Date.now() });
-            }
+          if (s && s.state === "live" && s.videoId && gUrl && isStatusForTarget(s, gUrl)) {
+            const cur2 = cms.getDraft().live || {};
+            cms.setSectionValue("live", { ...cur2, guestVideoId: s.videoId, guestVideoTitle: s.title || (cur2 as any).liveTitle || "", guestVideoChannelId: s.channelId || "", guestVideoAt: Date.now() });
           }
         } catch {}
       };
       try {
         const s = readLiveStatus();
-        if (s && (s as any).state === "live") void stampBoth(s);
+        if (s && (s as any).state === "live") stampBoth(s);
       } catch {}
-      checkLiveStream().then((s) => { try { void stampBoth(s); } catch {} }).catch(() => {});
+      checkLiveStream().then((s) => { try { stampBoth(s); } catch {} }).catch(() => {});
     } catch {}
     recheckLiveNow();
     askForRecentServices();
@@ -1159,35 +1148,27 @@ export function GuestTransportButtons() {
     } catch {}
     write({ liveReloadAt: at, guestCommandAt: at });
     try {
-      const stampBoth = async (s: any) => {
+      const stampBoth = (s: any) => {
         try {
           const mUrl = liveTarget()?.url || "";
-          const vid = parseYoutubeId(String((s && s.videoId) || ""));
-          if (s && s.state === "live" && vid && mUrl && isStatusForTarget(s, mUrl)) {
-            const v = await verifyYoutubeId(vid).catch(() => null);
-            if (v !== false) {
-              const cur = cms.getDraft().live || {};
-              cms.setSectionValue("live", { ...cur, liveVideoId: vid, liveVideoTitle: s.title || (cur as any).liveTitle || "", liveVideoChannelId: s.channelId || "", liveVideoAt: Date.now() });
-            }
+          if (s && s.state === "live" && s.videoId && mUrl && isStatusForTarget(s, mUrl)) {
+            const cur = cms.getDraft().live || {};
+            cms.setSectionValue("live", { ...cur, liveVideoId: s.videoId, liveVideoTitle: s.title || (cur as any).liveTitle || "", liveVideoChannelId: s.channelId || "", liveVideoAt: Date.now() });
           }
         } catch {}
         try {
           const gUrl = guestTarget(String((cms.getDraft().live as any)?.externalYoutubeChannel || ""))?.url || "";
-          const gvid = parseYoutubeId(String((s && s.videoId) || ""));
-          if (s && s.state === "live" && gvid && gUrl && isStatusForTarget(s, gUrl)) {
-            const v = await verifyYoutubeId(gvid).catch(() => null);
-            if (v !== false) {
-              const cur2 = cms.getDraft().live || {};
-              cms.setSectionValue("live", { ...cur2, guestVideoId: gvid, guestVideoTitle: s.title || (cur2 as any).liveTitle || "", guestVideoChannelId: s.channelId || "", guestVideoAt: Date.now() });
-            }
+          if (s && s.state === "live" && s.videoId && gUrl && isStatusForTarget(s, gUrl)) {
+            const cur2 = cms.getDraft().live || {};
+            cms.setSectionValue("live", { ...cur2, guestVideoId: s.videoId, guestVideoTitle: s.title || (cur2 as any).liveTitle || "", guestVideoChannelId: s.channelId || "", guestVideoAt: Date.now() });
           }
         } catch {}
       };
       try {
         const s = readLiveStatus();
-        if (s && (s as any).state === "live") void stampBoth(s);
+        if (s && (s as any).state === "live") stampBoth(s);
       } catch {}
-      checkLiveStream().then((s) => { try { void stampBoth(s); } catch {} }).catch(() => {});
+      checkLiveStream().then((s) => { try { stampBoth(s); } catch {} }).catch(() => {});
     } catch {}
     recheckLiveNow();
     askForRecentServices();

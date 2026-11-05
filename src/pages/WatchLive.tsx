@@ -127,20 +127,17 @@ export function WatchLive() {
      livestream never ends itself and comes back on for a blip. */
   const lastLiveRef = useRef({ src: "", at: 0 });
   const liveSrcNow = screenAir.state === "live" ? String(screenAir.videoId || screenAir.channelId || "") : "";
- useEffect(() => {
-   if (screenAir.state === "live" && liveSrcNow) lastLiveRef.current = { src: liveSrcNow, at: Date.now() };
- });
-  /* Grace clock driven by the 1s ticker above (not Date.now() in render): the
-     window expires even when the poller is idle, so the screen never sticks
-     on the grace frame. */
-  const offFresh = screenAir.state === "off" && now.getTime() - lastLiveRef.current.at < 25_000 && !!lastLiveRef.current.src;
+  useEffect(() => {
+    if (screenAir.state === "live" && liveSrcNow) lastLiveRef.current = { src: liveSrcNow, at: Date.now() };
+  });
+  const offFresh = screenAir.state === "off" && Date.now() - lastLiveRef.current.at < 25_000 && !!lastLiveRef.current.src;
   const [shut, setShut] = useState<ScreenShut>(null);
   const nowLiveTarget = screenAir.state === "live" ? String(screenAir.target || "") : "";
   const shutNext = nextScreenShut(shut, shutPrevRef.current, guestUrl, screenAir.state === "live", nowLiveTarget, screenAir.state === "off");
   useEffect(() => {
     shutPrevRef.current = nowLiveTarget;
     if (shutNext !== shut) setShut(shutNext);
-  }, [shutNext, shut, nowLiveTarget]);
+  });
   /* Fresh offs never shut (flap grace above): the latch only lands once the
      broadcast has been quiet past the grace window, or the office stopped it. */
   const shutNow = offFresh ? null : shutNext;

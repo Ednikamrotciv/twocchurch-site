@@ -792,9 +792,7 @@ export function cmsBackend() {
                 },
                 signal: typeof AbortSignal !== "undefined" && typeof AbortSignal.timeout === "function" ? AbortSignal.timeout(10000) : undefined,
               });
-              /* 10MB: channel /videos pages routinely exceed 3MB; rejecting them as
-                 502 turned the live + recents reads unknown mid-service. */
-              const YT_MAX_BYTES = 10 * 1024 * 1024;
+              const YT_MAX_BYTES = 3 * 1024 * 1024;
               let ytBytes = 0;
               const ytParts = [];
               let ytTooBig = false;
@@ -855,3 +853,4 @@ export function cmsBackend() {
     },
   };
 }
+

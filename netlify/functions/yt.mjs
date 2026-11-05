@@ -4,9 +4,7 @@
 // CORS proxy alone. Same-origin, YouTube-only (SSRF guard mirrors
 // scripts/serve.mjs), no deps, GET ?url=<youtube url>.
 const ALLOWED = new Set(["www.youtube.com", "youtube.com", "m.youtube.com", "youtu.be"]);
-/* 10MB: channel /videos pages routinely exceed 3MB; rejecting them as 502
-   turned the live + recents reads unknown mid-service. */
-const MAX_BYTES = 10 * 1024 * 1024;
+const MAX_BYTES = 3 * 1024 * 1024;
 
 export async function handler(event) {
   try {
