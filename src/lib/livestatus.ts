@@ -943,6 +943,10 @@ const watchers = new Set<Watcher>();
 const listeners = new Set<() => void>();
 let timer = 0;
 let polling = false;
+/* Overlap guard: an urgent 8s cadence with 20s+ checks used to pile runs on
+   top of each other (fetch storms, older answers overwriting newer ones).
+   A run already in flight wins; the in-flight run schedules the next one. */
+let runActive = false;
 /** End debounce: consecutive "off" answers for the same address. A lone off
     (or two) never ends a watched broadcast — a walled read can blink off
     and the screen must not end itself and come back on. */
@@ -1160,6 +1164,9 @@ function onLiveTargetEvent() {
 
 async function run() {
   if (!watchers.size) return;
+  if (runActive) return;
+  runActive = true;
+  try {
   /* A broadcast that is on air is the one moment the answer matters, so it is
      never skipped; a hidden tab is otherwise left alone (no point in spending
      the proxy's time on a screen nobody is looking at). */
@@ -1231,6 +1238,9 @@ async function run() {
      render has not landed yet). */
   lastCheckAt = next.checkedAt;
   schedule(delay());
+  } finally {
+    runActive = false;
+  }
 }
 
 function onWake() {

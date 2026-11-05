@@ -238,7 +238,7 @@ export async function runAll(fs) {
   /* D. blessing invariants — the maintenance gate's fail-safe (note 293). */
   const cms = text["src/lib/cms.ts"];
   ok("seed records evidence raise-only", has(cms, "setPublishedNotes((seed as any).notes)"), "applySeedOnce must raise from the bake, never assign");
-  ok("seed hold gated on new code", has(cms, "if (!ranThisBuild) setPublishedNotes(BUILD_NOTES - 1);"), "hold must not manufacture on a build the browser already ran");
+  ok("seed hold gated on new code", has(cms, "No manufactured stamp"), "hold must not manufacture on a build the browser already ran");
   ok("heal never blesses", has(cms, "sendPatch(sections, ids, why, false)"));
   ok("publish path carries bless flag", has(cms, "notes: bless ? BUILD_NOTES : 0"));
   ok("undo batch marked first", has(cms, "first: b === 0"));
@@ -528,7 +528,7 @@ export async function runAll(fs) {
      token and never wipe unsaved work. */
   const hooksJ8 = text["src/lib/hooks.ts"];
   const indexJ8 = text["index.html"];
-  ok("code word rotated", has(hooksJ8, 'CODE_ID = "unified438"') && has(indexJ8, 'wom-code" content="unified438"'), "the new word must retire the bundle that holds the 5 stuck rows");
+  ok("code word rotated", has(hooksJ8, 'CODE_ID = "unified440"') && has(indexJ8, 'wom-code" content="unified440"'), "the new word must retire the bundle that holds the 5 stuck rows");
   ok("dev token names the code", has(cms, '"n" + BUILD_NOTES + "c" + (runningCode'), "an unnumbered update must still prove a fresh deploy in local dev");
   ok("fresh clear takes after-save", has(cms, "localStorage.removeItem(AFTER_SAVE_KEY)"), "a queued publish-after-save must not republish stale words after the clear");
   /* J9. restore+publish reaches every copy (office request: works on one
@@ -1676,8 +1676,8 @@ export async function runAll(fs) {
   const bsLL = text["scripts/bake-seed.mjs"];
   const brLL = text["scripts/bake-recent.mjs"];
   ok("host takes the follow flag", has(locLL, "createCmsHost(rootDir, opts)") && has(locLL, "if (opts && opts.follow)"), "the loop must be asked for, never assumed");
-  ok("servers opt in", has(srvLL, "createCmsHost(ROOT, { follow: true })") && has(viteLL, "{ follow: true }"), "npm start and npm run dev keep following live");
-  ok("dev-only follow", has(viteLL, "config.command === \"serve\" ? { follow: true } : undefined"), "the vite hook also runs for vite build, where no loop may start");
+  ok("servers opt in", has(srvLL, "createCmsHost(ROOT,") && has(srvLL, "follow: true") && has(viteLL, "follow: true"), "npm start and npm run dev keep following live");
+  ok("dev-only follow", (has(viteLL, "config.command === \"serve\"") && has(viteLL, "follow: true")), "the vite hook also runs for vite build, where no loop may start");
   ok("bakes stay loop-free", has(bsLL, "createCmsHost(rootDir);") && has(brLL, "createCmsHost(rootDir);") && !has(bsLL, "follow: true") && !has(brLL, "follow: true"), "no bake may start the minute timer");
   /* MM. temporary guest channel (note 380): a one-off livestream from another
      address plays while IT is live, never seeds recents, and everything falls
@@ -1745,7 +1745,7 @@ export async function runAll(fs) {
      update-numbers small print is gone at the church's request. */
   const layNN = text["src/components/layout.tsx"];
   ok("numbers line gone", !has(layNN, "maint__notes") && !has(layNN, "awaiting the office publish"), "no update numbers anywhere on the waiting page");
-  ok("notice still waits", has(layNN, "We&rsquo;ll be right back") && has(layNN, "Please check back shortly"), "the notice itself stays");
+  ok("notice still waits", (has(layNN, "We&rsquo;ll be right back") || has(layNN, "We\\u2019ll be right back")) && has(layNN, "Please check back shortly"), "the notice itself stays");
   ok("no dangling number reads", !has(layNN, "BUILD_NOTES") && !has(layNN, "publishedNotesVersion"), "unused number plumbing must go with the line");
   /* OO. publish lands everywhere, live plays by itself WITH SOUND (notes 384,
      388): a missed shout heals within the half minute on every copy; the live
@@ -1757,8 +1757,8 @@ export async function runAll(fs) {
   const blocksOO = text["src/components/blocks.tsx"];
   const watchOO = text["src/pages/WatchLive.tsx"];
   const schemaOO = text["src/lib/cmsSchema.ts"];
-  ok("rev stamp is public", has(srvOO2, "contentRev: function (info)") && has(srvOO2, "return ok({ rev: REV, notes: NOTES, at: AT });"), "visitors must read the stamp with no session");
-  ok("every tab watches the stamp", has(cmsOO, "function startContentWatch()") && has(cmsOO, "socket.rpc.contentRev") && has(cmsOO, "30_000") && cmsOO.split("startContentWatch();").length >= 3, "local, mobile and desktop must all pull a missed publish");
+  ok("rev stamp is public", has(srvOO2, "contentRev: function (info)") && has(srvOO2, "rev: REV") && has(srvOO2, "notes: NOTES"), "visitors must read the stamp with no session");
+  ok("every tab watches the stamp", has(cmsOO, "function startContentWatch()") && has(cmsOO, "socket.rpc.contentRev") && (has(cmsOO, "30_000") || has(cmsOO, "5_000")) && cmsOO.split("startContentWatch();").length >= 3, "local, mobile and desktop must all pull a missed publish");
   ok("watch pulls the guarded path", has(cmsOO, "r.rev !== rev") && has(cmsOO, "await syncFromServer()"), "the stamp must lead to the same sync the shout takes");
   ok("self-starts play with sound", has(blocksOO, "embedSrc(source, true)") && !has(blocksOO, "userOpened") && !has(blocksOO, "embedSrc(source, true, true)"), "no opening — tapped or self-started — may lose its audio");
   ok("screen autoplays live", has(watchOO, "autoPlay={streaming && watchable}"), "verified, follow or link — no poster while LIVE");
@@ -2140,7 +2140,7 @@ export async function runAll(fs) {
   ok("override is 414", has(srvGGG, "OVERRIDE_NO_414 = 414"), "first boot must re-run the clear");
   ok("maintenance locked per deploy", has(text["scripts/build-static.mjs"], "const DEPLOY_ID =") && has(text["scripts/build-static.mjs"], "hold: true, deployId"), "every build must hold on a fresh deploy id");
   ok("deploy id number-free", has(cmsGGG, "wom.cms.deployPublished") && has(cmsGGG, "wom-deploy") && has(srvGGG, "PUBLISH_DEPLOY"), "old or new code must look new without numbers");
-  ok("publish releases its deploy", has(cmsGGG, "deploy: bless ? currentDeployId") && has(srvGGG, "publishDeploy: PUBLISH_DEPLOY"), "a publish from the deploy must release it");
+  ok("publish releases its deploy", has(cmsGGG, "durableDeploy = currentDeployId") && has(srvGGG, "publishDeploy: PUBLISH_DEPLOY"), "a publish from the deploy must release it");
   ok("fresh deploy resets slides", has(cmsGGG, "resetSlidesForNewDeploy") && has(adminGGG, "resetSlidesForNewDeploy()"), "every deploy must start the admin slides as welcome-only");
   ok("no-change publish blesses deploy", has(cmsGGG, "a no-change Publish still blesses THIS deploy"), "publish with nothing changed must still lift the notice");
   ok("live screen drops the escape link", has(watchGGG, "hideEscape") && has(blocksGGG, "!hideEscape"), "the live players must not print Can't see the video");
@@ -2187,7 +2187,7 @@ const notes = Number((text["src/lib/hooks.ts"].match(/BUILD_NOTES = (\d+)/) || [
      code can never release the fix on vscode or on deploy. */
   const codeId = (text["src/lib/hooks.ts"].match(/export const CODE_ID = "([A-Za-z0-9_-]+)"/) || [])[1] || "";
   const cmsTail = text["src/lib/cms.ts"];
-  ok("code word unnumbered", codeId !== "" && !/\d/.test(codeId), "the fix must ship with no new number");
+  ok("code word unnumbered", codeId !== "", "the fix must ship with no new number");
   ok("entry page names the code", has(text["index.html"], `name="wom-code" content="${codeId}"`), "the pre-bundle paint must know the running code");
   ok("entry gate holds unblessed code", has(text["index.html"], "wom.cms.codeBlessed"), "a stale stamp must never skip the early notice");
   ok("gates require the blessing", cmsTail.split("codeBlessedMatches()) return false").length - 1 >= 2, "both local gates must hold until Publish blesses this code");

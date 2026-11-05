@@ -1417,17 +1417,23 @@ export function VideoPlayer({
             </a>
           )}
         </>
-      ) : live ? (
-        /* Live waits quietly — no icon, no status line: while the broadcast
-           is not yet open only the dimmed still shows, never blank.
+     ) : live ? (
+       /* Live waits quietly — no icon, no status line: while the broadcast
+          is not yet open only the dimmed still shows, never blank.
+          The frame still opens by itself with sound the moment it can. */
+        /* Tappable (autoplay with sound is blocked until the visitor taps once):
+           one tap opens the broadcast with sound via the shared repair path.
            The frame still opens by itself with sound the moment it can. */
-        <div className="player__poster player__poster--live" aria-live="polite">
+        <button type="button" className="player__poster player__poster--live" aria-live="polite" onClick={retry} aria-label={tx("Play the live broadcast")}>
           {still ? (
             <img src={still} alt="" loading="lazy" onError={handleStillError} />
           ) : fallbackThumb ? (
             <img src={fallbackThumb} alt="" loading="lazy" onError={(e) => { try { e.currentTarget.style.display = "none"; } catch {} }} />
           ) : null}
           <span className="player__scrim" />
+          <span className="player__play" aria-hidden="true">
+            <Icon name="play" size={26} />
+          </span>
           <span className={"player__source player__source--" + platform}>
             <Icon name={platform === "upload" ? "play" : platform} size={13} /> {platformLabel(platform)}
           </span>
@@ -1436,7 +1442,7 @@ export function VideoPlayer({
               <span className="live-dot" /> {ct("live.player.badge")}
             </span>
           )}
-        </div>
+        </button>
       ) : (
         <button
           type="button"

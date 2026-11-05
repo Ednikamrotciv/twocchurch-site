@@ -1,4 +1,4 @@
-APPLY THIS UPDATE (438) — ONE UNIFIED UPDATE (ALL OLD UPDATES REMOVED)
+APPLY THIS UPDATE (440) — ONE UNIFIED UPDATE (ALL OLD UPDATES REMOVED)
 =============================================================================
 Single update, one zip — every older update is superseded by this one. Extract fully
 incl. index.html on BOTH sides (office computer + any always-on host), then follow the
@@ -53,15 +53,54 @@ click, so slides never go blank after a wipe.
 (6) PUBLISH AND PUBLISH NOW ARE THE SAME. Both buttons run the attached rule above —
 same pipeline, same note, same toasts, same everywhere-effect, both directions.
 
-Still ORDER: BACK UP FIRST (Tools backup, download it), extract fully incl. index.html
+Still ORDER: BACK UP FIRST (step 1) (Tools backup, download it), extract fully incl. index.html
 BOTH sides (same zip), `npm run dev:fresh` + restart the office backend, hard refresh;
 sign in once (the new deploy asks for it; dev restarts keep you signed in); Publish
 ONCE from any signed-in admin copy — every copy lifts within seconds online (or at
 first sync); THEN bake-seed, commit+push full step-0 set, rebuild BOTH hosts; Publish
-on each host; reload ALL admin tabs. Proof: window.__womBuild = { notes: 438,
-code: "unified438" }; verifier sections GGG (no-change publish blesses deploy) + MMM
+on each host; reload ALL admin tabs. Proof: window.__womBuild = { notes: 440,
+code: "unified440" }; verifier sections GGG (no-change publish blesses deploy) + MMM
 (sessions) pass, plus the new live-lands-both-ways lock. Files: src/lib/hooks.ts
-(438/unified438) + index.html (wom-notes/code), src/lib/cms.ts (session-free live
+(440/unified440) + index.html (wom-notes/code), src/lib/cms.ts (session-free live
 adoption both directions + owed-record guard + prompt live tick), src/SPEC.md
-(note 438), src/tools/verify-update.mjs (438 payloads + both-ways lock),
+(note 440), src/tools/verify-update.mjs (440 payloads + both-ways lock),
 DEPLOY.md (bidirectional routine).
+
+ADDENDUM — DEPLOY CHECKLIST (step 0 + verification, read first)
+---------------------------------------------------------------
+Step 0 set: commit+push every file incl. maintenance-hold.txt and .gitignore (manual
+copies skip hidden files unless named — maintenance-hold.txt and .gitignore must be
+named explicitly). The build log must show maintenance hold on for the fresh deploy.
+Verify the deploy answers version.json and /seed.json (never through any removed card).
+An empty bake reads {"sections":{}} — catch it here: copy seed.json from THIS zip and
+re-bake before publishing. A folder whose stamp matches no shipped update (e.g. 337)
+reads as not-deployed — rebuild it from this zip, never patch it by hand.
+Confirm the words landed, not just the code: after Publish the live site must show
+the new words, not an empty shell. Sleep is a non-event: keep the UptimeRobot
+keep-awake recipe and the live follow loop on (wakes print "cold start at" in the host
+log; every wake re-serves the last publish whole). Measured on the live box first —
+start from the measured box, not the last zip. Check the notice like a visitor: FRESH profile, incognito window, Exit preview (defeats the office's own bypasses). The
+published handle only moves by reset plus publish: set exactly `@twocorg`, then
+Reset to @twocorg and Publish. Readiness needs no reset tap: Only if it offers a
+reset, tap it — otherwise Publish directly. Any restore ends with @twocorg: a backup
+restore also heals the channel. The poison-video id is zJvgsAhpNlo
+(small
+  village) — if the recents bake names it, re-bake from the channel feed.
+
+LIVESTREAM — READ THIS FIRST (the screen, the sound, the buttons)
+-----------------------------------------------------------------
+The Watch screen never plays another channel's livestream by itself — a guest ending
+returns to the main still, never to another live. No live is EVER MUTED: every opening
+plays with its audio, tapped or self-started, and the screen closes immediately when
+its broadcast ends. PUBLISH ONLY SENDS A CLICKED COMMAND: Play/Stop/Reload publish on
+tap only; a natural end stamps nothing and needs no publish. THE BUTTONS NEVER GATE A LIVE END: Play starts, pause holds, Stop ends — PLAY/PAUSE IS ONE transport per slot.
+A NATURAL END NEEDS NO PUBLISH: pause to hold it, then publish to resume; stop to end one and file it. This build ARRIVES FRESH with the notice on and the guest empty.
+FACEBOOK routing: a Facebook live plays the Facebook embed while IT is live; its
+numeric id never enters the YouTube path. THE MAIN CHANNEL STARTS BY ITSELF: no Play
+press, no Publish — detection opens it with sound. EACH FIELD HAS ITS BUTTONS and
+EACH FIELD COMMANDS ITS OWN SLOT (main row drives main, guest row drives guest).
+NEXT BROADCAST NAMES THE SCREEN and each row LIGHTS ITS OWN DOT (main dot for main,
+guest dot for guest). MAIN WAITS FOR THE PLAY PRESS while walled; GUEST ARRIVES EMPTY
+until the office sets it. AUTOPLAY ONLY WHEN THE MAIN IS LIVE: a stamped foreign id
+never autoplays. After this fix the WATCH PAGE PLAYS AGAIN with sound and the closed
+screen on end. PUBLISH ONLY SENDS A CLICKED COMMAND — the transport overrides the last one, so every old clears away: the latest press overrides the last one, so every old clears away.

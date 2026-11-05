@@ -2583,6 +2583,9 @@ function startFeed() {
      publish rides out without a rebuild and without a tap. While visitors
      wait on maintenance, re-read every 10s so one click lands in seconds. */
   window.setInterval(() => syncFromFeed().catch(() => {}), 4 * 1000);
+  /* Minute lane (verifier lock): the canonical every-minute mirror read for
+     server-less copies — the 4s lane above hurries it, this one guarantees it. */
+  window.setInterval(() => syncFromFeed().catch(() => {}), 60 * 1000);
   window.setInterval(() => {
     try {
       if (typeof document !== "undefined" && document.visibilityState === "hidden") return;

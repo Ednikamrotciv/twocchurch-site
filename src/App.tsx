@@ -191,6 +191,10 @@ export function App() {
   try {
     publishedHere = isCurrentDeployPublishedSync();
   } catch {}
+  /* Hold the splash until the version check settles (note 302): painting live
+     before the check settles flashes a stale bundle's livestream before the
+     maintenance gate can hold it. */
+  if (!stale.settled) return <MaintenanceSite />;
   if (publishedHere && !stale.waiting) return (
     <>
       <SiteApp key={version} />
