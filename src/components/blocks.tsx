@@ -421,10 +421,17 @@ export function VideoPlayer({
      livestream-screen error — dead frame, blank frame, dead id, hung load,
      blocked autoplay. Runs the shared force repair above: re-asks the on-air
      check and reopens on what's live now. No page reload, stays on this site. */
-  const reloadSeen = useRef(typeof reloadSignal === "number" ? reloadSignal : 0);
+  const reloadSeen = useRef<number>(0);
   useEffect(() => {
     if (!live || !reloadSignal) return;
     if (reloadSeen.current === reloadSignal) return;
+    /* A press that landed just before this player mounted still repairs it:
+       only stamps older than 30min are marked seen without repair. */
+    const age = Date.now() - reloadSignal;
+    if (!(reloadSignal > 0) || age > 30 * 60_000) {
+      reloadSeen.current = reloadSignal;
+      return;
+    }
     reloadSeen.current = reloadSignal;
     repair();
   }, [live, reloadSignal]);

@@ -144,6 +144,12 @@ function decodeEntities(value: string): string {
 /** Read a YouTube page; unreadable pages return "no answer", never "off". */
 export function parseLivePage(html: string, pageUrl = ""): { read: boolean; live: boolean; videoId: string; title: string } {
   const text = String(html || "");
+  /* A consent wall carries the page model but names no broadcast: it must
+     read as "no answer", never "off" — otherwise an EU-region fetch would
+     end a live service for every visitor behind it. */
+  if (/consent\.youtube\.com/i.test(text) || /id="consent-bump"/i.test(text) || (/consentCookie/i.test(text) && !/"videoDetails":\{/.test(text))) {
+    return { read: false, live: false, videoId: "", title: "" };
+  }
   /* YouTube's own pages all carry the inlined page model — a consent wall or an
      error page carries none of it. */
   const read = /ytInitialData/.test(text) || /"videoDetails":\{/.test(text);
@@ -592,6 +598,9 @@ function firstValidHtml(jobs: Promise<string | null>[]): Promise<string | null> 
 function isYoutubeHtml(html: string): boolean {
   const text = String(html || "");
   if (text.length < 500) return false;
+  /* Consent walls are YouTube HTML but answer nothing about the broadcast —
+     reject them here so the next door (a non-EU proxy) gets the real page. */
+  if (/consent\.youtube\.com/i.test(text) || /id="consent-bump"/i.test(text)) return false;
   return /ytInitialData/.test(text) || /"videoDetails":\{/.test(text) || /ytInitialPlayerResponse/.test(text);
 }
 
