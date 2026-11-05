@@ -194,9 +194,6 @@ function firstValidText(jobs: Promise<string | null>[]): Promise<string | null> 
 function isExpectedBody(url: string, text: string): boolean {
   const body = String(text || "");
   if (body.length < 500) return false;
-  /* Consent walls carry the page model but no grid — never treat one as the
-     channel, or a good cached list would be replaced by an empty read. */
-  if (/consent\.youtube\.com/i.test(body) || /id="consent-bump"/i.test(body)) return false;
   if (/\/feeds\/videos\.xml/i.test(String(url || ""))) {
     return /<entry>/.test(body) || /<yt:videoId>/.test(body);
   }

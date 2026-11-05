@@ -41,7 +41,7 @@ export function WatchLive() {
      (note 310): a visitor who opened this page came to see the stream, schedule
      or no — so a YouTube start shows in seconds and the waiting clock vanishes
      with it, on live and on local alike. */
-  const air = useLiveStream(true, true, true);
+  const air = useLiveStream(true, false, true);
   const justNow = !!info && (onAir(info) || info.msUntil < 45 * 60 * 1000);
   /* Instant-open warm-up: the page is open because someone came to watch, so
      pre-connect to the stream doors at once (player assets included) — the
@@ -282,11 +282,9 @@ export function WatchLive() {
       ? { platform: "facebook", facebookUrl: LIVE.facebookUrl }
       : { platform: "youtube", youtubeId: playableId || deadLiveId || verifiedFallbackId, youtubeChannelId: detectedChannel || (!streaming && overrideId) || undefined };
   /* The grace window replays the last playable address: a fresh off keeps the
-     frame on exactly what was playing instead of an empty follow. Only a
-     live frame is stored — the grace window itself must never overwrite it
-     with the fallback, or the replay would lose the broadcast it is holding. */
+     frame on exactly what was playing instead of an empty follow. */
   const graceRef = useRef<VideoSource | null>(null);
-  if (screenAir.state === "live" && streaming && watchable) graceRef.current = freshSource;
+  if (streaming && watchable) graceRef.current = freshSource;
   const liveSource: VideoSource = offFresh && graceRef.current ? graceRef.current : freshSource;
   const youtubeLink =
     watchUrl({ platform: "youtube", youtubeId: playableId }) ||

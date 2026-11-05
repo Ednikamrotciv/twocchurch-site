@@ -90,7 +90,7 @@ export function App() {
       if (expecting || onWatchPage) import("./pages/WatchLive").catch(() => {});
     } catch {}
   }, [expecting, onWatchPage]);
-  useLiveStream(expecting || onWatchPage, true, onWatchPage);
+  useLiveStream(expecting || onWatchPage, false, onWatchPage);
 
   // Load the published content once; the version counter then re-renders the
   // page every time the office applies something.

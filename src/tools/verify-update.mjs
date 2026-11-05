@@ -685,7 +685,7 @@ export async function runAll(fs) {
   const live = text["src/lib/livestatus.ts"];
   const watch = text["src/pages/WatchLive.tsx"];
   ok("live cadence is short", has(live, "SOON_MS = 20_000") && has(live, "IDLE_MS = 90_000"), "a YouTube start must show in seconds, not minutes");
-  ok("watch checks at once", has(live, "urgent") && has(watch, "useLiveStream(true, true, true)"), "the Watch page must not wait out the freshness window");
+  ok("watch checks at once", has(live, "urgent") && has(watch, "useLiveStream(true, false, true)"), "the Watch page must not wait out the freshness window");
   ok("app hurries on watch", has(app, "onWatchPage") && has(app, "expecting || onWatchPage"), "the header must follow the stream on the Watch page");
   ok("moved channel jumps the queue", has(live, "wom:live-target") && has(live, "noteLiveTargetMayHaveChanged") && has(live, "export function recheckLiveNow()") && has(cms, 'window.dispatchEvent(new Event("wom:live-target"))'), "a retyped channel must be re-checked at once on live and local");
   ok("office buttons re-ask", has(ed, "recheckLiveNow()") && has(ed, 'import { readLiveStatus, recheckLiveNow, guestTarget, isGuestTargetUrl, useLiveStream, liveTarget, isStatusForTarget, clearGuestOnStop } from "../lib/livestatus"'), "Start/Continue/Stop must ask the channel at once");

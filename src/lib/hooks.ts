@@ -133,15 +133,14 @@ const toastListeners = new Set<(t: ToastItem[]) => void>();
 let toasts: ToastItem[] = [];
 
 export function fireToast(message: string, kind: ToastKind = "info") {
-  /* Full office wording: the notice shows the whole message (a reload fix,
-     a guest-channel warning, a publish confirmation), never just its first
-     word — truncating here once reduced every livestream notice to one word. */
-  let text = "";
+  /* One-word toasts (office request): every notice is at most one word, so
+     take the first whitespace-separated token. Central enforcement — all
+     call sites stay unchanged. */
+  let one = "";
   try {
-    text = String(message ?? "").trim() || "";
-  } catch { text = ""; }
-  if (!text) return;
-  const item = { id: toastId++, message: text, kind };
+    one = String(message ?? "").trim().split(/\s+/)[0] || "";
+  } catch { one = ""; }
+  const item = { id: toastId++, message: one, kind };
   toasts = [...toasts, item];
   toastListeners.forEach((fn) => fn(toasts));
   window.setTimeout(() => {
