@@ -51,17 +51,10 @@ async function siteServer(): Promise<string> {
   const meta = serverMeta();
   if (meta) return meta;
   try {
-    /* Bounded: a stalled server.json read must not hold the boot. */
-    const ctrl = typeof AbortController !== "undefined" ? new AbortController() : null;
-    const timer = ctrl ? setTimeout(() => ctrl.abort(), 8000) : 0;
-    try {
-      const res = await fetch(siteFile(SITE_FILE), { cache: "no-store", signal: ctrl ? ctrl.signal : undefined });
-      if (!res.ok) return "";
-      const data = await res.json().catch(() => null);
-      return normalizeServerUrl(data && (data.url || data.server));
-    } finally {
-      if (timer) clearTimeout(timer as ReturnType<typeof setTimeout>);
-    }
+    const res = await fetch(siteFile(SITE_FILE), { cache: "no-store" });
+    if (!res.ok) return "";
+    const data = await res.json().catch(() => null);
+    return normalizeServerUrl(data && (data.url || data.server));
   } catch {
     return "";
   }
@@ -197,27 +190,13 @@ export function createRemoteSocket(base: string, connId?: string): any {
     });
   };
   async function call(method: string, arg: any): Promise<string> {
-    /* Bounded (Render cold starts can stall): a hung office read must fail
-       fast into the offline/queue paths, never hang the UI forever. POSTs are
-       never retried here — idempotency is the caller's call. */
-    const RPC_TIMEOUT_MS = 30_000;
-    const ctrl = typeof AbortController !== "undefined" ? new AbortController() : null;
-    const timer = ctrl ? setTimeout(() => ctrl.abort(), RPC_TIMEOUT_MS) : 0;
-    try {
-      const res = await fetch(root + "/__cms/" + method + "?conn=" + encodeURIComponent(connIdFinal), {
-        method: "POST",
-        headers: { "content-type": "text/plain;charset=utf-8" },
-        body: arg === undefined || arg === null ? "" : String(arg),
-        signal: ctrl ? ctrl.signal : undefined,
-      });
-      if (!res.ok) throw new Error("rpc " + method + ": http " + res.status);
-      return await res.text();
-    } catch (err) {
-      if (ctrl && (err as Error)?.name === "AbortError") throw new Error("rpc " + method + ": timed out");
-      throw err;
-    } finally {
-      if (timer) clearTimeout(timer as ReturnType<typeof setTimeout>);
-    }
+    const res = await fetch(root + "/__cms/" + method + "?conn=" + encodeURIComponent(connIdFinal), {
+      method: "POST",
+      headers: { "content-type": "text/plain;charset=utf-8" },
+      body: arg === undefined || arg === null ? "" : String(arg),
+    });
+    if (!res.ok) throw new Error("rpc " + method + ": http " + res.status);
+    return res.text();
   }
   let es: EventSource | null = null;
   try {

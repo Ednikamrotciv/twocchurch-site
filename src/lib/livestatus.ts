@@ -926,21 +926,6 @@ export type LiveSnapshot = { status: LiveStatus; checking: boolean };
 /** What each mounted reader of the check is asking for. */
 type Watcher = { soon: boolean; facebook: boolean; urgent: boolean };
 
-/* Repair reload (see src/lib/repair.ts): the error card's second tap drops
-   volatile caches and reloads with a session flag — consume it here, before
-   the snapshot below reads the store, so the boot starts clean instead of
-   re-poisoning itself from the same stale answer. */
-try {
-  if (typeof sessionStorage !== "undefined" && sessionStorage.getItem("wom.repair") === "1") {
-    sessionStorage.removeItem("wom.repair");
-    try {
-      localStorage.removeItem(LIVE_STATUS_KEY);
-    } catch {}
-  }
-} catch {
-  /* storage unreadable — the poll decides from here */
-}
-
 let snapshot: LiveSnapshot = { status: readLiveStatus(), checking: false };
 /* Fresh boot, fresh answer: a "live" remembered in the store from an earlier
    visit (yesterday's service) must never autoplay on first paint — the
@@ -1123,10 +1108,8 @@ export function liveTargetSignature(): string {
 function delay() {
   /* The Watch page (urgent watcher) polls faster than the quiet week without
      changing the shared cadence above: a YouTube start shows in seconds where
-     someone is actually watching, while background tabs stay cheap. Five
-     seconds while the Watch page is open and visible — the broadcast reaching
-     the visitor sooner is worth the extra asks. */
-  if (wantsUrgent()) return 5_000;
+     someone is actually watching, while background tabs stay cheap. */
+  if (wantsUrgent()) return 8_000;
   return wantsSoon() ? SOON_MS : IDLE_MS;
 }
 

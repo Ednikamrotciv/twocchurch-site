@@ -1,6 +1,5 @@
 import React from "react";
 import { Btn, Icon, Section } from "./ui";
-import { repairLiveCaches, repairReload } from "../lib/repair";
 
 /** Keeps a broken page from taking the whole site down with it. */
 export class ErrorBoundary extends React.Component<{ children: React.ReactNode }, { error: Error | null; route: string; stack: string; nonce: number; retriedRoute: string; retryFailed: boolean; scroll: number }> {
@@ -59,21 +58,33 @@ export class ErrorBoundary extends React.Component<{ children: React.ReactNode }
       if (here && here !== this.state.retriedRoute) this.setState({ retriedRoute: "", retryFailed: false });
     }
   }
-  /* One tap brings the SAME page back, fixed — not just reloaded: the card
-     first drops every volatile live cache (a stale on-air answer, a dead
-     verdict, a thin recents list) and re-asks what's live now, then retries
-     the page subtree in place — same address, same synced words, same on-air
-     answer. A crash that repeats on the same route takes a flagged full
-     reload instead (the next boot starts clean — see livestatus boot), and a
-     chunk-load failure — a new deploy landing mid-visit — goes straight to
-     the flagged reload, since the in-place retry would only re-request the
-     same missing chunk. Either way one tap fixes it; the second tap always
-     reloads clean. */
+  /* One tap brings the SAME page back: the card retries the page subtree in
+     place first — same address, same synced words, same on-air answer — and
+     only a crash that repeats on the same route takes the full reload. Before
+     either path, volatile live caches are dropped (stale on-air/verdict
+     answers can never re-poison the retry) and a chunk-load failure — a new
+     deploy landing mid-visit — goes straight to the full reload, since the
+     in-place retry would only re-request the same missing chunk. Either way
+     one tap fixes it; the second tap always reloads. */
   private retry = () => {
-    repairLiveCaches();
+    try {
+      import("../lib/livestatus").then((m) => {
+        try { m.forgetAllVerified(); } catch {}
+      }).catch(() => {});
+    } catch {}
+    try {
+      localStorage.removeItem("wom.livestatus");
+    } catch {}
+    try {
+      sessionStorage.removeItem("wom.live.targetNote");
+    } catch {}
     const msg = String((this.state.error && (this.state.error as any).message) || "") + "\n" + this.state.stack;
     if (this.state.retryFailed || isChunkError(msg)) {
-      repairReload();
+      try {
+        window.location.reload();
+      } catch {
+        /* reload unavailable — the card stays with its way home */
+      }
       return;
     }
     let here = "";
@@ -158,10 +169,6 @@ export class SectionBoundary extends React.Component<{ children: React.ReactNode
     } catch {}
   }
   private retry = () => {
-    /* A section usually fails on stale live data (a bad thumbnail, a dead
-       verdict behind the card) — drop it before the remount, like the page
-       card above, so "Try again" heals instead of repainting the same break. */
-    repairLiveCaches();
     this.setState((s) => ({ error: null, nonce: s.nonce + 1 }));
   };
   render() {

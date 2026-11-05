@@ -707,7 +707,7 @@ export function VideoPlayer({
 
   /* Self-healing while live: a screen that landed on the dead fallback while
      the broadcast is STILL on air (embedding flipped on, a restarted
-     stream's new id resolving late) re-resolves by itself every 20s and
+     stream's new id resolving late) re-resolves by itself every 30s and
      reopens the moment a verified live id answers — no arrow tap, no office
      Reload needed. Anything but a verified live id stays put, so a truly
      ended broadcast never loops. */
@@ -763,7 +763,7 @@ export function VideoPlayer({
           /* stay on the fallback — the next round tries again */
         }
       })();
-    }, 20_000);
+    }, 30_000);
     return () => {
       cancelled = true;
       try {
@@ -908,7 +908,7 @@ export function VideoPlayer({
 
   /* Channel-follow auto-recovery (unavailable-frame net): a live channel embed
      reports no errors cross-origin, so a stale/refused channel frame would sit
-     on YouTube's own "unavailable" text with no arrow. Every 15s while a live
+     on YouTube's own "unavailable" text with no arrow. Every 20s while a live
      channel follow plays with no verified id, re-ask what's live now: a fresh
      verified broadcast upgrades to its own id (API path, which DOES report
      errors); a proven-off channel lands on the same grey-arrow fallback as
@@ -947,7 +947,7 @@ export function VideoPlayer({
         } catch {}
       })().catch(() => {});
     };
-    const iv = window.setInterval(tick, 15_000);
+    const iv = window.setInterval(tick, 20_000);
     return () => { cancelled = true; try { window.clearInterval(iv); } catch {} };
   }, [playing, dead, live, liveVideoId, ytId, followId, platform]);
 
