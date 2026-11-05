@@ -1,55 +1,76 @@
-/* On-air check — STANDALONE ENGINE (replaced).
-   The old office-proxy/bot-wall check (office reports, guest slot, designated
-   follow, channel-watch fallbacks, autostop seeding) was removed. This file
-   keeps every export name + signature so callers (App, WatchLive, blocks,
-   editor, store, cms, recentstreams) compile unchanged, but the behavior is
-   the standalone player's: explicit youtubeId verifies first (noembed ->
-   oEmbed); otherwise the channel's /live page is read (direct + public
-   proxies). No office server, no guest slot, no silent channel follows. */
+/* On-air check: reads the channel's /live page for `isLiveNow` (never `isLiveContent`/`isLive`,
+   both traps, note 112) via the office-server proxy (no CORS). A bot-walled /live page can name the
+   broadcast without playing it (note 322) — the check then follows the Live tab's video to its watch
+   page, whose on-air chrome (`Live` indicator + `watching now`, measured on a real service) is the
+   answer — before calling anything off. Named videos are only suggestions
+   (note 324): each is verified on its own watch page, since the first id on a
+   channel page may be an ad or a related upload. Cached, re-checked on a timer; failures read
+   "unknown". Ended broadcasts are remembered for auto-stop; Facebook only ever confirms. */
 
 import { useEffect, useState, useSyncExternalStore } from "react";
 import { LIVE } from "../data/live";
 import { parseYoutubeId, cleanChannelInput } from "./embed";
 import { BUILD_NOTES, readStore, writeStore } from "./hooks";
-import {
-  peekVerified as peekStandalone,
-  forgetVerified as forgetStandalone,
-  forgetAllVerified as forgetAllStandalone,
-  verifyYoutubeId as verifyStandalone,
-  oembedPlayable as oembedStandalone,
-  readLivePage as readStandalonePage,
-  checkChannelLive,
-  livePageUrl,
-} from "./standaloneLive";
+import { serverUrl } from "./remoteserver";
 
 export type LiveState = "live" | "off" | "unset" | "unknown";
+
+/** The platforms a broadcast can be found on. */
 export type LivePlatform = "youtube" | "facebook";
+
 export type LiveStatus = {
+  /** live = broadcasting now · off = checked, not live · unset = nothing to
+      check · unknown = the check could not be made (offline, proxy down). */
   state: LiveState;
+  /** Which platform the running broadcast was found on ("" when not on air). */
   platform: LivePlatform | "";
+  /** The video id of the broadcast that is on air, when we know it. */
   videoId: string;
-  title: string;
+  /** The broadcast channel's own id, when the channel page is on air but no
+      video id could be verified (note 331): the player follows the channel. */
   channelId: string;
+  /** The address this answer was checked for (note 350): the channel space
+      it belongs to. An answer stamped for another address never plays, never
+      reports, and never seeds the ended screen — the livestream shows only
+      the handle in the YouTube channel space. Caches from older updates
+      carry no stamp and pass through like before. */
   target: string;
+  /** The stream's own headline, when YouTube gives us one. */
+  title: string;
+  /** When the answer was fetched (ms). */
   checkedAt: number;
+  /** When a seen-live broadcast stopped (ms); video kept for seeding Recent services. */
   endedAt: number;
 };
 
 export const LIVE_STATUS_KEY = "wom.livestatus";
+
+/** A status younger than this is trusted on mount instead of re-checked —
+    unless a watcher asks urgent (the Watch page does: it checks at once). */
+const FRESH_MS = 6_000;
+/** Give the proxy this long before calling the check a failure.
+    Fast live: 3.5s is plenty for YouTube to answer; the old 15s held the
+    Watch screen on the waiting clock past the moment the broadcast started. */
+const CHECK_TIMEOUT_MS = 8_000;
+/** Poll cadence (note 310): fast while a broadcast is expected or the Watch
+    page is open — a YouTube start shows in seconds and the waiting clock
+    vanishes with it — slower in the quiet week. Live and local share this
+    poller; only the fetch door differs (same-origin /__yt on local runs, the
+    office server when joined, else the public proxy). */
 export const SOON_MS = 20_000;
 export const IDLE_MS = 90_000;
-
-export const DESIGNATED_CHANNEL_IDS: Record<string, string> = {
-  "@twocorg": "UCQ0KIUXUV7gTZmDDlvd3ZcQ",
-};
 
 const EMPTY: LiveStatus = { state: "unset", platform: "", videoId: "", title: "", channelId: "", target: "", checkedAt: 0, endedAt: 0 };
 
 /* --------------------------------------------------------------- the target */
 
+/** Where to ask: the channel when set (its /live follows every broadcast), else the link. */
 export function liveTarget(): { url: string; kind: "channel" | "video" } | null {
+  /* Cleaned first (note 320): a doubled "@" used to return null here and the
+     whole site silently watched nothing. */
   const raw = cleanChannelInput(LIVE.youtubeChannel);
   if (raw) {
+    /* Handle, id or link — each becomes the channel's /live page. */
     const id = /(UC[\w-]{20,24})/.exec(raw);
     if (id) return { url: `https://www.youtube.com/channel/${id[1]}/live`, kind: "channel" };
     const at = /youtube\.com\/@([\w.-]+)/i.exec(raw) || /^@([\w.-]+)$/.exec(raw);
@@ -64,23 +85,42 @@ export function liveTarget(): { url: string; kind: "channel" | "video" } | null 
   return null;
 }
 
-/** Guest slot removed with the standalone swap: always null. Kept so the
-    office drawer + Watch page compile without edits. */
-export function guestTarget(_channelInput?: string): { url: string; kind: "channel" | "video" } | null {
+/** Where to ask the temporary guest (note 380): a one-off livestream from
+    another address. Same shapes as the main target above; null unless the
+    office set the guest field. Takes an explicit input for the verifier so
+    the shipped rule runs without the store. */
+export function guestTarget(channelInput?: string): { url: string; kind: "channel" | "video" } | null {
+  const raw = cleanChannelInput(channelInput === undefined ? String(LIVE.externalYoutubeChannel || "") : channelInput);
+  if (raw) {
+    const id = /(UC[\w-]{20,24})/.exec(raw);
+    if (id) return { url: `https://www.youtube.com/channel/${id[1]}/live`, kind: "channel" };
+    const at = /youtube\.com\/@([\w.-]+)/i.exec(raw) || /^@([\w.-]+)$/.exec(raw);
+    if (at) return { url: `https://www.youtube.com/@${at[1]}/live`, kind: "channel" };
+    const legacy = /youtube\.com\/(?:c|user)\/([\w.-]+)/i.exec(raw);
+    if (legacy) return { url: `https://www.youtube.com/${/\/user\//i.test(raw) ? "user" : "c"}/${legacy[1]}/live`, kind: "channel" };
+    if (/^[\w.-]+$/.test(raw)) return { url: `https://www.youtube.com/@${raw}/live`, kind: "channel" };
+    return null;
+  }
   return null;
 }
 
+/** True while an answer is stamped for the guest address (note 380), pure
+    for the verifier: only the guest's own answer may stand for the guest —
+    anything else waits on the main channel. */
 export function isGuestTargetUrl(targetUrl: string, guestUrl: string): boolean {
   const t = String(targetUrl || "");
   const g = String(guestUrl || "");
   return !!t && !!g && t === g;
 }
 
+/** Where to ask Facebook (live video or page); empty when unset. */
 export function facebookTarget(): string {
   const raw = String(LIVE.facebookUrl || "").trim();
   if (!raw) return "";
   if (/^https?:\/\//i.test(raw)) {
     const url = raw.replace(/[?#].*$/, "").replace(/\/+$/, "");
+    /* A page's own address (facebook.com/church, but not facebook.com/watch…,
+       /videos/…, a reel or a share link) → the page's /live tab. */
     if (/facebook\.com\/[^/]+$/i.test(url) && !/facebook\.com\/(?:watch|video|videos|reel|share|permalink)/i.test(url)) {
       return url + "/live";
     }
@@ -90,7 +130,7 @@ export function facebookTarget(): string {
   return "";
 }
 
-/* ------------------------- page reads (standalone port) ------------------------- */
+/* ---------------------------------------------------------------- the answer */
 
 function decodeEntities(value: string): string {
   return String(value)
@@ -101,60 +141,145 @@ function decodeEntities(value: string): string {
     .replace(/&gt;/g, ">");
 }
 
-export function parseLivePage(html: string, _pageUrl = ""): { read: boolean; live: boolean; videoId: string; title: string } {
-  const p = readStandalonePage(html);
-  let title = "";
-  try {
-    const m = /<meta property="og:title" content="([^"]*)"/.exec(String(html || ""));
-    if (m) title = decodeEntities(m[1] || "");
-  } catch { /* title stays empty */ }
-  return { read: p.hasYt, live: p.live, videoId: p.videoId, title };
+/** Read a YouTube page; unreadable pages return "no answer", never "off". */
+export function parseLivePage(html: string, pageUrl = ""): { read: boolean; live: boolean; videoId: string; title: string } {
+  const text = String(html || "");
+  /* YouTube's own pages all carry the inlined page model — a consent wall or an
+     error page carries none of it. */
+  const read = /ytInitialData/.test(text) || /"videoDetails":\{/.test(text);
+  /* `isLiveNow` (or a live manifest) is the player saying it — but a bot-walled
+     page can hide the player while still printing the broadcast's own chrome
+     (note 322, measured on a real service: no `isLiveNow`, yet `watching now`,
+     `Started streaming … ago`, the `Live` indicator and a live-chat
+     continuation). Those only ever sit together while on air, so together they
+     are a live marker; each alone is not — and `"isLive":true` still never is
+     (note 112: finished pages keep it in the view-count renderer). */
+  const chromeLive =
+    (/"liveIndicatorText":\{"simpleText":"Live"\}/.test(text) && / watching now"/.test(text)) ||
+    (/"dateText":\{"simpleText":"Started streaming /.test(text) && / watching now"/.test(text)) ||
+    (/"liveChatRenderer":\{"continuations"/.test(text) && / watching now"/.test(text)) ||
+    /* concurrentViewers only exists on a live watch page — extra net for
+       markup shifts that hide the chrome above. */
+    (/"concurrentViewers":"[0-9,]+"/.test(text) && / watching now"/.test(text));
+  const live = read && (/"isLiveNow":true/.test(text) || /"hlsManifestUrl":"https?:\/\//.test(text) || chromeLive);
+  if (!live) return { read, live: false, videoId: "", title: "" };
+  /* A bot-walled watch page drops the canonical link and the videoDetails id
+     (note 322) — the address asked for is the id then. */
+  const fromUrl = /(?:watch\?v=|\/live\/|\/embed\/|\/v\/|youtu\.be\/)([\w-]{11})/.exec(String(pageUrl || ""));
+  const canonical = /<link rel="canonical" href="https:\/\/www\.youtube\.com\/watch\?v=([\w-]{11})"/.exec(text);
+  const details = /"videoDetails":\{[^}]*?"videoId":"([\w-]{11})"/.exec(text);
+  /* No bare first-`videoId` fallback (note 324): a channel page is a grab-bag
+     of ads, autoplay and related videos, so the first id in it is whoever
+     YouTube put first this fetch — it once steered the player to an unrelated
+     upload mid-service. An unnamed page stays unnamed; channel pages name
+     their candidates through `channelCandidateIds` instead. */
+  const meta = /<meta name="title" content="([^"]*)"/.exec(text);
+  const videoTitle = /"videoDetails":\{[^}]*?"title":"((?:[^"\\]|\\.)*)"/.exec(text);
+  const overlayTitle = /"playerOverlayVideoDetailsRenderer":\{"title":\{"simpleText":"((?:[^"\\]|\\.)*)"/.exec(text);
+  const headline =
+    meta?.[1] ||
+    (videoTitle ? videoTitle[1].replace(/\\"/g, '"') : "") ||
+    (overlayTitle ? overlayTitle[1].replace(/\\"/g, '"') : "");
+  return {
+    read,
+    live: true,
+    videoId: fromUrl?.[1] || canonical?.[1] || details?.[1] || "",
+    title: decodeEntities(headline),
+  };
 }
 
+/** The video the channel's Live tab is showing (note 322): a channel's /live
+    page carries no player marker on a bot-walled read, so the check follows
+    this id to its watch page for the real answer. "" when the tab is empty. */
 export function channelLiveVideoId(html: string): string {
-  return readStandalonePage(html).videoId;
-}
-
-export function channelCandidateIds(html: string, limit = 3): string[] {
-  const out: string[] = [];
-  try {
-    const re = /(?:watch\?v=|\/live\/|\/embed\/|\/v\/|youtu\.be\/)([\w-]{11})/g;
-    const seen = new Set<string>();
-    let m: RegExpExecArray | null;
-    while ((m = re.exec(String(html || ""))) && out.length < limit) {
-      const id = parseYoutubeId(m[1] || "");
-      if (id && !seen.has(id)) {
-        seen.add(id);
-        out.push(id);
-      }
-    }
-  } catch { /* return what we have */ }
-  return out;
-}
-
-export function extractChannelId(html: string, _targetUrl = ""): string {
-  try {
-    const m = /"channelId":"(UC[\w-]{20,24})"/.exec(String(html || "")) || /"ownerChannelId":"(UC[\w-]{20,24})"/.exec(String(html || ""));
-    return m ? m[1] : "";
-  } catch {
-    return "";
+  const text = String(html || "");
+  const tab = text.indexOf('"title":"Live","selected":true');
+  if (tab >= 0) {
+    const seg = text.slice(tab, tab + 30_000);
+    const hit = /"url":"\/watch\?v=([\w-]{11})"/.exec(seg)?.[1] || /"videoId":"([\w-]{11})"/.exec(seg)?.[1] || "";
+    if (hit) return hit;
   }
+  /* Markup-shift fallback: any Live-tab video on the page (the tab renderer
+     changed shape before and hid the selected marker). First Live-tab hit. */
+  const anyTab = /"title":"Live"[^\{]{0,400}?"url":"\/watch\?v=([\w-]{11})"/.exec(text)?.[1] || "";
+  return anyTab;
 }
 
+/** Candidate videos named by a channel page, best first (note 324): the Live
+    tab's video when there is one, then every linked video by how often the
+    page names it. This only ORDERS the asking — each candidate is verified on
+    its own watch page by `resolveYoutube`, because the page that names them
+    is a grab-bag and the first id in it must never be taken as the
+    broadcast. */
+export function channelCandidateIds(html: string, limit = 3): string[] {
+  const text = String(html || "");
+  const ids: string[] = [];
+  const push = (id: string) => {
+    if (id && ids.indexOf(id) < 0 && ids.length < limit) ids.push(id);
+  };
+  push(channelLiveVideoId(text));
+  const freq = new Map<string, number>();
+  for (const w of text.matchAll(/\/watch\?v=([\w-]{11})/g)) freq.set(w[1], (freq.get(w[1]) || 0) + 1);
+  for (const [id] of [...freq.entries()].sort((a, b) => b[1] - a[1])) push(id);
+  return ids;
+}
+
+/** The channel page's own id (note 331): the id the page names most — the
+    owner dwarfs every guest — but only with a clear margin. A target that
+    already carries the id wins without any counting; a contested or quiet
+    page names nothing rather than risking the wrong channel's stream. */
+export function extractChannelId(html: string, targetUrl = ""): string {
+  const fromTarget = /(UC[\w-]{20,24})/.exec(String(targetUrl || ""));
+  if (fromTarget) return fromTarget[1];
+  const freq = new Map<string, number>();
+  for (const w of String(html || "").matchAll(/"browseId":"(UC[\w-]{20,24})"/g)) freq.set(w[1], (freq.get(w[1]) || 0) + 1);
+  const ranked = [...freq.entries()].sort((a, b) => b[1] - a[1]);
+  if (!ranked.length) return "";
+  const runner = ranked.length > 1 ? ranked[1][1] : 0;
+  /* Strict margin, measured on a real walled service (owner named 17 times,
+     strongest guest 4): below it the page stays unnamed and the answer below
+     stays unknown. */
+  if (ranked[0][1] < 5 || ranked[0][1] < 2 * runner) return "";
+  return ranked[0][0];
+}
+
+/** The owner channel named by a watch page's own player model (note 350):
+    every video belongs to exactly one channel, so a live candidate from
+    another channel is an ad, an autoplay or a related upload — never the
+    handle's broadcast. "" when the page names none (bot-walled reads). */
 export function watchChannelId(watchHtml: string): string {
-  return extractChannelId(watchHtml);
+  const d = /"videoDetails":\{[^}]*?"channelId":"(UC[\w-]{20,24})"/.exec(String(watchHtml || ""));
+  return d?.[1] || "";
 }
 
-export function ownerAllowsCandidate(_ownerChannelId: string, _candidateChannelId: string): boolean {
+/** True while a candidate may stand for the handle's broadcast (note 350),
+    pure for the verifier: when the channel page's owner and the candidate's
+    own page both name a channel and they differ, the candidate is somebody
+    else's video and the asking moves on. Anything unprovable either way
+    still plays — a thin read must never end a service. */
+export function ownerAllowsCandidate(ownerChannelId: string, candidateChannelId: string): boolean {
+  if (ownerChannelId && candidateChannelId && ownerChannelId !== candidateChannelId) return false;
   return true;
 }
 
+/** The designated channel's own id, answered with no page read (note 358):
+    @twocorg is UCQ0KIUXUV7gTZmDDlvd3ZcQ (SPEC note 112 — the same answer the
+    bake uses), so the livestream gate knows whose video counts even through
+    the wall. Any other address names nothing, and every gate below behaves
+    exactly like before for it. */
+export const DESIGNATED_CHANNEL_IDS: Record<string, string> = {
+  "@twocorg": "UCQ0KIUXUV7gTZmDDlvd3ZcQ",
+};
+/** The designated id for a channel input (note 358): cleaned first, so
+    "@TWOCORG" and "@@twocorg" answer like "@twocorg". */
 export function designatedChannelId(channelInput?: string): string {
   const cleaned = cleanChannelInput(channelInput === undefined ? LIVE.youtubeChannel : channelInput);
   if (!cleaned) return "";
   return DESIGNATED_CHANNEL_IDS[cleaned.toLowerCase()] || "";
 }
-
+/** The designated id for a checked target URL (note 358): a UC id in the
+    address is the designation itself; an @handle answers from the baked map
+    above; anything else names nothing. */
 export function designatedChannelIdForTarget(targetUrl: string): string {
   const url = String(targetUrl || "");
   const id = /(UC[\w-]{20,24})/.exec(url);
@@ -163,28 +288,50 @@ export function designatedChannelIdForTarget(targetUrl: string): string {
   if (at) return DESIGNATED_CHANNEL_IDS[("@" + at[1]).toLowerCase()] || "";
   return "";
 }
-
+/** True while this channel may stand for the designated broadcast (note 358),
+    pure for the verifier: a named channel that is not the designated one is
+    somebody else's video and never plays; an unnamed one passes through (the
+    candidate and report gates below judge those — a thin read must still be
+    able to end silence). */
 export function isDesignatedChannel(channelId: string, designatedId: string): boolean {
   const c = String(channelId || "");
   const d = String(designatedId || "");
   if (!d || !c) return true;
   return c === d;
 }
-
-export function candidateStandsForDesignated(candidateChannelId: string, designatedId: string, _fromLiveTab = false): boolean {
+/** True while a suggestion may stand for the designated broadcast (note 358),
+    pure for the verifier: the page that names the suggestions is a grab-bag,
+    so a suggestion from another channel is skipped like an off answer — and
+    with the designation known, an ownerless grab-bag mention plays only when
+    the channel's own Live tab points at it. The Live tab names the channel's
+    own video, so it vouches where a walled watch page cannot. */
+export function candidateStandsForDesignated(
+  candidateChannelId: string,
+  designatedId: string,
+  fromLiveTab = false
+): boolean {
   const d = String(designatedId || "");
   if (!d) return true;
   const c = String(candidateChannelId || "");
   if (c) return c === d;
-  return _fromLiveTab === true;
+  return fromLiveTab === true;
 }
 
+/** True while this answer belongs to the address asked for (note 350), pure
+    for the verifier: an answer stamped for another address (the office moved
+    the channel since the check) never plays and never reports. Caches from
+    older updates carry no stamp and pass through like before. */
 export function isStatusForTarget(status: { target?: unknown }, targetUrl: string): boolean {
   const stamped = String((status && status.target) || "");
   if (!stamped) return true;
   return stamped === String(targetUrl || "");
 }
 
+/** What an "off" answer keeps from the broadcast before it (note 350), pure
+    for the verifier: the ended screen keeps the video it was — but only when
+    it was the SAME address. A moved channel drops the old video outright
+    instead of seeding the new handle's ended screen, cover and recents with
+    somebody else's service. */
 export function inheritEnded(
   before: LiveStatus,
   targetUrl: string,
@@ -192,6 +339,9 @@ export function inheritEnded(
   designatedId = ""
 ): { endedAt: number; videoId: string; title: string; channelId: string; platform: LivePlatform | "" } {
   if ((before.state === "live" || before.endedAt > 0) && isStatusForTarget(before, targetUrl)) {
+    /* A kept video from another channel is dropped too (note 358): the new
+       handle never inherits somebody else's service on its ended screen.
+       Older callers pass nothing and behave exactly like before. */
     const d = String(designatedId || "");
     const keptId = String(before.channelId || "");
     if (d && keptId && keptId !== d) return { endedAt: 0, videoId: "", title: "", channelId: "", platform: "" };
@@ -206,44 +356,146 @@ export function inheritEnded(
   return { endedAt: 0, videoId: "", title: "", channelId: "", platform: "" };
 }
 
+/** The screen closes the moment a live ends (notes 386, 388), pure for the
+    verifier: the Watch screen shuts when its broadcast ends and never plays
+    another channel's livestream by itself. `wasLiveTarget` is the screen's
+    live address on the previous answer ("" when it was not playing),
+    `nowLiveTarget` the live address now ("" unless live), `isOff` whether the
+    screen's answer now reads ended (a mere unknown — probe down, offline —
+    never closes anything). Only the guest-to-other hand-over shuts on a live
+    answer; every true end shuts on the off answer, so the player unmounts at
+    once and the screen falls back to the main channel's last ended thumbnail.
+    The latch lifts on a new live edge on another reading (a fresh start —
+    guest or main — still opens by itself, with sound), never on quiet. */
 export type ScreenShut = { playing: string } | null;
-
 export function nextScreenShut(prevShut: ScreenShut, wasLiveTarget: string, guestUrl: string, isLive: boolean, nowLiveTarget: string, isOff = false): ScreenShut {
   const was = String(wasLiveTarget || "");
   const guest = String(guestUrl || "");
   const now = String(nowLiveTarget || "");
+  /* A new live edge while the screen sits shut re-arms first (note 388): a
+     livestream that starts still opens by itself — the reading moved since the
+     last answer, so this is a start, not the same broadcast continuing. */
   if (prevShut && isLive && now && now !== was) return null;
+  /* The temporary guest was the screen's broadcast and its ending would hand
+     a live main channel to the screen: shut instead — the screen closes and
+     never plays another channel's livestream by itself. */
   if (was && guest && was === guest && isLive && now && now !== guest) return { playing: now };
+  /* Any end (note 388): the screen's broadcast reads off, so the screen
+     closes at once onto the main channel's last ended thumbnail. */
   if (was && isOff) return { playing: was };
   return prevShut;
 }
 
-export function officeStopActive(live: unknown): boolean {
+/** Straight stop rule (note 414), pure for the verifier: the office pressed
+    Stop and published it — the live is off, whatever YouTube still says. A
+    pause HOLDS (the session start is kept), so only an end counts: switch off,
+    start cleared, office end stamped. Fresh copies ship `liveCut: 0`, so the
+    rule never fires on arrival. */
+export function officeStopActive(live: any): boolean {
   if (!live || typeof live !== "object") return false;
-  const l = live as Record<string, unknown>;
-  if (!!l.isLive) return false;
-  if (String(l.liveEndedBy || "") !== "office") return false;
-  if (!(Number(l.liveCut) > 0)) return false;
-  if (Number(l.liveSince) !== 0) return false;
+  if (!!(live as any).isLive) return false;
+  if (String((live as any).liveEndedBy || "") !== "office") return false;
+  if (!(Number((live as any).liveCut) > 0)) return false;
+  if (Number((live as any).liveSince) !== 0) return false;
   return true;
 }
 
-export function clearGuestOnStop(live: unknown): unknown {
-  return live;
+/** Publish clears the guest with the stop (note 414), pure for the
+    verifier: a stamped main stop empties the temporary slot in the same
+    stroke, so no guest address — and no guest unsaved row — rides to the site
+    on the Publish. The guest stamp rides the stop stamp, so the gate sends it.
+    Anything but a stop passes through untouched. */
+export function clearGuestOnStop(live: any): any {
+  if (!live || typeof live !== "object") return live;
+  if (!officeStopActive(live)) return live;
+  const g = live as any;
+  if (!String(g.externalYoutubeChannel || "").trim() && !g.guestIsLive) return live;
+  const stamp = Number(g.liveCommandAt) || 0;
+  return { ...g, externalYoutubeChannel: "", guestIsLive: false, guestCommandAt: Math.max(Number(g.guestCommandAt) || 0, stamp) };
 }
 
+/** The walled-but-on-air answer (note 331), pure for the verifier: a channel
+    page carrying on-air chrome that no suggestion confirmed plays the channel
+    when the page names its owner clearly — otherwise it stays `unknown`, never
+    `off`, and never a guessed video. */
 export function unverifiedChannelAnswer(
   live: boolean,
   title: string,
   channelId: string,
   designatedId = ""
 ): { state: LiveState; videoId: string; title: string; channelId: string } {
+  /* Strict (note 358): a chrome-only page follows the channel only when the
+     page names the designated owner — an unnamed or foreign owner stays
+     unknown and the screen waits instead of playing a guess. Older callers
+     pass nothing and behave exactly like before. */
   const d = String(designatedId || "");
   if (live && channelId && (!d || channelId === d)) return { state: "live", videoId: "", title, channelId };
   if (live) return { state: "unknown", videoId: "", title: "", channelId: "" };
   return { state: "off", videoId: "", title: "", channelId: "" };
 }
 
+/** Answer YouTube for a fetched channel/watch page (note 322): when the page
+    is readable but carries no live marker and the target is a channel, the
+    Live tab's video is asked on its own watch page before anything is called
+    off — a page we merely could not read stays `unknown`, never `off`. */
+async function resolveYoutube(
+  target: { url: string; kind: "channel" | "video" },
+  html: string
+): Promise<{ state: LiveState; videoId: string; title: string; channelId: string }> {
+  const off = { state: "off" as const, videoId: "", title: "", channelId: "" };
+  const parsed = parseLivePage(html, target.url);
+  /* A direct hit already names its video (player marker, canonical link, or
+     the asked watch address) — nothing more to ask. */
+  if (parsed.live && parsed.videoId) return { state: "live" as const, videoId: parsed.videoId, title: parsed.title, channelId: "" };
+  if (!parsed.read) return { state: "unknown" as const, videoId: "", title: "", channelId: "" };
+  if (target.kind !== "channel") return off;
+  /* Otherwise the page only SUGGESTS videos (note 324) — the Live tab's, then
+     the most named — and each suggestion is asked on its own watch page. The
+     first one that is on air is the broadcast; videos that answer `off` are
+     skipped, not trusted, because the page that named them may be the
+     grab-bag. Only when every named video is accounted for does the answer
+     settle — and a channel page that itself carries on-air chrome no candidate
+     confirmed stays `unknown`, never `off`, rather than ending a service. */
+  const cands = channelCandidateIds(html);
+  /* Only the handle's own videos (note 350): the page that names the
+     suggestions is a grab-bag, so a live suggestion from another channel is
+     skipped like an off answer — the asking moves on, never the player. */
+  const owner = extractChannelId(html, target.url);
+  /* Only the designated channel's videos (note 358): with the designation
+     known, an ownerless grab-bag mention plays only when the channel's own
+     Live tab points at it — the Live tab vouches where a walled watch page
+     cannot. */
+  const designatedId = designatedChannelIdForTarget(target.url);
+  const liveTabId = channelLiveVideoId(html);
+  /* Asked one by one (best first): three candidates raced at once used to
+     fire 9 page reads per check and trip the proxy rate-limit mid-service.
+     Sequential costs at most ~2 extra timeouts only when the first misses,
+     and the first hit still returns fast. */
+  const liveTabFirst = liveTabId && cands.includes(liveTabId)
+    ? [liveTabId, ...cands.filter((c) => c !== liveTabId)].slice(0, 3)
+    : cands.slice(0, 3);
+  for (const vid of liveTabFirst) {
+    const url = `https://www.youtube.com/watch?v=${vid}`;
+    const watchHtml = await fetchPage(url);
+    if (watchHtml === null) continue;
+    const watch = parseLivePage(watchHtml, url);
+    if (watch.live && (watch.videoId || vid)) {
+      if (!ownerAllowsCandidate(owner, watchChannelId(watchHtml))) continue;
+      if (!candidateStandsForDesignated(watchChannelId(watchHtml), designatedId, vid === liveTabId)) continue;
+      return { state: "live" as const, videoId: watch.videoId || vid, title: watch.title, channelId: "" };
+    }
+  }
+  /* Walled but on air (note 331): the channel page carries the full on-air
+     chrome yet no suggestion verifies — measured on a real service, every
+     watch page answers 502 through the deployed server while the channel page
+     reads 200, and the public proxy is down too. Guessing a video would
+     repeat note 324, so the answer follows the channel instead, through
+     `unverifiedChannelAnswer` above — and a page we merely could not read
+     stays `unknown`, never `off`. */
+  return unverifiedChannelAnswer(parsed.live, parsed.title, parsed.live ? extractChannelId(html, target.url) : "", designatedId);
+}
+
+/** Facebook can only confirm a broadcast (two markers); never trusts "off". */
 export function parseFacebookLivePage(html: string): { live: boolean; videoId: string; title: string } {
   const text = String(html || "");
   const marked =
@@ -254,77 +506,396 @@ export function parseFacebookLivePage(html: string): { live: boolean; videoId: s
   if (!marked || !running) return { live: false, videoId: "", title: "" };
   return {
     live: true,
-    videoId: /"video_?[Ii]d"\s*:\s*"?(\\d{8,25})/.exec(text)?.[1] || "",
+    videoId: /"video_?[Ii]d"\s*:\s*"?(\d{8,25})/.exec(text)?.[1] || "",
     title: decodeEntities(/<meta property="og:title" content="([^"]*)"/.exec(text)?.[1] || ""),
   };
 }
-
-export type LiveReport = { target: string; state: "live" | "off"; videoId: string; title: string; channelId: string; checkedAt: number; notes: number };
-
-export function reportMatchesBuild(rep: { notes?: unknown }): boolean {
-  return Number(rep?.notes) === BUILD_NOTES;
-}
-
-export function reportCarriesVideo(rep: { state?: unknown; videoId?: unknown }): boolean {
-  if (String((rep && rep.state) || "") !== "live") return true;
-  return !!String((rep && rep.videoId) || "");
-}
-
-/* ------------------------------- the check ------------------------------- */
-
-const CHECK_TIMEOUT_MS = 8_000;
 
 function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
   return new Promise<T>((resolve, reject) => {
     const id = window.setTimeout(() => reject(new Error("live check timed out")), ms);
     promise.then(
-      (value) => { window.clearTimeout(id); resolve(value); },
-      (err) => { window.clearTimeout(id); reject(err); }
+      (value) => {
+        window.clearTimeout(id);
+        resolve(value);
+      },
+      (err) => {
+        window.clearTimeout(id);
+        reject(err);
+      }
     );
   });
 }
 
-/** Standalone check: explicit id first, else the channel's /live page. Never throws. */
-export async function checkLiveStream(_opts: { facebook?: boolean } = {}): Promise<LiveStatus> {
-  const target = liveTarget();
-  const now = Date.now();
-  if (!target) return { ...EMPTY, state: "unset", checkedAt: now };
+/** Page HTML via a same-origin / office-server proxy, else public CORS proxy.
+    Fast path: same-origin + office race in parallel (was sequential timeouts).
+    First VALID answer wins — a fast door never waits out a slow one. */
+async function fetchPage(url: string): Promise<string | null> {
+  /* Fast live: all doors race at once — same-origin, office, public proxy.
+     The old code waited out same+office before even trying the public door,
+     which held the Watch screen past the live start on static hosts. First
+     valid answer wins; a miss degrades exactly as before (unknown). */
   try {
-    // Explicit named video: verify it directly (the reliable switch).
-    if (target.kind === "video") {
-      const vid = parseYoutubeId(target.url);
-      if (!vid) return { ...EMPTY, state: "unset", checkedAt: now };
-      const v = await withTimeout(verifyStandalone(vid), CHECK_TIMEOUT_MS).catch(() => null);
-      if (v === false) return { state: "off", platform: "youtube", videoId: vid, title: "", channelId: "", target: target.url, checkedAt: now, endedAt: 0 };
-      if (v === true) return { state: "live", platform: "youtube", videoId: vid, title: "", channelId: "", target: target.url, checkedAt: now, endedAt: 0 };
-      return { state: "unknown", platform: "", videoId: vid, title: "", channelId: "", target: target.url, checkedAt: now, endedAt: 0 };
-    }
-    // Channel mode: the office's explicit youtubeId wins when set (standalone CONFIG).
-    const explicit = parseYoutubeId(LIVE.youtubeId || "");
-    if (explicit) {
-      const v = await withTimeout(verifyStandalone(explicit), CHECK_TIMEOUT_MS).catch(() => null);
-      if (v === false) {
-        // Dead explicit id: fall through to the channel read below.
-      } else if (v === true) {
-        return { state: "live", platform: "youtube", videoId: explicit, title: "", channelId: "", target: target.url, checkedAt: now, endedAt: 0 };
-      } else {
-        return { state: "unknown", platform: "", videoId: explicit, title: "", channelId: "", target: target.url, checkedAt: now, endedAt: 0 };
-      }
-    }
-    const channelInput = String(LIVE.youtubeChannel || "");
-    const found = await withTimeout(checkChannelLive(channelInput), CHECK_TIMEOUT_MS + 7_000).catch(() => ({ kind: "unknown" as const }));
-    if (found.kind === "live") {
-      const vid = parseYoutubeId(found.videoId);
-      const v = await withTimeout(verifyStandalone(vid), CHECK_TIMEOUT_MS).catch(() => null);
-      if (v === false) return { state: "off", platform: "youtube", videoId: "", title: "", channelId: "", target: target.url, checkedAt: now, endedAt: 0 };
-      return { state: "live", platform: "youtube", videoId: vid, title: "", channelId: "", target: target.url, checkedAt: now, endedAt: 0 };
-    }
-    if (found.kind === "off") return { state: "off", platform: "", videoId: "", title: "", channelId: "", target: target.url, checkedAt: now, endedAt: 0 };
-    return { ...EMPTY, state: "unknown", target: target.url, checkedAt: now };
+    return await firstValidHtml([
+      fetchPageSameOrigin(url),
+      fetchPageStaticProxy(url),
+      fetchPageOffice(url),
+      fetchPageRemote(url),
+    ]);
   } catch {
-    return { ...EMPTY, state: "unknown", target: target?.url || "", checkedAt: now };
+    return null;
   }
 }
+
+/** First valid (non-null) door wins; never waits out the slowest door.
+    Rejects/nulls are ignored until every door settles, then null. */
+function firstValidHtml(jobs: Promise<string | null>[]): Promise<string | null> {
+  return new Promise((resolve) => {
+    let pending = jobs.length;
+    let done = false;
+    if (!pending) {
+      resolve(null);
+      return;
+    }
+    for (const job of jobs) {
+      Promise.resolve(job).then(
+        (value) => {
+          if (done) return;
+          if (typeof value === "string" && value.length > 0) {
+            done = true;
+            resolve(value);
+            return;
+          }
+          pending -= 1;
+          if (pending <= 0 && !done) {
+            done = true;
+            resolve(null);
+          }
+        },
+        () => {
+          if (done) return;
+          pending -= 1;
+          if (pending <= 0) {
+            done = true;
+            resolve(null);
+          }
+        }
+      );
+    }
+  });
+}
+
+/** True when this HTML actually came from YouTube (not a static host's SPA
+    fallback index.html answering /__yt with 200). index.html carries no
+    ytInitialData/videoDetails, so without this the live check would treat a
+    200 fallback as "read, not live" and never try the doors that work. */
+function isYoutubeHtml(html: string): boolean {
+  const text = String(html || "");
+  if (text.length < 500) return false;
+  return /ytInitialData/.test(text) || /"videoDetails":\{/.test(text) || /ytInitialPlayerResponse/.test(text);
+}
+
+/** Same-origin YouTube read (`scripts/serve.mjs` /__yt, note 420): the office
+    server AND the deployed server both answer it, so every copy — local runs
+    and deployed visitors alike — reads through its own host first instead of
+    paying for the office or public doors. Static hosts answer nothing here
+    and fall through below, exactly as before. */
+async function fetchPageSameOrigin(url: string): Promise<string | null> {
+  try {
+    const res = await withTimeout(fetch(`/__yt?url=${encodeURIComponent(url)}`, { cache: "no-store" }), CHECK_TIMEOUT_MS);
+    if (!res || !res.ok) return null;
+    const text = await res.text();
+    if (typeof text !== "string" || text.length === 0) return null;
+    /* Static hosts answer /__yt with the SPA fallback (200 index.html) — that
+       is not YouTube and must fall through to the doors that work. */
+    if (!isYoutubeHtml(text)) return null;
+    return text;
+  } catch {
+    return null;
+  }
+}
+
+/* Last resort for hosts with no proxy: three free public CORS doors race —
+   a single proxy (allorigins alone before) was the livestream's single point
+   of failure: when it slowed or 500'd, every check read unknown and the Watch
+   screen sat on the clock through a live service. First VALID YouTube answer
+   wins; a miss degrades exactly as before (unknown, quiet). */
+async function proxyDoor(proxyUrl: string, url: string): Promise<string | null> {
+  try {
+    const res = await withTimeout(fetch(proxyUrl + encodeURIComponent(url), { cache: "no-store" }), CHECK_TIMEOUT_MS);
+    if (!res || !res.ok) return null;
+    const text = await res.text();
+    if (typeof text !== "string" || text.length === 0) return null;
+    if (!isYoutubeHtml(text)) return null;
+    return text;
+  } catch {
+    return null;
+  }
+}
+async function fetchPageRemote(url: string): Promise<string | null> {
+  try {
+    return await firstValidHtml([
+      proxyDoor("https://api.allorigins.win/raw?url=", url),
+      proxyDoor("https://corsproxy.io/?url=", url),
+      proxyDoor("https://api.codetabs.com/v1/proxy?quest=", url),
+    ]);
+  } catch {
+    return null;
+  }
+}
+
+/** Netlify-function YouTube door (`netlify/functions/yt.mjs`): static deploys
+    have no /__yt (the SPA fallback answers 200 index.html there), so without
+    this the only door left was the public proxy. Same-origin, no CORS, and
+    YouTube-only by design like /__yt. Missing anywhere else -> null. */
+async function fetchPageStaticProxy(url: string): Promise<string | null> {
+  try {
+    const res = await withTimeout(
+      fetch(`/.netlify/functions/yt?url=${encodeURIComponent(url)}`, { cache: "no-store" }),
+      CHECK_TIMEOUT_MS
+    );
+    if (!res || !res.ok) return null;
+    const text = await res.text();
+    if (typeof text !== "string" || text.length === 0) return null;
+    if (!isYoutubeHtml(text)) return null;
+    return text;
+  } catch {
+    return null;
+  }
+}
+
+/* Local runs read through the same same-origin door above (identical endpoint),
+   so no second local attempt — it only ever burned another full timeout. */
+
+/** Office-server YouTube read for deployed copies joined to it. Skipped when
+    this copy stands alone (the public proxy below covers that). */
+async function fetchPageOffice(url: string): Promise<string | null> {
+  try {
+    const base = serverUrl();
+    if (!base) return null;
+    const res = await withTimeout(
+      fetch(`${base}/__yt?url=${encodeURIComponent(url)}`, { cache: "no-store" }),
+      CHECK_TIMEOUT_MS
+    );
+    if (!res || !res.ok) return null;
+    const text = await res.text();
+    if (typeof text !== "string" || text.length === 0) return null;
+    /* The office door is YouTube-only too — a login wall or error page is not
+       an answer and must not beat the public door that has the real page. */
+    if (!isYoutubeHtml(text)) return null;
+    return text;
+  } catch {
+    return null;
+  }
+}
+
+/** Facebook pages can only be read through the public CORS door: the /__yt
+    proxy is YouTube-only by design (SSRF guard) and answers 400 for them, so
+    asking it first only burns two fast failures per check. Facebook never
+    answers "off" (live markers or unknown), so any readable page is fine —
+    error pages simply read as unknown, exactly as before. */
+async function fetchPageFacebook(url: string): Promise<string | null> {
+  /* Three public doors race (was allorigins alone): Facebook reads share the
+     same single-proxy failure as YouTube did. Any readable page is fine —
+     error pages simply read as unknown, exactly as before. */
+  const doors = [
+    "https://api.allorigins.win/raw?url=",
+    "https://corsproxy.io/?url=",
+    "https://api.codetabs.com/v1/proxy?quest=",
+  ];
+  try {
+    return await firstValidHtml(
+      doors.map(async (base) => {
+        try {
+          const res = await withTimeout(fetch(base + encodeURIComponent(url), { cache: "no-store" }), CHECK_TIMEOUT_MS);
+          if (!res || !res.ok) return null;
+          const text = await res.text();
+          return typeof text === "string" && text.length > 0 ? text : null;
+        } catch {
+          return null;
+        }
+      })
+    );
+  } catch {
+    return null;
+  }
+}
+
+/** The office's reported on-air answer (note 318): what the office copy saw,
+    where it saw it, and when — trusted only while fresh and on this target.
+    `notes` is the reporter's own update (note 333): a mixed-version office tab
+    (an old bundle still open somewhere) must never steer this one, so a report
+    from any other update is ignored and the scrape below runs instead. */
+export type LiveReport = { target: string; state: "live" | "off"; videoId: string; title: string; channelId: string; checkedAt: number; notes: number };
+/* A report older than this is ignored (the office tab closed or sleeps) and
+   the check falls back to reading YouTube itself. */
+const REPORT_FRESH_MS = 150_000;
+/* Reports ride the same door as content — tiny and fast; a slow door must
+   never hold up the scrape behind it. */
+const REPORT_TIMEOUT_MS = 2_000;
+
+/** Same-update reporters only (note 333), pure for the verifier: an old bundle
+    still open in some office tab reports the old code's answers (once a wrong
+    video id mid-service) — those must never steer this update. */
+export function reportMatchesBuild(rep: { notes?: unknown }): boolean {
+  return Number(rep?.notes) === BUILD_NOTES;
+}
+/** True while an office report names something the player may open (note 358),
+    pure for the verifier: a "live" report with no video id is an unverified
+    channel follow — it must never open the player by itself. Readers fall
+    through to their own scrape (usually `unknown` → the waiting screen)
+    instead of playing a guess. "off" reports carry no video by design and
+    pass through. */
+export function reportCarriesVideo(rep: { state?: unknown; videoId?: unknown }): boolean {
+  if (String((rep && rep.state) || "") !== "live") return true;
+  return !!String((rep && rep.videoId) || "");
+}
+
+/** The latest office report, or null — public read, never throws. */
+async function fetchLiveReport(): Promise<LiveReport | null> {
+  try {
+    const base = serverUrl();
+    /* Standalone copies (no office joined) used to POST this to the same
+       origin every check and burn the full report timeout on the SPA
+       fallback before the scrape even started. Skip it outright. */
+    if (!base) return null;
+    const res = await withTimeout(
+      fetch(`${base}/__cms/liveReport?conn=rpt-` + Math.random().toString(36).slice(2), {
+        method: "POST",
+        headers: { "content-type": "text/plain;charset=utf-8" },
+        body: "",
+        cache: "no-store",
+      }),
+      REPORT_TIMEOUT_MS
+    );
+    if (!res || !res.ok) return null;
+    /* Same code, every host: a static host answers this door with its SPA
+       fallback (200 index.html) — that is not a report. Only JSON answers. */
+    try {
+      const ctype = String((res.headers && res.headers.get("content-type")) || "");
+      if (!/application\/json/i.test(ctype)) return null;
+    } catch { return null; }
+    const data = await res.json().catch(() => null);
+    const rep = data && (data as { report?: unknown }).report;
+    if (!rep || typeof rep !== "object") return null;
+    const r = rep as Partial<LiveReport>;
+    if (r.state !== "live" && r.state !== "off") return null;
+    if (!reportMatchesBuild(r)) return null;
+    const checkedAt = Number(r.checkedAt) || 0;
+    if (!(checkedAt > 0) || Date.now() - checkedAt > REPORT_FRESH_MS) return null;
+    const cid = String(r.channelId || "");
+    return { target: String(r.target || ""), state: r.state, videoId: String(r.videoId || ""), title: String(r.title || ""), channelId: /^UC[\w-]{20,24}$/.test(cid) ? cid : "", checkedAt, notes: BUILD_NOTES };
+  } catch {
+    return null;
+  }
+}
+
+/** Ask YouTube whether we are broadcasting, right now. */
+export async function checkLiveStream(opts: { facebook?: boolean } = {}): Promise<LiveStatus> {
+  const target = liveTarget();
+  /* A temporary guest channel (note 380): a one-off livestream from another
+     address. It is asked first and wins while IT is live; its off/unknown
+     answers change nothing and the main channel below decides — so the ended
+     screen, the still and Recent services stay the main channel's own. */
+  const guest = guestTarget();
+  const fbUrl = opts.facebook ? facebookTarget() : "";
+  if (!target && !guest && !fbUrl) return { ...EMPTY, state: "unset", checkedAt: Date.now() };
+
+  /* A fresh office report wins over the scrape (note 318): the deployed
+     server cannot read YouTube itself (bot wall — the page comes back with a
+     login wall and no live marker), but the office copy can, so while the
+     office is open and reporting, visitors take its answer. A stale report,
+     or one for another address, changes nothing — the scrape below runs. */
+  const officeRep = target || guest ? await fetchLiveReport() : null;
+  /* A videoless "live" report is an unverified follow (note 358): it never
+     opens the player — the scrape below runs and usually waits. */
+  const officeHit = target && officeRep && officeRep.target === target.url && reportCarriesVideo(officeRep) ? officeRep : null;
+  /* The guest's own report, matched the same way (note 380): only an answer
+     stamped for the guest address may stand for the guest. */
+  const officeGuest = guest && officeRep && officeRep.target === guest.url && reportCarriesVideo(officeRep) ? officeRep : null;
+  /* Fast path: guest + main pages fetch in parallel (were sequential). */
+  const guestHtmlP: Promise<string | null> = guest && !officeGuest ? fetchPage(guest.url) : Promise.resolve(null);
+  const mainHtmlP: Promise<string | null> = target && !officeHit ? fetchPage(target.url) : Promise.resolve(null);
+  const guestHtml = guest && !officeGuest ? await guestHtmlP : null;
+  const guestAns: { state: LiveState; videoId: string; title: string; channelId: string } = !guest
+    ? { state: "unset", videoId: "", title: "", channelId: "" }
+    : officeGuest
+    ? officeGuest.state === "live"
+      ? { state: "live", videoId: officeGuest.videoId, title: officeGuest.title, channelId: officeGuest.channelId }
+      : { state: "off", videoId: "", title: "", channelId: "" }
+    : guestHtml === null
+    ? { state: "unknown", videoId: "", title: "", channelId: "" }
+    : await resolveYoutube(guest, guestHtml);
+  const html = target && !officeHit ? await mainHtmlP : null;
+  const youtube: { state: LiveState; videoId: string; title: string; channelId: string } = !target
+    ? { state: "unset", videoId: "", title: "", channelId: "" }
+    : officeHit
+    ? officeHit.state === "live"
+      ? { state: "live", videoId: officeHit.videoId, title: officeHit.title, channelId: officeHit.channelId }
+      : { state: "off", videoId: "", title: "", channelId: "" }
+    : html === null
+    ? { state: "unknown", videoId: "", title: "", channelId: "" }
+    : await resolveYoutube(target, html);
+
+  /* Facebook is asked only when YouTube has not already answered "live" — it is
+     the office's drawer that asks, and this is the one case it can add
+     something: a service that is only on Facebook (SPEC note 111). A live
+     guest answers first too (note 380): Facebook never overrides it. */
+  let facebook: { state: LiveState; videoId: string; title: string; channelId: string } = { state: "unset", videoId: "", title: "", channelId: "" };
+  if (fbUrl && youtube.state !== "live" && guestAns.state !== "live") {
+    const fbHtml = await fetchPageFacebook(fbUrl);
+    if (fbHtml !== null) {
+      const parsed = parseFacebookLivePage(fbHtml);
+      facebook = { state: parsed.live ? "live" : "unknown", videoId: parsed.videoId, title: parsed.title, channelId: "" };
+    }
+  }
+
+  /* The guest wins while IT is live (note 380): its verified broadcast plays
+     on the screen; everything else about the answer — the stamp below, the
+     office report after it — says the guest address, so the main channel's
+     ended screen never inherits the guest's video. */
+  const guestLive = guestAns.state === "live"
+    ? { platform: "youtube" as LivePlatform, videoId: guestAns.videoId, title: guestAns.title, channelId: guestAns.channelId }
+    : null;
+
+  const found =
+    guestLive ||
+    (youtube.state === "live"
+      ? { platform: "youtube" as LivePlatform, videoId: youtube.videoId, title: youtube.title, channelId: youtube.channelId }
+      : facebook.state === "live"
+      ? { platform: "facebook" as LivePlatform, videoId: facebook.videoId, title: facebook.title, channelId: "" }
+      : null);
+
+  const state: LiveState = found
+    ? "live"
+    : youtube.state === "off" || facebook.state === "off"
+    ? "off"
+    : youtube.state === "unset" && facebook.state === "unset"
+    ? "unset"
+    : "unknown";
+
+  const checkedAt = Date.now();
+  const targetUrl = (guestLive && guest ? guest.url : target?.url) || "";
+  const next: LiveStatus = { state, platform: found?.platform || "", videoId: found?.videoId || "", title: found?.title || "", channelId: found?.channelId || "", target: targetUrl, checkedAt, endedAt: 0 };
+
+  /* A watched broadcast's ending sticks until one comes back (autostop) — but
+     only for the address it was (note 350): a moved channel drops the old
+     video outright instead of seeding the new handle's ended screen. */
+  const before = readLiveStatus();
+  if (state === "off" && (before.state === "live" || before.endedAt > 0)) {
+    /* The moment it ended is the first answer that says it has; every answer
+       after that carries the same moment and the video it was. */
+    const kept = inheritEnded(before, targetUrl, checkedAt, designatedChannelIdForTarget(targetUrl));
+    next.endedAt = kept.endedAt;
+    next.videoId = kept.videoId;
+    next.title = kept.title;
+    next.channelId = kept.channelId;
+    next.platform = kept.platform;
+  }
+  return next;
+}
+
+/* ------------------------------------------------------------------ caching */
 
 export function readLiveStatus(): LiveStatus {
   const cached = readStore<LiveStatus | null>(LIVE_STATUS_KEY, null);
@@ -342,53 +913,137 @@ export function readLiveStatus(): LiveStatus {
 }
 
 function saveLiveStatus(status: LiveStatus) {
+  /* "unknown" is not worth remembering — it would only make the next visit
+     start out more pessimistic than it needs to be. */
   if (status.state === "unknown") return;
   writeStore(LIVE_STATUS_KEY, status);
 }
 
+/* One shared, reference-counted poll; every live state reads it via `onAir()`. */
+
 export type LiveSnapshot = { status: LiveStatus; checking: boolean };
+
+/** What each mounted reader of the check is asking for. */
 type Watcher = { soon: boolean; facebook: boolean; urgent: boolean };
 
 let snapshot: LiveSnapshot = { status: readLiveStatus(), checking: false };
+/* Fresh boot, fresh answer: a "live" remembered in the store from an earlier
+   visit (yesterday's service) must never autoplay on first paint — the
+   urgent check re-confirms within seconds when truly live, and until then
+   the screen waits instead of playing a stale broadcast with sound. */
 try {
   if (snapshot.status.state === "live" && Date.now() - Number(snapshot.status.checkedAt || 0) > 60_000) {
     snapshot = { status: { ...snapshot.status, state: "unknown" as LiveState }, checking: false };
   }
-} catch { /* keep the stored answer */ }
-
+} catch {
+  /* keep the stored answer — the poll decides from here */
+}
 const watchers = new Set<Watcher>();
 const listeners = new Set<() => void>();
 let timer = 0;
 let polling = false;
+/** End debounce: consecutive "off" answers for the same address. A lone off
+    (or two) never ends a watched broadcast — a walled read can blink off
+    and the screen must not end itself and come back on. */
 let offStreak = 0;
-let lastCheckAt = 0;
+let offTarget = "";
+/** When the last definitive (live/off) answer landed. An "unknown" that lasts
+    past the cap below stops preserving a stale live: a screen that can no
+    longer confirm its broadcast must not sit on its black frame forever. */
+let lastDefinitiveAt = 0;
+/** How long an unconfirmed live may stand before it is retired to ended. */
+const UNKNOWN_CAP_MS = 3 * 60_000;
+/** When the last answer was fetched (ms) — the freshness clock. */
+let lastCheckAt = snapshot.status.checkedAt;
+/** The address the last answer was about, so a new one is checked at once. */
 let lastTarget = "";
 
-function readSnapshot(): LiveSnapshot {
-  return snapshot;
+/* Where definitive answers go when this copy is the office (note 318): the
+   content store registers its authed-socket sink at boot; every other copy
+   leaves it unset and only reads. Reporting never blocks or breaks the poll. */
+let reportSink: ((rep: LiveReport) => void) | null = null;
+export function setLiveReportSink(fn: ((rep: LiveReport) => void) | null) {
+  reportSink = fn;
 }
 
-function subscribe(fn: () => void): () => void {
-  listeners.add(fn);
-  return () => { listeners.delete(fn); };
-}
-
-function emit() {
-  for (const fn of [...listeners]) {
-    try { fn(); } catch { /* noop */ }
+function maybeReport(status: LiveStatus) {
+  try {
+    if (!reportSink) return;
+    /* Definitive YouTube answers only: unknowns, unsets and Facebook-only
+       finds must never overwrite the office's real answer on the server. */
+    if (status.state !== "live" && status.state !== "off") return;
+    if (status.state === "live" && status.platform !== "youtube") return;
+    /* Only a verified broadcast id is reported (note 358): an unverified
+       channel-live answer names no video, so reporting it would steer every
+       visitor's player at a guess — it stays local, and the readers wait. */
+    if (status.state === "live" && !status.videoId) return;
+    /* The winning address reports (note 380): a guest-live answer carries the
+       guest stamp, so the office steers visitors to the guest broadcast —
+       and back to the main channel with the next answer after it ends. */
+    const url = String(status.target || "") || liveTarget()?.url || "";
+    if (!url) return;
+    /* ...and only while that address is still watched (note 380): a retype
+       since the check silences the old answer, guest or main alike. */
+    if (url !== (liveTarget()?.url || "") && url !== (guestTarget()?.url || "")) return;
+    /* An answer checked for another address (the channel moved since) never
+       reports (note 350): the office must not steer visitors to the old
+       handle's video. */
+    if (!isStatusForTarget(status, url)) return;
+    reportSink({ target: url, state: status.state, videoId: status.videoId, title: status.title, channelId: status.channelId, checkedAt: status.checkedAt, notes: BUILD_NOTES });
+  } catch {
+    /* reporting must never break the poll */
   }
 }
 
-export function setLiveReportSink(_fn: ((rep: LiveReport) => void) | null): void {}
+function emit() {
+  listeners.forEach((fn) => fn());
+}
 
+function sameStatus(a: LiveStatus, b: LiveStatus) {
+  return (
+    a.state === b.state &&
+    a.platform === b.platform &&
+    a.videoId === b.videoId &&
+    a.title === b.title &&
+    a.channelId === b.channelId &&
+    a.target === b.target &&
+    a.checkedAt === b.checkedAt &&
+    a.endedAt === b.endedAt
+  );
+}
+
+function publish(patch: Partial<LiveSnapshot>) {
+  const next: LiveSnapshot = { ...snapshot, ...patch };
+  if (next.checking === snapshot.checking && sameStatus(next.status, snapshot.status)) return;
+  snapshot = next;
+  emit();
+}
+
+const subscribe = (fn: () => void) => {
+  listeners.add(fn);
+  return () => {
+    listeners.delete(fn);
+  };
+};
+const readSnapshot = () => snapshot;
+
+/** Is the church broadcasting right now, per the last answer? The stream's own word. */
 export function liveNow(): boolean {
   return snapshot.status.state === "live";
 }
 
+/** Is the temporary guest address the one broadcasting right now (note 408)?
+    Pure for the verifier: only the guest's own stamped answer counts. */
 export function guestLiveNow(): boolean {
-  return false;
+  const g = guestTarget()?.url || "";
+  return !!g && snapshot.status.state === "live" && isStatusForTarget(snapshot.status, g);
 }
 
+/** The main channel is live right now (the main opens by itself): the shared
+    answer reads live for the current main-channel address — no Play press
+    needed, the channel setting is the office's intent. The guest's own answer
+    never counts here (guestLiveNow covers it); Facebook keeps its own screen.
+    Unstamped legacy caches pass through like everywhere else. */
 export function mainLiveNow(): boolean {
   try {
     const t = liveTarget()?.url || "";
@@ -396,23 +1051,36 @@ export function mainLiveNow(): boolean {
     const s = snapshot.status;
     if (s.state !== "live" || s.platform !== "youtube") return false;
     if (!isStatusForTarget(s, t)) return false;
+    const g = guestTarget()?.url || "";
+    if (g && s.target && s.target === g) return false;
     return true;
   } catch {
     return false;
   }
 }
 
+/** The watched broadcast's ending (0 when none): the stream's way to stop the site. */
 export function liveEndedAt(): number {
   return Number(snapshot.status.endedAt) || 0;
 }
 
+/** The answer, kept fresh for as long as the component is on screen. */
 export function useLiveStatus(): LiveSnapshot {
   return useSyncExternalStore(subscribe, readSnapshot, readSnapshot);
 }
 
+/* --------------------------------------------------------------- the poller */
+
+/** The short cadence while any caller expects a service, sits on the Watch
+    page, or one is running. */
 function wantsSoon() {
   if (snapshot.status.state === "live") return true;
   for (const watcher of watchers) if (watcher.soon) return true;
+  return false;
+}
+
+function wantsFacebook() {
+  for (const watcher of watchers) if (watcher.facebook) return true;
   return false;
 }
 
@@ -421,14 +1089,14 @@ function wantsUrgent() {
   return false;
 }
 
+/** Where the check is pointed right now — a new address is answered at once.
+    The channel is editable in the console, so this moves whenever the office
+    retypes it (note 310). */
 function targetSignature() {
-  try {
-    return `${liveTarget()?.url || ""}|${facebookTarget()}`;
-  } catch {
-    return "";
-  }
+  return `${liveTarget()?.url || ""}|${guestTarget()?.url || ""}|${wantsFacebook() ? facebookTarget() : ""}`;
 }
 
+/** The same signature for components: they re-ask when it moves. */
 export function liveTargetSignature(): string {
   try {
     return targetSignature();
@@ -438,81 +1106,184 @@ export function liveTargetSignature(): string {
 }
 
 function delay() {
+  /* The Watch page (urgent watcher) polls faster than the quiet week without
+     changing the shared cadence above: a YouTube start shows in seconds where
+     someone is actually watching, while background tabs stay cheap. */
   if (wantsUrgent()) return 8_000;
   return wantsSoon() ? SOON_MS : IDLE_MS;
 }
 
 function schedule(ms: number) {
+  /* A moved target jumps the queue: the office retyped the channel (or a
+     publish landed), so the old timer's wait no longer applies. */
   try {
     if (polling && targetSignature() !== lastTarget) ms = 0;
-  } catch { /* keep the wait */ }
+  } catch {
+    /* the check below degrades exactly as before */
+  }
   window.clearTimeout(timer);
+  /* Jitter: every open tab polling on the exact second hammers the proxy as
+     one burst mid-service. +/-1s spreads the load; timing stays the same. */
   const jitter = Math.floor(Math.random() * 2000) - 1000;
-  timer = window.setTimeout(() => { void poll(); }, Math.max(0, ms + jitter));
+  timer = window.setTimeout(run, Math.max(0, ms + jitter));
 }
 
-async function poll() {
-  if (!watchers.size) {
-    polling = false;
+/** Ask at once (the Watch page just opened, the office pressed Start/Stop,
+    the channel was retyped). Collapses concurrent asks into one run. */
+export function recheckLiveNow() {
+  if (!polling || !watchers.size) return;
+  schedule(0);
+}
+
+/* The content store applies the live section (draft preview while typing,
+   published words on sync) through `bind`, which mutates LIVE in place with
+   no event of its own — so it announces the move here (see `applySnapshot`
+   in src/lib/cms.ts) and this debounces it into one immediate re-check. */
+let targetNoteTimer = 0;
+export function noteLiveTargetMayHaveChanged() {
+  if (!polling || !watchers.size) return;
+  if (targetNoteTimer) return;
+  targetNoteTimer = window.setTimeout(() => {
+    targetNoteTimer = 0;
+    try {
+      if (targetSignature() !== lastTarget) schedule(0);
+    } catch {
+      /* keep the standing timer */
+    }
+  }, 150);
+}
+
+function onLiveTargetEvent() {
+  noteLiveTargetMayHaveChanged();
+}
+
+async function run() {
+  if (!watchers.size) return;
+  /* A broadcast that is on air is the one moment the answer matters, so it is
+     never skipped; a hidden tab is otherwise left alone (no point in spending
+     the proxy's time on a screen nobody is looking at). */
+  const hidden = document.visibilityState === "hidden";
+  if (hidden && snapshot.status.state !== "live") {
+    schedule(30_000);
     return;
   }
-  polling = true;
+  const facebook = wantsFacebook();
+  publish({ checking: true });
+  const next = await checkLiveStream({ facebook });
+  if (!watchers.size) return;
+  publish({ checking: false });
   lastTarget = targetSignature();
-  const before = snapshot.status;
-  snapshot = { status: before, checking: true };
-  emit();
-  try {
-    const next = await withTimeout(checkLiveStream(), CHECK_TIMEOUT_MS + 9_000).catch(() => null);
-    lastCheckAt = Date.now();
-    if (next) {
-      if (next.state === "off" && before.state === "live" && isStatusForTarget(before, next.target)) {
-        offStreak += 1;
-        if (offStreak < 2) {
-          snapshot = { status: { ...before, checkedAt: next.checkedAt }, checking: false };
-          emit();
-          schedule(delay());
-          return;
-        }
-      } else {
-        offStreak = 0;
-      }
-      if (next.state === "off" && before.state === "live" && isStatusForTarget(before, next.target)) {
-        const kept = inheritEnded(before, next.target, next.checkedAt);
-        (next as LiveStatus).endedAt = kept.endedAt || next.checkedAt;
-        (next as LiveStatus).videoId = (next as LiveStatus).videoId || kept.videoId;
-        (next as LiveStatus).title = (next as LiveStatus).title || kept.title;
-      } else {
-        offStreak = next.state === "off" ? offStreak : 0;
-      }
-      snapshot = { status: next as LiveStatus, checking: false };
-      saveLiveStatus(next as LiveStatus);
-    } else {
-      snapshot = { status: before, checking: false };
+  /* End debounce: a lone off (or two) never ends a watched broadcast — a
+     walled read can blink off and the screen must not end itself and come
+     back on. Only two consecutive offs for the same address end it;
+     anything else (live, unknown, unset, or a moved address) resets the
+     count. Definitive answers refresh the freshness clock below. */
+  if (next.state === "live" || next.state === "off") lastDefinitiveAt = Date.now();
+  if (next.state !== "off") {
+    offStreak = 0;
+    offTarget = "";
+  } else if (snapshot.status.state === "live") {
+    if (offTarget !== next.target) {
+      offTarget = next.target;
+      offStreak = 0;
     }
-  } catch {
-    snapshot = { status: before, checking: false };
+    offStreak++;
+    if (offStreak < 2) {
+      lastCheckAt = Date.now();
+      schedule(delay());
+      return;
+    }
   }
-  emit();
+  /* Keep the last good answer when the check itself failed, so a hiccup never
+     turns a live stream into an ended one — but only up to the cap: past
+     ten minutes without a single confirmable read, the stale live retires
+     to ended (with its last video, for the ended screen and recents) instead
+     of sitting on a black frame no arrow can reach. A fresh live edge after
+     that reopens by itself, with sound. */
+  if (next.state === "unknown" && snapshot.status.state === "live") {
+    if (Date.now() - (lastDefinitiveAt || lastCheckAt) <= UNKNOWN_CAP_MS) {
+      lastCheckAt = Date.now();
+      schedule(delay());
+      return;
+    }
+    try { console.warn("church live: retiring stale live (no confirmable read for 3m)"); } catch {}
+    const checkedAt = Date.now();
+    const kept = inheritEnded(snapshot.status, snapshot.status.target || "", checkedAt, designatedChannelIdForTarget(snapshot.status.target || ""));
+    const retired: LiveStatus = { state: "off", platform: kept.platform, videoId: kept.videoId, title: kept.title, channelId: kept.channelId, target: snapshot.status.target || "", checkedAt, endedAt: kept.endedAt || checkedAt };
+    offStreak = 0;
+    offTarget = "";
+    saveLiveStatus(retired);
+    publish({ status: retired });
+    maybeReport(retired);
+    lastCheckAt = checkedAt;
+    schedule(delay());
+    return;
+  }
+  saveLiveStatus(next);
+  publish({ status: next });
+  /* This copy may be the office: a definitive answer goes to the server at
+     once (note 318), so deployed visitors — whose own read of YouTube is bot-
+     walled — see it on their next check. */
+  maybeReport(next);
+  /* The answer's own verdict decides the cadence this time (a broadcast that
+     has just been found must not wait out the quiet-week timer because the
+     render has not landed yet). */
+  lastCheckAt = next.checkedAt;
   schedule(delay());
+}
+
+function onWake() {
+  if (document.visibilityState !== "visible") return;
+  if (Date.now() - lastCheckAt < 4_000) return;
+  schedule(0);
 }
 
 function startPolling() {
   if (polling) return;
   polling = true;
-  void poll();
+  if (!lastDefinitiveAt && snapshot.status.state === "live") lastDefinitiveAt = snapshot.status.checkedAt || Date.now();
+  lastTarget = targetSignature();
+  document.addEventListener("visibilitychange", onWake);
+  window.addEventListener("online", onWake);
+  window.addEventListener("wom:live-target", onLiveTargetEvent);
+  /* An urgent watcher (the Watch page) checks at once — a YouTube start
+     shows in seconds and the clock vanishes with it — instead of waiting out
+     the freshness window. Everyone else waits for a fresh cached answer and
+     re-checks behind it, or checks at once when the answer is stale. */
+  if (wantsUrgent()) {
+    schedule(0);
+    return;
+  }
+  /* Wait for the first answer within the freshness window (a cached answer
+     paints at once and is re-checked behind it), but not long for an answer
+     that has never been made or is already stale. */
+  const sinceCheck = Date.now() - (lastCheckAt || 0);
+  schedule(sinceCheck < FRESH_MS ? FRESH_MS - sinceCheck : 250);
 }
 
 function stopPolling() {
   polling = false;
   window.clearTimeout(timer);
+  window.clearTimeout(targetNoteTimer);
+  targetNoteTimer = 0;
+  document.removeEventListener("visibilitychange", onWake);
+  window.removeEventListener("online", onWake);
+  window.removeEventListener("wom:live-target", onLiveTargetEvent);
+  publish({ checking: false });
 }
 
+/** Live answer while mounted; short cadence when a broadcast is expected.
+    `urgent` checks at once (the Watch page); a moved channel always does. */
 export function watchLiveStream(opts: { soon?: boolean; facebook?: boolean; urgent?: boolean } = {}) {
   const watcher: Watcher = { soon: !!opts.soon, facebook: !!opts.facebook, urgent: !!opts.urgent };
   const first = watchers.size === 0;
   watchers.add(watcher);
   if (first) startPolling();
-  else if (watcher.urgent || targetSignature() !== lastTarget) schedule(0);
+  /* A caller who needs more than the poller is doing (Facebook, the short
+     cadence once a service comes on the clock, or the at-once check on the
+     Watch page) has this second asked rather than waiting out the timer —
+     and a retyped channel (or a landed publish) jumps the queue. */
+  else if (watcher.urgent || watcher.facebook || targetSignature() !== lastTarget) schedule(0);
   else if (watcher.soon && Date.now() - lastCheckAt > SOON_MS) schedule(150);
   return () => {
     watchers.delete(watcher);
@@ -520,21 +1291,17 @@ export function watchLiveStream(opts: { soon?: boolean; facebook?: boolean; urge
   };
 }
 
-export function recheckLiveNow(): void {
-  try {
-    schedule(0);
-  } catch { /* noop */ }
-}
+/* --------------------------------------------------------------- the hook */
 
-export function noteLiveTargetMayHaveChanged(): void {
-  try {
-    if (targetSignature() !== lastTarget) schedule(0);
-  } catch { /* noop */ }
-}
-
+/** Live status, shared by every caller through the one poll. `urgent` checks
+    at once (the Watch page, so a YouTube start shows in seconds); a retyped
+    channel re-checks by itself through the target signature. */
 export function useLiveStream(soon = false, watchFacebook = false, urgent = false) {
   const { status, checking } = useLiveStatus();
   useEffect(() => watchLiveStream({ soon, facebook: watchFacebook, urgent }), [soon, watchFacebook, urgent]);
+  /* The channel is editable: the office retyping it (or a publish landing)
+     moves the target, and the check follows at once instead of waiting out
+     the timer. Same on live and local — only the fetch door differs. */
   const signature = liveTargetSignature();
   useEffect(() => {
     noteLiveTargetMayHaveChanged();
@@ -542,28 +1309,144 @@ export function useLiveStream(soon = false, watchFacebook = false, urgent = fals
   return { ...status, checking } as LiveStatus & { checking: boolean };
 }
 
-/* ------------------------------- playable check ------------------------------- */
+/* ------------------------------- playable check (note 333): never embed a
+   dead video. A stale office report (or a removed upload) can name a video id
+   that YouTube no longer plays — autoplaying it fills the screen with the
+   black "unavailable" frame. So ids are asked of YouTube's oEmbed endpoint
+   before they play: 200 means it plays, 4xx means it is gone (removed,
+   private, bad id), anything else — or a network failure — means unknown and
+   plays anyway, with the player's own fallback as the net. Direct browser
+   fetch (no proxy door needed); cached 5 minutes; in-flight asks shared. */
 
+const VERIFY_TTL_MS = 5 * 60_000;
+const VERIFY_TIMEOUT_MS = 6_000;
+const verifyCache = new Map<string, { ok: boolean; at: number }>();
+const verifyInflight = new Map<string, Promise<boolean | null>>();
+
+/** Pure for the verifier: an oEmbed answer in, playable or not. */
 export function oembedPlayable(status: number): boolean | null {
-  return oembedStandalone(status);
+  if (status === 200) return true;
+  if (status === 400 || status === 401 || status === 403 || status === 404 || status === 410) return false;
+  return null;
 }
 
+function oembedUrl(id: string): string {
+  return `https://www.youtube.com/oembed?url=${encodeURIComponent("https://www.youtube.com/watch?v=" + id)}&format=json`;
+}
+
+/** noembed's door to the same answer (note 420): YouTube's oEmbed endpoint
+    answers no CORS headers, so a direct browser read of it can fail while the
+    video itself plays fine — every verdict then stuck `null`, and the Watch
+    screen sat on the ticking clock for a live that was already on air.
+    noembed mirrors oEmbed over CORS-open headers: `html` means it plays,
+    `error` means it is gone, anything else is unknown. Never throws. */
+function noembedUrl(id: string): string {
+  return `https://noembed.com/embed?url=${encodeURIComponent("https://www.youtube.com/watch?v=" + id)}`;
+}
+
+async function noembedVerdict(id: string, signal?: AbortSignal): Promise<boolean | null> {
+  try {
+    const res = await fetch(noembedUrl(id), { cache: "no-store", signal });
+    if (!res || !res.ok) return null;
+    const data = await res.json().catch(() => null);
+    if (!data || typeof data !== "object") return null;
+    const d = data as { html?: unknown; error?: unknown };
+    if (typeof d.html === "string" && d.html.length > 0) return true;
+    if (d.error) return false;
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+/** Cache-only peek (no fetch): true = played before, false = known dead, null = never asked.
+    Dead verdicts expire fast (60s): an embedding flip or a restarted stream can
+    turn the same id playable again, and a cached dead must never hold the
+    screen on the fallback. Playable verdicts keep the full 5 minutes. */
+const VERIFY_DEAD_TTL_MS = 60_000;
 export function peekVerified(videoId: string): boolean | null {
-  return peekStandalone(videoId);
+  const id = parseYoutubeId(videoId);
+  if (!id) return false;
+  const hit = verifyCache.get(id);
+  if (!hit) return null;
+  const age = Date.now() - hit.at;
+  if (hit.ok) return age >= VERIFY_TTL_MS ? null : true;
+  return age >= VERIFY_DEAD_TTL_MS ? null : false;
 }
 
-export function forgetVerified(videoId: string): void {
-  forgetStandalone(videoId);
+/** Drop what the verifier learned about one video (visitor retry + office
+    Reload): the next verify asks YouTube again instead of replaying a stale
+    dead verdict. Never throws. */
+export function forgetVerified(videoId: string) {
+  try {
+    const id = parseYoutubeId(videoId);
+    if (id) {
+      verifyCache.delete(id);
+      verifyInflight.delete(id);
+    }
+  } catch {
+    /* cache clear must never break the repair */
+  }
 }
 
-export function forgetAllVerified(): void {
-  forgetAllStandalone();
+/** Drop every stale verdict at once (visitor arrow + office Reload share it):
+    a restarted stream's new video must never lose to a cached dead answer.
+    Never throws. */
+export function forgetAllVerified() {
+  try {
+    verifyCache.clear();
+  } catch {
+    /* cache clear must never break the repair */
+  }
+  try {
+    verifyInflight.clear();
+  } catch {
+    /* cache clear must never break the repair */
+  }
 }
 
-export function verifyYoutubeId(videoId: string): Promise<boolean | null> {
-  return verifyStandalone(videoId);
+/** Is this video playable right now? true = plays, false = gone, null = could
+    not tell (offline, proxy/probe down — play anyway). Never throws. */
+export async function verifyYoutubeId(videoId: string): Promise<boolean | null> {
+  const id = parseYoutubeId(videoId);
+  if (!id) return false;
+  const peek = peekVerified(id);
+  if (peek !== null) return peek;
+  const running = verifyInflight.get(id);
+  if (running) return running;
+  const job = (async (): Promise<boolean | null> => {
+    try {
+      const ctrl = typeof AbortController !== "undefined" ? new AbortController() : null;
+      const timer = ctrl ? window.setTimeout(() => ctrl.abort(), VERIFY_TIMEOUT_MS) : 0;
+      try {
+        /* CORS-open door first (note 420): the direct oEmbed read below can
+           fail on headers while the video plays fine, so ask the mirror that
+           answers cross-origin — and keep oEmbed itself as the fallback, with
+           the same `oembedPlayable` reading, for the networks that reach it. */
+        const viaMirror = await noembedVerdict(id, ctrl ? ctrl.signal : undefined);
+        if (viaMirror !== null) {
+          verifyCache.set(id, { ok: viaMirror, at: Date.now() });
+          return viaMirror;
+        }
+        const res = await fetch(oembedUrl(id), { cache: "no-store", signal: ctrl ? ctrl.signal : undefined });
+        const verdict = oembedPlayable(res.status);
+        if (verdict !== null) verifyCache.set(id, { ok: verdict, at: Date.now() });
+        return verdict;
+      } finally {
+        if (timer) window.clearTimeout(timer);
+      }
+    } catch {
+      return null;
+    } finally {
+      verifyInflight.delete(id);
+    }
+  })();
+  verifyInflight.set(id, job);
+  return job;
 }
 
+/** Tri-state availability for render: true = plays, false = dead, null =
+    checking or unknown (play anyway — the player is the net). */
 export function useYoutubeVerdict(videoId: string): boolean | null {
   const id = parseYoutubeId(videoId);
   const [verdict, setVerdict] = useState<boolean | null>(() => peekVerified(id));
@@ -577,12 +1460,13 @@ export function useYoutubeVerdict(videoId: string): boolean | null {
     if (peek !== null) return;
     let alive = true;
     verifyYoutubeId(id)
-      .then((v) => { if (alive) setVerdict(v); })
+      .then((v) => {
+        if (alive) setVerdict(v);
+      })
       .catch(() => {});
-    return () => { alive = false; };
+    return () => {
+      alive = false;
+    };
   }, [id]);
   return verdict;
 }
-
-// Re-export the standalone page URL helper for callers that built it from livestatus.
-export { livePageUrl };

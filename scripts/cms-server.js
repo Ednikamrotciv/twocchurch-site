@@ -832,7 +832,7 @@ try {
    runs it, no stamp, no rev bump, no publish. A later take-off or a new
    slide is never touched (MEDIA_CLEAN above); a store with no slides
    section keeps none (the fallback already shows the welcome card). */
-var WELCOME_SLIDE_360 = [{ id: "welcome-home", image: "data/uploads/welcome-home.jpg", headline: "Welcome home", line: "First Sunday or fiftieth — there is a seat here with your name on it.", cta: "Plan your visit", link: "/visit", design: "auto", active: true }];
+var WELCOME_SLIDE_360 = [{ id: "welcome-home", image: "https://user.uploads.dev/file/ec157920014fb49a718f07e297b665c4.jpg", headline: "Welcome home", line: "First Sunday or fiftieth — there is a seat here with your name on it.", cta: "Plan your visit", link: "/visit", design: "auto", active: true }];
 try {
   if (!MEDIA_CLEAN) {
     MEDIA_CLEAN = true;

@@ -452,7 +452,7 @@ const CORE_SECTIONS: SectionDef[] = [
         makeNew: () => ({ day: 1, open: "09:00", close: "17:00" }),
       },
     ],
-    /* The church name is NOT part of this section: it comes from `src/data/site.ts`
+    /* The church name is NOT part of this section: it comes from main.pjs
        (churchName) and is deliberately locked. Neither is the logo — the
        office can reword everything else about the church profile. */
     read: () => {

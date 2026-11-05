@@ -35,7 +35,7 @@ export const KEYS = {
    what the church writes down) and the visitor's (from IP; what times show in).
    `siteTimezone()` picks; branches compute in their own zone, show in the reader's. */
 
-/** Home clock. Override `churchTimezone` in `src/data/site.ts`, or in the console. */
+/** Home clock. Override with `churchTimezone` in main.pjs, or in the console. */
 export const DEFAULT_TIMEZONE = "Africa/Lagos";
 
 const ZONE_CACHE = new Map<string, Intl.DateTimeFormat>();
