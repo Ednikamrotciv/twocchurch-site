@@ -25,7 +25,6 @@ import {
   useCmsTick,
   uniqueId,
 } from "../components/editor";
-import { LivestreamHealthPanel } from "../components/livestream-admin";
 import * as cms from "../lib/cms";
 import { todayKey } from "../lib/store";
 import { sermonPublishTime, sermonRank } from "../data/sermons";
@@ -1387,7 +1386,6 @@ function SectionBlock({
             <ListBlock def={def} list={Array.isArray(value) ? value : []} draft={draft} patch={patch} focusKey={focusEntry} />
           )}
 
-          {def.id === "live" && <LivestreamHealthPanel />}
           {def.id === "live" && <RecentServicesPanel />}
           {def.id === "live" && (
             <LiveEndingPanel onOpen={onOpenSection}>

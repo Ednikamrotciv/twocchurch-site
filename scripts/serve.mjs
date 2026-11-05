@@ -503,116 +503,6 @@ const server = http.createServer(async (req, res) => {
       return;
     }
 
-    /* Livestream pre-flight metadata (note 441): GET /__yt-validate?videoId=…
-       Strict 11-char id only (no arbitrary URLs — SSRF-safe by construction).
-       With YT_API_KEY (or YOUTUBE_API_KEY) configured the server asks YouTube
-       Data API v3 (status/snippet/liveStreamingDetails/player) for existence,
-       privacy, live/upcoming/ended and embedding. Without a key it falls back
-       to the oEmbed/noembed mirror (existence + title only) and says so
-       honestly in `limitations` — metadata alone never declares playable, the
-       admin player test + the visitor player are the net. Cached 60s. */
-    const ytValidateCache = new Map();
-    if (pathname === "/__yt-validate" && req.method === "GET") {
-      const sendValidate = (status, obj) => {
-        const body = JSON.stringify(obj);
-        res.writeHead(status, { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" });
-        res.end(body);
-      };
-      try {
-        const videoId = String(url.searchParams.get("videoId") || "").trim();
-        if (!/^[A-Za-z0-9_-]{11}$/.test(videoId)) {
-          sendValidate(400, { videoId: "", validFormat: false, exists: null, title: "", channelId: "", channelTitle: "", thumbnail: "", privacy: null, liveBroadcast: null, embeddable: null, source: "oembed-fallback", limitations: ["Invalid YouTube video id (11 letters, numbers, - or _)."], checkedAt: Date.now() });
-          return;
-        }
-        const hit = ytValidateCache.get(videoId);
-        if (hit && Date.now() - hit.at < 60_000) {
-          sendValidate(200, hit.body);
-          return;
-        }
-        const apiKey = String(process.env.YT_API_KEY || process.env.YOUTUBE_API_KEY || "");
-        const answer = { videoId, validFormat: true, exists: null, title: "", channelId: "", channelTitle: "", thumbnail: `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`, privacy: null, liveBroadcast: null, embeddable: null, source: "oembed-fallback", limitations: [], checkedAt: Date.now() };
-        let dataApiOk = false;
-        if (apiKey) {
-          try {
-            const apiUrl = `https://www.googleapis.com/youtube/v3/videos?part=status%2Csnippet%2CcontentDetails%2CliveStreamingDetails%2Cplayer&id=${encodeURIComponent(videoId)}&key=${encodeURIComponent(apiKey)}`;
-            const upstream = await fetch(apiUrl, { headers: { "accept": "application/json" }, signal: typeof AbortSignal !== "undefined" && typeof AbortSignal.timeout === "function" ? AbortSignal.timeout(8000) : undefined });
-            if (upstream && upstream.ok) {
-              const data = await upstream.json().catch(() => null);
-              const item = data && Array.isArray(data.items) ? data.items[0] : null;
-              if (!item) {
-                answer.exists = false;
-                answer.limitations.push("YouTube Data API: no such video.");
-                dataApiOk = true;
-              } else {
-                const status = item.status || {};
-                const snippet = item.snippet || {};
-                const live = item.liveStreamingDetails || {};
-                const priv = String(status.privacyStatus || "");
-                answer.exists = String(status.uploadStatus || "") === "failed" || String(status.uploadStatus || "") === "rejected" ? false : true;
-                answer.title = String(snippet.title || "");
-                answer.channelId = String(snippet.channelId || "");
-                answer.channelTitle = String(snippet.channelTitle || "");
-                answer.privacy = priv === "public" || priv === "unlisted" || priv === "private" ? priv : null;
-                if (answer.privacy === "private") answer.exists = true;
-                answer.embeddable = typeof status.embeddable === "boolean" ? status.embeddable : null;
-                const thumbs = (snippet && snippet.thumbnails) || {};
-                const best = (thumbs.maxres && thumbs.maxres.url) || (thumbs.standard && thumbs.standard.url) || (thumbs.high && thumbs.high.url) || (thumbs.medium && thumbs.medium.url) || (thumbs.default && thumbs.default.url) || answer.thumbnail;
-                if (best) answer.thumbnail = String(best);
-                const lbc = String(snippet.liveBroadcastContent || "");
-                if (lbc === "live") answer.liveBroadcast = "live";
-                else if (lbc === "upcoming") answer.liveBroadcast = "upcoming";
-                else if (live.actualEndTime) answer.liveBroadcast = "ended";
-                else answer.liveBroadcast = "none";
-                answer.source = "data-api";
-                dataApiOk = true;
-              }
-            } else {
-              answer.limitations.push("YouTube Data API did not answer — oEmbed mirror used instead.");
-            }
-          } catch {
-            answer.limitations.push("YouTube Data API unreachable — oEmbed mirror used instead.");
-          }
-        }
-        if (!dataApiOk) {
-          try {
-            const watch = `https://www.youtube.com/watch?v=${videoId}`;
-            const doors = [
-              fetch(`https://www.youtube.com/oembed?url=${encodeURIComponent(watch)}&format=json`, { headers: { "user-agent": "Mozilla/5.0" }, signal: typeof AbortSignal !== "undefined" && typeof AbortSignal.timeout === "function" ? AbortSignal.timeout(8000) : undefined }),
-              fetch(`https://noembed.com/embed?url=${encodeURIComponent(watch)}`, { headers: { "user-agent": "Mozilla/5.0" }, signal: typeof AbortSignal !== "undefined" && typeof AbortSignal.timeout === "function" ? AbortSignal.timeout(8000) : undefined }),
-            ];
-            const settled = await Promise.all(doors.map((p) => p.then((r) => r).catch(() => null)));
-            let foundTitle = "";
-            let foundDead = false;
-            for (const r of settled) {
-              if (!r) continue;
-              if (r.ok) {
-                try {
-                  const j = await r.json();
-                  const t = String((j && (j.title || j.html)) || "");
-                  if (t) { foundTitle = String(j.title || t).slice(0, 200); break; }
-                } catch { /* not json — ignore */ }
-              } else if (r.status === 400 || r.status === 401 || r.status === 403 || r.status === 404 || r.status === 410) {
-                foundDead = true;
-              }
-            }
-            if (foundTitle) { answer.exists = true; answer.title = foundTitle; }
-            else if (foundDead) { answer.exists = false; answer.limitations.push("oEmbed mirror: YouTube has no such video (or it is private/deleted)."); }
-            else { answer.limitations.push("oEmbed mirror unreachable — existence unknown, not dead."); }
-          } catch {
-            answer.limitations.push("oEmbed mirror unreachable — existence unknown, not dead.");
-          }
-          if (!answer.limitations.length) answer.limitations.push("oEmbed mirror: existence + title only — scheduled/live/ended, privacy and embedding need the Data API key or the player test.");
-          else if (answer.source === "oembed-fallback" && answer.exists === true && !answer.limitations.some((l) => l.indexOf("oEmbed mirror:") === 0)) answer.limitations.unshift("oEmbed mirror: existence + title only — scheduled/live/ended, privacy and embedding need the Data API key or the player test.");
-        }
-        answer.checkedAt = Date.now();
-        try { ytValidateCache.set(videoId, { at: Date.now(), body: answer }); if (ytValidateCache.size > 200) { const k = ytValidateCache.keys().next().value; ytValidateCache.delete(k); } } catch {}
-        sendValidate(200, answer);
-      } catch {
-        sendValidate(502, { videoId: "", validFormat: false, exists: null, title: "", channelId: "", channelTitle: "", thumbnail: "", privacy: null, liveBroadcast: null, embeddable: null, source: "oembed-fallback", limitations: ["Validation proxy unreachable — try again."], checkedAt: Date.now() });
-      }
-      return;
-    }
-
     if (pathname === "/__yt" && req.method === "GET") {
       const target = url.searchParams.get("url") || "";
       let host = "";
@@ -1041,16 +931,6 @@ const server = http.createServer(async (req, res) => {
     res.end("server error");
   }
 });
-
-/* Bounded sockets: a stalled client must never hold a worker slot forever.
-   Generous on purpose — uploads ride this server, and Render's own proxy
-   idles first — but nothing hangs unbounded anymore. */
-try {
-  server.keepAliveTimeout = 65_000;
-  server.headersTimeout = 66_000;
-  server.requestTimeout = 300_000;
-  server.timeout = 300_000;
-} catch {}
 
 server.listen(PORT, () => {
   /* Cold-start marker (note 344): on hosts that sleep (Render free), every

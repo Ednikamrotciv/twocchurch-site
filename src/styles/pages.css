@@ -1024,6 +1024,64 @@
   display: block;
 }
 
+/* Latest previous thumbnail behind the playing frame: a black/blank iframe
+   never reads as a blank screen — the previous service shows through. */
+.player__underlay {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  z-index: 0;
+}
+.player__frame,
+.player__frame-host {
+  position: relative;
+  z-index: 1;
+}
+/* Cover-up over the unproven frame: opaque latest thumbnail on top, so
+   YouTube's "unavailable" text can never show through — lifts only on real
+   playback, otherwise the dead fallback (same thumbnail) takes over. */
+.player__cover {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  display: block;
+  background: #05050a;
+}
+.player__cover img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  filter: brightness(0.55);
+}
+.player__cover .player__scrim {
+  position: absolute;
+  inset: 0;
+}
+.player__cover-spin {
+  position: absolute;
+  inset: 0;
+  margin: auto;
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  border: 3px solid rgba(255, 255, 255, 0.25);
+  border-top-color: #e3b75c;
+  animation: player-reload-spin 0.9s linear infinite;
+}
+/* Empty-state thumbnail paints like the dead one. */
+.player--empty img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  filter: brightness(0.55);
+}
+
 /* The frame never reports a failure (note 344): this link sits over the
    corner while a video plays, so a refused/blocked/removed embed always
    has a way out that says why. */
@@ -1311,80 +1369,6 @@
   box-shadow: 0 2px 12px rgba(4, 4, 7, 0.5);
 }
 
-/* Recording badge (note 441): the backup is never labelled LIVE. */
-.player__recording {
-  position: absolute;
-  top: 0.9rem;
-  right: 1.1rem;
-  display: inline-flex;
-  align-items: center;
-  gap: 0.35rem;
-  padding: 0.28rem 0.62rem;
-  border-radius: 999px;
-  background: rgba(24, 24, 28, 0.92);
-  color: #f4e9c8;
-  border: 1px solid rgba(227, 183, 92, 0.55);
-  font-size: 0.68rem;
-  font-weight: 700;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
-  box-shadow: 0 2px 12px rgba(4, 4, 7, 0.5);
-  z-index: 4;
-}
-.live-dot--rec {
-  background: #e3b75c;
-  box-shadow: 0 0 0 0 rgba(227, 183, 92, 0.6);
-}
-
-/* Thumbnail-first connecting overlay (note 441): still up immediately at
-   full frame size, spinner + label over it — no blank/black, no shift. */
-.player__connecting {
-  position: absolute;
-  inset: 0;
-  z-index: 2;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-.player__connecting img {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-  filter: brightness(0.55);
-}
-.player__spinner {
-  width: 46px;
-  height: 46px;
-  border-radius: 50%;
-  border: 4px solid rgba(244, 240, 232, 0.25);
-  border-top-color: #e3b75c;
-  animation: player-reload-spin 0.9s linear infinite;
-  z-index: 3;
-}
-.player__connectlabel {
-  position: absolute;
-  bottom: 1.1rem;
-  left: 50%;
-  transform: translateX(-50%);
-  z-index: 3;
-  font-size: 0.8rem;
-  letter-spacing: 0.06em;
-  color: #f4f0e8;
-  background: rgba(4, 4, 7, 0.66);
-  padding: 0.3rem 0.8rem;
-  border-radius: 999px;
-  white-space: nowrap;
-}
-.player--reconnecting .player__frame-host,
-.player--reconnecting .player__frame {
-  opacity: 0.35;
-}
-.player--fallback .player__recording {
-  z-index: 5;
-}
-
 .player--compact .player__play {
   width: 62px;
   height: 62px;
@@ -1395,17 +1379,6 @@
   align-items: center;
   justify-content: center;
   color: var(--muted);
-}
-
-/* A sourceless live stands on the latest previous service too (never bare):
-   same dimmed absolute cover as the dead frame, under the same arrow. */
-.player--empty img {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-  filter: brightness(0.55);
 }
 
 /* a poster with no still image (e.g. a Facebook-only video) */

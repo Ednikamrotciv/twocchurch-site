@@ -108,20 +108,6 @@ export const LIVE = {
   guestVideoAt: 0,
   /** Taken-off service ids; the channel keeps them, the site hides them. */
   hiddenReplays: [] as string[],
-  /** Backup service recording (YouTube link or id) shown with a Recording
-      label when the primary broadcast is genuinely unavailable (note 441):
-      never LIVE, never an unrelated video. Empty until the office sets it. */
-  liveBackupVideo: "",
-  /** Backup livestream URL (a second YouTube/Facebook live) for the same
-      moment — the office's spare door when the primary fails. */
-  liveBackupStream: "",
-  /** What the offline screen says when no broadcast and no backup exists. */
-  liveOfflineMessage: "",
-  /** Pre-flight stamp (note 441): the video id that passed validation, when,
-      and the human note. READY derives from this matching the primary. */
-  liveVerifiedId: "",
-  liveVerifiedAt: 0,
-  liveVerifyNote: "",
   /** The cards under "everywhere you already are". */
   watchOptions: [
     { label: "Live stream", value: "Plays here whenever our broadcast is active", icon: "live" },

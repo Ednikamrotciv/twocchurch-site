@@ -9,8 +9,6 @@ import { sermonsNewestFirst, sermonSource, sermonThumb } from "../data/sermons";
 import { useLocalState, useNow, fireToast } from "../lib/hooks";
 import { KEYS, nextService, onAir, displayLive, to12h, DAY_NAMES, countdownParts, addToCalendar, mailto, clockHere, tidyCount, churchTimezone, visitorPlace, fmtDate, downloadText, serviceNoteKey, type NextServiceInfo } from "../lib/store";
 import { isFacebookVideoUrl, parseYoutubeId, platformLabel, watchUrl, youtubeThumb, type VideoPlatform, type VideoSource } from "../lib/embed";
-import { isUploadVideoUrl } from "../lib/embed";
-import { backupConfigOf } from "../lib/livevalidate";
 import { useLiveStream, liveTarget, guestTarget, isGuestTargetUrl, facebookTarget, useYoutubeVerdict, isStatusForTarget, designatedChannelIdForTarget, isDesignatedChannel, nextScreenShut, officeStopActive, recheckLiveNow, forgetAllVerified, type ScreenShut } from "../lib/livestatus";
 import { useLibrary } from "../lib/collections";
 import { useRecentServices, designatedFallback } from "../lib/recentstreams";
@@ -252,13 +250,16 @@ export function WatchLive() {
      broadcast's frame, else the newest recent service's own thumbnail, else
      the designated channel's last previous service standing in by itself
      (note 372 — @twocorg's latest thumbnail even before any read settles),
-     else a sermon still, else the hero. */
+     else a sermon still, else the hero. Never blank: the chain always ends
+     on the latest baked previous thumbnail, then the hero. */
+  const bakedLatestThumb = designatedFallback().items[0]?.thumb || "https://i.ytimg.com/vi/dcCt75FMm6o/hqdefault.jpg";
   const cover =
     (airForTarget.endedAt && airForTarget.videoId && airForTarget.platform !== "facebook" ? youtubeThumb(airForTarget.videoId) : "") ||
     recentStreams.items[0]?.thumb ||
-    designatedFallback().items[0]?.thumb ||
+    bakedLatestThumb ||
     (latest && sermonThumb(latest)) ||
-    img("watch-live");
+    img("watch-live") ||
+    bakedLatestThumb;
 
   /* which platforms the office has actually configured (the stream that is on
      air right now counts as YouTube being available, even if all the office
@@ -288,24 +289,6 @@ export function WatchLive() {
   const graceRef = useRef<VideoSource | null>(null);
   if (streaming && watchable) graceRef.current = freshSource;
   const liveSource: VideoSource = offFresh && graceRef.current ? graceRef.current : freshSource;
-  /* Backup + offline (note 441): the office's recording / spare door / message.
-     The player shows the backup (labelled Recording, never LIVE) when the
-     primary is genuinely unavailable, else the offline screen. The primary
-     keeps being watched behind it and reopens on recovery. */
-  const backupCfg = backupConfigOf(LIVE as unknown as Record<string, unknown>);
-  const backupSource: VideoSource | undefined = (() => {
-    try {
-      if (backupCfg.recordingId) return { platform: "youtube", youtubeId: backupCfg.recordingId };
-      const raw = String((LIVE as unknown as { liveBackupVideo?: unknown }).liveBackupVideo || "").trim();
-      if (raw && isUploadVideoUrl(raw)) return { platform: "upload", uploadUrl: raw };
-      if (backupCfg.streamUrl) {
-        if (parseYoutubeId(backupCfg.streamUrl)) return { platform: "youtube", youtubeId: parseYoutubeId(backupCfg.streamUrl) };
-        if (isFacebookVideoUrl(backupCfg.streamUrl)) return { platform: "facebook", facebookUrl: backupCfg.streamUrl };
-      }
-      return undefined;
-    } catch { return undefined; }
-  })();
-  const offlineMsg = String((LIVE as unknown as { liveOfflineMessage?: unknown }).liveOfflineMessage || "").trim();
   const youtubeLink =
     watchUrl({ platform: "youtube", youtubeId: playableId }) ||
     (guestLive && guestUrl ? guestUrl : hasChannel ? targetUrl : watchUrl({ platform: "youtube", youtubeId: LIVE.youtubeId }) || targetUrl);
@@ -497,8 +480,6 @@ export function WatchLive() {
                      itself the moment the broadcast starts. */
                   autoPlay={streaming && watchable}
                   reloadSignal={reloadSignal}
-                  backupSource={backupSource}
-                  offlineMessage={offlineMsg}
                 />
               ) : (overrideMain || overrideGuest) && overrideId ? (
                 <VideoPlayer
@@ -516,8 +497,6 @@ export function WatchLive() {
                      broadcast still wins. */
                   autoPlay
                   reloadSignal={reloadSignal}
-                  backupSource={backupSource}
-                  offlineMessage={offlineMsg}
                 />
               ) : !onAirNow && !waitingForClick ? (
                 /* Nobody is broadcasting: the screen says so, and promises what
@@ -528,7 +507,7 @@ export function WatchLive() {
                    ends its thumbnails are already on the screen. */
                 <>
                 <div className="live-ended">
-                  {cover && <img className="live-ended__bg" src={cover} alt="" loading="lazy" onError={(e) => { try { e.currentTarget.style.display = "none"; } catch {} }} />}
+                  <img className="live-ended__bg" src={cover} alt="" loading="lazy" onError={(e) => { try { const el = e.currentTarget; const fb = bakedLatestThumb; if (fb && el.src !== fb && el.getAttribute("data-fb") !== "1") { el.setAttribute("data-fb", "1"); el.src = fb; } else { el.style.display = "none"; } } catch {} }} />
                   <span className="live-ended__scrim" aria-hidden="true" />
                   <div className="live-ended__body">
                     <h3 className="live-ended__title">
@@ -564,7 +543,8 @@ export function WatchLive() {
                     hideDeadText
                     source={sermonSource(latest)}
                     title={ct("auto.live.2af95d5fd1e87dae", { title: latest.title })}
-                    poster={sermonThumb(latest)}
+                    poster={sermonThumb(latest) || cover}
+                    fallbackPoster={cover}
                     compact
                   />
                   <Notice icon="info">{ct("live.preview.note")}</Notice>

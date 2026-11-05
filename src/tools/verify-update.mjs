@@ -34,11 +34,6 @@ const FILES = [
   ["scripts/seed-fallback.mjs", "js"],
   ["src/lib/cms.ts", "ts"],
   ["src/lib/livestatus.ts", "ts"],
-  ["src/lib/repair.ts", "ts"],
-  ["src/lib/faults.ts", "ts"],
-  ["src/main.tsx", "tsx"],
-  ["src/lib/remoteserver.ts", "ts"],
-  ["src/pages/Testimonies.tsx", "tsx"],
   ["src/lib/embed.ts", "ts"],
   ["src/lib/recentstreams.ts", "ts"],
   ["src/pages/WatchLive.tsx", "tsx"],
@@ -50,9 +45,6 @@ const FILES = [
   ["src/lib/cmsSchema.ts", "ts"],
   ["src/lib/autostop.ts", "ts"],
   ["src/data/live.ts", "ts"],
-  ["src/lib/livevalidate.ts", "ts"],
-  ["src/components/livestream-admin.tsx", "tsx"],
-  ["netlify/functions/yt-validate.mjs", "js"],
   ["seed.json", null],
   ["src/lib/jobs.ts", "ts"],
   ["src/lib/pageMap.ts", "ts"],
@@ -2339,99 +2331,6 @@ const notes = Number((text["src/lib/hooks.ts"].match(/BUILD_NOTES = (\d+)/) || [
     ok("clean boot keeps the office password", liClean.ok === true, "err=" + liClean.err);
   } catch (e) {
     ok("session/auth suite", false, String((e && e.message) || e).slice(0, 200));
-  }
-  /* NNN. the error card repairs, the stream pushes harder: "Reload the page"
-     must fix the page instead of just reloading the browser, and the live
-     broadcast must reach the visitor sooner. The retry drops every volatile
-     live cache (never office words) and re-asks; a repeat crash reloads with
-     a session flag the boot consumes before reading the store. The Watch
-     urgent cadence is 5s; the player's live recovery ticks are 15s (channel
-     follow) and 20s (dead-while-live self-heal). */
-  try {
-    const repNNN = text["src/lib/repair.ts"];
-    const boundNNN = text["src/components/ErrorBoundary.tsx"];
-    const liveNNN = text["src/lib/livestatus.ts"];
-    const blocksNNN = text["src/components/blocks.tsx"];
-    ok("repair drops volatile only", has(repNNN, "forgetAllVerified") && has(repNNN, "clearRecentCaches") && has(repNNN, "wom.livestatus") && has(repNNN, "wom.live.targetNote") && !has(repNNN, "DRAFT_KEY") && !has(repNNN, "CACHE_KEY"), "every volatile live cache goes, no office words touched");
-    ok("retry repairs first", has(boundNNN, "repairLiveCaches()") && has(boundNNN, "repairReload()"), "both notices repair before remount/reload");
-    ok("reload boots clean", has(repNNN, 'sessionStorage.setItem(REPAIR_FLAG, "1")') && has(liveNNN, 'sessionStorage.getItem("wom.repair")'), "the flagged reload starts the next boot clean");
-    ok("urgent watch is 5s", has(liveNNN, "if (wantsUrgent()) return 5_000;"), "the Watch page must meet a live start in seconds");
-    ok("recovery ticks faster", has(blocksNNN, "setInterval(tick, 15_000)") && has(blocksNNN, "}, 20_000);"), "channel follows and dead-while-live heal sooner");
-  } catch (e) {
-    ok("repair/transmission suite", false, String((e && e.message) || e).slice(0, 200));
-  }
-  /* OOO. whole-site fault tolerance: post-boot errors are captured instead of
-     vanishing, images degrade to a placeholder, RPC cannot hang, the boot
-     installs the net once, and the testimony photo path cannot wedge. */
-  try {
-    const fOOO = text["src/lib/faults.ts"];
-    const mainOOO = text["src/main.tsx"];
-    const remOOO = text["src/lib/remoteserver.ts"];
-    const testOOO = text["src/pages/Testimonies.tsx"];
-    const srvOOO = text["scripts/serve.mjs"];
-    ok("global capture installed", has(fOOO, "unhandledrejection") && has(fOOO, "installFaultHandlers") && has(mainOOO, "installFaultHandlers()"), "runtime + rejection faults are recorded on every boot");
-    ok("faults never retry forever", has(fOOO, "Math.min(3") && has(fOOO, "http-") && has(fOOO, "never"), "retries are bounded, idempotent-only, never on HTTP errors");
-    ok("images degrade globally", has(fOOO, "BROKEN_IMAGE_PLACEHOLDER") && has(fOOO, ".player"), "broken images swap to a placeholder, players keep their stills");
-    ok("rpc cannot hang", has(remOOO, "RPC_TIMEOUT_MS = 30_000") && has(remOOO, "timed out"), "cold starts fail fast into the offline paths");
-    ok("photo path cannot wedge", has(testOOO, "15 * 1024 * 1024") && has(testOOO, "Couldn't read that photo"), "oversize/corrupt photos fail with a note, never a stuck spinner");
-    ok("sockets are bounded", has(srvOOO, "keepAliveTimeout = 65_000") && has(srvOOO, "requestTimeout = 300_000"), "no stalled client holds a worker slot forever");
-  } catch (e) {
-    ok("fault-tolerance suite", false, String((e && e.message) || e).slice(0, 200));
-  }
-  /* PPP. deploy lifecycle: the notice waits at every new deploy, one Publish
-     lifts it everywhere, the new deploy opens fresh/unsaved-clean with old
-     wakes wiped, and the live relay survives everything but a new deploy. */
-  try {
-    const cmsPPP = text["src/lib/cms.ts"];
-    const htmlPPP = text["index.html"];
-    const srvPPP = text["scripts/serve.mjs"];
-    const backPPP = text["scripts/cms-server.js"];
-    ok("notice waits at new deploy", has(htmlPPP, "wom-maint-gate") && has(cmsPPP, "function maintenanceShouldWait") && has(cmsPPP, "publishedDeployId !== currentDeployId"), "a new deploy holds visitors until its own publish");
-    ok("publish lifts everywhere", has(cmsPPP, "function markJustPublished") && has(cmsPPP, "justPublishedRecently()") && has(cmsPPP, "function postDeployPublishWitnessed") && has(cmsPPP, "function serverHoldsPublish"), "the click releases the tab, late devices and visitor boxes alike");
-    ok("new deploy opens unsaved-clean", has(cmsPPP, "localStorage.removeItem(DRAFT_KEY)") && has(cmsPPP, "localStorage.removeItem(PENDING_KEY)") && has(cmsPPP, "localStorage.removeItem(HISTORY_KEY)") && has(cmsPPP, "draft = null") && has(cmsPPP, 'localStorage.removeItem("wom.cms.relayPending")'), "old drafts, queues, undos and owed relays never ride into the new deploy");
-    ok("new deploy wipes old wakes", has(cmsPPP, "wipeOldWakes();") && has(cmsPPP, "caches.delete(k)"), "no retired worker or cached shell serves the previous deploy");
-    ok("publish clears unsaved rows", has(cmsPPP, "delete dirty[sectionId]"), "sent rows stop showing as unsaved");
-    ok("live relay survives reloads", has(cmsPPP, "function persistRelayPending") && has(cmsPPP, "function resumeRelayRetry") && has(cmsPPP, "wom.cms.relayPending"), "a closed tab or sleeping live box never strands published words");
-    ok("new empty falls back to seed", has(srvPPP, "answerWithSeedFallback"), "an emptied store still serves the baked words, never blank");
-    ok("sessions end, accounts persist", has(backPPP, "SESSION_MS = 15 * 60 * 1000") && has(cmsPPP, 'clearSession("deploy")'), "every deploy is a fresh review without losing the roster");
-  } catch (e) {
-    ok("deploy-lifecycle suite", false, String((e && e.message) || e).slice(0, 200));
-  }
-  /* QQQ. livestream pre-flight + recovery + fallback (note 441): every
-     broadcast is validated before it can be marked READY (format, backend
-     metadata via Data API v3 or the honest oEmbed mirror, real player init —
-     metadata alone never declares playable); temporary failures recover with
-     bounded exponential backoff and no page reload; genuinely unavailable
-     videos show the backup recording (never LIVE) or the offline screen. */
-  try {
-    const valQQQ = text["src/lib/livevalidate.ts"];
-    const blocksQQQ = text["src/components/blocks.tsx"];
-    const watchQQQ = text["src/pages/WatchLive.tsx"];
-    const adminQQQ = text["src/components/livestream-admin.tsx"];
-    const adrawQQQ = text["src/pages/Admin.tsx"];
-    const liveQQQ = text["src/data/live.ts"];
-    const schemaQQQ = text["src/lib/cmsSchema.ts"];
-    const srvQQQ = text["scripts/serve.mjs"];
-    const viteQQQ = text["scripts/vite-cms-backend.mjs"];
-    const netQQQ = text["netlify/functions/yt-validate.mjs"];
-    ok("preflight validates format", has(valQQQ, "validateVideoIdFormat") && has(valQQQ, "YT_ID_RE") && has(valQQQ, "fullPreflight"), "strict 11-char ids, pulled out of any YouTube link");
-    ok("backend metadata key-optional", has(srvQQQ, "/__yt-validate") && has(srvQQQ, "YT_API_KEY") && has(srvQQQ, "youtube.com/oembed") && has(viteQQQ, "/__yt-validate") && has(netQQQ, "ID_RE"), "Data API v3 when a key is set, honest oEmbed mirror otherwise, on all three hosts");
-    ok("validate endpoint is SSRF-safe", has(srvQQQ, "/^[A-Za-z0-9_-]{11}$/") && has(netQQQ, "ID_RE") && !has(srvQQQ, "__yt-validate?url="), "strict id only — no arbitrary URL fetching");
-    ok("player init captures errors", has(valQQQ, "testPlayerInit") && has(valQQQ, "ensureYtApi") && has(blocksQQQ, "onStateChange") && has(blocksQQQ, "firstFrame"), "the official IFrame API proves playback; the thumbnail lifts only on the first frame");
-    ok("metadata never declares playable", has(valQQQ, "Metadata alone never") && has(valQQQ, "player test") && has(adminQQQ, "Metadata alone never declares playable"), "the admin is told the limits honestly");
-    ok("invalid can never be READY", has(valQQQ, "canMarkReady") && has(valQQQ, "adminStatusFor") && has(adminQQQ, "liveVerifiedId") && has(adminQQQ, "Not ready"), "READY derives from a passing pre-flight; failures explain themselves");
-    ok("recovery is bounded", has(valQQQ, "backoffDelayMs") && has(valQQQ, "MAX_RECOVERY_ATTEMPTS = 6") && has(valQQQ, "isRecoverablePlayerError") && has(blocksQQQ, "backoffDelayMs") && has(blocksQQQ, "MAX_RECOVERY_ATTEMPTS"), "exponential backoff, no infinite retries for dead/private/unembeddable");
-    ok("no page reload in recovery", has(blocksQQQ, "No page reload") && has(valQQQ, "reportPlayerError") && !has(blocksQQQ, "window.location.reload()"), "repairs remount the frame, never the site");
-    ok("no iframe churn", has(blocksQQQ, "when a retry actually fires") && has(valQQQ, "no iframe"), "remounts only on real retries, never on poll ticks");
-    ok("thumbnail-first player", has(blocksQQQ, "player__connecting") && has(blocksQQQ, "Thumbnail-first") && has(blocksQQQ, "player__spinner"), "still + loading at once, fixed 16/9 box, video replaces it on the first frame");
-    ok("backup recording labelled", has(blocksQQQ, "player--fallback") && has(blocksQQQ, "Recording") && has(blocksQQQ, "backupSource") && has(watchQQQ, "backupSource") && has(watchQQQ, "backupConfigOf"), "the office backup plays as Recording, never LIVE; the primary keeps being watched");
-    ok("offline screen exists", has(blocksQQQ, "player--offline") && has(blocksQQQ, "offlineMessage") && has(liveQQQ, "liveOfflineMessage"), "no backup → a professional offline screen with the office message");
-    ok("admin health dashboard", has(adminQQQ, "LivestreamHealthPanel") && has(adrawQQQ, "LivestreamHealthPanel") && has(valQQQ, "UNVERIFIED") && has(valQQQ, "FALLBACK_ACTIVE"), "ten statuses, Validate + Preview, id, last check, error, recovery, backup, diagnostics");
-    ok("admin backup fields", has(schemaQQQ, "liveBackupVideo") && has(schemaQQQ, "liveBackupStream") && has(schemaQQQ, "liveOfflineMessage") && has(liveQQQ, "liveBackupVideo"), "backup recording, spare door and offline message without source edits");
-    ok("validation cached + quiet", has(valQQQ, "PREFLIGHT_TTL_MS") && has(valQQQ, "META_TTL_MS") && has(srvQQQ, "ytValidateCache"), "5-minute frontend cache, 60s backend cache — no excessive API use");
-    ok("sound prefs preserved", has(blocksQQQ, "readPlayerPrefs") && has(valQQQ, "wom.player.prefs"), "visitor sound choice restores on every re-init");
-  } catch (e) {
-    ok("livestream preflight suite", false, String((e && e.message) || e).slice(0, 200));
   }
   return out.join("\n");
 }

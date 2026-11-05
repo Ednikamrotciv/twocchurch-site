@@ -232,20 +232,10 @@ function ShareForm({ open, onClose, onSubmit }: { open: boolean; onClose: () => 
       setFileNote(ct("auto.testimonies.eea1fb4399362ca2"));
       return;
     }
-    /* Phones shoot huge: refuse monsters before the decoder eats the tab —
-       and never leave the note stuck on "adding" when the read fails. */
-    if (file.size > 15 * 1024 * 1024) {
-      setFileNote("That photo is too large — please pick one under 15 MB.");
-      return;
-    }
     setFileNote(ct("auto.testimonies.84804b6021dcdbd1"));
-    try {
-      const dataUrl = await compressImage(file, 900, 0.76);
-      set({ photo: dataUrl });
-      setFileNote(ct("auto.testimonies.756237970267563e", { "v0": Math.round((dataUrl.length * 0.75) / 1024) }));
-    } catch {
-      setFileNote("Couldn't read that photo — please try another file.");
-    }
+    const dataUrl = await compressImage(file, 900, 0.76);
+    set({ photo: dataUrl });
+    setFileNote(ct("auto.testimonies.756237970267563e", { "v0": Math.round((dataUrl.length * 0.75) / 1024) }));
   };
 
   const valid = () => {

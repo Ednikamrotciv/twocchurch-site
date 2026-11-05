@@ -1015,9 +1015,6 @@ const CONTENT_SECTIONS: SectionDef[] = [
       { path: "recentLimit", label: "How many recent services to show", type: "number", min: 1, max: 24 },
       { path: "turnaroundHours", label: "Hours until a service is written up", type: "number", min: 1, max: 72 },
       { path: "liveTitle", label: "Headline while live", type: "text" },
-      { path: "liveBackupVideo", label: "Backup service recording (YouTube link)", type: "text", placeholder: "https://www.youtube.com/watch?v=…", hint: "A recording the site plays — labelled Recording, never LIVE — when the primary broadcast is genuinely unavailable. Same service only, never an unrelated video." },
-      { path: "liveBackupStream", label: "Backup livestream URL", type: "text", placeholder: "https://www.youtube.com/watch?v=… or Facebook live link", hint: "A spare live door the office can switch to. Empty unless there is one." },
-      { path: "liveOfflineMessage", label: "Offline message", type: "textarea", rows: 2, hint: "What the offline screen says when no broadcast and no backup exists." },
       /* Drawn by Admin.tsx at the section foot; it belongs to Sermons, not the stream. */
       { path: "pastLimit", label: "How many previous sermons to show", type: "number", min: 1, max: 60 },
       /* On-air state lives on the Start/Stop buttons now, not on a field (note 106). */
