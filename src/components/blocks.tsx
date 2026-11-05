@@ -798,6 +798,22 @@ export function VideoPlayer({
       try { setDead(true); } catch {}
     };
     const watchdog = window.setTimeout(() => fail("watchdog"), 12_000);
+    /* Autoplay-block grace: some blocked players sit UNSTARTED without ever
+       firing CUED. 3s after load, a frame that is cued/paused/buffering is a
+       healthy video waiting for a tap — settle it (paused live frame with
+       YouTube's own play button) instead of letting the watchdog call it dead
+       at 12s. A truly hung load never reaches these states, so it still fails. */
+    const grace = window.setTimeout(() => {
+      if (settled || cancelled) return;
+      try {
+        const st = Number(player && typeof player.getPlayerState === "function" ? player.getPlayerState() : -99);
+        if (st === 1 || st === 2 || st === 3 || st === 5) {
+          settled = true;
+          try { window.clearTimeout(watchdog); } catch {}
+          try { setFrameConfirmed(true); } catch {}
+        }
+      } catch {}
+    }, 3_000);
     loadYtPlayerApi()
       .then((api) => {
         if (cancelled || !api || !api.Player) return;
@@ -822,10 +838,16 @@ export function VideoPlayer({
                 } catch {}
               },
               onStateChange: (e: any) => {
-                /* PLAYING (1) is the only proof the video is really there:
-                   the cover lifts on this and nothing else. */
+                /* PLAYING (1) is proof the video is really there — and CUED (5)
+                   is proof it exists and is ready: a removed/private video
+                   errors (100/101/150) instead of cueing. A cued frame that
+                   never reaches PLAYING is a browser-blocked unmuted autoplay
+                   (fresh visitors), not a dead video — settling here lifts the
+                   cover onto the paused live frame with YouTube's own play
+                   button instead of spinning 12s into the grey reload arrow. */
                 try {
-                  if (Number(e && (e as any).data) === 1) {
+                  const st = Number(e && (e as any).data);
+                  if (st === 1 || st === 5) {
                     settled = true;
                     try { window.clearTimeout(watchdog); } catch {}
                     try { setFrameConfirmed(true); } catch {}
@@ -848,6 +870,7 @@ export function VideoPlayer({
     return () => {
       cancelled = true;
       try { window.clearTimeout(watchdog); } catch {}
+      try { window.clearTimeout(grace); } catch {}
       try { if (player && typeof player.destroy === "function") player.destroy(); } catch {}
     };
   }, [playing, dead, liveVideoId, ytId, platform, iframeKey]);

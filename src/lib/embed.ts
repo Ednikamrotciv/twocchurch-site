@@ -16,10 +16,14 @@ export const EMBED_REFERRER_POLICY = "strict-origin-when-cross-origin";
 /** The file extensions a browser will play straight from a URL. */
 const VIDEO_FILE = /\.(mp4|m4v|webm|ogv|ogg|mov|m3u8)(\?|#|$)/i;
 
-/** A video file the office uploaded (hosted by the upload service). */
+/** A video file the office uploaded (hosted by the upload service). A pasted
+ *  YouTube or Facebook link is never a file, even though it is an https URL:
+ *  those hosts only play in their own player, so letting them through rendered
+ *  a broken <video> tag instead of the platform embed. */
 export function isUploadVideoUrl(input: string): boolean {
   const value = String(input || "").trim();
   if (!value) return false;
+  if (/^(https?:\/\/)?(www\.|m\.|web\.)?(youtube\.com|youtu\.be|facebook\.com)(\/|$)/i.test(value)) return false;
   return VIDEO_FILE.test(value) || /^https?:\/\//.test(value) || /^src\//.test(value);
 }
 
@@ -130,7 +134,7 @@ export function youtubeChannelUrl(input: string): string {
 
 /** The handle in a platform link (`@twocorg`), for the ways-to-watch cards (note 112). */
 export function platformDoorName(url: string): string {
-  const raw = String(url || "").trim();
+  const raw = String(url || "").trim().replace(/[#?].*$/, "");
   if (!raw) return "";
   const at = /youtube\.com\/@([\w.-]+)/i.exec(raw);
   if (at) return `@${at[1]}`;
