@@ -58,51 +58,21 @@ export class ErrorBoundary extends React.Component<{ children: React.ReactNode }
       if (here && here !== this.state.retriedRoute) this.setState({ retriedRoute: "", retryFailed: false });
     }
   }
-  /* One tap brings the SAME page back: the card retries the page subtree in
-     place first — same address, same synced words, same on-air answer — and
-     only a crash that repeats on the same route takes the full reload. Before
-     either path, volatile live caches are dropped (stale on-air/verdict
-     answers can never re-poison the retry) and a chunk-load failure — a new
-     deploy landing mid-visit — goes straight to the full reload, since the
-     in-place retry would only re-request the same missing chunk. Either way
-     one tap fixes it; the second tap always reloads. */
+  /* One tap = browser reload: the button does exactly what reloading the
+     browser page does — fresh bundle, fresh state, same address. Before it,
+     volatile live caches are dropped so a stale on-air/verdict answer can
+     never re-poison the fresh load. */
   private retry = () => {
-    try {
-      import("../lib/livestatus").then((m) => {
-        try { m.forgetAllVerified(); } catch {}
-      }).catch(() => {});
-    } catch {}
     try {
       localStorage.removeItem("wom.livestatus");
     } catch {}
     try {
       sessionStorage.removeItem("wom.live.targetNote");
     } catch {}
-    const msg = String((this.state.error && (this.state.error as any).message) || "") + "\n" + this.state.stack;
-    if (this.state.retryFailed || isChunkError(msg)) {
-      try {
-        window.location.reload();
-      } catch {
-        /* reload unavailable — the card stays with its way home */
-      }
-      return;
-    }
-    let here = "";
     try {
-      here = readBoundaryRoute();
-    } catch {}
-    const y = this.state.scroll || 0;
-    this.setState((s) => ({ error: null, route: "", stack: "", nonce: s.nonce + 1, retriedRoute: here, retryFailed: false }));
-    try {
-      window.requestAnimationFrame(() => {
-        try {
-          window.scrollTo(0, y);
-        } catch {
-          /* keep whatever position the remount landed on */
-        }
-      });
+      window.location.reload();
     } catch {
-      /* no frame to wait for — the remount still paints */
+      /* reload unavailable — the card stays with its way home */
     }
   };
   render() {
