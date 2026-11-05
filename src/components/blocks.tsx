@@ -798,22 +798,6 @@ export function VideoPlayer({
       try { setDead(true); } catch {}
     };
     const watchdog = window.setTimeout(() => fail("watchdog"), 12_000);
-    /* Autoplay-block grace: some blocked players sit UNSTARTED without ever
-       firing CUED. 3s after load, a frame that is cued/paused/buffering is a
-       healthy video waiting for a tap — settle it (paused live frame with
-       YouTube's own play button) instead of letting the watchdog call it dead
-       at 12s. A truly hung load never reaches these states, so it still fails. */
-    const grace = window.setTimeout(() => {
-      if (settled || cancelled) return;
-      try {
-        const st = Number(player && typeof player.getPlayerState === "function" ? player.getPlayerState() : -99);
-        if (st === 1 || st === 2 || st === 3 || st === 5) {
-          settled = true;
-          try { window.clearTimeout(watchdog); } catch {}
-          try { setFrameConfirmed(true); } catch {}
-        }
-      } catch {}
-    }, 3_000);
     loadYtPlayerApi()
       .then((api) => {
         if (cancelled || !api || !api.Player) return;
@@ -838,16 +822,10 @@ export function VideoPlayer({
                 } catch {}
               },
               onStateChange: (e: any) => {
-                /* PLAYING (1) is proof the video is really there — and CUED (5)
-                   is proof it exists and is ready: a removed/private video
-                   errors (100/101/150) instead of cueing. A cued frame that
-                   never reaches PLAYING is a browser-blocked unmuted autoplay
-                   (fresh visitors), not a dead video — settling here lifts the
-                   cover onto the paused live frame with YouTube's own play
-                   button instead of spinning 12s into the grey reload arrow. */
+                /* PLAYING (1) is the only proof the video is really there:
+                   the cover lifts on this and nothing else. */
                 try {
-                  const st = Number(e && (e as any).data);
-                  if (st === 1 || st === 5) {
+                  if (Number(e && (e as any).data) === 1) {
                     settled = true;
                     try { window.clearTimeout(watchdog); } catch {}
                     try { setFrameConfirmed(true); } catch {}
@@ -870,17 +848,16 @@ export function VideoPlayer({
     return () => {
       cancelled = true;
       try { window.clearTimeout(watchdog); } catch {}
-      try { window.clearTimeout(grace); } catch {}
       try { if (player && typeof player.destroy === "function") player.destroy(); } catch {}
     };
   }, [playing, dead, liveVideoId, ytId, platform, iframeKey]);
 
-  /* Plain-frame net (channel follows, Facebook, other non-API frames): these
-     iframes never report content errors cross-origin, so a dead channel embed
-     would otherwise sit on the black "video unavailable" frame with no way
-     out. Watchdog re-asks what's live now: a fresh verified broadcast upgrades
-     to its own id (API path above, which does report errors); a proven-off
-     channel and any never-loaded frame land on the same grey arrow above. */
+  /* Plain-frame net (Facebook only now — YouTube mounts no blind frame, so a
+     channel with no verified id waits on its thumbnail above): the iframe
+     never reports content errors cross-origin. Watchdog re-asks what's live
+     now: a fresh verified broadcast upgrades to its own id (API path, which
+     does report errors); a proven-off channel and any never-loaded frame
+     land on the thumbnail fallback. */
   const frameLoadedRef = useRef(false);
   useEffect(() => {
     frameLoadedRef.current = false;
@@ -948,13 +925,10 @@ export function VideoPlayer({
     };
   }, [playing, dead, liveVideoId, ytId, platform, freshSrc, file, followId, iframeKey, sourceKey, forceKey]);
 
-  /* Channel-follow auto-recovery (unavailable-frame net): a live channel embed
-     reports no errors cross-origin, so a stale/refused channel frame would sit
-     on YouTube's own "unavailable" text with no arrow. Every 20s while a live
-     channel follow plays with no verified id, re-ask what's live now: a fresh
-     verified broadcast upgrades to its own id (API path, which DOES report
-     errors); a proven-off channel lands on the same grey-arrow fallback as
-     every other failure. Never throws; hidden tabs skip. */
+  /* Channel-follow auto-recovery: while a live channel waits on its thumbnail
+     with no verified id, re-ask what's live now every 20s — a fresh verified
+     broadcast upgrades to its own id (API path, which DOES report errors);
+     a proven-off channel lands on the thumbnail fallback. Never throws. */
   useEffect(() => {
     if (!playing || dead || !live) return;
     if (liveVideoId || ytId) return;
@@ -1117,8 +1091,30 @@ export function VideoPlayer({
           {(platform === "youtube" && (liveVideoId || ytId)) ? (
             /* API-managed frame (bare video id): the API injects its own
                iframe into this host div and reports its own errors; React
-               never touches what's inside it. */
+               never touches what's inside it. Only a verified id ever
+               reaches this frame — that is what keeps the "unavailable"
+               text off the screen. */
             <div key={iframeKey} ref={apiHostRef} className="player__frame-host" />
+          ) : platform === "youtube" ? (
+            /* YouTube with no verified video id: NEVER mount the channel
+               embed blind — an offline or ended channel renders YouTube's
+               own "unavailable" text. The latest thumbnail waits here while
+               the check resolves to a verified id (API path above); if none
+               comes the watchdog drops to the thumbnail fallback instead. */
+            <div className="player__poster player__poster--live" aria-live="polite">
+              {still ? (
+                <img src={still} alt="" loading="lazy" onError={handleStillError} />
+              ) : null}
+              <span className="player__scrim" />
+              <span className={"player__source player__source--" + platform}>
+                <Icon name="youtube" size={13} /> {platformLabel(platform)}
+              </span>
+              {live && (
+                <span className="player__live">
+                  <span className="live-dot" /> {ct("live.player.badge")}
+                </span>
+              )}
+            </div>
           ) : (
           <iframe
             key={iframeKey}
@@ -1132,44 +1128,11 @@ export function VideoPlayer({
               try {
                 frameLoadedRef.current = true;
               } catch {}
-              /* Plain frames never report errors cross-origin, so the cover
-                 lifts only when the check still says live — an offline or
-                 dead channel keeps its thumbnail instead of revealing
-                 YouTube's "unavailable" text. */
+              /* Plain frames never report errors cross-origin: the Facebook
+                 cover lifts on load; YouTube never mounts a blind frame
+                 above, so there is nothing else to confirm here. */
               try {
-                if (platform === "facebook") {
-                  setFrameConfirmed(true);
-                  return;
-                }
-                if (platform === "youtube" && followId && !liveVideoId && !ytId) {
-                  checkLiveStream({ facebook: !!facebookTarget() }).then((st) => {
-                    try {
-                      const guestWatchUrl = guestTarget()?.url || "";
-                      const mainUrl = liveTarget()?.url || "";
-                      const stamped =
-                        (!!mainUrl && isStatusForTarget(st, mainUrl)) || (!!guestWatchUrl && isStatusForTarget(st, guestWatchUrl));
-                      if (!stamped) return;
-                      if (st.state === "off") { try { setDead(true); } catch {} return; }
-                      if (st.state === "live" && st.videoId) {
-                        const vid = parseYoutubeId(st.videoId);
-                        if (vid) {
-                          verifyYoutubeId(vid).then((v) => {
-                            try {
-                              if (v === false) setDead(true);
-                              else { setFrameConfirmed(false); setLiveVideoId(vid); }
-                            } catch {}
-                          }).catch(() => {});
-                          return;
-                        }
-                      }
-                      if (st.state === "live" && st.channelId) {
-                        try { setFrameConfirmed(true); } catch {}
-                      }
-                    } catch {}
-                  }).catch(() => {});
-                } else {
-                  setFrameConfirmed(true);
-                }
+                if (platform === "facebook") setFrameConfirmed(true);
               } catch {}
             }}
             onError={() => {
@@ -1181,8 +1144,9 @@ export function VideoPlayer({
           )}
           {/* Cover-up: opaque thumbnail over the unproven frame — the
              "unavailable" text can never show through. Lifts only on real
-             playback (API PLAYING / plain-frame live check above). */}
-          {!frameConfirmed && still ? (
+             playback (API PLAYING / Facebook load above). YouTube mounts no
+             blind frame at all, so its cover only ever guards a verified id. */}
+          {!frameConfirmed && still && (platform !== "youtube" || liveVideoId || ytId) ? (
             <span className="player__cover" aria-hidden="true">
               <img src={still} alt="" loading="lazy" onError={handleStillError} />
               <span className="player__scrim" />

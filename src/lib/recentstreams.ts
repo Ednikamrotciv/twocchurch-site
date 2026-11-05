@@ -301,29 +301,19 @@ function trimChannel(title: string, channel: string): string {
   return cut.trim() || title;
 }
 
-/** "2w ago" in words; YouTube's page variants disagree. Accepts every unit
-    spelling YouTube emits ("sec(s)", "min(s)", "hr(s)", full words) — an
-    unrecognized "5 mins ago" used to pass through unnormalized, so its
-    approximate date came back 0 and the service sorted as undated. */
+/** "2w ago" in words; YouTube's page variants disagree. */
 export function prettyAgo(text: string): string {
   /* The /streams tab says "Streamed 4 days ago" where /videos says "4 days
      ago"; one card reads the same as the next (SPEC note 113). */
   const value = String(text || "")
     .trim()
     .replace(/^(?:streamed|premiered|started streaming)\s+/i, "");
-  const m = /^(\d+)\s*(s|sec|secs|second|seconds|m|min|mins|minute|minutes|h|hr|hrs|hour|hours|d|day|days|w|week|weeks|mo|mos|month|months|y|yr|yrs|year|years)\s*ago$/i.exec(value);
+  const m = /^(\d+)\s*(min|h|hr|d|w|mo|m|y)\s*ago$/i.exec(value);
   if (!m) return value;
   const n = Number(m[1]);
-  const t = m[2].toLowerCase();
-  let unit = "";
-  if (/^(s|sec|secs|second|seconds)$/.test(t)) unit = "second";
-  else if (/^(m|min|mins|minute|minutes)$/.test(t)) unit = "minute";
-  else if (/^(h|hr|hrs|hour|hours)$/.test(t)) unit = "hour";
-  else if (/^(d|day|days)$/.test(t)) unit = "day";
-  else if (/^(w|week|weeks)$/.test(t)) unit = "week";
-  else if (/^(mo|mos|month|months)$/.test(t)) unit = "month";
-  else if (/^(y|yr|yrs|year|years)$/.test(t)) unit = "year";
-  else return value;
+  const units: Record<string, string> = { min: "minute", h: "hour", hr: "hour", d: "day", w: "week", mo: "month", m: "minute", y: "year" };
+  const unit = units[m[2].toLowerCase()];
+  if (!unit) return value;
   return `${n} ${unit}${n === 1 ? "" : "s"} ago`;
 }
 
@@ -368,10 +358,9 @@ export function parseFeed(xml: string): { dates: Record<string, number>; titles:
 
 /** A rough date from YouTube's own words ("3 weeks ago") — 0 when we cannot tell. */
 function approxFromAgo(ago: string, now: number): number {
-  const m = /^(\d+)\s+(second|minute|hour|day|week|month|year)s?\s+ago$/i.exec(String(ago || "").trim());
+  const m = /^(\d+)\s+(minute|hour|day|week|month|year)s?\s+ago$/i.exec(String(ago || "").trim());
   if (!m) return 0;
   const unit: Record<string, number> = {
-    second: 1_000,
     minute: 60_000,
     hour: 3_600_000,
     day: 86_400_000,
