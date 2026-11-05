@@ -60,7 +60,6 @@ import { photoOr } from "../data/photos";
 import { BRANCHES, DEFAULT_BRANCH_ID, HQ, branchFlag, branchZone, subBranchesOf, type Branch } from "../data/branches";
 import { LIVE, type WatchOption } from "../data/live";
 import type { RecentService } from "../lib/recentstreams";
-import { designatedFallback, readRecentServices } from "../lib/recentstreams";
 import { type Sermon, sermonDate, sermonThumb, ytWatch } from "../data/sermons";
 import { SCRIPTURES, TESTIMONY_CATEGORIES, type ChurchEvent } from "../data/content";
 import { Badge, Btn, Card, Icon, IconBtn, Modal, Notice, Reveal, Stat, TagList, Eyebrow, Field, Input, Monogram, ShareRow } from "./ui";
@@ -264,27 +263,10 @@ function loadYtPlayerApi(): Promise<any> {
 }
 
 
-/** Latest previous-livestream still, read synchronously (note 372): the live
-    read off the channel when it has landed, else the baked @twocorg fallback —
-    so a dead/unavailable live frame always has a real service thumbnail to
-    stand on instead of a blank screen. Never throws; "" when nothing exists. */
-function latestPreviousLivestreamThumb(): string {
-  try {
-    const t = readRecentServices()?.items?.[0]?.thumb;
-    if (t) return t;
-  } catch {}
-  try {
-    const t = designatedFallback()?.items?.[0]?.thumb;
-    if (t) return t;
-  } catch {}
-  return "";
-}
-
 export function VideoPlayer({
   source,
   title,
   poster,
-  fallbackPoster,
   onPlay,
   compact,
   live,
@@ -296,10 +278,6 @@ export function VideoPlayer({
   source: VideoSource;
   title: string;
   poster?: string;
-  /** A still to stand in when the slot carries none of its own — the live
-      screen passes its cover (the latest previous service), so a dead or
-      sourceless frame shows that instead of a blank screen. */
-  fallbackPoster?: string;
   onPlay?: () => void;
   compact?: boolean;
   live?: boolean;
@@ -451,18 +429,7 @@ export function VideoPlayer({
      its remount is already fresh. */
   const freshSrc = forceKey > 0 && src ? src + (src.indexOf("?") === -1 ? "?" : "&") + "womfresh=" + forceKey : src;
   const file = fileSrc(source);
-  /* A dead or sourceless live never sits on a blank screen: when the slot
-     carries no still of its own, the latest previous-livestream thumbnail
-     stands in — the caller's cover first, else the live read / baked
-     fallback. A dead named id's own thumbnail is skipped on purpose: it is
-     often YouTube's grey placeholder, while the previous service is real. */
-  const liveFallbackStill = live ? latestPreviousLivestreamThumb() : "";
-  const still =
-    (poster && !failed ? poster : "") ||
-    (live ? liveFallbackStill : "") ||
-    posterFor(source, fallbackPoster || liveFallbackStill) ||
-    fallbackPoster ||
-    liveFallbackStill;
+  const still = poster && !failed ? poster : posterFor(source);
   const platform: VideoPlatform = source?.platform === "facebook" ? "facebook" : source?.platform === "upload" ? "upload" : "youtube";
   const shell = "player" + (compact ? " player--compact" : "") + (playing ? " player--playing" : "");
 
@@ -963,25 +930,7 @@ export function VideoPlayer({
     return (
       <div className={shell + " player--dead"}>
         {still ? (
-          <img
-            src={still}
-            alt=""
-            loading="lazy"
-            onError={(e) => {
-              /* A broken still must never leave a blank frame either: swap in
-                 the latest previous service once, else drop the poster. */
-              try {
-                const fb = fallbackPoster || liveFallbackStill;
-                if (fb && e.currentTarget.src !== fb) {
-                  e.currentTarget.src = fb;
-                  return;
-                }
-              } catch {}
-              try {
-                setFailed(true);
-              } catch {}
-            }}
-          />
+          <img src={still} alt="" loading="lazy" onError={() => setFailed(true)} />
         ) : (
           <span className={"player__still player__still--" + platform}>
             <Icon name={platform === "upload" ? "play" : platform} size={54} />
@@ -1041,35 +990,13 @@ export function VideoPlayer({
 
   /* Blank with no address carries the grey arrow too: a sourceless player
      never heals by itself, so the same force repair sits on the blank — one
-     tap re-asks what's live now and opens the current broadcast fresh. A
-     live with no address still shows the latest previous service behind it,
-     never a bare screen. */
+     tap re-asks what's live now and opens the current broadcast fresh. */
   if (!src) {
     return (
       <div className={shell + " player--empty"}>
-        {still ? (
-          <img
-            src={still}
-            alt=""
-            loading="lazy"
-            onError={(e) => {
-              try {
-                const fb = fallbackPoster || liveFallbackStill;
-                if (fb && e.currentTarget.src !== fb) {
-                  e.currentTarget.src = fb;
-                  return;
-                }
-              } catch {}
-              try {
-                setFailed(true);
-              } catch {}
-            }}
-          />
-        ) : (
-          <span className={"player__still player__still--" + platform}>
-            <Icon name={platform === "upload" ? "play" : platform} size={54} />
-          </span>
-        )}
+        <span className={"player__still player__still--" + platform}>
+          <Icon name={platform === "upload" ? "play" : platform} size={54} />
+        </span>
         <span className="player__scrim" />
         <button
           type="button"
@@ -1147,28 +1074,11 @@ export function VideoPlayer({
         </>
       ) : live ? (
         /* Live waits quietly — no icon, no status line: while the broadcast
-           is not yet open the dimmed still shows — the latest previous
-           service when the slot carries none of its own, never a bare frame.
+           is not yet open only the dimmed still shows (or the bare frame).
            The frame still opens by itself with sound the moment it can. */
         <div className="player__poster player__poster--live" aria-live="polite">
           {still ? (
-            <img
-              src={still}
-              alt=""
-              loading="lazy"
-              onError={(e) => {
-                try {
-                  const fb = fallbackPoster || liveFallbackStill;
-                  if (fb && e.currentTarget.src !== fb) {
-                    e.currentTarget.src = fb;
-                    return;
-                  }
-                } catch {}
-                try {
-                  setFailed(true);
-                } catch {}
-              }}
-            />
+            <img src={still} alt="" loading="lazy" onError={() => setFailed(true)} />
           ) : null}
           <span className="player__scrim" />
           <span className={"player__source player__source--" + platform}>
