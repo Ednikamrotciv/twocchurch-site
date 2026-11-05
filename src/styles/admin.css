@@ -925,6 +925,53 @@
   margin-left: auto;
 }
 
+/* Livestream health dashboard (note 441): statuses, validate + preview,
+   video id, last check, player error, recovery, backup and diagnostics. */
+.admin__livehealth {
+  margin: 0.6rem 0;
+}
+.admin__livehealth-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.6rem;
+  margin-bottom: 0.5rem;
+}
+.admin__livehealth-head h4 {
+  margin: 0;
+  font-size: 0.95rem;
+}
+.admin__livehealth-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.4rem 1rem;
+  margin: 0 0 0.6rem;
+  padding: 0;
+}
+.admin__livehealth-grid > div {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  margin: 0;
+}
+.admin__livehealth-grid dt {
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--muted);
+}
+.admin__livehealth-grid dd {
+  margin: 0;
+  font-size: 0.88rem;
+  word-break: break-word;
+}
+.admin__livehealth-grid code {
+  font-size: 0.82rem;
+}
+@media (max-width: 560px) {
+  .admin__livehealth-grid { grid-template-columns: 1fr; }
+}
+
 .admin__live-note {
   margin: 0;
   font-size: 0.8rem;

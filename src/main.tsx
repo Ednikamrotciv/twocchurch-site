@@ -2,6 +2,7 @@ import React from "react";
 import { createRoot } from "react-dom/client";
 import { MotionConfig } from "framer-motion";
 import { App } from "./App";
+import { installFaultHandlers } from "./lib/faults";
 import "./styles/global.css";
 import "./styles/pages.css";
 import "./styles/glass.css";
@@ -27,6 +28,12 @@ try {
 } catch {}
 
 function mount() {
+  /* Post-boot safety net first: global error/rejection capture + a
+     document-level broken-image fallback, so one failed component or file
+     can never take the whole site down silently. */
+  try {
+    installFaultHandlers();
+  } catch {}
   const el = document.getElementById("root");
   if (!el) {
     console.error("Root container #root not found");

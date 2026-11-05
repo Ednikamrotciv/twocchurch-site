@@ -10,6 +10,7 @@ import {
   EMBED_REFERRER_POLICY,
   embedSrc,
   fileSrc,
+  hasVideo,
   isFacebookVideoUrl,
   isUploadVideoUrl,
   parseYoutubeId,
@@ -22,6 +23,7 @@ import {
   type VideoSource,
 } from "../lib/embed";
 import { checkLiveStream, facebookTarget, isStatusForTarget, liveTarget, guestTarget, isGuestTargetUrl, peekVerified, verifyYoutubeId, forgetVerified, forgetAllVerified, recheckLiveNow, isDesignatedChannel, designatedChannelIdForTarget } from "../lib/livestatus";
+import { backoffDelayMs, isRecoverablePlayerError, readPlayerPrefs, reportPlayerError, MAX_RECOVERY_ATTEMPTS } from "../lib/livevalidate";
 import {
   KEYS,
   fmtDate,
@@ -60,6 +62,7 @@ import { photoOr } from "../data/photos";
 import { BRANCHES, DEFAULT_BRANCH_ID, HQ, branchFlag, branchZone, subBranchesOf, type Branch } from "../data/branches";
 import { LIVE, type WatchOption } from "../data/live";
 import type { RecentService } from "../lib/recentstreams";
+import { designatedFallback, readRecentServices } from "../lib/recentstreams";
 import { type Sermon, sermonDate, sermonThumb, ytWatch } from "../data/sermons";
 import { SCRIPTURES, TESTIMONY_CATEGORIES, type ChurchEvent } from "../data/content";
 import { Badge, Btn, Card, Icon, IconBtn, Modal, Notice, Reveal, Stat, TagList, Eyebrow, Field, Input, Monogram, ShareRow } from "./ui";
@@ -263,10 +266,27 @@ function loadYtPlayerApi(): Promise<any> {
 }
 
 
+/** Latest previous-livestream still, read synchronously (note 372): the live
+    read off the channel when it has landed, else the baked @twocorg fallback —
+    so a dead/unavailable live frame always has a real service thumbnail to
+    stand on instead of a blank screen. Never throws; "" when nothing exists. */
+function latestPreviousLivestreamThumb(): string {
+  try {
+    const t = readRecentServices()?.items?.[0]?.thumb;
+    if (t) return t;
+  } catch {}
+  try {
+    const t = designatedFallback()?.items?.[0]?.thumb;
+    if (t) return t;
+  } catch {}
+  return "";
+}
+
 export function VideoPlayer({
   source,
   title,
   poster,
+  fallbackPoster,
   onPlay,
   compact,
   live,
@@ -274,10 +294,18 @@ export function VideoPlayer({
   hideEscape,
   hideDeadText,
   reloadSignal,
+  backupSource,
+  offlineMessage,
+  onPlayerEvent,
+  isFallbackView,
 }: {
   source: VideoSource;
   title: string;
   poster?: string;
+  /** A still to stand in when the slot carries none of its own — the live
+      screen passes its cover (the latest previous service), so a dead or
+      sourceless frame shows that instead of a blank screen. */
+  fallbackPoster?: string;
   onPlay?: () => void;
   compact?: boolean;
   live?: boolean;
@@ -294,6 +322,17 @@ export function VideoPlayer({
       what's live now, remounts the frame on a fresh address — any error or
       blank heals with no page reload, staying on this site. */
   reloadSignal?: number;
+  /** Backup recording / spare stream (note 441): when the primary is genuinely
+      unavailable the player shows this instead — labelled Recording, never
+      LIVE. Never an unrelated video: callers pass only the office's backup. */
+  backupSource?: VideoSource;
+  /** What the offline screen says when no broadcast and no backup exists. */
+  offlineMessage?: string;
+  /** Player lifecycle reports (note 441): ready / error / reconnecting — the
+      admin panel reads the shared bus too (getLastPlayerError). */
+  onPlayerEvent?: (e: { code: number | null; videoId: string; phase: string }) => void;
+  /** True while this frame IS the backup recording (label + no LIVE badge). */
+  isFallbackView?: boolean;
 }) {
   const [failed, setFailed] = useState(false);
   /* Dead-video net (note 333, hardened note 413): a removed or private video must never sit on
@@ -339,6 +378,33 @@ export function VideoPlayer({
   const [checking, setChecking] = useState(false);
   const [notLive, setNotLive] = useState(false);
   const [liveVideoId, setLiveVideoId] = useState("");
+  /* Recovery (note 441): bounded exponential backoff, no iframe churn, no
+     infinite retries for dead/private/unembeddable videos. `phase` is the
+     admin-facing stream state for this frame; `firstFrame` hides the
+     thumbnail/loading overlay the moment the video actually plays; `attempt`
+     counts recoverable retries (max MAX_RECOVERY_ATTEMPTS). Prefs restore the
+     visitor's sound choice on every re-init. No full-page reload, ever. */
+  const [phase, setPhase] = useState<"idle" | "connecting" | "reconnecting">("idle");
+  const [firstFrame, setFirstFrame] = useState(false);
+  const [playerCode, setPlayerCode] = useState<number | null>(null);
+  const attemptRef = useRef(0);
+  const retryTimer = useRef(0);
+  useEffect(() => () => { try { window.clearTimeout(retryTimer.current); } catch {} }, []);
+  const noteEvent = (code: number | null, vid: string, ph: string) => {
+    try { reportPlayerError(code, vid, ph); } catch {}
+    try { onPlayerEvent?.({ code, videoId: vid, phase: ph }); } catch {}
+  };
+  /* A new source starts unjudged (and unpainted): the thumbnail shows first,
+     the frame fades in on the first actual frame. The remount key below only
+     moves when the address itself moves — never on a poll tick. */
+  useEffect(() => {
+    setFirstFrame(false);
+    setPlayerCode(null);
+    attemptRef.current = 0;
+    try { window.clearTimeout(retryTimer.current); } catch {}
+    if (playing) setPhase("connecting");
+    else setPhase("idle");
+  }, [sourceKey]);
   /* One-press FORCE repair (visitor arrow + office Reload share it): drop
      stale verdicts, re-ask what's live now, and play the current broadcast
      by its fresh verified ID — a restarted stream's new video, a stale
@@ -429,7 +495,18 @@ export function VideoPlayer({
      its remount is already fresh. */
   const freshSrc = forceKey > 0 && src ? src + (src.indexOf("?") === -1 ? "?" : "&") + "womfresh=" + forceKey : src;
   const file = fileSrc(source);
-  const still = poster && !failed ? poster : posterFor(source);
+  /* A dead or sourceless live never sits on a blank screen: when the slot
+     carries no still of its own, the latest previous-livestream thumbnail
+     stands in — the caller's cover first, else the live read / baked
+     fallback. A dead named id's own thumbnail is skipped on purpose: it is
+     often YouTube's grey placeholder, while the previous service is real. */
+  const liveFallbackStill = live ? latestPreviousLivestreamThumb() : "";
+  const still =
+    (poster && !failed ? poster : "") ||
+    (live ? liveFallbackStill : "") ||
+    posterFor(source, fallbackPoster || liveFallbackStill) ||
+    fallbackPoster ||
+    liveFallbackStill;
   const platform: VideoPlatform = source?.platform === "facebook" ? "facebook" : source?.platform === "upload" ? "upload" : "youtube";
   const shell = "player" + (compact ? " player--compact" : "") + (playing ? " player--playing" : "");
 
@@ -674,7 +751,7 @@ export function VideoPlayer({
 
   /* Self-healing while live: a screen that landed on the dead fallback while
      the broadcast is STILL on air (embedding flipped on, a restarted
-     stream's new id resolving late) re-resolves by itself every 30s and
+     stream's new id resolving late) re-resolves by itself every 20s and
      reopens the moment a verified live id answers — no arrow tap, no office
      Reload needed. Anything but a verified live id stays put, so a truly
      ended broadcast never loops. */
@@ -730,7 +807,7 @@ export function VideoPlayer({
           /* stay on the fallback — the next round tries again */
         }
       })();
-    }, 30_000);
+    }, 20_000);
     return () => {
       cancelled = true;
       try {
@@ -772,19 +849,72 @@ export function VideoPlayer({
         try {
           let apiOrigin = "";
           try { const w = (window as any); apiOrigin = w && w.location && w.location.origin ? String(w.location.origin) : ""; } catch { apiOrigin = ""; }
+          /* Restore the visitor's sound choice on every re-init (note 441):
+             the broadcast always carries audio; a muted visitor stays muted. */
+          let prefs = { muted: false, volume: 100 };
+          try { prefs = readPlayerPrefs(); } catch {}
           player = new api.Player(host, {
             videoId: vid,
             playerVars: { autoplay: 1, rel: 0, modestbranding: 1, playsinline: 1, ...(apiOrigin ? { origin: apiOrigin } : {}) },
             events: {
-              onReady: () => {
+              onReady: (ev: any) => {
                 settled = true;
                 try { window.clearTimeout(watchdog); } catch {}
+                /* Sound prefs back on (never muted by default — the broadcast
+                   carries its audio); a real PLAYING frame still has to land
+                   before the thumbnail lifts (first-frame rule below). */
+                try {
+                  if (prefs.muted && ev && ev.target && typeof ev.target.mute === "function") ev.target.mute();
+                  else if (ev && ev.target && typeof ev.target.setVolume === "function") ev.target.setVolume(prefs.volume);
+                } catch {}
+                try { setPhase("connecting"); } catch {}
+                try { noteEvent(null, vid, "ready"); } catch {}
+              },
+              onStateChange: (ev: any) => {
+                try {
+                  const st = Number(ev && (ev as any).data);
+                  /* YT.PlayerState.PLAYING === 1: the first actual frame — the
+                     thumbnail + loading overlay lift only now, never before. */
+                  if (st === 1) {
+                    settled = true;
+                    try { window.clearTimeout(watchdog); } catch {}
+                    try { setFirstFrame(true); } catch {}
+                    try { setPhase("idle"); } catch {}
+                    try { attemptRef.current = 0; } catch {}
+                    try { noteEvent(null, vid, "playing"); } catch {}
+                  } else if (st === 3) {
+                    /* BUFFERING: the stream is working — stay on the loading
+                       overlay, never the black frame. A stall past the watchdog
+                       below retries with backoff instead of sitting. */
+                    try { setPhase((p) => (p === "idle" ? "connecting" : p)); } catch {}
+                  }
+                } catch {}
               },
               onError: (e: any) => {
                 const code = Number(e && (e as any).data);
                 try { window.clearTimeout(watchdog); } catch {}
+                try { setPlayerCode(Number.isFinite(code) ? code : null); } catch {}
+                try { noteEvent(Number.isFinite(code) ? code : null, vid, "youtube-error"); } catch {}
                 if (code === 100 || code === 101 || code === 105 || code === 150) fail("youtube-error", code);
-                else { settled = true; }
+                else if (!isRecoverablePlayerError(Number.isFinite(code) ? code : null)) fail("youtube-error", code);
+                else {
+                  /* Recoverable player error (HTML5 5, unknown): bounded retry
+                     with backoff — re-init only, never a page reload, and the
+                     thumbnail stays up the whole time. */
+                  settled = true;
+                  try {
+                    const n = Math.min(MAX_RECOVERY_ATTEMPTS, attemptRef.current + 1);
+                    attemptRef.current = n;
+                    if (n > MAX_RECOVERY_ATTEMPTS) { fail("youtube-error", code); return; }
+                    try { setPhase("reconnecting"); } catch {}
+                    try { noteEvent(Number.isFinite(code) ? code : null, vid, "reconnecting"); } catch {}
+                    try { window.clearTimeout(retryTimer.current); } catch {}
+                    retryTimer.current = window.setTimeout(() => {
+                      try { setIframeKey((k) => k + 1); } catch {}
+                      try { noteEvent(Number.isFinite(code) ? code : null, vid, "retry"); } catch {}
+                    }, backoffDelayMs(n));
+                  } catch { settled = true; }
+                }
               },
             },
           });
@@ -799,6 +929,46 @@ export function VideoPlayer({
       try { if (player && typeof player.destroy === "function") player.destroy(); } catch {}
     };
   }, [playing, dead, liveVideoId, ytId, platform, iframeKey]);
+
+  /* Temporary network / buffering recovery (note 441): offline, a dropped
+     connection or a stalled start retries with bounded exponential backoff —
+     the thumbnail stays up, sound prefs are kept, and the iframe is only
+     recreated when a retry actually fires (no churn on poll ticks). Genuinely
+     dead/private/unembeddable videos never enter this path (fail() above owns
+     them). No page reload, ever. */
+  useEffect(() => {
+    if (!playing || dead) return;
+    if (!live) return;
+    let cancelled = false;
+    const onOff = () => {
+      if (cancelled) return;
+      try { setPhase("reconnecting"); } catch {}
+      try { noteEvent(null, liveVideoId || ytId, "offline"); } catch {}
+    };
+    const onOn = () => {
+      if (cancelled) return;
+      const n = Math.min(MAX_RECOVERY_ATTEMPTS, attemptRef.current + 1);
+      attemptRef.current = n;
+      if (!isRecoverablePlayerError(playerCode)) return;
+      if (n > MAX_RECOVERY_ATTEMPTS) return;
+      try { setPhase("reconnecting"); } catch {}
+      try { window.clearTimeout(retryTimer.current); } catch {}
+      retryTimer.current = window.setTimeout(() => {
+        if (cancelled) return;
+        try { setIframeKey((k) => k + 1); } catch {}
+        try { noteEvent(null, liveVideoId || ytId, "online-retry"); } catch {}
+      }, backoffDelayMs(n));
+    };
+    try {
+      window.addEventListener("offline", onOff);
+      window.addEventListener("online", onOn);
+    } catch {}
+    return () => {
+      cancelled = true;
+      try { window.removeEventListener("offline", onOff); } catch {}
+      try { window.removeEventListener("online", onOn); } catch {}
+    };
+  }, [playing, dead, live, liveVideoId, ytId, playerCode]);
 
   /* Plain-frame net (channel follows, Facebook, other non-API frames): these
      iframes never report content errors cross-origin, so a dead channel embed
@@ -875,7 +1045,7 @@ export function VideoPlayer({
 
   /* Channel-follow auto-recovery (unavailable-frame net): a live channel embed
      reports no errors cross-origin, so a stale/refused channel frame would sit
-     on YouTube's own "unavailable" text with no arrow. Every 20s while a live
+     on YouTube's own "unavailable" text with no arrow. Every 15s while a live
      channel follow plays with no verified id, re-ask what's live now: a fresh
      verified broadcast upgrades to its own id (API path, which DOES report
      errors); a proven-off channel lands on the same grey-arrow fallback as
@@ -914,7 +1084,7 @@ export function VideoPlayer({
         } catch {}
       })().catch(() => {});
     };
-    const iv = window.setInterval(tick, 20_000);
+    const iv = window.setInterval(tick, 15_000);
     return () => { cancelled = true; try { window.clearInterval(iv); } catch {} };
   }, [playing, dead, live, liveVideoId, ytId, followId, platform]);
 
@@ -927,10 +1097,107 @@ export function VideoPlayer({
      video that survives arrow + Reload + Publish is fixed in YouTube Studio
      (enable embedding or swap the video), not in this player. */
   if (dead) {
+    /* Backup first (note 441): a genuinely unavailable primary never leaves
+       a broken frame — the office's backup recording plays instead, labelled
+       Recording and never LIVE. No backup → the offline screen with the
+       office's message. The primary keeps being watched behind it (the
+       self-heal above reopens it when it recovers). Never an unrelated video:
+       backupSource is only ever the office's configured backup. */
+    const backupReady = !isFallbackView && backupSource && hasVideo(backupSource) && !fileSrc(backupSource as VideoSource);
+    const backupFile = !isFallbackView && backupSource && !!fileSrc(backupSource as VideoSource);
+    if (backupReady || backupFile) {
+      return (
+        <div className={shell + " player--dead player--fallback"}>
+          <VideoPlayer
+            source={backupSource as VideoSource}
+            title={title}
+            poster={poster || still}
+            fallbackPoster={fallbackPoster || still}
+            compact={compact}
+            isFallbackView
+          />
+          <span className="player__recording"><span className="live-dot live-dot--rec" aria-hidden="true" /> {tx("Recording")}</span>
+          {live && (
+            <button type="button" className="player__mini-reload" onClick={retry} aria-label={tx("Retry the live broadcast")} title={tx("Retry the live broadcast")}>
+              <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path fill="currentColor" d="M12 5V1L7 6l5 5V7c3.3 0 6 2.7 6 6s-2.7 6-6 6-6-2.7-6-6H4c0 4.4 3.6 8 8 8s8-3.6 8-8-3.6-8-8-8z" /></svg>
+            </button>
+          )}
+        </div>
+      );
+    }
+    if (!isFallbackView && (offlineMessage || live)) {
+      /* Offline screen (note 441): professional, still up, message from the
+         office, retry keeps watching the primary — never the black frame. */
+      const msg = String(offlineMessage || "").trim() || tx("The broadcast is unavailable right now — please check back shortly.");
+      return (
+        <div className={shell + " player--dead player--offline"}>
+          {still ? (
+            <img
+              src={still}
+              alt=""
+              loading="lazy"
+              onError={(e) => {
+                try {
+                  const fb = fallbackPoster || liveFallbackStill;
+                  if (fb && e.currentTarget.src !== fb) { e.currentTarget.src = fb; return; }
+                } catch {}
+                try { setFailed(true); } catch {}
+              }}
+            />
+          ) : (
+            <span className={"player__still player__still--" + platform}>
+              <Icon name={platform === "upload" ? "play" : platform} size={54} />
+            </span>
+          )}
+          <span className="player__scrim" />
+          <div className="player__deadbody">
+            <p className="player__deadtitle">{shown}</p>
+            <p className="player__deadtext">{msg}</p>
+            <button
+              type="button"
+              className={"player__reload" + (repairing ? " is-spinning" : "")}
+              onClick={retry}
+              aria-label={tx("Retry the livestream")}
+              title={tx("Retry the livestream")}
+            >
+              <svg viewBox="0 0 24 24" width="44" height="44" aria-hidden="true">
+                <path fill="currentColor" d="M12 5V1L7 6l5 5V7c3.3 0 6 2.7 6 6s-2.7 6-6 6-6-2.7-6-6H4c0 4.4 3.6 8 8 8s8-3.6 8-8-3.6-8-8-8z" />
+              </svg>
+            </button>
+          </div>
+          {live && !isFallbackView && (
+            <span className="player__live">
+              <span className="live-dot" /> {ct("live.player.badge")}
+            </span>
+          )}
+          {isFallbackView && (
+            <span className="player__recording"><span className="live-dot live-dot--rec" aria-hidden="true" /> {tx("Recording")}</span>
+          )}
+        </div>
+      );
+    }
     return (
       <div className={shell + " player--dead"}>
         {still ? (
-          <img src={still} alt="" loading="lazy" onError={() => setFailed(true)} />
+          <img
+            src={still}
+            alt=""
+            loading="lazy"
+            onError={(e) => {
+              /* A broken still must never leave a blank frame either: swap in
+                 the latest previous service once, else drop the poster. */
+              try {
+                const fb = fallbackPoster || liveFallbackStill;
+                if (fb && e.currentTarget.src !== fb) {
+                  e.currentTarget.src = fb;
+                  return;
+                }
+              } catch {}
+              try {
+                setFailed(true);
+              } catch {}
+            }}
+          />
         ) : (
           <span className={"player__still player__still--" + platform}>
             <Icon name={platform === "upload" ? "play" : platform} size={54} />
@@ -954,11 +1221,13 @@ export function VideoPlayer({
         <div className="player__deadbody">
           <p className="player__deadtitle">{shown}</p>
         </div>
-        {live && (
+        {isFallbackView ? (
+          <span className="player__recording"><span className="live-dot live-dot--rec" aria-hidden="true" /> {tx("Recording")}</span>
+        ) : live ? (
           <span className="player__live">
             <span className="live-dot" /> {ct("live.player.badge")}
           </span>
-        )}
+        ) : null}
       </div>
     );
   }
@@ -979,24 +1248,48 @@ export function VideoPlayer({
           onPlay={() => onPlay?.()}
           onError={() => setDead(true)}
         />
-        {live && (
+        {isFallbackView ? (
+          <span className="player__recording"><span className="live-dot live-dot--rec" aria-hidden="true" /> {tx("Recording")}</span>
+        ) : live ? (
           <span className="player__live">
             <span className="live-dot" /> {ct("live.player.badge")}
           </span>
-        )}
+        ) : null}
       </div>
     );
   }
 
   /* Blank with no address carries the grey arrow too: a sourceless player
      never heals by itself, so the same force repair sits on the blank — one
-     tap re-asks what's live now and opens the current broadcast fresh. */
+     tap re-asks what's live now and opens the current broadcast fresh. A
+     live with no address still shows the latest previous service behind it,
+     never a bare screen. */
   if (!src) {
     return (
       <div className={shell + " player--empty"}>
-        <span className={"player__still player__still--" + platform}>
-          <Icon name={platform === "upload" ? "play" : platform} size={54} />
-        </span>
+        {still ? (
+          <img
+            src={still}
+            alt=""
+            loading="lazy"
+            onError={(e) => {
+              try {
+                const fb = fallbackPoster || liveFallbackStill;
+                if (fb && e.currentTarget.src !== fb) {
+                  e.currentTarget.src = fb;
+                  return;
+                }
+              } catch {}
+              try {
+                setFailed(true);
+              } catch {}
+            }}
+          />
+        ) : (
+          <span className={"player__still player__still--" + platform}>
+            <Icon name={platform === "upload" ? "play" : platform} size={54} />
+          </span>
+        )}
         <span className="player__scrim" />
         <button
           type="button"
@@ -1025,7 +1318,7 @@ export function VideoPlayer({
     );
   }
   return (
-    <div className={shell}>
+    <div className={shell + (phase === "reconnecting" ? " player--reconnecting" : "") + (!firstFrame && playing ? " player--connecting" : "")}>
       {playing ? (
         <>
           {(platform === "youtube" && (liveVideoId || ytId)) ? (
@@ -1046,6 +1339,11 @@ export function VideoPlayer({
               try {
                 frameLoadedRef.current = true;
               } catch {}
+              /* Plain frames never report content errors cross-origin — a
+                 loaded frame counts as its first frame (the verifier +
+                 watchdogs still own the dead decision above). */
+              try { if (!firstFrame) setFirstFrame(true); } catch {}
+              try { if (phase !== "idle") setPhase("idle"); } catch {}
             }}
             onError={() => {
               try {
@@ -1053,6 +1351,21 @@ export function VideoPlayer({
               } catch {}
             }}
           />
+          )}
+          {/* Thumbnail-first (note 441): the configured still shows
+              immediately at full frame size (no blank/black, no layout shift —
+              aspect-ratio holds the box) with a Connecting… overlay; the video
+              replaces it only on its first actual frame (PLAYING above, load
+              for plain frames). */}
+          {!firstFrame && (
+            <div className="player__connecting" aria-live="polite">
+              {still ? (
+                <img src={still} alt="" loading="eager" onError={() => { try { setFailed(true); } catch {} }} />
+              ) : null}
+              <span className="player__scrim" />
+              <span className="player__spinner" aria-hidden="true" />
+              <span className="player__connectlabel">{phase === "reconnecting" ? tx("Reconnecting…") : tx("Connecting…")}</span>
+            </div>
           )}
           {/* The frame itself never reports a failure (note 344): a video
               YouTube refuses to embed, blocks in this country, or takes down
@@ -1071,14 +1384,38 @@ export function VideoPlayer({
               {tx("Can't see the video? Watch on YouTube")}
             </a>
           )}
+          {isFallbackView ? (
+            <span className="player__recording"><span className="live-dot live-dot--rec" aria-hidden="true" /> {tx("Recording")}</span>
+          ) : live ? (
+            <span className="player__live">
+              <span className="live-dot" /> {ct("live.player.badge")}
+            </span>
+          ) : null}
         </>
       ) : live ? (
         /* Live waits quietly — no icon, no status line: while the broadcast
-           is not yet open only the dimmed still shows (or the bare frame).
+           is not yet open the dimmed still shows — the latest previous
+           service when the slot carries none of its own, never a bare frame.
            The frame still opens by itself with sound the moment it can. */
         <div className="player__poster player__poster--live" aria-live="polite">
           {still ? (
-            <img src={still} alt="" loading="lazy" onError={() => setFailed(true)} />
+            <img
+              src={still}
+              alt=""
+              loading="lazy"
+              onError={(e) => {
+                try {
+                  const fb = fallbackPoster || liveFallbackStill;
+                  if (fb && e.currentTarget.src !== fb) {
+                    e.currentTarget.src = fb;
+                    return;
+                  }
+                } catch {}
+                try {
+                  setFailed(true);
+                } catch {}
+              }}
+            />
           ) : null}
           <span className="player__scrim" />
           <span className={"player__source player__source--" + platform}>
