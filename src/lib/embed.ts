@@ -23,41 +23,24 @@ export function isUploadVideoUrl(input: string): boolean {
   return VIDEO_FILE.test(value) || /^https?:\/\//.test(value) || /^src\//.test(value);
 }
 
-/** Page origin for YouTube's enablejsapi `origin` param (cross-origin fix).
- *  Must read the *page* (`window.location`), never the bare `location`: inside
- *  a worker/test `location` is the worker's own URL (wrong origin appended to
- *  every embed, breaking exact-URL checks), while `window` only exists on the
- *  page where embeds actually run. */
-function pageOrigin(): string {
-  try {
-    const w = (globalThis as any).window;
-    const o = w && w.location && w.location.origin;
-    return typeof o === "string" && o.indexOf("http") === 0 ? o : "";
-  } catch { return ""; }
-}
-
-/** Accepts a bare id, a watch link, a share link, an embed link or a live link.
- *  Strict: only exact 11-character YouTube ids count. Channel pages, handles,
- *  sentences and pasted prose are NOT videos — inventing an id from them used
- *  to embed the black "video unavailable" frame. Anything unrecognized is "". */
+/** Accepts a bare id, a watch link, a share link, an embed link or a live link. */
 export function parseYoutubeId(input: string): string {
   const value = String(input || "").trim();
   if (!value) return "";
-  if (/^[\w-]{11}$/.test(value)) return value;
+  if (/^[\w-]{6,20}$/.test(value)) return value;
   const patterns = [
-    /[?&]v=([\w-]{11})/,
-    /youtu\.be\/([\w-]{11})/,
-    /youtube\.com\/live\/([\w-]{11})/,
-    /youtube\.com\/embed\/([\w-]{11})/,
-    /youtube\.com\/shorts\/([\w-]{11})/,
-    /youtube\.com\/watch\/([\w-]{11})/,
-    /youtube\.com\/v\/([\w-]{11})/,
+    /[?&]v=([\w-]{6,20})/,
+    /youtu\.be\/([\w-]{6,20})/,
+    /youtube\.com\/live\/([\w-]{6,20})/,
+    /youtube\.com\/embed\/([\w-]{6,20})/,
+    /youtube\.com\/shorts\/([\w-]{6,20})/,
+    /youtube\.com\/watch\/([\w-]{6,20})/,
   ];
   for (const re of patterns) {
     const m = re.exec(value);
     if (m) return m[1];
   }
-  return "";
+  return value.replace(/[^\w-]/g, "").slice(0, 20);
 }
 
 export function youtubeEmbed(id: string, autoplay = true): string {
@@ -65,14 +48,8 @@ export function youtubeEmbed(id: string, autoplay = true): string {
   if (!video) return "";
   /* Sound on (note 388): every live from a channel plays with its audio —
      anything the site plays, tapped or self-started, carries its sound, and
-     the stream's audio opens by itself the moment the broadcast starts.
-     enablejsapi lets the player hear YouTube's own error events.
-     origin (fix): without it enablejsapi throws cross-origin on the deployed
-     host and the API frame never reports ready/error — the watchdog then
-     swaps a good live to the fallback. Page origin only (see pageOrigin). */
-  let origin = "";
-  try { const o = pageOrigin(); origin = o ? `&origin=${encodeURIComponent(o)}` : ""; } catch { origin = ""; }
-  return `https://www.youtube.com/embed/${video}?rel=0&modestbranding=1&playsinline=1&enablejsapi=1${autoplay ? "&autoplay=1" : ""}${origin}`;
+     the stream's audio opens by itself the moment the broadcast starts. */
+  return `https://www.youtube.com/embed/${video}?rel=0&modestbranding=1&playsinline=1${autoplay ? "&autoplay=1" : ""}`;
 }
 
 /** A channel id (`UC…`): the only address the channel player takes. */
@@ -88,9 +65,7 @@ export function isYoutubeChannelId(input: unknown): boolean {
 export function youtubeChannelEmbed(channelId: string, autoplay = true): string {
   if (!isYoutubeChannelId(channelId)) return "";
   const id = String(channelId).trim();
-  let origin = "";
-  try { const o = pageOrigin(); origin = o ? `&origin=${encodeURIComponent(o)}` : ""; } catch { origin = ""; }
-  return `https://www.youtube.com/embed/live_stream?channel=${id}&rel=0&modestbranding=1&playsinline=1&enablejsapi=1${autoplay ? "&autoplay=1" : ""}${origin}`;
+  return `https://www.youtube.com/embed/live_stream?channel=${id}&rel=0&modestbranding=1&playsinline=1${autoplay ? "&autoplay=1" : ""}`;
 }
 
 export function youtubeWatch(id: string): string {
@@ -141,24 +116,9 @@ export function platformDoorName(url: string): string {
   return "";
 }
 
-/** A public Facebook video, reel or live-video link (not a profile/page).
- *  Fix: the old `facebook.com/.+` matched *any* page (e.g. the church's own
- *  profile `facebook.com/worldovercomers`) and the player then tried to embed
- *  the profile as a video — black frame. A page address is handled by
- *  `facebookTarget()` (page → /live for the *check*); only real watch paths
- *  may embed. Single-segment page names never count. */
+/** A public Facebook video, reel or live-video link (not a profile). */
 export function isFacebookVideoUrl(input: string): boolean {
-  const raw = String(input || "").trim();
-  if (!/^https?:\/\/(www\.|m\.|web\.)?facebook\.com\/.+/.test(raw)) return false;
-  const low = raw.toLowerCase();
-  if (/facebook\.com\/(watch|live|video|videos|reel|reels|share|permalink|stories)[/?#]/i.test(raw)) return true;
-  if (/[?&](v|video_id|story_fbid)=\d/i.test(raw)) return true;
-  /* A /<page>/videos/<id> or /<page>/live/... style video link. */
-  if (/facebook\.com\/[^/?#]+\/(videos?|live|reel|reels)\//i.test(raw)) return true;
-  /* Numeric video id in the path (facebook.com/<page>/123456789...). */
-  if (/facebook\.com\/[^/?#]+\/\d{8,}/.test(raw)) return true;
-  void low;
-  return false;
+  return /^https?:\/\/(www\.|m\.|web\.)?facebook\.com\/.+/.test(String(input || "").trim());
 }
 
 export function facebookEmbed(url: string, autoplay = true): string {

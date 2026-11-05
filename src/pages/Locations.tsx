@@ -119,7 +119,7 @@ export function Locations() {
         eyebrow={ct("locations.head.eyebrow")}
         title={<Rich text={ct("locations.head.title")} />}
         lede={ct("locations.head.lede")}
-        image={photoOr(BRANCHES[0].image, "locations")}
+        image={photoOr(BRANCHES[0].image, "building")}
         crumbs={[{ label: ct("auto.locations.27cb1cfd354ac87c"), to: "/" }, { label: ct("auto.locations.ea0222ac08b57d85") }]}
         actions={
           <>

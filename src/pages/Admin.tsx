@@ -21,7 +21,7 @@ import {
   PublishModal,
   StatusPill,
   ToolsPage,
-  runPublishAction,
+  defaultNote,
   useCmsTick,
   uniqueId,
 } from "../components/editor";
@@ -164,8 +164,6 @@ export function Admin() {
   const [publishOpen, setPublishOpen] = useState(false);
   const [helpOpen, setHelpOpen] = useState(false);
   const [publishing, setPublishing] = useState(false);
-  const [publishSaving, setPublishSaving] = useState(false);
-  const [publishSaveFailed, setPublishSaveFailed] = useState(false);
   /* A search hit for another page navigates first; the route effect must then
      leave the drawer where the office asked for it. */
   const keepView = useRef(false);
@@ -179,57 +177,41 @@ export function Admin() {
   const waiting = cms.maintenanceShouldWait();
 
 
-  /* Attached publish rule, retained (note 432): the bottom-bar Publish button
-     and the dialog's Publish now button share the one publish pipeline —
-     either one alone finishes it in one click for every visitor (unlimited
-     browsers/devices) through runPublishAction → cms.publish, so Publish and
-     Publish now do the same thing. No-change Publish still blesses this
-     deploy through the same bless-only sendPatch every publish rides. */
-  const performPublish = async (noteInput = "", _fromDialog = false): Promise<boolean> => {
-    if (publishing || publishSaving) {
-      try { fireToast("Publishing… — your click is already sending.", "info"); } catch {}
-      return false;
+  /* The bottom-bar Publish button runs the very same publish as the dialog's
+     Publish now — one click finishes it (saving the website first on a fresh
+     deploy, then publishing), instead of only opening the dialog. */
+  const directPublish = async () => {
+    if (publishing) return;
+    const changed = cms.pendingSections();
+    if (cms.websiteIsUnsaved()) {
+      cms.planPublishAfterSave(defaultNote(changed));
+      /* Allowed to save: the editor saves and reloads, and the stored plan
+         finishes the publish on the next load. Otherwise fall back to the
+         dialog so the office can save from the toolbar. */
+      if (cms.requestWebsiteSave()) return;
+      setPublishOpen(true);
+      return;
     }
-    /* No early authed gate here (local-dev fix): state.authed is still false
-       on a fresh boot until connect() restores the saved session, so gating
-       on it turns a valid silent session into a sign-in popup and the office
-       reads it as "local publish did nothing". cms.publish() already signs in
-       first (requireSignedIn + silent restore + 20s join) and reports
-       unauthorized/idle-expired itself — attempt the send, then open the
-       sign-in only when the session is actually dead. */
-    setPublishSaveFailed(false);
     setPublishing(true);
-    try {
-      const done = await runPublishAction(noteInput, (phase) => {
-        if (phase === "saving") setPublishSaving(true);
-      });
-      if (done) {
-        setPublishOpen(false);
-        return true;
-      }
-      /* A publish that fails on a dead session (idle, new deploy, retired
-         password) opens the sign-in with the reason — the next click then
-         publishes. Anything else (network, stale reload) keeps the session
-         and opens nothing. */
-      try {
-        if (!cms.isAuthed()) {
-          setPublishOpen(false);
-          setSignInOpen(true);
-        }
-      } catch {}
-      return false;
-    } catch (err) {
-      /* The shared action already toasted; this only guarantees the buttons
-         never stick disabled — a throw must release both Publish buttons. */
-      console.error("publish failed", err);
-      return false;
-    } finally {
-      setPublishing(false);
-      setPublishSaving(false);
+    const res = await cms.publish(defaultNote(changed));
+    setPublishing(false);
+    if (res.ok) {
+      fireToast(
+        res.local
+          ? "Saved on this device. The shared server was unreachable, so other visitors are not updated yet."
+          : res.live === false
+          ? (res.relayMsg || "Published here. The live site follows within a minute.")
+          : "Published. Every visitor sees the new content right away.",
+        res.local || res.live === false ? "info" : "success"
+      );
+    } else {
+      fireToast(
+        res.error === "unauthorized"
+          ? "Your session expired — unlock the console again, then publish."
+          : `Could not publish (${res.error}). Nothing on the site changed.`,
+        "error"
+      );
     }
-  };
-  const directPublish = () => {
-    void performPublish("", false);
   };
 
   /* Auto-stop watcher lives here so it runs whatever drawer card is open (note 111). */
@@ -385,15 +367,7 @@ export function Admin() {
   /* The page behind re-renders on applied changes only, never remounts (note 61); office clock too (note 85). */
   const visitorClock = useVisitorClock();
   const pageNode = useMemo(
-    () => (
-      <ErrorBoundary>
-        {/* No loader page: header, footer and edit bar stay on screen while the
-            lazy page arrives — never a white page, never a Loading screen. */}
-        <React.Suspense fallback={null}>
-          {cloneElement(resolved.element as ReactElement)}
-        </React.Suspense>
-      </ErrorBoundary>
-    ),
+    () => <ErrorBoundary>{cloneElement(resolved.element as ReactElement)}</ErrorBoundary>,
     [resolved.to, state.version, visitorClock?.tz]
   );
 
@@ -430,7 +404,7 @@ export function Admin() {
       <EditBar
         state={state}
         changed={changedIds.length}
-        busy={publishing || publishSaving}
+        busy={publishing}
         panelOpen={panelOpen}
         canEdit={canEdit}
         onAsk={askWhatToChange}
@@ -471,15 +445,7 @@ export function Admin() {
 
       <HelpModal open={helpOpen} onClose={() => setHelpOpen(false)} />
 
-      <PublishModal
-        open={publishOpen}
-        onClose={() => setPublishOpen(false)}
-        state={state}
-        onPublish={(note) => performPublish(note, true)}
-        busy={publishing || publishSaving}
-        saving={publishSaving}
-        saveFailed={publishSaveFailed}
-      />
+      <PublishModal open={publishOpen} onClose={() => setPublishOpen(false)} state={state} />
     </div>
   );
 }
@@ -600,13 +566,13 @@ function EditBar({
           </Btn>
         )}
 
-        {/* One admin everywhere (local fix): Publish stays visible even while the session restores — the click itself signs in silently and only opens sign-in when the session is truly dead, so a fresh local boot never reads as "publish does nothing". */}
-        <Btn size="sm" icon="check" onClick={onPublish} disabled={busy} title="Put your changes on the live site for everyone">
-          {busy ? "Publishing…" : "Publish"}
-        </Btn>
-        {!canEdit && (
+        {canEdit ? (
+          <Btn size="sm" icon="check" onClick={onPublish} disabled={busy} title="Put your changes on the live site for everyone">
+            {busy ? "Publishing…" : "Publish"}
+          </Btn>
+        ) : (
           <Btn size="sm" icon="lock" onClick={onSignIn}>
-            Sign in
+            Sign in to edit
           </Btn>
         )}
 
@@ -1032,17 +998,8 @@ function UnsavedView({
         pub.local || pub.live === false ? "info" : "success"
       );
     } else {
-      if (pub.error === "stale-reload") {
-        /* A newer build landed mid-click: say so and reload onto it — the
-           delete edit is staged in the draft and survives the reload. */
-        fireToast("New deploy arrived — reloading onto it. Press Delete again once it loads.", "info");
-        try {
-          window.location.reload();
-        } catch {}
-        return;
-      }
       fireToast(
-        `Delete did not go through (${pub.error === "unauthorized" || pub.error === "idle-expired" ? "sign in first" : pub.error}) — nothing left the site, and Undo takes back the cleanup.`,
+        `Delete did not go through (${pub.error === "unauthorized" ? "sign in first" : pub.error}) — nothing left the site, and Undo takes back the cleanup.`,
         "error"
       );
     }

@@ -102,9 +102,6 @@
     return {
       opened: opened,
       rpc: rpc,
-      /* HIGH fix: file doors require a signed-in admin conn — expose this
-         tab's id so uploads/sends prove it is the office. */
-      connId: connId,
       binaryType: "arraybuffer",
       addEventListener: function (t, fn) {
         (listeners[t] = listeners[t] || []).push(fn);

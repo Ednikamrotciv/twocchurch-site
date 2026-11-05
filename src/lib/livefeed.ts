@@ -120,38 +120,10 @@ export function siteBase(): string {
   if (base !== null) return base;
   base = "/";
   try {
-    /* A <base href> wins when the host sets one (subpath deploys). */
-    try {
-      const b = document.querySelector("base[href]");
-      if (b) {
-        const href = (b as HTMLBaseElement).href || "";
-        if (href) {
-          const u = new URL(href, document.baseURI);
-          base = u.pathname.endsWith("/") ? u.pathname : u.pathname + "/";
-          return base;
-        }
-      }
-    } catch {
-      /* no usable base tag — fall through to the bundle scripts below */
-    }
     const scripts = document.getElementsByTagName("script");
     for (let i = scripts.length - 1; i >= 0; i--) {
       const src = (scripts[i] as HTMLScriptElement).src || "";
-      /* Vite bundle ({base}assets/index-<hash>.js): the base is everything
-         up to assets/. Same detection on local dev and on every deploy, so
-         header/photo URLs resolve identically in both places. */
-      let m = /^(.*\/)assets\/[^/]+\.js(\?.*)?$/.exec(src);
-      if (m) {
-        try {
-          const u = new URL(m[1], document.baseURI);
-          base = u.pathname.endsWith("/") ? u.pathname : u.pathname + "/";
-        } catch {
-          base = m[1];
-        }
-        break;
-      }
-      /* Legacy bundle path — kept so older shells keep resolving. */
-      m = /^(.*\/)src\/bundle\.js(\?.*)?$/.exec(src);
+      const m = /^(.*\/)src\/bundle\.js(\?.*)?$/.exec(src);
       if (m) {
         try {
           const u = new URL(m[1], document.baseURI);

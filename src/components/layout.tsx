@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import { tx, useI18nTick, i18nTickN } from "../lib/i18n";
 import { Link, navigate, useRoute } from "../lib/router";
 import { useHotkey, useMediaQuery, useScrollProgress, useTheme, useNow, useClickOutside, useBodyLock } from "../lib/hooks";
-import { exitMaintenancePreview, useCmsVersion } from "../lib/cms";
+import { exitMaintenancePreview } from "../lib/cms";
 import { nextService, displayLive, countdownParts, to12h, DAY_SHORT, fmtDate, zoneYear, clockAt, churchTimezone, visitorPlace } from "../lib/store";
 import { SITE, SERVICES, NAV, FOOTER_LINKS, LOGO_MARK } from "../data/site";
 import { siteFile } from "../lib/livefeed";
@@ -153,7 +153,7 @@ export function Header() {
       <header className={"header" + (scrolled ? " header--scrolled" : "")}>
         <div className="container header__inner">
           <Link to="/" className="brand" aria-label={ct("auto.site.35ab10970eb7d78e", { "name": SITE.name })}>
-            <img className="brand__logo" src={siteFile(LOGO_MARK)} alt={SITE.name} onError={(e) => { try { e.currentTarget.style.display = "none"; } catch {} }} />
+            <img className="brand__logo" src={siteFile(LOGO_MARK)} alt={SITE.name} />
           </Link>
 
           {isDesktop && (
@@ -354,7 +354,7 @@ export function Footer() {
       <div className="container">
         <div className="footer__top">
           <div className="footer__brand">
-            <img src={siteFile(LOGO_MARK)} alt={SITE.name} className="footer__logo" onError={(e) => { try { e.currentTarget.style.display = "none"; } catch {} }} />
+            <img src={siteFile(LOGO_MARK)} alt={SITE.name} className="footer__logo" />
             <h3>{SITE.name}</h3>
             <p className="muted">{tx(SITE.tagline)}</p>
           </div>
@@ -516,8 +516,17 @@ export function ScrollTop() {
   );
 }
 
-/* Boot splash removed: the site paints immediately on every load and reload —
-   no logo flash, no maintenance flash. (Kept as a comment so history stays.) */
+/* Boot splash: logo only, no words — shown while boot + first sync settle so
+   a published site never flashes the maintenance notice on launch, and an
+   update window never looks missing. */
+export function BootSplash() {
+  useTheme();
+  return (
+    <div className="bootsplash" aria-hidden="true">
+      <img className="bootsplash__mark" src={siteFile(LOGO_MARK)} alt="" />
+    </div>
+  );
+}
 
 /* Preview banner (maintenance fix): when this tab bypasses the maintenance
    notice via ?preview=1 while visitors still wait, say so out loud — otherwise
@@ -545,20 +554,17 @@ export function MaintenanceSite() {
      the site's own theme (stored choice + automatic switching). */
   useTheme();
   useI18nTick();
-  /* Re-render as the wait resolves (the sync bumps the version when the
-     publish lands), so the notice lifts by itself with no tap. */
-  useCmsVersion();
   return (
     <div className="maint">
       <header className="maint__head">
         <span className="maint__brand">
-          <img className="maint__logo" src={siteFile(LOGO_MARK)} alt={SITE.name} onError={(e) => { try { e.currentTarget.style.display = "none"; } catch {} }} />
+          <img className="maint__logo" src={siteFile(LOGO_MARK)} alt={SITE.name} />
           <span className="maint__name">{SITE.name}</span>
         </span>
         <span className="maint__pill">{tx("Maintenance")}</span>
       </header>
       <main className="maint__main">
-        <img className="maint__mark" src={siteFile(LOGO_MARK)} alt="" aria-hidden="true" onError={(e) => { try { e.currentTarget.style.display = "none"; } catch {} }} />
+        <img className="maint__mark" src={siteFile(LOGO_MARK)} alt="" aria-hidden="true" />
         <h1>{tx("We\u2019ll be right back")}</h1>
         <p>{tx("The site is being updated. Please check back shortly.")}</p>
       </main>
@@ -587,28 +593,7 @@ export function PageHead({
     <section className={"page-head" + (image ? " page-head--image" : "")}>
       {image && (
         <div className="page-head__bg" aria-hidden="true">
-          <img
-            src={image}
-            alt=""
-            onError={(e) => {
-              /* A missing custom banner (deleted upload, moved file) falls
-                 back to the bundled hero once instead of leaving a broken
-                 header — same fallback on local and on every deploy. */
-              try {
-                const el = e.currentTarget;
-                if (el.dataset.fb) {
-                  el.style.display = "none";
-                  return;
-                }
-                el.dataset.fb = "1";
-                el.src = siteFile("src/assets/img/hero.jpg");
-              } catch {
-                try {
-                  e.currentTarget.style.display = "none";
-                } catch {}
-              }
-            }}
-          />
+          <img src={image} alt="" />
         </div>
       )}
       <div className="container page-head__inner">

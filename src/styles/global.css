@@ -3339,7 +3339,19 @@ input, select, textarea { font-size: 1rem !important; }
     width: 100%;
   }
 }
-/* Boot splash removed: the site paints immediately, so these rules are retired. */
+/* Boot splash: plain ground + logo while the first sync settles. */
+.bootsplash {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--ink);
+}
+.bootsplash__mark {
+  height: 72px;
+  width: auto;
+  opacity: 0.9;
+}
 /* Maintenance mode (note 249): the header's logo and notice are the whole
    site — no pages, no footer, no buttons. Follows the page theme. */
 .maint {
@@ -3518,9 +3530,3 @@ input, select, textarea { font-size: 1rem !important; }
     display: none;
   }
 }
-
-/* Boot splash (note 302): held until boot + version check settle, so a fresh
-   deploy never flashes live before the maintenance decision is known. */
-.boot-splash{min-height:60vh;display:flex;align-items:center;justify-content:center;background:transparent;}
-.boot-splash__inner{font:1rem/1.5 system-ui,sans-serif;opacity:0.7;animation:bootpulse 1.2s ease-in-out infinite;}
-@keyframes bootpulse{0%,100%{opacity:0.35}50%{opacity:0.8}}

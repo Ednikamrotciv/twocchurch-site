@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { tx } from "../lib/i18n";
 import { Link } from "../lib/router";
 import { SITE, SERVICES, img } from "../data/site";
@@ -9,25 +9,19 @@ import { sermonsNewestFirst, sermonSource, sermonThumb } from "../data/sermons";
 import { useLocalState, useNow, fireToast } from "../lib/hooks";
 import { KEYS, nextService, onAir, displayLive, to12h, DAY_NAMES, countdownParts, addToCalendar, mailto, clockHere, tidyCount, churchTimezone, visitorPlace, fmtDate, downloadText, serviceNoteKey, type NextServiceInfo } from "../lib/store";
 import { isFacebookVideoUrl, parseYoutubeId, platformLabel, watchUrl, youtubeThumb, type VideoPlatform, type VideoSource } from "../lib/embed";
-import { useLiveStream, liveTarget, guestTarget, isGuestTargetUrl, facebookTarget, useYoutubeVerdict, isStatusForTarget, designatedChannelIdForTarget, isDesignatedChannel, nextScreenShut, officeStopActive, recheckLiveNow, forgetAllVerified, type ScreenShut } from "../lib/livestatus";
+import { useLiveStream, liveTarget, guestTarget, isGuestTargetUrl, facebookTarget, useYoutubeVerdict, isStatusForTarget, designatedChannelIdForTarget, isDesignatedChannel, nextScreenShut, officeStopActive, type ScreenShut } from "../lib/livestatus";
 import { useLibrary } from "../lib/collections";
 import { useRecentServices, designatedFallback } from "../lib/recentstreams";
 import { Badge, Btn, Icon, IconBtn, Modal, Notice, Reveal, Rich, Section, SectionHeading, Textarea } from "../components/ui";
 import { PageHead } from "../components/layout";
 import { LiveWaiting } from "../components/liveclock";
-import { SectionBoundary } from "../components/ErrorBoundary";
 import { Countdown, RecentServiceCard, SermonWatch, VideoPlayer, WatchCards, platformWatchLinks } from "../components/blocks";
-import { useCmsVersion } from "../lib/cms";
 
 export function WatchLive() {
   const [branchId] = useLocalState<string>(KEYS.branch, DEFAULT_BRANCH_ID);
   const branch = BRANCHES.find((b) => b.id === branchId) || BRANCHES[0];
   const [reminders, setReminders] = useLocalState<Record<string, boolean>>("wom.reminders", {});
   const now = useNow(1000);
-  /* Published Play/Stop words mutate LIVE in place with no event of their own —
-     subscribe to the content version so the screen answers at once instead of
-     waiting out the 1s clock above. Cheap on this page: visitors never type. */
-  useCmsVersion();
   /* The office's Weekly services card, read on the church's own clock. */
   const info = nextService(SERVICES, now, churchTimezone());
   /* When the next gathering happens — read on the visitor's own clock (SPEC note 85). */
@@ -43,38 +37,6 @@ export function WatchLive() {
      with it, on live and on local alike. */
   const air = useLiveStream(true, false, true);
   const justNow = !!info && (onAir(info) || info.msUntil < 45 * 60 * 1000);
-  /* Instant-open warm-up: the page is open because someone came to watch, so
-     pre-connect to the stream doors at once (player assets included) — the
-     autoplay iframe opens with no DNS/TLS wait. */
-  useEffect(() => {
-    try {
-      for (const href of ["https://www.youtube.com", "https://s.ytimg.com", "https://i.ytimg.com", "https://noembed.com"]) {
-        if (document.querySelector('link[rel="preconnect"][href="' + href + '"]')) continue;
-        const l = document.createElement("link");
-        l.rel = "preconnect";
-        l.href = href;
-        l.crossOrigin = "anonymous";
-        document.head.appendChild(l);
-      }
-    } catch {}
-  }, [justNow, air.state]);
-  /* Instant-live repair (no reload ever): the tab waking, or the network
-     returning, re-asks at once — a YouTube start shows in seconds and the
-     waiting clock vanishes with it. Stays on site. */
-  useEffect(() => {
-    try {
-      const onVis = () => { if (document.visibilityState === "visible") { try { recheckLiveNow(); } catch {} } };
-      const onNet = () => { try { recheckLiveNow(); } catch {} };
-      document.addEventListener("visibilitychange", onVis);
-      window.addEventListener("online", onNet);
-      window.addEventListener("focus", onNet);
-      return () => {
-        document.removeEventListener("visibilitychange", onVis);
-        window.removeEventListener("online", onNet);
-        window.removeEventListener("focus", onNet);
-      };
-    } catch { return; }
-  }, []);
   /* Only the handle's own answer ever reaches the screen (note 350): an
      answer stamped for another address (the office moved the channel since
      the check) reads as unknown until the fresh check lands — it never
@@ -92,12 +54,7 @@ export function WatchLive() {
   const guestAir = guestUrl && isStatusForTarget(air, guestUrl)
     ? air
     : { ...air, state: "unknown" as const, videoId: "", title: "", channelId: "" };
-  /* Manual start only (note 439): a detected guest broadcast never opens the
-     screen by itself — only the office's published guest Play (guestIsLive)
-     does. The guest still wins while IT is live once started, and its ending
-     still returns to the main answer by itself (shut latch + auto-stop). */
-  const guestSwitchOn = !!((LIVE as any).guestIsLive);
-  const guestLive = guestSwitchOn && guestAir.state === "live";
+  const guestLive = guestAir.state === "live";
   /* Only the designated channel ever reaches the screen (note 358): the
      livestream must not play until @twocorg itself is live — a named video
      from another channel, or an unverified channel follow for one, reads as
@@ -106,10 +63,9 @@ export function WatchLive() {
   const airForTarget = isStatusForTarget(air, targetUrl)
     ? air
     : { ...air, state: "unknown" as const, videoId: "", title: "", channelId: "" };
-  /* What the screen plays (notes 380, 439): the MANUALLY STARTED guest while
-     IT is live, else the main answer above. The still, the ended video and
-     the lists below stay main-owned — a guest ending returns every one of
-     them untouched. */
+  /* What the screen plays (note 380): the guest while IT is live, else the
+     main answer above. The still, the ended video and the lists below stay
+     main-owned — a guest ending returns every one of them untouched. */
   const screenAir = guestLive ? guestAir : airForTarget;
   /* Shut the moment a live ends (notes 386, 388): when the screen's broadcast
      reads off — the guest ending, the main ending, or the office stopping it —
@@ -121,16 +77,6 @@ export function WatchLive() {
      address lives in a ref, the latch in state, computed on the render so the
      player never flashes open for a single frame. */
   const shutPrevRef = useRef("");
-  /* Flap guard: the last broadcast the screen actually played + when it was
-     last seen live. A fresh off (<25s since live) keeps the frame open on the
-     last address instead of flashing the ended screen and reopening — the
-     livestream never ends itself and comes back on for a blip. */
-  const lastLiveRef = useRef({ src: "", at: 0 });
-  const liveSrcNow = screenAir.state === "live" ? String(screenAir.videoId || screenAir.channelId || "") : "";
-  useEffect(() => {
-    if (screenAir.state === "live" && liveSrcNow) lastLiveRef.current = { src: liveSrcNow, at: Date.now() };
-  });
-  const offFresh = screenAir.state === "off" && Date.now() - lastLiveRef.current.at < 25_000 && !!lastLiveRef.current.src;
   const [shut, setShut] = useState<ScreenShut>(null);
   const nowLiveTarget = screenAir.state === "live" ? String(screenAir.target || "") : "";
   const shutNext = nextScreenShut(shut, shutPrevRef.current, guestUrl, screenAir.state === "live", nowLiveTarget, screenAir.state === "off");
@@ -138,9 +84,7 @@ export function WatchLive() {
     shutPrevRef.current = nowLiveTarget;
     if (shutNext !== shut) setShut(shutNext);
   });
-  /* Fresh offs never shut (flap grace above): the latch only lands once the
-     broadcast has been quiet past the grace window, or the office stopped it. */
-  const shutNow = offFresh ? null : shutNext;
+  const shutNow = shutNext;
   /* Straight stop rule (note 414): the office pressed Stop and published it —
      the live is off, so the screen never sits on the ticking clock. It shows
      the main channel's previous livestream thumbnail instead (the cover chain
@@ -163,7 +107,8 @@ export function WatchLive() {
      follow below is always one tap, never autoplay. Unknown (offline, probe
      down) plays exactly as before. */
   const idVerdict = useYoutubeVerdict(detectedId);
-  const fallbackId = !hasChannel ? parseYoutubeId(LIVE.youtubeId) : "";
+  const fallbackRaw = !hasChannel ? LIVE.youtubeId : "";
+  const fallbackId = parseYoutubeId(fallbackRaw);
   const fallbackVerdict = useYoutubeVerdict(fallbackId);
   /* Strict (note 358): a named video from another channel never autoplays —
      video answers carry no channel id, so those pass; a stamped foreign one
@@ -215,7 +160,7 @@ export function WatchLive() {
      until Play. Press alone never autoplays — autoplay only works once the
      main livestream has started live on the channel. */
   const mainDetected = screenAir.state === "live" && !guestLive && !fbLive;
-  const streaming = (screenAir.state === "live" || offFresh) && !shutNow && !officeStopped && (guestLive || fbLive || mainDetected || offFresh);
+  const streaming = screenAir.state === "live" && !shutNow && (guestLive || fbLive || (mainDetected && !officeStopped));
 
   /* The two lists under the screen: recent services (read off the channel) and previous sermons (the office's write-ups). */
   const limit = recentLimit();
@@ -250,45 +195,34 @@ export function WatchLive() {
      broadcast's frame, else the newest recent service's own thumbnail, else
      the designated channel's last previous service standing in by itself
      (note 372 — @twocorg's latest thumbnail even before any read settles),
-     else a sermon still, else the hero. Never blank: the chain always ends
-     on the latest baked previous thumbnail, then the hero. */
-  const bakedLatestThumb = designatedFallback().items[0]?.thumb || "https://i.ytimg.com/vi/dcCt75FMm6o/hqdefault.jpg";
+     else a sermon still, else the hero. */
   const cover =
     (airForTarget.endedAt && airForTarget.videoId && airForTarget.platform !== "facebook" ? youtubeThumb(airForTarget.videoId) : "") ||
     recentStreams.items[0]?.thumb ||
-    bakedLatestThumb ||
+    designatedFallback().items[0]?.thumb ||
     (latest && sermonThumb(latest)) ||
-    img("watch-live") ||
-    bakedLatestThumb;
+    img("hero");
 
   /* which platforms the office has actually configured (the stream that is on
      air right now counts as YouTube being available, even if all the office
-     gave us was the channel to watch). Computed every render on purpose: the
-     inputs (detection, Play overrides, LIVE switches) change independently,
-     and a memo keyed on only some of them once hid YouTube when only the
-     Play-override channel was available. */
-  const available: VideoPlatform[] = (() => {
+     gave us was the channel to watch) */
+  const available = useMemo(() => {
     const list: VideoPlatform[] = [];
     if (detectedId || detectedChannel || overrideId || (!hasChannel && parseYoutubeId(LIVE.youtubeId))) list.push("youtube");
     if (isFacebookVideoUrl(LIVE.facebookUrl)) list.push("facebook");
     return list;
-  })();
+  }, [detectedId, detectedChannel, hasChannel, LIVE.youtubeId, LIVE.facebookUrl, fbLive]);
   const preferred: VideoPlatform = fbLive ? "facebook" : detectedId || detectedChannel || overrideId ? "youtube" : LIVE.provider === "facebook" ? "facebook" : "youtube";
   const [chosen, setChosen] = useState<VideoPlatform>(preferred);
   /* The service notepad behind the *Service notes* arrow (note 223). */
   const [notesOpen, setNotesOpen] = useState(false);
   const platform: VideoPlatform | null = available.includes(chosen) ? chosen : available[0] || null;
-  const freshSource: VideoSource =
+  const liveSource: VideoSource =
     fbLive
       ? { platform: "facebook", facebookUrl: LIVE.facebookUrl }
       : platform === "facebook"
       ? { platform: "facebook", facebookUrl: LIVE.facebookUrl }
       : { platform: "youtube", youtubeId: playableId || deadLiveId || verifiedFallbackId, youtubeChannelId: detectedChannel || (!streaming && overrideId) || undefined };
-  /* The grace window replays the last playable address: a fresh off keeps the
-     frame on exactly what was playing instead of an empty follow. */
-  const graceRef = useRef<VideoSource | null>(null);
-  if (streaming && watchable) graceRef.current = freshSource;
-  const liveSource: VideoSource = offFresh && graceRef.current ? graceRef.current : freshSource;
   const youtubeLink =
     watchUrl({ platform: "youtube", youtubeId: playableId }) ||
     (guestLive && guestUrl ? guestUrl : hasChannel ? targetUrl : watchUrl({ platform: "youtube", youtubeId: LIVE.youtubeId }) || targetUrl);
@@ -299,10 +233,10 @@ export function WatchLive() {
      waits on the ticking clock (never the ended screen: something IS live),
      naming the gathering. The shut latch still closes first. */
   const waitingForClick = !shutNow && !officeStopped && !LIVE.isLive && !guestLive && !fbLive && airForTarget.state === "live";
-  /* What the badges show (note 386): the detected stream itself lights
-     LIVE even before the office switch paints — never the bare service
-     clock, never another channel while shut, and a Stop still holds it off. */
-  const onAirNow = (displayLive(info) && !shutNow) || (screenAir.state === "live" && !shutNow && !officeStopped);
+  /* What the badges show (note 386): the stream itself, or the office's
+     switch — never the bare service clock — and never another channel's
+     livestream while the screen sits shut after an end. */
+  const onAirNow = displayLive(info) && !shutNow;
   /* What the panel calls the broadcast while on air (notes 133, 406): the
      detected stream's own title; else the gathering the clock has on — or the
      next one, so a Play press for a coming broadcast names it instead of the
@@ -311,45 +245,6 @@ export function WatchLive() {
   const guestForcedOnly = (guestLive || !!(LIVE as any).guestIsLive) && !LIVE.isLive && airForTarget.state !== "live";
   const liveName = tx(air.title || (guestForcedOnly ? LIVE.liveTitle : info?.slot.name || LIVE.liveTitle) || "");
   const streamCountdown = info ? countdownParts(info.msUntil) : null;
-  /* Office Reload repair press (published liveReloadAt): the general fix for
-     any livestream-screen error. The live players below remount + rejoin on
-     it (see VideoPlayer reloadSignal); the screen also re-asks the on-air
-     check at once here so the fixed frame arrives in seconds. */
-  const reloadSignal = Number((LIVE as any).liveReloadAt) || 0;
-  /* Only a press that lands after this screen opened repairs it: the words
-     may already carry an older press (a visitor arriving after Publish),
-     and replaying that on every load would remount the player for nothing. */
-  /* A press that landed just before this screen opened still repairs it:
-     the office Reload (or a visitor arriving right after Publish) carries a
-     fresh stamp, but the ref above starts at that stamp — so without this the
-     mount would swallow the fix and keep any cached dead verdict. Old stamps
-     (>30min) are just marked seen: replaying them would remount every load. */
-  const RELOAD_FRESH_MS = 30 * 60_000;
-  const reloadSeenRef = useRef<number>(0);
-  useEffect(() => {
-    if (!reloadSignal || reloadSeenRef.current === reloadSignal) return;
-    const age = Date.now() - reloadSignal;
-    if (!(reloadSignal > 0) || age > RELOAD_FRESH_MS) {
-      reloadSeenRef.current = reloadSignal;
-      return;
-    }
-    reloadSeenRef.current = reloadSignal;
-    /* Office Reload reopens a wrongly-shut screen too: if the broadcast is
-       truly over the render below re-latches shut at once, so clearing here
-       can never strand the screen open — but a screen stuck shut while the
-       channel is back on air opens again on the fresh answer. A cached dead
-       verdict from this same tab is dropped first, or the fresh mount would
-       replay the old answer instead of the fix. */
-    try {
-      setShut(null);
-    } catch {}
-    try {
-      forgetAllVerified();
-    } catch {}
-    try {
-      recheckLiveNow();
-    } catch {}
-  }, [reloadSignal]);
 
 
   const sideList: { icon: string; title: string; text: string; action: React.ReactNode }[] = [
@@ -405,7 +300,7 @@ export function WatchLive() {
         eyebrow={ct("live.head.eyebrow")}
         title={<Rich text={ct("live.head.title")} />}
         lede={ct("live.head.lede")}
-        image={img("watch-live")}
+        image={img("hero")}
         crumbs={[{ label: ct("auto.live.cdd19baece0575cf"), to: "/" }, { label: ct("auto.live.549cf77285281f7b") }]}
       />
 
@@ -462,15 +357,11 @@ export function WatchLive() {
 
               {(checkingLiveId || checkingFallbackId) && !playableId && !deadLiveId && !verifiedFallbackId && !shutNow && !officeStopped ? (
                 <LiveWaiting cover={cover} />
-              /* Grace replay (flap guard): a fresh off replays the last playable
-                 address instead of flashing the ended screen or clock. */
-) : ((streaming && watchable) || (offFresh && !!graceRef.current)) ? (
+              ) : streaming && watchable ? (
                 <VideoPlayer
                   hideEscape
                   source={liveSource}
                   title={liveName || ct("auto.live.bc108377bb47f9e6")}
-                  poster={cover}
-                  fallbackPoster={cover}
                   compact
                   live
                   /* The check says live, so the screen plays by itself (notes
@@ -479,24 +370,24 @@ export function WatchLive() {
                      live from a channel is ever muted, and the audio opens by
                      itself the moment the broadcast starts. */
                   autoPlay={streaming && watchable}
-                  reloadSignal={reloadSignal}
                 />
-              ) : (overrideMain || overrideGuest) && overrideId ? (
+              ) : overrideGuest && overrideId ? (
                 <VideoPlayer
                   hideEscape
                   source={{ platform: "youtube", youtubeId: "", youtubeChannelId: overrideId }}
                   title={liveName || ct("auto.live.bc108377bb47f9e6")}
-                  poster={cover}
-                  fallbackPoster={cover}
                   compact
                   live
-                  /* The office commanded the slot and the read is walled —
-                     main and guest alike open their commanded channel by
-                     itself instead of the waiting clock, WITH SOUND like
-                     every live. A verified off still waits; a detected
-                     broadcast still wins. */
+                  /* The office commanded the guest slot (notes 404, 410): the
+                     guest Play is published and the read is walled — so that
+                     commanded channel opens by itself instead of the waiting
+                     clock, WITH SOUND like every live. The MAIN slot never
+                     opens here: a pressed main with no detected broadcast
+                     waits on the clock below — autoplay only works once the
+                     main livestream has started live on the channel. A
+                     verified off still waits; a detected broadcast still
+                     wins. */
                   autoPlay
-                  reloadSignal={reloadSignal}
                 />
               ) : !onAirNow && !waitingForClick ? (
                 /* Nobody is broadcasting: the screen says so, and promises what
@@ -507,7 +398,7 @@ export function WatchLive() {
                    ends its thumbnails are already on the screen. */
                 <>
                 <div className="live-ended">
-                  <img className="live-ended__bg" src={cover} alt="" loading="lazy" onError={(e) => { try { const el = e.currentTarget; const fb = bakedLatestThumb; if (fb && el.src !== fb && el.getAttribute("data-fb") !== "1") { el.setAttribute("data-fb", "1"); el.src = fb; } else { el.style.display = "none"; } } catch {} }} />
+                  {cover && <img className="live-ended__bg" src={cover} alt="" loading="lazy" />}
                   <span className="live-ended__scrim" aria-hidden="true" />
                   <div className="live-ended__body">
                     <h3 className="live-ended__title">
@@ -519,7 +410,7 @@ export function WatchLive() {
                       {(latest || recentItems.length > 0 || recentFallback.length > 0) && (
                         <Btn
                           size="sm"
-                          variant="crimson"
+                          variant="gold"
                           icon="play"
                           onClick={() => document.getElementById("recent-services")?.scrollIntoView({ behavior: "smooth" })}
                         >
@@ -540,11 +431,9 @@ export function WatchLive() {
                 <>
                   <VideoPlayer
                     hideEscape
-                    hideDeadText
                     source={sermonSource(latest)}
                     title={ct("auto.live.2af95d5fd1e87dae", { title: latest.title })}
-                    poster={sermonThumb(latest) || cover}
-                    fallbackPoster={cover}
+                    poster={sermonThumb(latest)}
                     compact
                   />
                   <Notice icon="info">{ct("live.preview.note")}</Notice>
@@ -558,8 +447,8 @@ export function WatchLive() {
 
             {available.length > 0 && (
               <div className="btn-row center live-panel__links">
-                {available.includes("youtube") && onAirNow && (
-                  <Btn variant="crimson" icon="youtube" href={youtubeLink}>
+                {available.includes("youtube") && (
+                  <Btn variant={onAirNow ? "crimson" : "gold"} icon="youtube" href={youtubeLink}>
                     {ct("live.watch.button1")}
                   </Btn>
                 )}
@@ -651,9 +540,7 @@ export function WatchLive() {
               </Btn>
             }
           />
-          <SectionBoundary label="last-message">
-            <SermonWatch sermon={latest} className="vcard--wide" hideDeadText />
-          </SectionBoundary>
+          <SermonWatch sermon={latest} className="vcard--wide" />
         </Section>
       )}
 
@@ -683,12 +570,11 @@ export function WatchLive() {
             </>
           }
         />
-        <SectionBoundary label="recent-services">
         {recentFallback.length ? (
           <div className="grid grid-2">
             {recentFallback.map((s, i) => (
               <Reveal key={s.id} delay={i * 60}>
-                <SermonWatch sermon={s} hideDeadText />
+                <SermonWatch sermon={s} />
               </Reveal>
             ))}
           </div>
@@ -701,7 +587,6 @@ export function WatchLive() {
             ))}
           </div>
         )}
-        </SectionBoundary>
       </Section>
 
       {pastCards.length > 0 && (
@@ -716,23 +601,19 @@ export function WatchLive() {
               </Btn>
             }
           />
-          <SectionBoundary label="past-sermons">
           <div className="grid grid-3">
             {pastCards.map((s, i) => (
               <Reveal key={s.id} delay={(i % 3) * 60}>
-                <SermonWatch sermon={s} hideDeadText />
+                <SermonWatch sermon={s} />
               </Reveal>
             ))}
           </div>
-          </SectionBoundary>
         </Section>
       )}
 
       <Section tone="raised">
         <SectionHeading center eyebrow={ct("live.ways.eyebrow")} title={ct("live.ways.title")} />
-        <SectionBoundary label="ways-to-watch">
-          <WatchCards />
-        </SectionBoundary>
+        <WatchCards />
       </Section>
 
       {notesOpen && <ServiceNotesModal info={info} onClose={() => setNotesOpen(false)} />}

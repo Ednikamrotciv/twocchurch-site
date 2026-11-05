@@ -17,7 +17,7 @@ export function About() {
         eyebrow={ct("about.head.eyebrow")}
         title={<Rich text={ct("about.head.title")} />}
         lede={ct("about.head.lede", { church: SITE.name })}
-        image={img("about")}
+        image={img("building2")}
         crumbs={[{ label: ct("auto.about.ce37ee568aef40b7"), to: "/" }, { label: ct("auto.about.8d235efedb6f6fc7") }]}
         actions={
           <>

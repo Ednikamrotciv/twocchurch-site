@@ -49,7 +49,7 @@ export function Sermons() {
         eyebrow={ct("sermons.head.eyebrow")}
         title={<Rich text={ct("sermons.head.title")} />}
         lede={ct("sermons.head.lede", { count: SERMONS.length, hours: fmtDuration(totalMinutes) })}
-        image={img("sermons")}
+        image={img("worshipband")}
         crumbs={[{ label: ct("auto.sermons.d98930b23a8fb023"), to: "/" }, { label: ct("auto.sermons.7a531bce75ffbdb7") }]}
         actions={
           <>

@@ -48,40 +48,8 @@ try {
   const seedPath = path.join(OUT, "seed.json");
   const seed = JSON.parse(await readFile(seedPath, "utf8"));
   if (seed && typeof seed === "object") {
-    /* First-publish witness for the new deploy (one click clears everywhere):
-       the bake above carries the office's last publish. When those words were
-       published from THIS update (notes at the code's own update number, with
-       real words), this deploy counts as their publisher too — every fresh
-       visitor's same-deploy witness then matches on first paint, so one
-       office Publish clears the maintenance notice on unlimited
-       browsers/devices with no second click. A bake from an older update (or
-       an empty/clean bake) keeps the hold: new code still waits for review.
-       Backend notes reach the update number only through an explicit office
-       publish/undo/flush, so the stamp can never leak ahead of review. */
-    let buildNotes = 0;
-    let buildCode = "";
-    try {
-      const hooksSrc = await readFile(path.join(ROOT, "src", "lib", "hooks.ts"), "utf8");
-      buildNotes = Number((hooksSrc.match(/BUILD_NOTES = (\d+)/) || [])[1]) || 0;
-      buildCode = (hooksSrc.match(/CODE_ID = "([A-Za-z0-9_-]+)"/) || [])[1] || "";
-    } catch { /* no number — the hold below stands */ }
-    const seedOut = { ...seed, hold: true, deployId: DEPLOY_ID };
-    try {
-      const sections = seed && seed.sections && typeof seed.sections === "object" ? Object.keys(seed.sections).length : 0;
-      if (buildNotes > 0 && typeof seed.notes === "number" && Math.floor(seed.notes) >= buildNotes && typeof seed.rev === "number" && seed.rev > 0 && sections > 0) {
-        /* Word-gated (note 428): the bake below names the publish it carries —
-           only the running code's own review releases this deploy at first
-           paint. A same-number bake from older code (or a codeless older bake,
-           which proves nothing) keeps the hold until Publish. */
-        const seedCode = typeof seed.code === "string" ? seed.code : "";
-        if (!!buildCode && !!seedCode && seedCode === buildCode) {
-          seedOut.publishedDeploy = DEPLOY_ID;
-        }
-      }
-    } catch { /* witness skipped — the hold stands */ }
-    await writeFile(seedPath, JSON.stringify(seedOut));
+    await writeFile(seedPath, JSON.stringify({ ...seed, hold: true, deployId: DEPLOY_ID }));
     console.log("maintenance hold on: fresh visitors wait until the office publishes (locked — every deploy holds)");
-    if (seedOut.publishedDeploy) console.log("first-publish witness stamped: this deploy carries the office publish — one click clears every visitor");
   }
 } catch (err) {
   console.warn("maintenance hold skipped:", err?.message || err);
@@ -150,7 +118,7 @@ try {
    only, never a secret. */
 try {
   const { execFile: gitExec } = await import("node:child_process");
-  const gitOut = (args) => new Promise((res) => gitExec("git", args, { cwd: ROOT, timeout: 2500 }, (err, stdout) => res(err ? "" : String(stdout || "").trim())));
+  const gitOut = (args) => new Promise((res) => gitExec("git", args, { cwd: ROOT, timeout: 8000 }, (err, stdout) => res(err ? "" : String(stdout || "").trim())));
   const remote = await gitOut(["config", "--get", "remote.origin.url"]);
   let branch = await gitOut(["rev-parse", "--abbrev-ref", "HEAD"]);
   if (!branch || branch === "HEAD") branch = "main";
@@ -274,7 +242,7 @@ try {
   const codeWord = codeMatch ? codeMatch[1] : "";
   const d = new Date();
   const p = (n) => String(n).padStart(2, "0");
-  await writeFile(path.join(OUT, "version.json"), JSON.stringify({ notes, code: codeWord, deployId: DEPLOY_ID, built: `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`, builtAt: Date.now() }));
+  await writeFile(path.join(OUT, "version.json"), JSON.stringify({ notes, code: codeWord, deployId: DEPLOY_ID, built: `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}` }));
   console.log(`build stamped: update ${notes}${codeWord ? " code " + codeWord : ""}`);
 } catch (err) {
   console.warn("version.json skipped:", err?.message || err);

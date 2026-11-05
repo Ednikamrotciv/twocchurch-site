@@ -61,13 +61,3 @@ npm start       # serves dist/ + the backend (or double-click start.bat)
 Leave that running on the always-on machine. Content is stored in
 `data/cms-state.bin` (created on first publish — keep that file to keep your
 content); photo/video uploads land in `data/uploads/`.
-
-## Security log (WAF + anomaly)
-
-`npm run dev` and `npm start` both run a zero-dependency shield in front of
-the server (see `scripts/SECURITY.md`): malicious patterns are blocked before
-they reach the code, and every event prints in this terminal with severity +
-IP + hint. Potential breaches also auto-write
-`data/security-report-latest.pdf`; `npm run security:report` rewrites it on
-demand. As a signed-in admin: `/__security/events.json?conn=…` (JSON) and
-`/__security/report.pdf?conn=…` (PDF download).

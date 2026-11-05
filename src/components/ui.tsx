@@ -667,54 +667,6 @@ export function Toaster() {
 
 /* ------------------------------------------------------------------ misc */
 
-/** A visible loading shell for lazy page chunks (Suspense fallbacks): the
-    screen must never sit pure-white while a page compiles or loads — a blank
-    page reads as broken. `compact` renders for an in-page slot; otherwise it
-    fills the viewport. Dependency-free on purpose (it renders while chunks
-    are still loading). */
-export function PageLoader({ compact = false }: { compact?: boolean }) {
-  const dots = [0, 1, 2];
-  return (
-    <div
-      role="status"
-      aria-busy="true"
-      aria-label="Loading"
-      style={
-        compact
-          ? { display: "flex", flexDirection: "column", alignItems: "center", gap: "0.7rem", padding: "3rem 1rem", color: "#cfc6b8" }
-          : {
-              minHeight: "70vh",
-              display: "flex",
-              flexDirection: "column",
-              alignItems: "center",
-              justifyContent: "center",
-              gap: "0.9rem",
-              padding: "3rem 1rem",
-              color: "#cfc6b8",
-            }
-      }
-    >
-      <style>{"@keyframes womLoaderPulse{0%,100%{opacity:.25}50%{opacity:1}}"}</style>
-      <span style={{ display: "inline-flex", gap: "0.45rem" }} aria-hidden="true">
-        {dots.map((i) => (
-          <span
-            key={i}
-            style={{
-              width: "0.65rem",
-              height: "0.65rem",
-              borderRadius: "50%",
-              background: "#c9a227",
-              animation: "womLoaderPulse 1.1s ease-in-out infinite",
-              animationDelay: `${i * 0.18}s`,
-            }}
-          />
-        ))}
-      </span>
-      <span style={{ fontSize: "0.95rem", letterSpacing: "0.04em" }}>Loading…</span>
-    </div>
-  );
-}
-
 export function Breadcrumbs({ items }: { items: { label: string; to?: string }[] }) {
   return (
     <nav className="breadcrumbs" aria-label={ct("auto.site.cda5881bd5fcacca")}>
