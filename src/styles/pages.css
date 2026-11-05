@@ -1323,6 +1323,17 @@
   color: var(--muted);
 }
 
+/* A sourceless live stands on the latest previous service too (never bare):
+   same dimmed absolute cover as the dead frame, under the same arrow. */
+.player--empty img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  filter: brightness(0.55);
+}
+
 /* a poster with no still image (e.g. a Facebook-only video) */
 
 .player__still {
