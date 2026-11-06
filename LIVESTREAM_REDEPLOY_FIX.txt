@@ -62,3 +62,26 @@ LIVESTREAM QUICK CHECKS
   plays there, fix embedding in YouTube Studio (allow embedding) or swap
   the video; the site player cannot play what YouTube blocks.
 - After any office Reload press, always Publish so visitors get the repair.
+
+IF YOU SEE "SOMETHING WENT WRONG ON OUR SIDE" (PAGE ERROR CARD)
+---------------------------------------------------------------
+That card means a page chunk failed to load after the deploy — almost always
+a stale/mixed deploy: the browser kept the OLD entry page, which names
+script chunks the new deploy pruned (or the upload is incomplete, or a CDN
+is mixing old + new files). Home still works because it loads eagerly;
+Watch live / Admin load their chunks on demand, so they are the ones that
+trip it. This build self-heals it: a failed chunk reloads the page once to
+fetch fresh chunks (one per chunk per tab); only a repeat failure shows the
+card. Do this:
+1. Press the card's "Reload the page" button once. If the page now works,
+   it was stale chunks — done, nothing else is broken.
+2. If it keeps coming back: the deploy itself is mixed. Re-upload the FULL
+   contents of dist/ (no partial uploads — FTP/cPanel uploads are NOT
+   atomic, so upload everything before testing), purge any CDN/host cache
+   (Cloudflare etc.), hard-refresh (Ctrl+Shift+R), then Publish once.
+3. Check integrity: /version.json (notes + code + deployId) must match the
+   wom-notes / wom-code / wom-deploy metas in the served index.html
+   (view-source). Mismatch = mixed deploy = repeat step 2.
+Code note: src/lib/router.tsx lazyPage() wraps every lazy page chunk
+(routes + admin) with the one-shot chunk reload; warm-up prefetchers keep
+their silent catch so they never trigger reloads speculatively.

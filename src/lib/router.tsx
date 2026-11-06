@@ -132,8 +132,48 @@ export function useRoute(): RouteState {
   return state;
 }
 
-export function matchPath(pattern: string, path: string): Record<string, string> | null {
-  const pParts = pattern.split("/").filter(Boolean);
+/* Chunk-load net: a dynamic import() failure is not a resource error, so the
+   boot retry in index.html never sees it — after a deploy, an entry page
+   naming a pruned chunk throws into the nearest error card instead of
+   healing. One plain reload per chunk per tab fetches the fresh entry page
+   and its chunks; a repeat failure throws to the card with its way home.
+   Successful loads clear the mark, so a later deploy retries again. */
+export function lazyPage<T>(name: string, importer: () => Promise<{ default: T }>): () => Promise<{ default: T }> {
+  const key = "wom.chunk.retried." + String(name || "page");
+  return () =>
+    importer().then(
+      (mod) => {
+        try {
+          sessionStorage.removeItem(key);
+        } catch {}
+        return mod;
+      },
+      (err) => {
+        let seen = "";
+        try {
+          seen = sessionStorage.getItem(key) || "";
+        } catch {}
+        if (!seen) {
+          try {
+            sessionStorage.setItem(key, "1");
+          } catch {}
+          try {
+            console.warn("church chunk: reloading for fresh chunks", { name });
+          } catch {}
+          try {
+            window.location.reload();
+          } catch {}
+          return new Promise<{ default: T }>(() => {});
+        }
+        try {
+          sessionStorage.removeItem(key);
+        } catch {}
+        throw err;
+      }
+    );
+}
+
+export function matchPath(pattern: string, path: string): Record<string, string> | null {  const pParts = pattern.split("/").filter(Boolean);
   const aParts = path.split("/").filter(Boolean);
   if (pParts.length !== aParts.length) return null;
   const params: Record<string, string> = {};

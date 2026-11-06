@@ -1,5 +1,5 @@
 import React, { useEffect } from "react";
-import { useRoute, navigate, ADMIN_PREFIX } from "./lib/router";
+import { useRoute, navigate, ADMIN_PREFIX, lazyPage } from "./lib/router";
 import { Header, Footer, ScrollTop, SkipLink, MaintenanceSite, PreviewBanner } from "./components/layout";
 import { Toaster } from "./components/ui";
 import { ErrorBoundary } from "./components/ErrorBoundary";
@@ -20,7 +20,7 @@ import { SITE } from "./data/site";
 import { BRANCHES, HQ } from "./data/branches";
 import { EVENTS } from "./data/content";
 
-const Admin = React.lazy(() => import("./pages/Admin").then((m) => ({ default: m.Admin })));
+const Admin = React.lazy(lazyPage("Admin", () => import("./pages/Admin").then((m) => ({ default: m.Admin }))));
 
 /* Explicit local preview only (?maintenance=1): the office's way to see the
    notice on demand. Visitors on a fresh deploy see it until Publish clears it. */
