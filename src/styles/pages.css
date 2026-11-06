@@ -1237,6 +1237,22 @@
   overflow: hidden;
   text-overflow: ellipsis;
 }
+/* Unblock link under a dead card title: gold, tappable (the dead body
+   disables pointer events so the reload arrow owns the surface). */
+.player__deadlink {
+  margin: 0.15rem 0 0;
+  font-size: 0.85rem;
+  pointer-events: auto;
+}
+.player__deadlink a {
+  color: #e3b75c;
+  font-weight: 700;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.player__deadlink a:hover {
+  color: #f4e9d2;
+}
 
 .player__deadtext {
   margin: 0 0 0.55rem;

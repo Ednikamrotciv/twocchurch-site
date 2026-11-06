@@ -567,6 +567,14 @@ export function WatchLive() {
 
             {available.length > 0 && (
               <div className="btn-row center live-panel__links">
+                {/* Unblock path (user rule): while the screen calls for live —
+                   playing, blocked, or verifying — this red button is the way
+                   out through YouTube itself, where the same broadcast always
+                   plays or says why. It opens in a new tab (see Btn): the site
+                   stays open behind it, and coming back re-asks the on-air
+                   check at once via the visibility watcher above. When the
+                   live ends it hides with the screen (onAirNow false) — no
+                   dead button under the ended screen. */}
                 {available.includes("youtube") && onAirNow && (
                   <Btn variant="crimson" icon="youtube" href={youtubeLink}>
                     {ct("live.watch.button1")}

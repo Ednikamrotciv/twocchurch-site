@@ -360,6 +360,11 @@ export function VideoPlayer({
      unmutes + plays; nothing ever autoplays muted behind the visitor's back. */
   const [blocked, setBlocked] = useState(false);
   const playerRef = useRef<any>(null);
+  /* One-shot auto-recovery guard (see the auto-fallback effect below): which
+     source already spent its automatic "ask what's live now" try, so a truly
+     ended broadcast never loops — it stays on the fallback with the red
+     Watch-on-YouTube button as the way out. */
+  const autoFollowTriedRef = useRef("");
   /* One-press FORCE repair (visitor arrow + office Reload share it): drop
      stale verdicts, re-ask what's live now, and play the current broadcast
      by its fresh verified ID — a restarted stream's new video, a stale
@@ -411,6 +416,11 @@ export function VideoPlayer({
         settledRepair();
       }
     } else {
+      /* Non-follow repair re-arms the auto-fallback below (cleared guard): the
+         remounted id may die again on a restarted stream, and that death must
+         trigger the same automatic "ask what's live now" try — otherwise the
+         arrow tap on a stale id could never reach the fresh broadcast. */
+      autoFollowTriedRef.current = "";
       setIframeKey((k) => k + 1);
       setPlaying(true);
       try {
@@ -510,6 +520,7 @@ export function VideoPlayer({
     setFrameConfirmed(false);
     setBlocked(false);
     try { playerRef.current = null; } catch {}
+    autoFollowTriedRef.current = "";
     setPlaying(false);
     setIframeKey((k) => k + 1);
   }, [sourceKey]);
@@ -637,6 +648,32 @@ export function VideoPlayer({
         onPlay?.();
       });
   };
+
+  /* Automatic Watch-on-YouTube path (user rule): the livestream screen links
+     itself to the same destination the red button opens — by itself, the
+     moment the embed is blocked. When a live YouTube id dies on screen
+     (embedding disabled, taken down mid-play, stale restarted-stream id, hung
+     frame tripping the watchdog), this re-asks what's live now at once and
+     plays the fresh verified broadcast right here: a restarted stream's new
+     video opens on the screen with no tap. One shot per source (guard above):
+     a proven-off broadcast or a dead probe result stays on the fallback with
+     the always-on red button as the way out — never a retry loop. Live
+     screens only; sermon/replay cards keep their tap-to-repair arrow plus the
+     new Watch-on-YouTube link. */
+  useEffect(() => {
+    if (!live || !dead) return;
+    if (platform !== "youtube") return;
+    if (autoFollowTriedRef.current === sourceKey) return;
+    autoFollowTriedRef.current = sourceKey;
+    /* Drop the fallback first (mirrors repair): a fresh verified broadcast
+       must land on the playing frame, not stay hidden behind `dead` — an
+       off/probe-down answer re-lands on the fallback by itself below. */
+    setDead(false);
+    setFailed(false);
+    setNotLive(false);
+    checkChannelThenPlay();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [live, dead, platform, sourceKey]);
 
   /* The stream can start while the visitor is already sitting on the page, so
      the player has to be able to open by itself after the first render.
@@ -1063,6 +1100,22 @@ export function VideoPlayer({
         </button>
         <div className="player__deadbody">
           <p className="player__deadtitle">{shown}</p>
+          {/* Unblock path on non-live screens: the same YouTube way out the
+             Watch page's red button gives the live screen. Live screens pass
+             hideEscape (their red button is the single way out, never a
+             second link here); sermon/replay cards get the link so a removed
+             or embedding-disabled video never strands the visitor. */}
+          {!hideEscape && platform === "youtube" && (liveVideoId || ytId) && watchUrl({ platform: "youtube", youtubeId: liveVideoId || ytId }) && (
+            <p className="player__deadlink">
+              <a
+                href={watchUrl({ platform: "youtube", youtubeId: liveVideoId || ytId }) || ""}
+                target="_blank"
+                rel="noreferrer"
+              >
+                {tx("Watch on YouTube")}
+              </a>
+            </p>
+          )}
         </div>
         {live && (
           <span className="player__live">
