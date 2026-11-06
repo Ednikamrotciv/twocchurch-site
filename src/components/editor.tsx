@@ -21,7 +21,7 @@ import {
 import { PageHead } from "../components/layout";
 import { SearchBox, eventDate } from "../components/blocks";
 import { fireToast, useNow } from "../lib/hooks";
-import { readLiveStatus, recheckLiveNow, guestTarget, isGuestTargetUrl, useLiveStream, liveTarget, isStatusForTarget, clearGuestOnStop, designatedChannelIdForTarget } from "../lib/livestatus";
+import { readLiveStatus, recheckLiveNow, guestTarget, isGuestTargetUrl, useLiveStream, liveTarget, isStatusForTarget, clearGuestOnStop } from "../lib/livestatus";
 import { checkLiveStream, forgetVerified, forgetAllVerified } from "../lib/livestatus";
 import { SITE, SERVICES, img } from "../data/site";
 import { recentLimit } from "../data/live";
@@ -903,20 +903,14 @@ export function LiveTransportButtons() {
   const play = () => {
     /* Stamp the verified broadcast into the draft at press time so Publish
        carries the real video + real headline — visitors open them at once
-       with sound, no scrape wait, no reload. INSTANT: the channel id is
-       always stamped too, so Publish carries an instantly-playable channel
-       even before the scrape confirms the broadcast. */
+       with sound, no scrape wait, no reload. */
     const stampKnown = () => {
       try {
         const s = readLiveStatus();
         const mainUrl = liveTarget()?.url || "";
-        const designated = designatedChannelIdForTarget(mainUrl);
         if (s && s.state === "live" && s.videoId && mainUrl && isStatusForTarget(s, mainUrl)) {
           const latest = cms.getDraft().live || {};
-          cms.setSectionValue("live", { ...latest, liveVideoId: s.videoId, liveVideoTitle: s.title || (latest as any).liveTitle || "", liveVideoChannelId: s.channelId || designated || (latest as any).liveVideoChannelId || "", liveVideoAt: Date.now() });
-        } else if (designated) {
-          const latest = cms.getDraft().live || {};
-          if (!(latest as any).liveVideoChannelId) cms.setSectionValue("live", { ...latest, liveVideoChannelId: designated });
+          cms.setSectionValue("live", { ...latest, liveVideoId: s.videoId, liveVideoTitle: s.title || (latest as any).liveTitle || "", liveVideoChannelId: s.channelId || (latest as any).liveVideoChannelId || "", liveVideoAt: Date.now() });
         }
       } catch {}
     };
@@ -1090,22 +1084,14 @@ export function GuestTransportButtons() {
     const latest = cms.getDraft().live || {};
     cms.setSectionValue("live", { ...latest, ...patch });
   };
-  /* Guest play arms the guest override — main untouched. INSTANT: the guest
-     channel id is stamped at once, so Play + Publish opens the guest channel
-     immediately even before the scrape confirms its broadcast. */
+  /* Guest play arms the guest override — main untouched. */
   const play = () => {
     const latest = cms.getDraft().live || {};
     if (!String((latest as any).externalYoutubeChannel || "").trim()) {
       fireToast("Type the guest channel first — there is no guest to override.", "info");
       return;
     }
-    try {
-      const gUrl0 = guestTarget(String((latest as any).externalYoutubeChannel || ""))?.url || "";
-      const designated = designatedChannelIdForTarget(gUrl0);
-      write({ guestIsLive: true, guestCommandAt: Date.now(), ...(designated ? { guestVideoChannelId: designated } : {}) });
-    } catch {
-      write({ guestIsLive: true, guestCommandAt: Date.now() });
-    }
+    write({ guestIsLive: true, guestCommandAt: Date.now() });
     try {
       const s = readLiveStatus();
       const gUrl = guestTarget(String((cms.getDraft().live as any)?.externalYoutubeChannel || ""))?.url || "";

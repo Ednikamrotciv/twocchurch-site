@@ -5,6 +5,11 @@
 // scripts/serve.mjs), no deps, GET ?url=<youtube url>.
 const ALLOWED = new Set(["www.youtube.com", "youtube.com", "m.youtube.com", "youtu.be"]);
 const MAX_BYTES = 3 * 1024 * 1024;
+/* Error responses carry the same CORS + no-store headers as success (fix):
+   cross-origin callers (local dev, previews) must be able to READ the 502
+   and treat it as "unknown" — without ACAO the fetch rejects opaquely and
+   a distinguishable off/unknown answer degrades into an exception. */
+const ERR_HEADERS = { "cache-control": "no-store", "access-control-allow-origin": "*" };
 
 export async function handler(event) {
   try {
@@ -12,7 +17,7 @@ export async function handler(event) {
     let host = "";
     try { host = new URL(url).hostname.toLowerCase(); } catch { host = ""; }
     if (!ALLOWED.has(host)) {
-      return { statusCode: 400, headers: { "cache-control": "no-store" }, body: "bad url" };
+      return { statusCode: 400, headers: ERR_HEADERS, body: "bad url" };
     }
     const ctrl = typeof AbortController !== "undefined" ? new AbortController() : null;
     const timer = ctrl ? setTimeout(() => { try { ctrl.abort(); } catch {} }, 10000) : 0;
@@ -26,10 +31,10 @@ export async function handler(event) {
       });
       const text = await upstream.text().catch(() => "");
       if (!upstream.ok || !text) {
-        return { statusCode: 502, headers: { "cache-control": "no-store" }, body: "unreachable" };
+        return { statusCode: 502, headers: ERR_HEADERS, body: "unreachable" };
       }
       if (text.length > MAX_BYTES) {
-        return { statusCode: 502, headers: { "cache-control": "no-store" }, body: "too large" };
+        return { statusCode: 502, headers: ERR_HEADERS, body: "too large" };
       }
       return {
         statusCode: 200,
@@ -40,6 +45,6 @@ export async function handler(event) {
       if (timer) clearTimeout(timer);
     }
   } catch {
-    return { statusCode: 502, headers: { "cache-control": "no-store" }, body: "unreachable" };
+    return { statusCode: 502, headers: ERR_HEADERS, body: "unreachable" };
   }
 }
