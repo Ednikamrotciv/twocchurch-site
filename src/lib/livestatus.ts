@@ -644,33 +644,31 @@ async function fetchPageRemote(url: string): Promise<string | null> {
   }
 }
 
-/** Static-host YouTube doors (local-parity fix): static deploys have no /__yt
-    (the SPA fallback answers 200 index.html there), so without a same-origin
-    door the only path left was the public proxy — while local reads through
-    its own /__yt. Netlify serves `netlify/functions/yt.mjs` at
-    `/.netlify/functions/yt`; Cloudflare Pages serves `functions/yt.mjs` at
-    `/yt` (some hosts mirror it at `/functions/yt`). First valid YouTube
-    answer wins; missing anywhere else -> null. Same-origin, no CORS, and
-    YouTube-only by design like /__yt. */
-async function fetchStaticDoor(path: string, url: string): Promise<string | null> {
-  try {
-    const res = await withTimeout(fetch(path + "?url=" + encodeURIComponent(url), { cache: "no-store" }), CHECK_TIMEOUT_MS);
-    if (!res || !res.ok) return null;
-    const text = await res.text();
-    if (typeof text !== "string" || text.length === 0) return null;
-    if (!isYoutubeHtml(text)) return null;
-    return text;
-  } catch {
-    return null;
-  }
-}
+/** Static-host YouTube doors (`netlify/functions/yt.mjs`, `api/yt.js` for Vercel;
+    Cloudflare Pages serves same-origin /__yt via `functions/__yt.js` so it needs
+    no door here): static deploys have no /__yt (the SPA fallback answers 200
+    index.html there), so without these the only door left was the public proxy.
+    Same-origin, no CORS, and YouTube-only by design like /__yt. Missing
+    anywhere else -> null. */
 async function fetchPageStaticProxy(url: string): Promise<string | null> {
+  const doors = [
+    `/.netlify/functions/yt?url=${encodeURIComponent(url)}`,
+    `/api/yt?url=${encodeURIComponent(url)}`,
+  ];
   try {
-    return await firstValidHtml([
-      fetchStaticDoor("/.netlify/functions/yt", url),
-      fetchStaticDoor("/yt", url),
-      fetchStaticDoor("/functions/yt", url),
-    ]);
+    const jobs = doors.map(async (door) => {
+      try {
+        const res = await withTimeout(fetch(door, { cache: "no-store" }), CHECK_TIMEOUT_MS);
+        if (!res || !res.ok) return null;
+        const text = await res.text();
+        if (typeof text !== "string" || text.length === 0) return null;
+        if (!isYoutubeHtml(text)) return null;
+        return text;
+      } catch {
+        return null;
+      }
+    });
+    return await firstValidHtml(jobs);
   } catch {
     return null;
   }

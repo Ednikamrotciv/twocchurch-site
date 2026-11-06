@@ -1,11 +1,11 @@
-APPLY THIS UPDATE (438) — ONE UNIFIED UPDATE (ALL OLD UPDATES REMOVED)
+APPLY THIS UPDATE (441) — ONE UNIFIED UPDATE (ALL OLD UPDATES REMOVED)
 =============================================================================
 Single update, one zip — every older update is superseded by this one. Extract fully
 incl. index.html on BOTH sides (office computer + any always-on host), then follow the
 ORDER below. What this build does:
 
 (1) MAINTENANCE HOLDS EVERY NEW DEPLOY, ONE PUBLISH CLEARS IT. Each build stamps a
-fresh opaque deploy ID (version.json + seed.json + entry page carry the same ID);
+fresh opaque deploy ID (version.json + /seed.json + entry page carry the same ID);
 fresh visitors wait on the notice until a publish from that deploy lands. A Publish
 with zero changes still counts — bless-only sendPatch — so the first click clears the
 notice even when the drawer says there is nothing to publish. /admin is never gated
@@ -14,16 +14,18 @@ by the notice; Publish opens sign-in instead of sending when signed out.
 (2) ONE ADMIN PUBLISH WORKS EVERYWHERE, BOTH DIRECTIONS. The bottom-bar Publish button
 and the dialog's Publish now button share the ONE pipeline (performPublish →
 runPublishAction → cms.publish): either one alone publishes for every visitor with
-the same note and toasts. New in this build: live/admin → local/admin is automatic
-the same way local/admin → live/admin already was. A Publish clicked on live/admin
-paints itself on every open local/admin copy within seconds — notice, words, stamps —
-signed in or not, mid-edit or not (open edits are rebased, never overwritten); the
-durable record on the office backend follows by itself once the desk allows (signed
-in, clean desk), and the next local Publish folds everything together, so no second
-click, ever. Server verdict + same-code attestation + publish clock still lift every
-copy on the host within seconds (online) or at first sync. Sessions stay deploy-bound
-(a new deploy signs in again) and survive `npm run dev` restarts; a device-only click
-still lifts every tab of the browser and queues/relays in the background.
+the same note and toasts. A Publish clicked on live/admin paints itself on every
+open local/admin copy within seconds — notice, words, stamps — signed in or not,
+mid-edit or not (open edits are rebased, never overwritten); the durable record on
+the office backend follows by itself once the desk allows (signed in, clean desk),
+and the next local Publish folds everything together, so no second click, ever.
+Server verdict + same-code attestation + publish clock still lift every copy on the
+host within seconds (online) or at first sync. Sessions stay deploy-bound (a new
+deploy signs in again) and survive `npm run dev` restarts; a device-only click still
+lifts every tab of the browser and queues/relays in the background. Gates still take
+an explicit Publish for brand-new code arrivals, and the office record still waits
+for a clean desk and a sign-in — but the notice and the words never wait: no second
+click, ever.
 
 (3) NEW DEPLOY OPENS FRESH, CLEAN AND NEW. First boot per deploy ID wipes retired
 service workers/caches (old wakes can never paint the old shell), clears draft +
@@ -31,37 +33,124 @@ pending + history + undos + preview + relay debt so the unsaved list opens new/e
 resets drawer place, and stages clean (welcome-home slide only, no former publish) for
 returning browsers until Recover + Publish. A live adoption never paints over a
 clean stage with queued office work, and never paints an older store over newer
-live words (the owed-record flag guards the server sync). Fresh profiles with no
-prior blessing still adopt live words, so a new device joining the live site is
-never clobbered.
+live words. Fresh profiles with no prior blessing still adopt live words, so a new
+device joining the live site is never clobbered. The new deploy ARRIVES FRESH.
 
 (4) ADMIN SIGN-IN STAYS ACTIVE. Sessions are deploy-bound on stamped builds (a new
 deploy signs in again) and survive `npm run dev` restarts, and idle-expiring (15
 minutes without an admin action ends the session; the next publish fails until the
-office signs in again). Administrator ACCOUNTS are never reset by a deploy:
-main-password override, sub-admin roster, invites, two-factor, main-off switch and
-generation persist in the server store across every update; clean boots clear words
-only, never the roster.
+office signs in again). Administrator ACCOUNTS are never reset by a deploy: the
+main-password change, sub-admin roster, invites and two-factor live in the server
+store across every update; clean boots clear words only, never the roster.
 
 (5) SLEEP-WAKE STAYS ACTIVE. A sleeping box keeps serving its baked words; a wake
 re-serves the last publish whole (words + stamp + history) from the deploy bake /
 pushed mirror with no office action. On diskless hosts the words survive but sign-in
-returns to the shipped default (mount a disk at data/ to keep accounts across sleeps).
-Missing uploads heal back from the browser cache / public mirror without an office
-click, so slides never go blank after a wipe.
+returns to the shipped default (mount a disk at data/ to keep accounts across
+sleeps). Missing uploads heal back from the browser cache / public mirror without an
+office click, so slides never go blank after a wipe. Every wake prints
+`cold start at` in the host log, and the keep-awake recipe rides along: UptimeRobot
+every 5 minutes to /version.json on free-tier hosts, plus the live follow loop, so
+sleep is a non-event by recipe and by loop.
 
 (6) PUBLISH AND PUBLISH NOW ARE THE SAME. Both buttons run the attached rule above —
 same pipeline, same note, same toasts, same everywhere-effect, both directions.
 
-Still ORDER: BACK UP FIRST (Tools backup, download it), extract fully incl. index.html
-BOTH sides (same zip), `npm run dev:fresh` + restart the office backend, hard refresh;
-sign in once (the new deploy asks for it; dev restarts keep you signed in); Publish
-ONCE from any signed-in admin copy — every copy lifts within seconds online (or at
-first sync); THEN bake-seed, commit+push full step-0 set, rebuild BOTH hosts; Publish
-on each host; reload ALL admin tabs. Proof: window.__womBuild = { notes: 438,
-code: "unified438" }; verifier sections GGG (no-change publish blesses deploy) + MMM
-(sessions) pass, plus the new live-lands-both-ways lock. Files: src/lib/hooks.ts
-(438/unified438) + index.html (wom-notes/code), src/lib/cms.ts (session-free live
-adoption both directions + owed-record guard + prompt live tick), src/SPEC.md
-(note 438), src/tools/verify-update.mjs (438 payloads + both-ways lock),
-DEPLOY.md (bidirectional routine).
+Still ORDER: BACK UP FIRST (step 1): Tools backup, download it and keep it — the
+uploads survive only in the backup file, so BACK UP FIRST (step 1) before anything
+else. Then extract fully incl. index.html BOTH sides (same zip), `npm run dev:fresh`
++ restart the office backend, hard refresh; sign in once (the new deploy asks for
+it; dev restarts keep you signed in); Publish ONCE from any signed-in admin copy —
+every copy lifts within seconds online (or at first sync); THEN bake-seed,
+commit+push full step-0 set, rebuild BOTH hosts; Publish on each host; reload ALL
+admin tabs. Proof: window.__womBuild = { notes: 441, code: "unified441" }; verifier
+sections GGG (no-change publish blesses deploy) + MMM (sessions) pass, plus the live
+lands-both-ways lock. Files: src/lib/hooks.ts (441/unified441) + index.html
+(wom-notes/code), src/lib/cms.ts (session-free live adoption both directions +
+owed-record guard + prompt live tick), src/SPEC.md (note 441),
+src/tools/verify-update.mjs (441 payloads + both-ways lock), DEPLOY.md
+(bidirectional routine).
+
+STEP 0 — DEPLOY CHECKLIST (do this first, on the measured box, not the zip)
+-----------------------------------------------------------------------------
+Measured on the live box first: open the LIVE site (not the zip, not the office)
+and write down what it shows — update number from version.json, words from
+/seed.json (an `"sections":{}` bake is an empty shell: code without the bake is
+an empty shell, so copy seed.json from THIS zip only when the box bake is empty
+and the backup is already downloaded). A hand-edited folder running mystery 337
+matches no shipped update — rebuild it from THIS zip instead of patching it.
+Then commit+push the full step-0 set: src/, scripts/, index.html, seed.json,
+vite.config.ts, package.json, maintenance-hold.txt and .gitignore (manual copies
+skip hidden files unless named — maintenance-hold.txt and .gitignore must travel,
+or git-built hosts never hold). The build log must print `maintenance hold on`
+beside the version.json stamp; without that line the deploy never holds.
+Push-land check: after the rebuild, confirm the WORDS landed, not just the code —
+open /seed.json on the host and see the published sections, never an empty shell.
+
+APPLY CHECKS (run like a visitor, not like the office)
+------------------------------------------------------
+Check the notice with a FRESH profile (a fresh incognito window with no session):
+the new deploy must wait on the notice until Publish. The office's own bypasses
+(?preview=1, Exit preview, /admin) must NOT leak into this check — Exit preview
+drops the grant and the notice returns. The notice itself stays: logo +
+"We'll be right back" + "Please check back shortly", no numbers, no links.
+The rev stamp is public: /__cms/contentRev answers with no session, and every
+tab watches the stamp — local, mobile and desktop pull a missed publish within
+the half minute via startContentWatch. The live follow loop joins every deploy
+to the office server within minutes (live follow), so one Publish clears all.
+
+RESET RECIPE (only when the watched channel is wrong)
+-----------------------------------------------------
+The published handle only moves by reset plus publish: set the Live stream
+channel to exactly `@twocorg` (no reset tap — no reset tap on the row itself;
+Only if it offers a Reset button, tap it once), then Publish. Reset to @twocorg
+from any backup also heals the channel: a restore of any backup ends with the
+handle at exactly `@twocorg` and also heals the channel art + recents. No second
+reset is ever needed — the checklist verifies readiness (channel reads
+@twocorg, recents are the church's), it never taps the button to prove it.
+
+OVERRIDE NOTE (one-tap @twocorg reset line)
+-------------------------------------------
+The override line in the console overrides the last one, so every old clears away:
+pasting exactly `@twocorg` replaces any debugging handle (@zoelife,
+@@doubles, stray links) in one stroke, with no leftover. The override ships
+with this update and stays until the office types a new handle.
+
+KNOWN-POISON VIDEO (jazz check — do not publish this id)
+---------------------------------------------------------
+The office must know exactly which video is poison: id zJvgsAhpNlo, a
+small
+  village jazz upload that YouTube answers 4xx for. The oEmbed verdict refuses
+it before play (dead ids never autoplay into the black "unavailable" frame);
+the player falls back to the poster + Watch-on-YouTube button instead.
+
+LIVE TRANSPORT RULES (the office must meet the click-to-send rule first)
+-------------------------------------------------------------------------
+PUBLISH ONLY SENDS A CLICKED COMMAND: an office Stop/Start/Continue/Reload only
+travels on its own row's button press — a typed handle never sends, a retype
+silently re-checks. THE BUTTONS NEVER GATE A LIVE END: a natural YouTube end
+closes the screen by itself. PLAY/PAUSE IS ONE: one button holds and resumes.
+A NATURAL END NEEDS NO PUBLISH: the ended screen keeps the last thumbnail and
+files the service into recents by itself — pause to hold it, then publish the
+write-up later; stop to end one early and Publish clears the stage. The Watch
+screen never plays another channel's livestream by itself: a guest end hands
+back to the main channel's own still, and closes immediately when the main ends.
+No live is EVER MUTED: self-starts play with sound, and the screen closes
+immediately on a true end so no stale frame lingers.
+
+LIVE FIELD ROWS (the office must meet the per-field rows first)
+----------------------------------------------------------------
+EACH FIELD HAS ITS BUTTONS: channel, video, guest, Facebook and options rows
+each carry their own row of buttons. EACH FIELD COMMANDS ITS OWN SLOT: the main
+slot and the guest slot never cross — MAIN WAITS FOR THE PLAY PRESS (a detected
+main broadcast only opens after the office presses Play), and GUEST ARRIVES EMPTY
+(a guest slot with no address waits, never borrows the main's video).
+NEXT BROADCAST NAMES THE SCREEN: the next gathering's headline is the screen's
+title while it waits. LIGHTS ITS OWN DOT: each row's live dot follows its own
+slot's answer. AUTOPLAY ONLY WHEN THE MAIN IS LIVE: detection-gated autoplay
+opens the player by itself only for the designated main broadcast; a guest
+needs its tap, and WATCH PAGE PLAYS AGAIN after any crash via the boundary
+card. FACEBOOK routing: a Facebook-only service still opens the Facebook
+player; YouTube answers never route there. THE MAIN CHANNEL STARTS BY ITSELF:
+opening the Watch page while the main broadcast is live starts playback with
+sound and no tap.
