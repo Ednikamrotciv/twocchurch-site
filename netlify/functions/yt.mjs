@@ -29,12 +29,29 @@ export async function handler(event) {
         },
         signal: ctrl ? ctrl.signal : undefined,
       });
-      const text = await upstream.text().catch(() => "");
-      if (!upstream.ok || !text) {
-        return { statusCode: 502, headers: ERR_HEADERS, body: "unreachable" };
+      /* Streamed cap like scripts/serve.mjs /__yt (deployed parity): cancel
+         past 3 MB instead of buffering an unbounded body into the function. */
+      let text = "";
+      let tooLarge = false;
+      try {
+        if (!upstream.body) throw new Error("empty");
+        let bytes = 0;
+        const parts = [];
+        for await (const chunk of upstream.body) {
+          bytes += chunk.length;
+          if (bytes > MAX_BYTES) {
+            tooLarge = true;
+            try { await upstream.cancel(); } catch {}
+            break;
+          }
+          parts.push(chunk);
+        }
+        if (!tooLarge) text = Buffer.concat(parts).toString("utf8");
+      } catch {
+        tooLarge = true;
       }
-      if (text.length > MAX_BYTES) {
-        return { statusCode: 502, headers: ERR_HEADERS, body: "too large" };
+      if (!upstream.ok || !text) {
+        return { statusCode: 502, headers: ERR_HEADERS, body: tooLarge ? "too large" : "unreachable" };
       }
       return {
         statusCode: 200,

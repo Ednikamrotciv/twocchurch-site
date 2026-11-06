@@ -513,7 +513,7 @@ const server = http.createServer(async (req, res) => {
       }
       const allowed = host === "www.youtube.com" || host === "youtube.com" || host === "m.youtube.com" || host === "youtu.be";
       if (!allowed) {
-        res.writeHead(400, { "cache-control": "no-store" });
+        res.writeHead(400, { "cache-control": "no-store", "access-control-allow-origin": "*" });
         res.end("bad url");
         return;
       }
@@ -545,8 +545,12 @@ const server = http.createServer(async (req, res) => {
           ytTooBig = true;
         }
         const text = ytTooBig ? "" : Buffer.concat(ytParts).toString("utf8");
+        /* Deployed parity (like netlify/functions/yt.mjs): a joined copy on
+           another origin must be able to READ these, so every /__yt answer
+           carries ACAO. Same-origin local runs behave exactly as before. */
+        const ytCORS = { "cache-control": "no-store", "access-control-allow-origin": "*" };
         if (!upstream.ok || !text) {
-          res.writeHead(502, { "cache-control": "no-store" });
+          res.writeHead(502, ytCORS);
           res.end(ytTooBig ? "too large" : "unreachable");
           return;
         }
@@ -559,6 +563,7 @@ const server = http.createServer(async (req, res) => {
             "content-length": gz.length,
             "content-encoding": "gzip",
             "cache-control": "no-store",
+            "access-control-allow-origin": "*",
             vary: "accept-encoding",
           });
           res.end(gz);
@@ -568,10 +573,11 @@ const server = http.createServer(async (req, res) => {
           "content-type": "text/html; charset=utf-8",
           "content-length": body.length,
           "cache-control": "no-store",
+          "access-control-allow-origin": "*",
         });
         res.end(body);
       } catch {
-        res.writeHead(502, { "cache-control": "no-store" });
+        res.writeHead(502, { "cache-control": "no-store", "access-control-allow-origin": "*" });
         res.end("unreachable");
       }
       return;
