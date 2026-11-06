@@ -90,6 +90,22 @@ export const LIVE = {
   guestIsLive: false,
   /** Last guest-row press at (ms); the guest state travels only on it. */
   guestCommandAt: 0,
+  /** Last Reload press at (ms), either row — the general fix. The visitor
+      player remounts + rejoins sound on the published press; it travels only
+      on a newer row press, like the on-air state. */
+  liveReloadAt: 0,
+  /** Verified live broadcast captured by the office at Play time (hidden, no drawer field):
+      the actual YouTube video id + title playing now, so visitors open the real
+      video with the real headline at once via the publish — no scrape wait, no reload. */
+  liveVideoId: "",
+  liveVideoTitle: "",
+  liveVideoChannelId: "",
+  liveVideoAt: 0,
+  /** Same for the temporary guest slot. */
+  guestVideoId: "",
+  guestVideoTitle: "",
+  guestVideoChannelId: "",
+  guestVideoAt: 0,
   /** Taken-off service ids; the channel keeps them, the site hides them. */
   hiddenReplays: [] as string[],
   /** The cards under "everywhere you already are". */

@@ -21,7 +21,8 @@ import {
 import { PageHead } from "../components/layout";
 import { SearchBox, eventDate } from "../components/blocks";
 import { fireToast, useNow } from "../lib/hooks";
-import { readLiveStatus, recheckLiveNow, guestTarget, isGuestTargetUrl, useLiveStream, liveTarget, isStatusForTarget, clearGuestOnStop } from "../lib/livestatus";
+import { readLiveStatus, recheckLiveNow, guestTarget, isGuestTargetUrl, useLiveStream, liveTarget, isStatusForTarget, clearGuestOnStop, designatedChannelIdForTarget } from "../lib/livestatus";
+import { checkLiveStream, forgetVerified, forgetAllVerified } from "../lib/livestatus";
 import { SITE, SERVICES, img } from "../data/site";
 import { recentLimit } from "../data/live";
 import { ytWatch } from "../data/sermons";
@@ -29,7 +30,7 @@ import { askForRecentServices, fetchPreviousLives, readRecentServices, subscribe
 import type { RecentService } from "../lib/recentstreams";
 import { BRANCHES } from "../data/branches";
 import type { ChurchEvent } from "../data/content";
-import { PHOTO_SLOTS, bundledPhoto, photoById, photoKeyOf, resolvePhoto } from "../data/photos";
+import { PHOTO_SLOTS, bundledPhoto, photoById, photoKeyOf, resolvePhoto, slotBundledPhoto } from "../data/photos";
 import {
   compressImageBlob,
   clockAt,
@@ -54,7 +55,8 @@ import {
   sectionIsHidden,
 } from "../lib/cmsSchema";
 import * as cms from "../lib/cms";
-import { cacheUploadBlob, uploadNameOf, useCachedUploadUrl } from "../lib/uploadCache";
+import { cacheUploadBlob, uploadNameOf, useCachedUploadUrl, useFeedUploadUrl } from "../lib/uploadCache";
+import { siteFile } from "../lib/livefeed";
 import { serverUrl } from "../lib/remoteserver";
 
 /* -------------------------------------------------------------- status pill */
@@ -856,7 +858,10 @@ export function LiveEndingPanel({ onOpen, children }: { onOpen: (id: string) => 
     leaves the site's on-air state alone, whatever the draft says. The buttons
     never gate a live end: when the broadcast ends the screen closes at once
     onto the main channel's previous-service thumbnails, published or not — a
-    natural end needs no publish (note 394). */
+    leaves the site's on-air state alone, whatever the draft says. When the
+    broadcast ends by itself, nothing is written and nothing is filed: the
+    office presses Stop, then Publish (the automatic stop was removed at the
+    office's request — see src/lib/autostop.ts). */
 export function LiveTransportButtons() {
   useCmsTick();
   const now = useNow(20000);
@@ -896,25 +901,54 @@ export function LiveTransportButtons() {
      one at the current time — either way the click stamps the command, and
      Publish sends it. */
   const play = () => {
+    /* Stamp the verified broadcast into the draft at press time so Publish
+       carries the real video + real headline — visitors open them at once
+       with sound, no scrape wait, no reload. INSTANT: the channel id is
+       always stamped too, so Publish carries an instantly-playable channel
+       even before the scrape confirms the broadcast. */
+    const stampKnown = () => {
+      try {
+        const s = readLiveStatus();
+        const mainUrl = liveTarget()?.url || "";
+        const designated = designatedChannelIdForTarget(mainUrl);
+        if (s && s.state === "live" && s.videoId && mainUrl && isStatusForTarget(s, mainUrl)) {
+          const latest = cms.getDraft().live || {};
+          cms.setSectionValue("live", { ...latest, liveVideoId: s.videoId, liveVideoTitle: s.title || (latest as any).liveTitle || "", liveVideoChannelId: s.channelId || designated || (latest as any).liveVideoChannelId || "", liveVideoAt: Date.now() });
+        } else if (designated) {
+          const latest = cms.getDraft().live || {};
+          if (!(latest as any).liveVideoChannelId) cms.setSectionValue("live", { ...latest, liveVideoChannelId: designated });
+        }
+      } catch {}
+    };
+    const refineInBackground = () => {
+      try {
+        checkLiveStream().then((s) => {
+          try {
+            const mainUrl = liveTarget()?.url || "";
+            if (s && (s as any).state === "live" && (s as any).videoId && mainUrl && isStatusForTarget(s as any, mainUrl)) {
+              const latest = cms.getDraft().live || {};
+              if ((latest as any).isLive) cms.setSectionValue("live", { ...latest, liveVideoId: (s as any).videoId, liveVideoTitle: (s as any).title || (latest as any).liveTitle || "", liveVideoChannelId: (s as any).channelId || "", liveVideoAt: Date.now() });
+            }
+          } catch {}
+        }).catch(() => {});
+      } catch {}
+    };
     if (heldSession) {
       write({ isLive: true, liveCut: 0, liveEndedBy: "office", liveCommandAt: Date.now() });
+      stampKnown();
+      refineInBackground();
       recheckLiveNow();
-      fireToast("Back on air — Publish sends it.", "success");
       return;
     }
     write({ isLive: true, liveSince: Date.now(), liveCut: 0, liveEndedBy: "office", liveCommandAt: Date.now() });
+    stampKnown();
+    refineInBackground();
     /* A new session: read the channel now, so a service that has just been
        published shows up without waiting for the ten-minute timer. */
     askForRecentServices();
     /* …and ask the on-air check at once (note 310): if the stream is already
        up on the channel the site flips to it in seconds, on live and local. */
     recheckLiveNow();
-    fireToast(
-      ready
-        ? "Manual override on — Publish sends it. The screen plays it once published."
-        : "Manual override on — Publish sends it. Paste the stream link or the channel to watch below.",
-      "success"
-    );
   };
   /* Pause holds the broadcast without ending it (note 392): the session start
      is kept — no `liveSince` key here — so play picks the same session back
@@ -922,7 +956,6 @@ export function LiveTransportButtons() {
   const pause = () => {
     write({ isLive: false, liveCut: Date.now(), liveEndedBy: "office", liveCommandAt: Date.now() });
     recheckLiveNow();
-    fireToast("Paused — play picks the same session back up. Publish sends it.", "info");
   };
   /* Stop ends the session straight (note 414): the live stops — the start is
      cleared, so the next play begins fresh — and the finished service files
@@ -931,7 +964,7 @@ export function LiveTransportButtons() {
      with the stop — and the unsaved change with it. */
   const stop = () => {
     const at = Date.now();
-    write(clearGuestOnStop({ ...cms.getDraft().live, isLive: false, liveSince: 0, liveCut: at, liveEndedBy: "office", liveCommandAt: at }));
+    write(clearGuestOnStop({ ...cms.getDraft().live, isLive: false, liveSince: 0, liveCut: at, liveEndedBy: "office", liveCommandAt: at, liveVideoId: "", liveVideoTitle: "", liveVideoChannelId: "", liveVideoAt: 0 }));
     recheckLiveNow();
     /* An ended service seeds Recent services now; every open page re-reads the channel.
        A temporary guest never seeds (note 379): its ending leaves the main
@@ -939,12 +972,58 @@ export function LiveTransportButtons() {
     const aired = readLiveStatus();
     const airedGuest = isGuestTargetUrl(aired.target || "", guestTarget()?.url || "");
     askForRecentServices(!airedGuest && aired.videoId ? { videoId: aired.videoId, title: aired.title } : undefined);
-    fireToast(
-      airedGuest
-        ? "Stopped. The live is off and the guest channel is empty — Publish sends it."
-        : "Stopped. The live is off — Publish sends it and clears the guest channel.",
-      "info"
-    );
+  };
+  /* Reload repairs both slots at once (the general fix, same manual press as
+     play/pause/stop): drops every poisoned verdict, stamps a reload press so
+     Publish carries the fix, refreshes the verified video + headline for both
+     slots behind, and re-asks the on-air check. Visitors remount + rejoin
+     sound on the published press — any error, incl. blocked autoplay — with
+     no page reload, staying on this site. */
+  const reload = () => {
+    const at = Date.now();
+    /* Shared repair (visitor arrow runs the same): drop stale verdicts,
+       re-ask what's live now, play the current broadcast by its fresh
+       verified id. */
+    try {
+      forgetAllVerified();
+    } catch {}
+    try {
+      const cur = cms.getDraft().live || {};
+      for (const raw of [String((cur as any).liveVideoId || ""), String((cur as any).guestVideoId || "")]) {
+        try { if (raw) forgetVerified(raw); } catch {}
+      }
+      try {
+        const s = readLiveStatus();
+        if (s && (s as any).videoId) { try { forgetVerified((s as any).videoId); } catch {} }
+      } catch {}
+    } catch {}
+    write({ liveReloadAt: at, liveCommandAt: at });
+    try {
+      const stampBoth = (s: any) => {
+        try {
+          const mUrl = liveTarget()?.url || "";
+          if (s && s.state === "live" && s.videoId && mUrl && isStatusForTarget(s, mUrl)) {
+            const cur = cms.getDraft().live || {};
+            cms.setSectionValue("live", { ...cur, liveVideoId: s.videoId, liveVideoTitle: s.title || (cur as any).liveTitle || "", liveVideoChannelId: s.channelId || "", liveVideoAt: Date.now() });
+          }
+        } catch {}
+        try {
+          const gUrl = guestTarget(String((cms.getDraft().live as any)?.externalYoutubeChannel || ""))?.url || "";
+          if (s && s.state === "live" && s.videoId && gUrl && isStatusForTarget(s, gUrl)) {
+            const cur2 = cms.getDraft().live || {};
+            cms.setSectionValue("live", { ...cur2, guestVideoId: s.videoId, guestVideoTitle: s.title || (cur2 as any).liveTitle || "", guestVideoChannelId: s.channelId || "", guestVideoAt: Date.now() });
+          }
+        } catch {}
+      };
+      try {
+        const s = readLiveStatus();
+        if (s && (s as any).state === "live") stampBoth(s);
+      } catch {}
+      checkLiveStream().then((s) => { try { stampBoth(s); } catch {} }).catch(() => {});
+    } catch {}
+    recheckLiveNow();
+    askForRecentServices();
+    fireToast("Livestream reloaded — press Publish to send the fix to everyone watching.", "success");
   };
 
   return (
@@ -962,6 +1041,9 @@ export function LiveTransportButtons() {
           )}
           <Btn size="sm" variant="ghost" icon="stop" onClick={stop} title="Stop the livestream" ariaLabel="Stop the livestream">
             Stop
+          </Btn>
+          <Btn size="sm" variant="ghost" icon="refresh" onClick={reload} title="Reload the livestream — fixes sound, picture and errors on both channels" ariaLabel="Reload the livestream">
+            Reload
           </Btn>
           {mainLive && (
             <span className="live-badge transport-row__live" role="status">
@@ -1008,32 +1090,103 @@ export function GuestTransportButtons() {
     const latest = cms.getDraft().live || {};
     cms.setSectionValue("live", { ...latest, ...patch });
   };
-  /* Guest play arms the guest override — main untouched. */
+  /* Guest play arms the guest override — main untouched. INSTANT: the guest
+     channel id is stamped at once, so Play + Publish opens the guest channel
+     immediately even before the scrape confirms its broadcast. */
   const play = () => {
     const latest = cms.getDraft().live || {};
     if (!String((latest as any).externalYoutubeChannel || "").trim()) {
       fireToast("Type the guest channel first — there is no guest to override.", "info");
       return;
     }
-    write({ guestIsLive: true, guestCommandAt: Date.now() });
+    try {
+      const gUrl0 = guestTarget(String((latest as any).externalYoutubeChannel || ""))?.url || "";
+      const designated = designatedChannelIdForTarget(gUrl0);
+      write({ guestIsLive: true, guestCommandAt: Date.now(), ...(designated ? { guestVideoChannelId: designated } : {}) });
+    } catch {
+      write({ guestIsLive: true, guestCommandAt: Date.now() });
+    }
+    try {
+      const s = readLiveStatus();
+      const gUrl = guestTarget(String((cms.getDraft().live as any)?.externalYoutubeChannel || ""))?.url || "";
+      if (s && s.state === "live" && s.videoId && gUrl && isStatusForTarget(s, gUrl)) {
+        const cur = cms.getDraft().live || {};
+        cms.setSectionValue("live", { ...cur, guestVideoId: s.videoId, guestVideoTitle: s.title || (cur as any).liveTitle || "", guestVideoChannelId: s.channelId || "", guestVideoAt: Date.now() });
+      }
+      checkLiveStream().then((ns) => {
+        try {
+          const gU = guestTarget(String((cms.getDraft().live as any)?.externalYoutubeChannel || ""))?.url || "";
+          if (ns && (ns as any).state === "live" && (ns as any).videoId && gU && isStatusForTarget(ns as any, gU)) {
+            const cur2 = cms.getDraft().live || {};
+            if ((cur2 as any).guestIsLive) cms.setSectionValue("live", { ...cur2, guestVideoId: (ns as any).videoId, guestVideoTitle: (ns as any).title || (cur2 as any).liveTitle || "", guestVideoChannelId: (ns as any).channelId || "", guestVideoAt: Date.now() });
+          }
+        } catch {}
+      }).catch(() => {});
+    } catch {}
     recheckLiveNow();
-    fireToast("Guest override on — Publish sends it. The screen opens the guest while it is live.", "success");
   };
   /* Guest pause holds the override off without clearing the slot. */
   const pause = () => {
     write({ guestIsLive: false, guestCommandAt: Date.now() });
     recheckLiveNow();
-    fireToast("Guest paused — Publish sends it.", "info");
   };
   /* Guest stop ends the override AND empties the slot (main untouched, and a
      guest ending files nothing under Recent services). */
   const stop = () => {
     const latest = cms.getDraft().live || {};
     const hadGuest = String((latest as any).externalYoutubeChannel || "").trim() !== "";
-    write({ guestIsLive: false, guestCommandAt: Date.now(), ...(hadGuest ? { externalYoutubeChannel: "" } : {}) });
+    write({ guestIsLive: false, guestCommandAt: Date.now(), guestVideoId: "", guestVideoTitle: "", guestVideoChannelId: "", guestVideoAt: 0, ...(hadGuest ? { externalYoutubeChannel: "" } : {}) });
     recheckLiveNow();
-    fireToast("Stopped. The guest stream is off the site — Publish sends it.", "info");
-    if (hadGuest) fireToast("Guest channel is empty again — Publish sends it.", "info");
+  };
+  /* Guest Reload repairs the guest slot the same manual way (stamping the
+     guest press so Publish carries it); poisoned verdicts for both slots are
+     dropped and both slots restamp behind, so one press fixes whichever side
+     is misbehaving. Visitors remount + rejoin sound on the published press. */
+  const reload = () => {
+    const at = Date.now();
+    /* Shared repair (visitor arrow runs the same): drop stale verdicts,
+       re-ask what's live now, play the current broadcast by its fresh
+       verified id. */
+    try {
+      forgetAllVerified();
+    } catch {}
+    try {
+      const cur = cms.getDraft().live || {};
+      for (const raw of [String((cur as any).liveVideoId || ""), String((cur as any).guestVideoId || "")]) {
+        try { if (raw) forgetVerified(raw); } catch {}
+      }
+      try {
+        const s = readLiveStatus();
+        if (s && (s as any).videoId) { try { forgetVerified((s as any).videoId); } catch {} }
+      } catch {}
+    } catch {}
+    write({ liveReloadAt: at, guestCommandAt: at });
+    try {
+      const stampBoth = (s: any) => {
+        try {
+          const mUrl = liveTarget()?.url || "";
+          if (s && s.state === "live" && s.videoId && mUrl && isStatusForTarget(s, mUrl)) {
+            const cur = cms.getDraft().live || {};
+            cms.setSectionValue("live", { ...cur, liveVideoId: s.videoId, liveVideoTitle: s.title || (cur as any).liveTitle || "", liveVideoChannelId: s.channelId || "", liveVideoAt: Date.now() });
+          }
+        } catch {}
+        try {
+          const gUrl = guestTarget(String((cms.getDraft().live as any)?.externalYoutubeChannel || ""))?.url || "";
+          if (s && s.state === "live" && s.videoId && gUrl && isStatusForTarget(s, gUrl)) {
+            const cur2 = cms.getDraft().live || {};
+            cms.setSectionValue("live", { ...cur2, guestVideoId: s.videoId, guestVideoTitle: s.title || (cur2 as any).liveTitle || "", guestVideoChannelId: s.channelId || "", guestVideoAt: Date.now() });
+          }
+        } catch {}
+      };
+      try {
+        const s = readLiveStatus();
+        if (s && (s as any).state === "live") stampBoth(s);
+      } catch {}
+      checkLiveStream().then((s) => { try { stampBoth(s); } catch {} }).catch(() => {});
+    } catch {}
+    recheckLiveNow();
+    askForRecentServices();
+    fireToast("Guest stream reloaded — press Publish to send the fix to everyone watching.", "success");
   };
 
   return (
@@ -1051,6 +1204,9 @@ export function GuestTransportButtons() {
           )}
           <Btn size="sm" variant="ghost" icon="stop" onClick={stop} title="Stop the livestream" ariaLabel="Stop the livestream">
             Stop
+          </Btn>
+          <Btn size="sm" variant="ghost" icon="refresh" onClick={reload} title="Reload the guest stream — fixes sound, picture and errors" ariaLabel="Reload the guest stream">
+            Reload
           </Btn>
           {guestLiveNow && (
             <span className="live-badge transport-row__live" role="status">
@@ -1154,12 +1310,7 @@ export function RecentServicesPanel() {
     cms.setSectionValue("live", { ...latest, youtubeChannel: "@twocorg" });
     fireToast("Channel reset to @twocorg — Review and publish to put it live. The old list clears out as @twocorg's services arrive.", "success");
   };
-  const when = (it: any) =>
-    it.at
-      ? fmtDate(new Date(it.at), "long")
-      : it.seeded
-      ? "Just ended — YouTube is still publishing it"
-      : it.ago || "Recently";
+  const when = (it: any) => (it.at ? fmtDate(new Date(it.at), "long") : it.ago || "Recently");
 
   return (
     <Card className="admin__recent">
@@ -1389,11 +1540,19 @@ async function localHostFile(blob: Blob, filename: string): Promise<string> {
   const base = serverUrl();
   if (!base && !isLocalHost())
     throw new Error("Uploads need the office server connection — connect it in the admin console, or paste a link instead.");
-  const res = await fetch(`${base}/__upload?name=${encodeURIComponent(filename)}`, {
+  /* HIGH fix: file writes prove the office conn, so strangers cannot store
+     files on the server. Wait briefly for the join when it is still opening. */
+  if (!cms.officeFileConn()) {
+    try {
+      await cms.ensureOnline(8000);
+    } catch {}
+  }
+  const res = await fetch(`${base}/__upload?conn=${encodeURIComponent(cms.officeFileConn())}&name=${encodeURIComponent(filename)}`, {
     method: "POST",
     headers: { "content-type": blob.type || "application/octet-stream" },
     body: blob,
   });
+  if (res.status === 403) throw new Error("Sign in to the admin console first, then upload again.");
   if (!res.ok) throw new Error("The file could not be saved. Try a smaller file, or paste a link instead.");
   const data = await res.json().catch(() => null);
   if (!data || typeof data.url !== "string" || !data.url)
@@ -1414,7 +1573,13 @@ function hostedUploadName(url: string): string {
 async function deleteHostFile(name: string): Promise<void> {
   const base = serverUrl();
   if (!base && !isLocalHost()) throw new Error("The office server connection is needed to delete it — connect it in the admin console.");
-  const res = await fetch(`${base}/__delete-file?name=${encodeURIComponent(name)}`, { method: "POST" });
+  if (!cms.officeFileConn()) {
+    try {
+      await cms.ensureOnline(8000);
+    } catch {}
+  }
+  const res = await fetch(`${base}/__delete-file?conn=${encodeURIComponent(cms.officeFileConn())}&name=${encodeURIComponent(name)}`, { method: "POST" });
+  if (res.status === 403) throw new Error("Sign in to the admin console first, then delete again.");
   if (res.status === 404) throw new Error("It is already gone from the office server.");
   if (!res.ok) throw new Error("It could not be deleted on the server.");
 }
@@ -1561,13 +1726,35 @@ function VideoField({
 }) {
   const url = value === undefined || value === null ? "" : String(value);
   const address = url.trim();
+  const cachedVideo = useCachedUploadUrl(address);
+  const feedVideo = useFeedUploadUrl(address);
+  const videoSrc = cachedVideo || address;
+  const [videoUseFeed, setVideoUseFeed] = useState(false);
+  useEffect(() => {
+    setVideoUseFeed(false);
+  }, [address]);
+  const vSrc = videoUseFeed && feedVideo ? feedVideo : videoSrc;
 
   return (
     <div className="admin__wide">
       <Field label={label} hint={def.hint}>
         <div className="admin__videofield">
           <span className="admin__videopreview">
-            {address ? <video src={address} playsInline preload="metadata" muted disablePictureInPicture /> : <Icon name="play" size={20} />}
+            {address ? (
+              <video
+                key={vSrc}
+                src={vSrc}
+                playsInline
+                preload="metadata"
+                muted
+                disablePictureInPicture
+                onError={() => {
+                  if (feedVideo && feedVideo !== videoSrc) setVideoUseFeed(true);
+                }}
+              />
+            ) : (
+              <Icon name="play" size={20} />
+            )}
           </span>
           <div className="admin__videoinputs">
             <VideoUpload onDone={(made) => onChange(made)} />
@@ -1606,11 +1793,12 @@ function ImageField({
   const custom = !!text && !key;
   /* What the site shows when this field is empty: the slot's own photo, the
      bundled photo a record falls back to, or nothing at all. */
-  const original = slot ? bundledPhoto(slot.key) : def.fallbackPhoto ? bundledPhoto(def.fallbackPhoto) : "";
+  const original = slot ? siteFile(slotBundledPhoto(slot.key)) : def.fallbackPhoto ? siteFile(bundledPhoto(def.fallbackPhoto)) : "";
   const rawPreview = resolvePhoto(text) || original;
   /* Sleep-free (note 413): a wiped server copy previews the cached upload
      from this browser instead of the camera placeholder — blank-free. */
   const cachedPreview = useCachedUploadUrl(rawPreview);
+  const feedPreview = useFeedUploadUrl(rawPreview);
   const preview = cachedPreview || rawPreview;
   const chosenLabel = key ? PHOTO_SLOTS.find((s) => s.key === key)?.label || key : "";
   const forSlide = def.frame === "slide";
@@ -1619,8 +1807,10 @@ function ImageField({
   /* A dead address (an upload that no longer resolves) shows the camera
      placeholder instead of a torn preview — every upload, every size. */
   const [imgError, setImgError] = useState(false);
+  const [feedFailed, setFeedFailed] = useState(false);
   useEffect(() => {
     setImgError(false);
+    setFeedFailed(false);
   }, [preview]);
   /* The agent reads the picture's own shape, so it can prompt exactly when the
      picture is not landscape. */
@@ -1695,6 +1885,8 @@ function ImageField({
         <span className={"admin__imagepreview" + (forSlide ? " admin__imagepreview--slide" : "")}>
           {preview && !slideVideoLink && !imgError ? (
             <img src={preview} alt="" draggable={false} onError={() => setImgError(true)} />
+          ) : preview && !slideVideoLink && imgError && feedPreview && feedPreview !== preview && !feedFailed ? (
+            <img src={feedPreview} alt="" draggable={false} onError={() => setFeedFailed(true)} />
           ) : (
             <Icon name="camera" size={18} />
           )}
@@ -2076,114 +2268,165 @@ export function FieldControl({
 
 /* ---------------------------------------------------------- publish modal */
 
-export function PublishModal({ open, onClose, state }: { open: boolean; onClose: () => void; state: ReturnType<typeof cms.useCms> }) {
+/* The ONE publish action both buttons share (attached publish rule, note 432):
+   the bottom-bar Publish button and this dialog's Publish now button run this
+   same function, so Publish and Publish now do the same thing — one
+   cms.publish pipeline, same activity-log note, same result toasts.
+   Returns true when the caller should clear + close, false when it should
+   stay open and show the save hint. Clicks are serialized by the callers'
+   shared busy flags (both buttons disable together), so this helper itself
+   never refuses a call. */
+export async function runPublishAction(
+  noteInput: string,
+  onPhase?: (phase: "saving" | "publishing") => void
+): Promise<boolean> {
+  try {
+    const changed = cms.pendingSections();
+    const note = noteInput || defaultNote(changed);
+    /* One-click publish: either the bottom-bar Publish or the dialog's
+       Publish now alone finishes the job — no second click, no save gate.
+       (websiteIsUnsaved is always false now; the old save-first branch is
+       retired.) */
+    /* One click is one publish (Publish == Publish now): a stale tab on the
+       previous deploy stamps the FRESH deploy id below instead of blessing
+       the old one — so one click clears every browser/device, no second
+       click. Only a real update (newer notes/code the old bundle cannot
+       bless) still reloads first. */
+    try {
+      cms.beginPublishNoReload();
+    } catch {}
+    try {
+      await cms.peekFreshDeploy().catch(() => {});
+    } catch {}
+    try {
+      if (cms.isStaleWaiting() && !cms.isDeployOnlyStale()) {
+        fireToast("New update arrived — reloading onto it. Press Publish again once it loads.", "info");
+        try {
+          window.location.reload();
+        } catch {}
+        try {
+          cms.endPublishNoReload();
+        } catch {}
+        return false;
+      }
+    } catch {}
+    onPhase?.("publishing");
+    const res = await cms.publish(note);
+    try {
+      cms.endPublishNoReload();
+    } catch {}
+    if (res.ok) {
+      /* One click reaches every visitor (unlimited browsers/devices): the
+         words ride the office server, the live relay, the feed and the
+         rebuild — no maintenance hold to clear with a second click. */
+      fireToast(
+        res.local
+          ? "Saved on this device. The shared server was unreachable, so other visitors follow when it returns — no second click needed."
+          : res.live === false
+          ? res.relayMsg || "Published here. The live site follows within a minute — no second click needed."
+          : "Published. Every visitor sees the new content right away — no second click needed.",
+        res.local || res.live === false ? "info" : "success"
+      );
+      return true;
+    }
+    if (res.error === "stale-reload") {
+      /* A newer build landed mid-click: the pre-click check already reloaded
+         when it may — this covers the race, so say so and reload instead of
+         failing quietly. One toast only (toasts show a single word). */
+      fireToast("New deploy arrived — reloading onto it. Press Publish again once it loads.", "info");
+      try {
+        window.location.reload();
+      } catch {}
+      return false;
+    }
+    fireToast(
+      res.error === "idle-expired"
+        ? "Your session ended — sign in again, then publish."
+        : res.error === "unauthorized"
+        ? "Your session expired — unlock the console again, then publish."
+        : `Could not publish (${res.error}). Nothing on the site changed.`,
+      "error"
+    );
+    return false;
+  } catch (err) {
+    try {
+      cms.endPublishNoReload();
+    } catch {}
+    /* Never leave the caller hanging with no toast: a throw (e.g. a network
+       failure that rejects instead of returning {ok:false}) reports and
+       releases, so the buttons never stick on "Publishing…". */
+    console.error("publish failed", err);
+    fireToast("Could not publish (connection error). Nothing on the site changed.", "error");
+    return false;
+  }
+}
+
+export function PublishModal({
+  open,
+  onClose,
+  state,
+  onPublish,
+  busy: busyProp,
+  saving: savingProp,
+  saveFailed: saveFailedProp,
+}: {
+  open: boolean;
+  onClose: () => void;
+  state: ReturnType<typeof cms.useCms>;
+  /* Linked handler from the admin shell: when provided, Publish now runs the
+     SAME function as the bottom-bar Publish button. Otherwise the dialog
+     runs the shared action on its own. */
+  onPublish?: (note: string) => Promise<boolean>;
+  busy?: boolean;
+  saving?: boolean;
+  saveFailed?: boolean;
+}) {
   const [note, setNote] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [saving, setSaving] = useState(false);
-  const [saveFailed, setSaveFailed] = useState(false);
+  const [busyLocal, setBusyLocal] = useState(false);
+  const [savingLocal, setSavingLocal] = useState(false);
+  const [saveFailedLocal, setSaveFailedLocal] = useState(false);
   const [livePw, setLivePw] = useState("");
   const [livePwBusy, setLivePwBusy] = useState(false);
   const [livePwMsg, setLivePwMsg] = useState("");
   useCmsTick();
 
   const changed = open ? cms.pendingSections() : [];
-  const unsaved = open && cms.websiteIsUnsaved();
+  /* One-click unlimited: no outer save gate — either button alone publishes. */
+  const unsaved = false;
 
-  /** Publish saves the site first while unsaved, then finishes from the stored plan. */
-  useEffect(() => {
-    if (!saving) return;
-    let tries = 0;
-    const timer = window.setInterval(async () => {
-      tries += 1;
-      if (!cms.websiteIsUnsaved()) {
-        window.clearInterval(timer);
-        const res = await cms.finishPlannedPublish();
-        setSaving(false);
-        if (res && res.ok) {
-          fireToast(
-            res.local
-              ? "The website is saved. The shared server was unreachable, so your changes are on this device until it is back."
-              : res.live === false
-              ? "Saved, and published here. The live site follows within a minute."
-              : "Saved, and published — every visitor sees the new content right away.",
-            res.local || res.live === false ? "info" : "success"
-          );
-          setNote("");
-          onClose();
-        } else {
-          setSaveFailed(true);
-        }
-      } else if (tries >= 20) {
-        window.clearInterval(timer);
-        setSaving(false);
-        setSaveFailed(true);
-      }
-    }, 700);
-    return () => window.clearInterval(timer);
-  }, [saving]);
+  /* Linked busy state: when the shell drives this dialog, both buttons share
+     one spinner/hint so they read as one action. */
+  const busy = busyProp ?? busyLocal;
+  const saving = savingProp ?? savingLocal;
+  const saveFailed = saveFailedProp ?? saveFailedLocal;
 
   const submit = async () => {
-    setSaveFailed(false);
-    if (cms.websiteIsUnsaved()) {
-      cms.planPublishAfterSave(note || defaultNote(changed));
-      /* The editor checks that this browser is allowed to save the website;
-         if it is, it saves and reloads this preview. */
-      if (cms.requestWebsiteSave()) {
-        setSaving(true);
-        return;
-      }
+    /* Linked path: Publish now runs the same function as Publish — one click
+       from either button finishes it, no second click. */
+    if (onPublish) {
+      const done = await onPublish(note);
+      if (done) setNote("");
+      return;
     }
-    setBusy(true);
-    const res = await cms.publish(note || defaultNote(changed));
-    setBusy(false);
-    if (res.ok) {
-      /* The click reports what it actually reached (office request: a Publish
-         saves to the visitors website from either admin): device-only, here
-         with live following, or everywhere at once. */
-      fireToast(
-        res.local
-          ? "Saved on this device. The shared server was unreachable, so other visitors are not updated yet."
-          : res.live === false
-          ? (res.relayMsg || "Published here. The live site follows within a minute.")
-          : "Published. Every visitor sees the new content right away.",
-        res.local || res.live === false ? "info" : "success"
-      );
-      setNote("");
-      onClose();
-    } else {
-      fireToast(
-        res.error === "unauthorized"
-          ? "Your session expired — unlock the console again, then publish."
-          : `Could not publish (${res.error}). Nothing on the site changed.`,
-        "error"
-      );
+    setSaveFailedLocal(false);
+    setBusyLocal(true);
+    try {
+      const done = await runPublishAction(note, (phase) => {
+        if (phase === "saving") setSavingLocal(true);
+      });
+      if (done) {
+        setNote("");
+        onClose();
+      }
+    } finally {
+      setBusyLocal(false);
+      setSavingLocal(false);
     }
   };
 
-  /* What the website itself is doing — shown whether or not there is content
-     waiting, because saving the website is the point of Publish while it is
-     unsaved. */
-  const saveNotice = saving ? (
-    <p className="admin__busy">
-      <span className="admin__ring" /> Saving the website so your changes can go live — this page will refresh by itself.
-    </p>
-  ) : saveFailed ? (
-    <Notice icon="alert" tone="crimson">
-      We could not save the website from here. Press <b>Save</b> in the editor's own toolbar (or <b>Ctrl+S</b>), then press Publish
-      again — your changes are kept.
-    </Notice>
-  ) : unsaved ? (
-    <Notice icon="info" tone="sky">
-      {changed.length ? (
-        <>
-          The website itself has not been saved yet. Publishing saves it first, and from then on your changes are live at its own address
-          for everyone.
-        </>
-      ) : (
-        <>The website itself has not been saved yet, so there is nothing for visitors to see. Publish saves it.</>
-      )}
-    </Notice>
-  ) : null;
+  /* One-click unlimited: no website-save step — Publish goes straight live
+     for every visitor, so there is no save notice or second click. */
+  const saveNotice = null;
 
   return (
     <Modal
@@ -2318,6 +2561,13 @@ export function ToolsPage() {
     setBusy(true);
     const res = await cms.undoLastPublish();
     setBusy(false);
+    if (!res.ok && res.error === "stale-reload") {
+      fireToast("New deploy arrived — reloading onto it. Undo again once it loads.", "info");
+      try {
+        window.location.reload();
+      } catch {}
+      return;
+    }
     if (!res.ok) {
       fireToast(`Could not roll back (${res.error}).`, "error");
     } else if (res.live === false) {

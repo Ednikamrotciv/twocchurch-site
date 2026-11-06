@@ -2,7 +2,7 @@ import { fireToast } from "./hooks";
 import { ct } from "../data/copy";
 import { currentLang, tx } from "./i18n";
 import { LIVE } from "../data/live";
-import { guestLiveNow, liveEndedAt, liveNow, mainLiveNow, officeStopActive } from "./livestatus";
+import { liveEndedAt, liveNow, mainLiveNow, officeStopActive } from "./livestatus";
 import { COUNTRY_CURRENCY, FALLBACK_RATES } from "../data/currencies";
 
 export const KEYS = {
@@ -488,20 +488,21 @@ export function onAir(info?: NextServiceInfo | null): boolean {
   return true;
 }
 
-/** What the badges and the Watch screen SHOW (notes 386, 400): the main
+/** What the badges and the Watch screen SHOW (notes 386, 400, 439): the main
     channel opens by itself — a detected @twocorg live lights it with no Play
     press, the channel setting is the office's intent. A published office Stop
-    still holds until Play releases it. The temporary guest still opens on
-    detection (typing the field is the office's intent for a one-off), and the
-    service clock alone never lights LIVE — it only counts down and arms the
-    short cadence. Cadence callers (App's `expecting`, Watch's `justNow`, the
-    recents burst, autostop) stay on `onAir` above, so the check still finds a
-    YouTube start in seconds and the admin dots still light. */
+    still holds until Play releases it. The temporary guest NEVER opens on
+    detection alone — only the office's published guest Play lights it (manual
+    start; the admin row keeps its own detection dot). Its ending still returns
+    to the main screen by itself (shut latch + auto-stop). The service clock
+    alone never lights LIVE — it only counts down and arms the short cadence.
+    Cadence callers (App's `expecting`, Watch's `justNow`, the recents burst,
+    autostop) stay on `onAir` above, so the check still finds a YouTube start
+    in seconds and the admin dots still light. */
 export function displayLive(info?: NextServiceInfo | null): boolean {
-  if (guestLiveNow()) return true;
   /* A guest the office forced on (note 404): its own switch lights the
      badges while the event runs — set only by the guest row's buttons,
-     cleared with the slot, never the bare clock. */
+     cleared with the slot, never the bare detection. */
   if ((LIVE as any).guestIsLive) return true;
   /* Self-start: the detected main broadcast lights the badges — Play stays a
      manual override (a walled read, or releasing a Stop), never a requirement. */

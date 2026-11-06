@@ -36,7 +36,7 @@ export function Events() {
         eyebrow={ct("events.head.eyebrow")}
         title={<Rich text={ct("events.head.title")} />}
         lede={ct("events.head.lede")}
-        image={img("choir")}
+        image={img("events")}
         crumbs={[{ label: ct("auto.events.30ed2e24ef8c5d3d"), to: "/" }, { label: ct("auto.events.07b5a84abdae9e2b") }]}
         actions={
           <>

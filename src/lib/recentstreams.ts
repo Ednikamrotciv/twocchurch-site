@@ -41,9 +41,9 @@ const KEEP = 24;
 /** Two uploads this close together — with the same headline — are one message. */
 const SAME_MESSAGE_MS = 20 * 60 * 60 * 1000;
 /** The channel is re-read this often in the quiet week… */
-const IDLE_MS = 10 * 60_000;
+const IDLE_MS = 60_000;
 /** …and this often while a service is on the clock or on air. */
-const SOON_MS = 90_000;
+const SOON_MS = 30_000;
 /** …and how long the short cadence is kept after a service comes off air. */
 const BURST_MS = 6 * 60_000;
 /** How long a just-ended service waits for YouTube to publish it. */
@@ -136,27 +136,96 @@ function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
   });
 }
 
-/** Fetch a YouTube page: same-origin / office-server proxy, else public CORS proxy. */
+/** Fetch a YouTube page: same-origin / office-server proxy, else public CORS
+    proxy. All doors race — first VALID answer wins, never the slowest door. */
 async function fetchText(url: string): Promise<string | null> {
-  const sameOrigin = await fetchTextSameOrigin(url);
-  if (sameOrigin) return sameOrigin;
-  const office = await fetchTextOffice(url);
-  if (office) return office;
-  return fetchTextRemote(url);
+  try {
+    return await firstValidText([
+      fetchTextSameOrigin(url),
+      fetchTextOffice(url),
+      fetchTextRemote(url),
+    ]);
+  } catch {
+    return null;
+  }
+}
+
+/** First valid (non-null) door wins; rejects/nulls are ignored until every
+    door settles, then null. */
+function firstValidText(jobs: Promise<string | null>[]): Promise<string | null> {
+  return new Promise((resolve) => {
+    let pending = jobs.length;
+    let done = false;
+    if (!pending) {
+      resolve(null);
+      return;
+    }
+    for (const job of jobs) {
+      Promise.resolve(job).then(
+        (value) => {
+          if (done) return;
+          if (typeof value === "string" && value.length > 0) {
+            done = true;
+            resolve(value);
+            return;
+          }
+          pending -= 1;
+          if (pending <= 0 && !done) {
+            done = true;
+            resolve(null);
+          }
+        },
+        () => {
+          if (done) return;
+          pending -= 1;
+          if (pending <= 0) {
+            done = true;
+            resolve(null);
+          }
+        }
+      );
+    }
+  });
+}
+
+/** True when this body is really what was asked for — not a static host's SPA
+    fallback index.html answering /__yt with 200. Feed URLs carry entries;
+    channel pages carry the video grid scaffolding. */
+function isExpectedBody(url: string, text: string): boolean {
+  const body = String(text || "");
+  if (body.length < 500) return false;
+  if (/\/feeds\/videos\.xml/i.test(String(url || ""))) {
+    return /<entry>/.test(body) || /<yt:videoId>/.test(body);
+  }
+  return /lockupMetadataViewModel/.test(body) || /ytInitialData/.test(body) || /"videoDetails":\{/.test(body);
 }
 
 /* Last resort for hosts with no proxy: a free public CORS proxy.
    Only reached when no office door is open, and a miss
    degrades exactly as before (the last good list stands). */
-async function fetchTextRemote(url: string): Promise<string | null> {
+async function proxyDoor(url: string, proxyBase: string): Promise<string | null> {
   try {
-    const res = await withTimeout(
-      fetch(`https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`, { cache: "no-store" }),
-      TIMEOUT_MS
-    );
+    const res = await withTimeout(fetch(proxyBase + encodeURIComponent(url), { cache: "no-store" }), TIMEOUT_MS);
     if (!res || !res.ok) return null;
     const text = await res.text();
-    return typeof text === "string" && text.length > 0 ? text : null;
+    if (typeof text !== "string" || text.length === 0) return null;
+    /* An error page from the proxy is not the channel — it must not beat the
+       doors that carry the real list. */
+    if (!isExpectedBody(url, text)) return null;
+    return text;
+  } catch {
+    return null;
+  }
+}
+async function fetchTextRemote(url: string): Promise<string | null> {
+  /* Three public doors race (was allorigins alone): one slow proxy held the
+     deployed feed up to a minute past a dead proxy. First VALID list wins. */
+  try {
+    return await firstValidText([
+      proxyDoor(url, "https://api.allorigins.win/raw?url="),
+      proxyDoor(url, "https://corsproxy.io/?url="),
+      proxyDoor(url, "https://api.codetabs.com/v1/proxy?quest="),
+    ]);
   } catch {
     return null;
   }
@@ -169,9 +238,24 @@ async function fetchTextRemote(url: string): Promise<string | null> {
 async function fetchTextSameOrigin(url: string): Promise<string | null> {
   try {
     const res = await withTimeout(fetch(`/__yt?url=${encodeURIComponent(url)}`, { cache: "no-store" }), TIMEOUT_MS);
-    if (!res || !res.ok) return null;
-    const text = await res.text();
-    return typeof text === "string" && text.length > 0 ? text : null;
+    if (res && res.ok) {
+      const text = await res.text();
+      /* Static hosts answer /__yt with the SPA fallback (200 index.html) — not
+         YouTube, so it must not beat the doors that work. */
+      if (typeof text === "string" && text.length > 0 && isExpectedBody(url, text)) return text;
+    }
+  } catch {
+    /* fall through to the Netlify-function door below */
+  }
+  /* Netlify-function door (netlify/functions/yt.mjs): static deploys have no
+     /__yt, so without this the public proxy was the only door left. */
+  try {
+    const res2 = await withTimeout(fetch(`/.netlify/functions/yt?url=${encodeURIComponent(url)}`, { cache: "no-store" }), TIMEOUT_MS);
+    if (!res2 || !res2.ok) return null;
+    const text2 = await res2.text();
+    if (typeof text2 !== "string" || text2.length === 0) return null;
+    if (!isExpectedBody(url, text2)) return null;
+    return text2;
   } catch {
     return null;
   }
@@ -186,7 +270,9 @@ async function fetchTextOffice(url: string): Promise<string | null> {
     const res = await withTimeout(fetch(`${base}/__yt?url=${encodeURIComponent(url)}`, { cache: "no-store" }), TIMEOUT_MS);
     if (!res || !res.ok) return null;
     const text = await res.text();
-    return typeof text === "string" && text.length > 0 ? text : null;
+    if (typeof text !== "string" || text.length === 0) return null;
+    if (!isExpectedBody(url, text)) return null;
+    return text;
   } catch {
     return null;
   }
@@ -501,12 +587,17 @@ export function subscribeRecentServices(fn: () => void): () => void {
    every public proxy is down and the deployed bake is empty until seed.json is
    deployed — so a standalone visitor would see no recents and no still on the
    screen. With @twocorg published, this list stands in, newest first (read off
-   the channel feed on 2026-10-12). A live read, the cache, or the shipped bake
+   the channel feed on 2026-10-30). A live read, the cache, or the shipped bake
    always wins over it; it never saves itself anywhere. */
-const DESIGNATED_FALLBACK_AT = 1791755357000;
+const DESIGNATED_FALLBACK_AT = 1793290826000;
 const DESIGNATED_FALLBACK_ITEMS: Array<{ videoId: string; title: string; at: number }> = [
+  { videoId: "dcCt75FMm6o", title: "70TH BIRTHDAY CELEBRATION OF EVANG. SKP. DAY 1, 29TH OCT. 2026", at: 1793290826000 },
+  { videoId: "aAJCTGmbeGo", title: "YOUTH SUNDAY SERVICE 25TH, OCT. 2026", at: 1792967998000 },
+  { videoId: "vj-zun-US7k", title: "COMMUNION SUNDAY SERVICE, 18TH, OCT. 2026", at: 1792360910000 },
+  { videoId: "wh1wLNBDZ3s", title: "COMMUNION SUNDAY SERVICE, 18TH, OCT. 2026", at: 1792310828000 },
+  { videoId: "MdBG0oNwurg", title: "COMMUNION SUNDAY SERVICE, 18TH, OCT. 2026", at: 1792309764000 },
   { videoId: "s4bLaGUNet4", title: "SUNDAY SERVICE, 11TH OCT. 2026", at: 1791755357000 },
-  { videoId: "aT5IeCtJHFw", title: "THANKSGIVING SUNDAY SERVICE 3RD OCT. 2026", at: 1791151867000 },
+  { videoId: "aT5IeCtJHFw", title: "THANKSGIVING SUNDAY SERVICE 4TH OCT. 2026", at: 1791151867000 },
   { videoId: "3uqJoUXKds4", title: "YOUTH SUNDAY/COMMUNION SERVICE,  27TH. SEPT. 2026.", at: 1790547921000 },
   { videoId: "OV6XtrNPGgo", title: "TEENS WEEK 2026. SUNDAY SERVICE, 20TH. SEPT. 2026.", at: 1789940337000 },
   { videoId: "BgF97PIYPe8", title: "TEENS WEEK 2026. SUNDAY SERVICE, 20TH. SEPT. 2026.", at: 1789899897000 },
@@ -515,11 +606,6 @@ const DESIGNATED_FALLBACK_ITEMS: Array<{ videoId: string; title: string; at: num
   { videoId: "HmVTgKwA6rY", title: "FAMILY ESSENTIALS AFRICA {BUILDING STRONG MEN OF GOD, FAMILIES AND CHURCHES} SEPT 8TH 2026.", at: 1788907035000 },
   { videoId: "eyGDEZplxJw", title: "FAMILY ESSENTIALS AFRICA {BUILDING STRONG MEN OF GOD, FAMILIES AND CHURCHES} SEPT 8TH 2026.", at: 1788904484000 },
   { videoId: "akE7Klt3a8w", title: "FAMILY ESSENTIALS AFRICA {BUILDING STRONG MEN OF GOD, FAMILIES AND CHURCHES} SEPT 7TH 2026.", at: 1788822563000 },
-  { videoId: "KCGWV3jWROE", title: "FAMILY ESSENTIALS AFRICA {BUILDING STRONG MEN OF GOD, FAMILIES AND CHURCHES} SEPT 7TH 2026.", at: 1788788138000 },
-  { videoId: "_PD-k6SqPvg", title: "THANKSGIVING SUNDAY SERVICE, 6TH SEPT. 2026", at: 1788731683000 },
-  { videoId: "eu3xQ-XCHv4", title: "THANKSGIVING SUNDAY SERVICE, 6TH SEPT. 2026", at: 1788681346000 },
-  { videoId: "gVJP8wlL9dM", title: "It Will End in Praise - Evang Steve K Pelemo", at: 1788419927000 },
-  { videoId: "suLunbMiN78", title: "SUNDAY SERVICE, AUG. 30TH. 2026", at: 1788127709000 },
 ];
 /** The fallback list — only for the designated channel, [] anywhere else. A
     published @channel takes the designation, but the baked items stay

@@ -70,7 +70,7 @@ export function Contact() {
         eyebrow={ct("contact.head.eyebrow")}
         title={<Rich text={ct("contact.head.title")} />}
         lede={ct("contact.head.lede")}
-        image={img("welcome")}
+        image={img("contact")}
         crumbs={[{ label: ct("auto.contact.e77689cdaed20a54"), to: "/" }, { label: ct("auto.contact.480fed087cc97e29") }]}
         actions={
           <>

@@ -1131,9 +1131,14 @@ inside Node (`npm run dev` via `scripts/vite-cms-backend.mjs`, production via `n
 - The password is sent over HTTPS, hashed server-side (synchronous pure-JS SHA-256 in the
   server file) and compared. Failed attempts are rate-limited per connection and per
   network group.
-- The unlocked state is kept in `sessionStorage` for that browser tab, so a reload does not
-  force a re-type; the server still re-checks it on every privileged call, and only ever trusts
-  a connection id it has authenticated itself.
+- Sessions are **deploy-bound and idle-expiring** (SPEC note 433): the unlocked state is kept
+  in `sessionStorage` for that browser tab, but every new deploy signs in again and 15 minutes
+  without an admin action ends the session — a publish then fails until the office signs in
+  again. The server re-checks every privileged call and only ever trusts a connection id it
+  has authenticated itself, stamped within the last 15 minutes. The administrator *accounts*
+  themselves (this password's override, sub-admins, invites, two-factor) live in the server
+  store beside the words and survive every deploy — deployments never reset them and nobody
+  ever has to register again.
 - **To change the password:** pick a new secret, compute its SHA-256 hex, and replace
   `ADMIN_HASH` in `scripts/cms-server.js`:
 

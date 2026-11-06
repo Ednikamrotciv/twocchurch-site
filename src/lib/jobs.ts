@@ -45,7 +45,7 @@ export const JOBS: Job[] = [
     icon: "camera",
     title: "Photos & banners",
     blurb: "The pictures across the whole site — upload your own, or paste the address of one.",
-    sections: ["photos-ministries", "photos-leadership"],
+    sections: ["photos-banners", "photos-ministries", "photos-leadership"],
   },
   {
     id: "services",

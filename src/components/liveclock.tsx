@@ -96,14 +96,16 @@ function ClockFace({ now }: { now: Date }) {
   );
 }
 
-/** The screen itself: last still, faded, under the clock (`cover` from WatchLive). */
+/** The screen itself: last still, faded, under the clock (`cover` from WatchLive). Never blank: a dead still swaps to the latest previous thumbnail. */
+const LIVE_WAIT_FALLBACK = "https://i.ytimg.com/vi/dcCt75FMm6o/hqdefault.jpg";
 export function LiveWaiting({ cover }: { cover?: string }) {
   const now = useNow(1000);
   useTickSound();
+  const bg = (cover && cover.trim()) || LIVE_WAIT_FALLBACK;
 
   return (
     <div className="live-wait">
-      {cover ? <img className="live-wait__bg" src={cover} alt="" loading="lazy" /> : null}
+      <img className="live-wait__bg" src={bg} alt="" loading="lazy" onError={(e) => { try { const el = e.currentTarget; if (el.src !== LIVE_WAIT_FALLBACK && el.getAttribute("data-fb") !== "1") { el.setAttribute("data-fb", "1"); el.src = LIVE_WAIT_FALLBACK; } else { el.style.display = "none"; } } catch {} }} />
       <span className="live-wait__scrim" aria-hidden="true" />
       <div className="live-wait__body">
         <ClockFace now={now} />

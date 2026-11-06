@@ -20,6 +20,41 @@ const Devotional = React.lazy(() => import("../pages/Devotional").then((m) => ({
 const Ministries = React.lazy(() => import("../pages/Ministries").then((m) => ({ default: m.Ministries })));
 const Library = React.lazy(() => import("../pages/Library").then((m) => ({ default: m.Library })));
 
+/* No-loader navigation (the site stays on screen, never a Loading page):
+   fetch every page chunk behind the first paint, so taps land on the ready
+   page instead of suspending. Called once from App's boot effect. */
+let pagesWarming = false;
+export function warmPageChunks() {
+  if (pagesWarming) return;
+  pagesWarming = true;
+  const run = () => {
+    const loads = [
+      () => import("../pages/About"),
+      () => import("../pages/Locations"),
+      () => import("../pages/Sermons"),
+      () => import("../pages/SermonDetail"),
+      () => import("../pages/WatchLive"),
+      () => import("../pages/Events"),
+      () => import("../pages/Testimonies"),
+      () => import("../pages/Giving"),
+      () => import("../pages/Prayer"),
+      () => import("../pages/Contact"),
+      () => import("../pages/Visit"),
+      () => import("../pages/Devotional"),
+      () => import("../pages/Ministries"),
+      () => import("../pages/Library"),
+    ];
+    for (const load of loads) {
+      try { load().catch(() => {}); } catch {}
+    }
+  };
+  try {
+    const ric = (window as any).requestIdleCallback;
+    if (typeof ric === "function") ric(() => run(), { timeout: 3000 });
+    else window.setTimeout(run, 1500);
+  } catch { try { window.setTimeout(run, 1500); } catch {} }
+}
+
 export const ROUTES: { pattern: string; element: React.ReactNode }[] = [
   { pattern: "/", element: <Home /> },
   { pattern: "/about", element: <About /> },

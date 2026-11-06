@@ -107,8 +107,8 @@ export function useLocalState<T>(key: string, initial: T) {
 /* Which shipped code is running here — the office can read it in
    version.json, and in the browser console as window.__womBuild. Bump NOTES with
    every SPEC note so a stale deploy is spotted, not guessed (note 244). */
-export const BUILD_NOTES = 414;
-export const BUILD_DATE = "2026-10-18";
+export const BUILD_NOTES = 440;
+export const BUILD_DATE = "2026-11-01";
 /* Unnumbered code identity (the stale fix ships with no new number): an opaque
    word naming the running code, compared by equality only — never ordered — so
    a stale cache can never invert it the way stale numbers did. An explicit
@@ -116,7 +116,7 @@ export const BUILD_DATE = "2026-10-18";
    word with EVERY behavior update: a changed word both retires stale bundles
    and stages a new deploy clean (a same word across rebuilds means continuity,
    so routine same-code rebuilds never wipe staged words). */
-export const CODE_ID = "cleanfresh";
+export const CODE_ID = "unified440";
 export function buildStamp() {
   return { notes: BUILD_NOTES, built: BUILD_DATE, code: CODE_ID };
 }
@@ -133,7 +133,14 @@ const toastListeners = new Set<(t: ToastItem[]) => void>();
 let toasts: ToastItem[] = [];
 
 export function fireToast(message: string, kind: ToastKind = "info") {
-  const item = { id: toastId++, message, kind };
+  /* One-word toasts (office request): every notice is at most one word, so
+     take the first whitespace-separated token. Central enforcement — all
+     call sites stay unchanged. */
+  let one = "";
+  try {
+    one = String(message ?? "").trim().split(/\s+/)[0] || "";
+  } catch { one = ""; }
+  const item = { id: toastId++, message: one, kind };
   toasts = [...toasts, item];
   toastListeners.forEach((fn) => fn(toasts));
   window.setTimeout(() => {

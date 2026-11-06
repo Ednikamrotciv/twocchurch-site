@@ -201,52 +201,28 @@ export async function adoptLive(rootDir) {
 export async function guardAtBoot(rootDir) {
   /* Clean-deploy mode (office request: every new deploy opens fresh —
      welcome-home slide only — until Recover + Publish): while
-     clean-deploy.txt sits beside package.json the live store is parked aside
-     (never deleted — stashed under a timestamped name like every snapshot,
-     restorable with `npm run restore`) and the boot starts empty. No backup
-     is restored here: restoring would resurrect the last publish onto the
-     clean deploy within seconds of boot, which is exactly how old slides
-     kept reappearing on new deploys. The first Publish consumes the flag
-     (see auto-push.mjs) and normal guarding resumes on the next boot. */
+     clean-deploy.txt sits beside package.json the live store is snapshotted
+     (a timestamped backup like every snapshot, restorable with
+     `npm run restore`) but LEFT IN PLACE — the server boots it with the
+     words cleared and the administrator accounts kept (note 433: deploys
+     never reset accounts). Nothing is ever deleted here. The first Publish
+     consumes the flag (see auto-push.mjs) and normal guarding resumes on
+     the next boot. */
   try {
     await readFile(path.join(rootDir, "clean-deploy.txt"), "utf8");
-    let live = null;
     try {
-      live = await readFile(path.join(rootDir, "data", "cms-state.bin"));
-    } catch { /* gone — already clean */ }
-    if (live && live.length) {
-      let nonZero = false;
-      for (let i = 0; i < Math.min(live.length, 64); i++) {
-        if (live[i] !== 0) {
-          nonZero = true;
-          break;
-        }
+      const r = await backup(rootDir, "clean deploy snapshot", 0);
+      if (r.saved) {
+        console.log(`clean deploy: snapshotted the previous store in data-backups/${r.saved}/ — this deploy opens fresh (welcome-home slide only) until Recover + Publish. Accounts are kept. Nothing was deleted.`);
+        return { ok: true, clean: true, parked: r.saved };
       }
-      if (nonZero) {
-        const name = stamp(new Date());
-        try {
-          await mkdir(path.join(rootDir, "data-backups", name), { recursive: true });
-          await writeFile(path.join(rootDir, "data-backups", name, "cms-state.bin"), live);
-          try {
-            const ver = await readFile(path.join(rootDir, "data", "cms-version.txt"));
-            await writeFile(path.join(rootDir, "data-backups", name, "cms-version.txt"), ver);
-          } catch { /* first runs have no version file */ }
-          await writeFile(
-            path.join(rootDir, "data-backups", name, "meta.json"),
-            JSON.stringify({ at: new Date().toISOString(), why: "parked for clean deploy (clean-deploy.txt) — restore it after Recover if those words are ever needed", sha: hash(live), bytes: live.length }, null, 1)
-          );
-          console.log(`clean deploy: parked the previous store in data-backups/${name}/ — this deploy opens fresh (welcome-home slide only) until Recover + Publish. Nothing was deleted.`);
-        } catch (err) {
-          console.warn("clean deploy: could not park the previous store:", err?.message || err);
-          return { ok: true, clean: true };
-        }
-        try {
-          await rm(path.join(rootDir, "data", "cms-state.bin"), { force: true });
-        } catch { /* the backend starts clean regardless (see cms-local.mjs) */ }
-        return { ok: true, clean: true, parked: name };
+      if (r.skipped) {
+        console.log(`clean deploy: previous store already snapshotted (${r.skipped}) — this deploy opens fresh (welcome-home slide only) until Recover + Publish. Accounts are kept.`);
       }
+    } catch (err) {
+      console.warn("clean deploy: could not snapshot the previous store:", err?.message || err);
     }
-    return { ok: true, clean: true, fresh: true };
+    return { ok: true, clean: true, fresh: false };
   } catch { /* no flag — guard as usual below */ }
   const dataDir = path.join(rootDir, "data");
   let live = null;

@@ -48,7 +48,7 @@ export function Ministries() {
         eyebrow={ct("ministries.head.eyebrow")}
         title={<Rich text={ct("ministries.head.title")} />}
         lede={ct("ministries.head.lede")}
-        image={img("youth")}
+        image={img("ministries")}
         crumbs={[{ label: ct("auto.ministries.b80d1414d336b555"), to: "/" }, { label: ct("auto.ministries.44d531a608e198bf") }]}
         actions={
           <>

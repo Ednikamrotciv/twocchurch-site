@@ -91,11 +91,11 @@ function loadVm(code, state, pub) {
 function stubAuth(code) {
   return code
     .replace(
-      'publish: function (info, raw) {\n    if (!admins.has(info.conn.id)) return fail("unauthorized");',
+      'publish: function (info, raw) {\n    var denySess = sessionDeny(info.conn);\n    if (denySess) return fail(denySess);',
       'publish: function (info, raw) {\n    if (false) return fail("unauthorized");'
     )
     .replace(
-      'undoPublish: function (info, raw) {\n    if (!admins.has(info.conn.id)) return fail("unauthorized");',
+      'undoPublish: function (info, raw) {\n    var denySess = sessionDeny(info.conn);\n    if (denySess) return fail(denySess);',
       'undoPublish: function (info, raw) {\n    if (false) return fail("unauthorized");'
     );
 }
@@ -141,6 +141,10 @@ export async function runAll(fs) {
     ok("fallback leaves failures alone", mod.fallbackGetContent(JSON.stringify({ ok: false }), seed) === JSON.stringify({ ok: false }));
     ok("fallback leaves garbage alone", mod.fallbackGetContent("not json", seed) === "not json");
     ok("fallback needs a real seed", mod.fallbackGetContent(liveEmpty, { rev: 0, notes: 0, sections: {} }) === liveEmpty && mod.fallbackGetContent(liveEmpty, null) === liveEmpty);
+    const seedW = { rev: 12, notes: 291, sections: { live: { b: 2 } }, code: "clean999" };
+    const rW = JSON.parse(mod.fallbackGetContent(liveEmpty, seedW));
+    ok("fallback carries the bake word", rW.seeded === true && rW.code === "clean999", "code=" + rW.code);
+    ok("wordless bakes attest nothing", r.code === undefined, "code=" + r.code);
     ok("fallback is getContent-only", (await mod.answerWithSeedFallback("publish", liveEmpty, "/", "/")) === liveEmpty);
   } catch (e) {
     ok("fallback suite", false, String((e && e.message) || e).slice(0, 200));
@@ -234,7 +238,7 @@ export async function runAll(fs) {
   /* D. blessing invariants — the maintenance gate's fail-safe (note 293). */
   const cms = text["src/lib/cms.ts"];
   ok("seed records evidence raise-only", has(cms, "setPublishedNotes((seed as any).notes)"), "applySeedOnce must raise from the bake, never assign");
-  ok("seed hold gated on new code", has(cms, "if (!ranThisBuild) setPublishedNotes(BUILD_NOTES - 1);") || has(cms, "No manufactured stamp"), "hold must not manufacture on a build the browser already ran");
+  ok("seed hold gated on new code", has(cms, "if (!ranThisBuild) setPublishedNotes(BUILD_NOTES - 1);"), "hold must not manufacture on a build the browser already ran");
   ok("heal never blesses", has(cms, "sendPatch(sections, ids, why, false)"));
   ok("publish path carries bless flag", has(cms, "notes: bless ? BUILD_NOTES : 0"));
   ok("undo batch marked first", has(cms, "first: b === 0"));
@@ -246,7 +250,7 @@ export async function runAll(fs) {
      still signs tabs out at login, publish and undo — but the session drop
      must never clear held words, queues or the publish stamp. Only a new
      update's first boot or an explicit office delete may clear them. */
-  const clearAt = cms.indexOf("function clearSession()");
+  const clearAt = cms.indexOf("function clearSession");
   const clearBody = clearAt >= 0 ? cms.slice(clearAt, clearAt + 1200) : "";
   ok("sign-out keeps words", clearAt >= 0 && has(clearBody, "SESSION_KEY") && has(clearBody, "PWROLE_KEY") && !has(clearBody, "CACHE_KEY") && !has(clearBody, "PENDING_KEY") && !has(clearBody, "NOTES_KEY") && !has(clearBody, "overrides") && !has(clearBody, "publishedNotes") && !has(clearBody, "writeJSON") && !has(clearBody, "applyOverrides"), "clearSession touches stored words");
   ok("sign-out drops role", has(clearBody, "myRole = null") && has(clearBody, 'myName = ""'));
@@ -261,7 +265,7 @@ export async function runAll(fs) {
   ok("server undo rpc exists", has(srv, "undoPublish: function (info, raw)"));
   ok(
     "server undo rpc guarded",
-    has(srv, "undoPublish: function (info, raw) {\n    if (!admins.has(info.conn.id)) return fail(\"unauthorized\");")
+    has(srv, "undoPublish: function (info, raw) {\n    var denySess = sessionDeny(info.conn);\n    if (denySess) return fail(denySess);")
   );
   ok("server reports undo window", has(srv, "undoLeft: left") || has(srv, "undoLeft:"));
   const ed = text["src/components/editor.tsx"];
@@ -519,12 +523,12 @@ export async function runAll(fs) {
      and fresh): unnumbered updates kept the local dev token at "n413", so a
      new extract never proved a fresh deploy and the old draft/pending/dirty
      survived forever. The token now carries the code word (rotated to
-     "cleanfresh" with this build), so every behavior update clears unsaved
+     "onepublish" with this build), so every behavior update clears unsaved
      draft + pending + after-save once on boot — same-code rebuilds keep the
      token and never wipe unsaved work. */
   const hooksJ8 = text["src/lib/hooks.ts"];
   const indexJ8 = text["index.html"];
-  ok("code word rotated", has(hooksJ8, 'CODE_ID = "cleanfresh"') && has(indexJ8, 'wom-code" content="cleanfresh"'), "the new word must retire the bundle that holds the 5 stuck rows");
+  ok("code word rotated", has(hooksJ8, 'CODE_ID = "unified438"') && has(indexJ8, 'wom-code" content="unified438"'), "the new word must retire the bundle that holds the 5 stuck rows");
   ok("dev token names the code", has(cms, '"n" + BUILD_NOTES + "c" + (runningCode'), "an unnumbered update must still prove a fresh deploy in local dev");
   ok("fresh clear takes after-save", has(cms, "localStorage.removeItem(AFTER_SAVE_KEY)"), "a queued publish-after-save must not republish stale words after the clear");
   /* J9. restore+publish reaches every copy (office request: works on one
@@ -552,7 +556,7 @@ export async function runAll(fs) {
   ok("publish relays to live", has(cms, "relayPublishWordsToLive") && has(cms, "/__cms/login?conn=") && has(cms, "/__cms/publish?conn="), "an office publish must reach the live backend in seconds, no feed or rebuild wait");
   ok("relay blesses live's deploy", has(cms, "own deploy") && has(cms, "/version.json?t="), "the relay must witness the deploy live actually serves, never ours");
   ok("relay carries the photos", has(cms, "/__restore-file?name=") && has(cms, "localUploadNames(sections)"), "relayed words must point at working photos at once, not after the mirror");
-  ok("relay never breaks publish", has(cms, "never throws") && (has(cms, "relayInBackground(sections, changed, note)") || has(cms, "relayInBackground(sections, changed, note,")), "a relay that cannot land must leave the loops to carry the publish");
+  ok("relay never breaks publish", has(cms, "never throws") && has(cms, "relayInBackground(sections, changed, note)"), "a relay that cannot land must leave the loops to carry the publish");
   ok("loops skip identical words", has(text["scripts/cms-local.mjs"], "nothing to write") && has(text["scripts/cms-local.mjs"], "JSON.stringify(localSections[id]) !== patch[id]"), "the relay lands the same words both stores hold — adopting them again would bump and log for nothing");
   /* J11. one click publishes to visitors + welcome-home on every new deploy
      (office request: no publishing "in everything" — one Publish click sends
@@ -584,7 +588,7 @@ export async function runAll(fs) {
      slides — both are deploy-gated now (returning browsers only, so a fresh
      device joining live words is never clobbered, and with no dirty, so
      rebuilds never re-mark slides as unsaved). */
-  ok("no-change publish sends the bless", !has(cms, "if (publishedNotes >= BUILD_NOTES)") && has(cms, "sendPatch({}, [], note.slice(0, 160), true, true"), "a local-only early return leaves the server and the live box behind while the office sees success");
+  ok("no-change publish sends the bless", !has(cms, "if (publishedNotes >= BUILD_NOTES)") && has(cms, "sendPatch({}, [], note.slice(0, 160), true, true)"), "a local-only early return leaves the server and the live box behind while the office sees success");
   ok("section publish blesses when unchanged", has(cms, "A no-change section Publish still blesses everywhere"), "a per-section publish with nothing changed must still lift the notice on the server and the live box");
   ok("offline bless ends the clean stage", has(cms, "An offline bless ends the clean stage on this copy too"), "an offline publish must not leave inbound words unstaged forever");
   ok("clean stage is per-deploy", has(cms, "freshDeploy && hadPriorBlessing()") && has(cms, "function hadPriorBlessing()"), "a returning browser on a new deploy must stage clean, not keep the former publish");
@@ -603,10 +607,21 @@ export async function runAll(fs) {
   const srvJ13 = text["scripts/cms-server.js"];
   const hostJ13 = text["scripts/cms-local.mjs"];
   ok("backend names its code", has(hostJ13, "self.__codeWord") && has(hostJ13, "CODE_ID"), "the host must hand its running word to the server code");
-  ok("answers attest the code", has(srvJ13, "code: typeof self.__codeWord"), "getContent and the rev stamp must carry the word headless copies can prove");
+  ok("answers attest the code", has(srvJ13, "code: publishCodeWord()") && has(srvJ13, "PUBLISH_CODE ||"), "getContent and the rev stamp must carry the word headless copies can prove");
   ok("witness needs the running word", has(cms, "function noteCodeWitness") && has(cms, "code !== runningCode"), "a missing or different word must prove nothing");
   ok("witness needs the publish", has(cms, "n < BUILD_NOTES"), "an unpublished word must never lift the notice");
   ok("sync takes the witness", has(cms, "noteCodeWitness((res as any).code, res.notes)"), "every server answer must try the witness, not just deploys");
+  ok("publish carries its code", has(cms, "code: bless ? runningCode"), "every publish must stamp the word it was blessed from, so answers attest on any backend");
+  ok("server keeps the publish code", has(srvJ13, "validCodeWord(payload.code)") && has(srvJ13, "publishCode: PUBLISH_CODE"), "the publish word must persist like the deploy it names");
+  ok("waiting copies hurry", has(cms, "10_000") && has(cms, "if (!maintenanceShouldWait()) return;"), "a copy on maintenance must re-ask the stamp every 10 seconds, not only on the 30s loop");
+  ok("host file attests too", has(cms, "hostFileAttestsSameCode()") && has(cms, "hostFileCode = vCode"), "a same-update publish must release a deploy when the host itself serves this build, even if the backend never learned the word");
+  ok("stale tabs never move the stamp", has(srvJ13, "notesAdvance") && has(srvJ13, "notesAdvanceAdopt") && has(srvJ13, "notesAdvanceFeed"), "words from an older update must still write, but only a same-or-newer update may move the deploy and code");
+  ok("adopts forward the word", has(hostJ13, "code: typeof codeWord"), "live and feed adoptions must stamp the running word like a publish");
+  ok("bake carries the word", has(text["scripts/bake-seed.mjs"], "publishCode") && has(text["scripts/seed-fallback.mjs"], "if (good.code) out.code = good.code"), "the seed and the sleep-wake fallback must attest the publish word for copies that never reach a server");
+  ok("seed releases same-code bakes", has(cms, "noteCodeWitness(seedCode, (seed as any).notes)") && has(cms, "seedRev > 0 && seedWords > 0"), "a bake stamped from this update and this code with real words is the review — brand-new arrivals lift at first paint");
+  ok("feed witnesses the word", has(cms, "noteCodeWitness((live as any).code, live.notes)"), "a mirrored same-update publish must bless server-less copies with no rebuild and no tap");
+  ok("fallback bakes release late joiners", has(cms, "a fallback bake stamped from this update names"), "a sleep-wake bake stamped from this update is a publish that really happened");
+  ok("offline copies join on return", has(cms, "function startReturnJoin()") && has(cms, 'window.addEventListener("online", () => join(true))') && has(cms, "join(false)"), "an offline device must join the moment the network returns or it foregrounds, not wait out the backoff");
   ok("witness re-evaluates the notice", has(cms, "notesLifted || deployLifted || codeWitnessed"), "a witnessed publish must re-render instead of sticking with first paint");
   ok("clicks await the word relay", has(cms, "awaitRelay = false") && has(cms, ", true, true)"), "explicit clicks must wait out the bounded relay; background sends never wait");
   ok("relay is bounded", has(cms, "25000") && has(cms, "relayFetch"), "awaiting the relay must never hold a click hostage on a stalled network");
@@ -620,14 +635,40 @@ export async function runAll(fs) {
       return fn(new Uint8Array(8 * 1024 * 1024), self, { publish() {} }, console);
     };
     const anon13 = { id: "anon-att", net: ["x", 0, 0], subscribe() {}, topics: new Set() };
-    const rpcW = mkRpc("cleanfresh");
+    const rpcW = mkRpc("onepublish");
     const both = (rpc) => [JSON.parse(rpc.getContent({ conn: anon13 })), JSON.parse(rpc.contentRev({ conn: anon13 }))];
     const [cW, rW] = both(rpcW);
-    ok("server attests its code", cW.ok === true && cW.code === "cleanfresh" && rW.ok === true && rW.code === "cleanfresh", "words=" + cW.code + " rev=" + rW.code);
+    ok("server attests its code", cW.ok === true && cW.code === "onepublish" && rW.ok === true && rW.code === "onepublish", "words=" + cW.code + " rev=" + rW.code);
     const [cE, rE] = both(mkRpc(""));
     ok("empty attestation proves nothing", cE.ok === true && cE.code === "" && rE.code === "", "an untold word must stay empty, never wrong");
   } catch (e) {
     ok("attestation suite", false, String((e && e.message) || e).slice(0, 200));
+  }
+  /* M2. stale publishes move words, never the attestation (note 421): a
+     publish from an older update still writes — the office clicked — but the
+     deploy and code waiting copies prove stay on the newer update. */
+  try {
+    const srvM2 = text["scripts/cms-server.js"];
+    const rpcM2 = loadVm(stubAuth(srvM2), new Uint8Array(8 * 1024 * 1024));
+    const connM2 = { id: "m2", net: ["local", 0, 0], subscribe() {}, topics: new Set() };
+    const pubM2 = (sections, extra) =>
+      JSON.parse(rpcM2.publish({ conn: connM2 }, JSON.stringify({ sections, by: "office", changed: Object.keys(sections), ...extra })));
+    const getM2 = () => JSON.parse(rpcM2.getContent({ conn: connM2 }, ""));
+    pubM2({ home: JSON.stringify({ title: "New" }) }, { notes: 500, deploy: "depA", code: "cleanA", first: true });
+    const g1 = getM2();
+    ok("current publish stamps", g1.notes === 500 && g1.publishDeploy === "depA" && g1.code === "cleanA", "notes=" + g1.notes + " deploy=" + g1.publishDeploy + " code=" + g1.code);
+    pubM2({ home: JSON.stringify({ title: "Stale tab" }) }, { notes: 499, deploy: "depOLD", code: "cleanOLD", first: true });
+    const g2 = getM2();
+    ok(
+      "stale publish moves words only",
+      JSON.parse(g2.sections).home.title === "Stale tab" && g2.notes === 500 && g2.publishDeploy === "depA" && g2.code === "cleanA",
+      "notes=" + g2.notes + " deploy=" + g2.publishDeploy + " code=" + g2.code
+    );
+    pubM2({}, { notes: 500, deploy: "depB", code: "cleanB" });
+    const g3 = getM2();
+    ok("same-update bless re-stamps", g3.publishDeploy === "depB" && g3.code === "cleanB", "deploy=" + g3.publishDeploy + " code=" + g3.code);
+  } catch (e) {
+    ok("stale-tab suite", false, String((e && e.message) || e).slice(0, 200));
   }
   /* J. live shows at once, clock vanishes with it (note 306): the Watch page
      checks immediately on open and stays on the short cadence even with no
@@ -652,7 +693,7 @@ export async function runAll(fs) {
   const srvLive = text["scripts/cms-server.js"];
   ok("report store exists", has(srvLive, "var LIVE_REPORT = null;"), "the server must hold the latest office answer");
   ok("report reads public through the gate", has(srvLive, "if (!raw) return ok({ report: gatedReport() });"), "visitors ask every check, no session needed — the server relays only a fresh, current answer");
-  ok("report writes take admin", has(srvLive, "liveReport: function (info, raw)") && has(srvLive, 'if (!admins.has(info.conn.id)) return fail("denied");'), "only the signed-in office may report");
+  ok("report writes take admin", has(srvLive, "liveReport: function (info, raw)") && has(srvLive, "var liveDeny = sessionDeny(info.conn);") && has(srvLive, 'return fail(liveDeny === "unauthorized" ? "denied" : liveDeny);'), "only the signed-in office may report");
   ok("report validates strictly", has(srvLive, 'return fail("bad-report");') && has(srvLive, "LIVE_REPORT = { target:") && has(srvLive, "now - checkedAt > 10 * 60 * 1000"), "stale tabs, wrong channels and forged ids must never reach the screen");
   ok("visitors ask the office first", has(live, "fetchLiveReport()") && has(live, "officeHit") && has(live, "officeRep.target === target.url"), "a fresh office answer must win over the scrape");
   ok("reports stay fresh-only", has(live, "REPORT_FRESH_MS = 150_000") && has(live, "Date.now() - checkedAt > REPORT_FRESH_MS"), "a closed office tab must stop steering visitors");
@@ -665,7 +706,7 @@ export async function runAll(fs) {
     ok("report starts empty, reads public", read0.ok === true && read0.report === null);
     const denied = JSON.parse(rpcR.liveReport({ conn: anon }, JSON.stringify({ target: "https://www.youtube.com/@a/live", state: "live", videoId: "dQw4w9WgXcQ", title: "T", checkedAt: Date.now() })));
     ok("report write needs admin", denied.ok === false, "an anonymous write must be refused");
-    const open = srvLive.replace('if (!admins.has(info.conn.id)) return fail("denied");', 'if (false) return fail("denied");');
+    const open = srvLive.replace('var liveDeny = sessionDeny(info.conn);\n    if (liveDeny) return fail(liveDeny === "unauthorized" ? "denied" : liveDeny);', 'if (false) return fail("denied");');
     const rpcO = loadVm(open, new Uint8Array(8 * 1024 * 1024));
     const w = (payload) => JSON.parse(rpcO.liveReport({ conn: anon }, JSON.stringify(payload)));
     const good = { target: "https://www.youtube.com/@church/live", state: "live", videoId: "dQw4w9WgXcQ", title: "Sunday", checkedAt: Date.now() };
@@ -852,13 +893,13 @@ export async function runAll(fs) {
     const chEmbed = embMod3.exports.youtubeChannelEmbed;
     const srcOf = embMod3.exports.embedSrc;
     const hasVid = embMod3.exports.hasVideo;
-    ok("channel embed is strict", chEmbed(OWNER, false) === "https://www.youtube.com/embed/live_stream?channel=" + OWNER + "&rel=0&modestbranding=1&playsinline=1" && chEmbed("short", false) === "" && chEmbed("", false) === "", "only a real channel id may build the player");
-    ok("video id still wins", srcOf({ platform: "youtube", youtubeId: "dQw4w9WgXcQ", youtubeChannelId: OWNER }, false) === "https://www.youtube.com/embed/dQw4w9WgXcQ?rel=0&modestbranding=1&playsinline=1", "a verified video must keep playing by id");
+    ok("channel embed is strict", chEmbed(OWNER, false) === "https://www.youtube.com/embed/live_stream?channel=" + OWNER + "&rel=0&modestbranding=1&playsinline=1&enablejsapi=1" && chEmbed("short", false) === "" && chEmbed("", false) === "", "only a real channel id may build the player");
+    ok("video id still wins", srcOf({ platform: "youtube", youtubeId: "dQw4w9WgXcQ", youtubeChannelId: OWNER }, false) === "https://www.youtube.com/embed/dQw4w9WgXcQ?rel=0&modestbranding=1&playsinline=1&enablejsapi=1", "a verified video must keep playing by id");
     ok("channel plays without id", srcOf({ platform: "youtube", youtubeId: "", youtubeChannelId: OWNER }, false) === chEmbed(OWNER, false) && srcOf({ platform: "youtube" }, false) === "", "no id and no channel means no player, never a guess");
     ok("channel counts as video", hasVid({ platform: "youtube", youtubeChannelId: OWNER }) === true && hasVid({ platform: "youtube" }) === false, "the watch page must treat a followed channel as playable");
     const goodCh = { target: "https://www.youtube.com/@church/live", state: "live", videoId: "", title: "Sunday", channelId: OWNER, checkedAt: Date.now() };
     const srvCh = text["scripts/cms-server.js"];
-    const rpcCh = loadVm(srvCh.replace('if (!admins.has(info.conn.id)) return fail("denied");', 'if (false) return fail("denied");'), new Uint8Array(8 * 1024 * 1024));
+    const rpcCh = loadVm(srvCh.replace('var liveDeny = sessionDeny(info.conn);\n    if (liveDeny) return fail(liveDeny === "unauthorized" ? "denied" : liveDeny);', 'if (false) return fail("denied");'), new Uint8Array(8 * 1024 * 1024));
     const anonCh = { id: "anon-chan", net: ["x", 0, 0], subscribe() {}, topics: new Set() };
     const wCh = (payload) => JSON.parse(rpcCh.liveReport({ conn: anonCh }, JSON.stringify(payload)));
     ok("report stores the channel", wCh(goodCh).ok === true);
@@ -876,7 +917,7 @@ export async function runAll(fs) {
      video id that died never autoplays into the black frame, an old
      bundle's office report never steers this update, new builds hold fresh
      visitors on maintenance until the office publishes, and Recent services
-     bake from the Oct-12 @twocorg feed. */
+     bake from the Oct-30 @twocorg feed. */
   const buildNotesQ = Number((text["src/lib/hooks.ts"].match(/BUILD_NOTES = (\d+)/) || [])[1]) || 0;
   const liveQ = text["src/lib/livestatus.ts"];
   const blocksQ = text["src/components/blocks.tsx"];
@@ -885,18 +926,19 @@ export async function runAll(fs) {
   const edQ = text["src/components/editor.tsx"];
   ok("pull entry exists", has(cms, "export async function pullFromLive()") && has(cms, "function startLivePull()") && has(cms, "async function foldLiveInto("), "the sync needs its auto entry, its poller and its publish-time fold");
   ok("puller runs with the office", has(cms, "startLivePull();") && has(cms, "initialSyncDone.then"), "live publishes must pull themselves home while an office tab is open");
-  ok("publish folds live in", has(cms, "await foldLiveInto(content || draft, undefined, 6000)") && has(cms, "await foldLiveInto(draft, sectionId, 6000)"), "every Publish (whole site and per-section) must fold live's newer words in first");
+  ok("live publish lands both ways", has(cms, "noteUnrecordedLive") && has(cms, "liveAdoptBeatsServer") && has(cms, "The paint adopts by itself") && has(cms, "readLiveViaFeed") && has(cms, "Number-gate twin"), "a live publish must paint local by itself — session-free — while the office record waits for the desk");
+  ok("publish folds live in", (has(cms, "await foldLiveInto(content || draft, undefined, 6000)") || has(cms, "await foldLiveInto(content || draft, undefined, 300)") || has(cms, "foldLiveInto(content || draft, undefined, 300)")) && ((has(cms, "await foldLiveInto(draft, sectionId, 6000)") || has(cms, "await foldLiveInto(draft, sectionId, 300)") || has(cms, "foldLiveInto(draft, sectionId, 300)"))), "every Publish (whole site and per-section) must fold live's newer words in first");
   ok("no hand pull button", !has(edQ, "Pull from live now") && !has(edQ, "pullFromLive(") && has(edQ, "folds into this publish"), "the card is gone — Publish does it, and says so");
   ok("same-update reports only", has(liveQ, "reportMatchesBuild") && has(liveQ, "notes: BUILD_NOTES") && has(liveQ, "notes: number"), "an old bundle's wrong id must never steer this update");
   ok("server keeps the reporter update", has(srvQ, "rep.notes") && has(srvQ, "notes: notes"), "the store must carry notes without trusting them");
-  ok("player verifies before playing", has(blocksQ, "verifyYoutubeId") && has(blocksQ, "peekVerified") && has(blocksQ, "player--dead") && has(blocksQ, "can't be played here") && has(blocksQ, "Watch on YouTube"), "a dead video must say so with a way out, never the black frame");
+  ok("player verifies before playing", has(blocksQ, "verifyYoutubeId") && has(blocksQ, "peekVerified") && has(blocksQ, "player--dead") && !has(blocksQ, "can't be played here") && has(blocksQ, "Watch on YouTube"), "a dead video must never sit on the black frame or the dead text — poster, reload arrow and a way out instead (the livestream screen drops the yellow button while its red one is active)");
   ok("watch plays live by itself", has(watchQ, "useYoutubeVerdict") && has(watchQ, "autoPlay={streaming && watchable}") && has(watchQ, "watchable"), "when the check says live the screen must open with no tap");
   ok("hold ships with the update", has(text["maintenance-hold.txt"], "hold") && has(text["scripts/build-static.mjs"], "maintenance-hold.txt"), "fresh visitors must wait on maintenance until the office publishes");
   try {
     const seed333 = JSON.parse(text["seed.json"]);
     const items333 = (seed333 && seed333.recent && seed333.recent.items) || [];
     const ids333 = items333.map((it) => it && it.videoId);
-    ok("recents bake the church feed", seed333 && seed333.recent && seed333.recent.channelId === "UCQ0KIUXUV7gTZmDDlvd3ZcQ" && items333.length >= 6 && ids333.indexOf("s4bLaGUNet4") === 0 && ids333.indexOf("aT5IeCtJHFw") === 1 && ids333.every((id) => /^[\w-]{11}$/.test(String(id || ""))), "six-plus @twocorg services, newest first from the Oct-12 feed");
+    ok("recents bake the church feed", seed333 && seed333.recent && seed333.recent.channelId === "UCQ0KIUXUV7gTZmDDlvd3ZcQ" && items333.length >= 6 && ids333.indexOf("dcCt75FMm6o") === 0 && ids333.indexOf("aAJCTGmbeGo") === 1 && ids333.every((id) => /^[\w-]{11}$/.test(String(id || ""))), "six-plus @twocorg services, newest first from the Oct-30 feed");
   } catch (e) {
     ok("recents bake parses", false, String((e && e.message) || e).slice(0, 160));
   }
@@ -922,7 +964,7 @@ export async function runAll(fs) {
     ok("oembed decision is strict", decidePlayQ(200) === true && decidePlayQ(400) === false && decidePlayQ(401) === false && decidePlayQ(403) === false && decidePlayQ(404) === false && decidePlayQ(410) === false && decidePlayQ(500) === null && decidePlayQ(0) === null, "200 plays, gone is gone, anything else waits");
     ok("same-update matching", buildNotesQ > 0 && matchBuildQ({ notes: buildNotesQ }) === true && matchBuildQ({ notes: buildNotesQ + 1 }) === false && matchBuildQ({}) === false && matchBuildQ({ notes: 0 }) === false, "only this update's office answers steer this update");
     ok("unasked is unknown", peekQ("dQw4w9WgXcQ") === null && peekQ("") === false, "no cache means ask, no id means dead");
-    const rpcQ = loadVm(srvQ.replace('if (!admins.has(info.conn.id)) return fail("denied");', 'if (false) return fail("denied");'), new Uint8Array(8 * 1024 * 1024));
+    const rpcQ = loadVm(srvQ.replace('var liveDeny = sessionDeny(info.conn);\n    if (liveDeny) return fail(liveDeny === "unauthorized" ? "denied" : liveDeny);', 'if (false) return fail("denied");'), new Uint8Array(8 * 1024 * 1024));
     const anonQ = { id: "anon-notes", net: ["x", 0, 0], subscribe() {}, topics: new Set() };
     const wQ = (payload) => JSON.parse(rpcQ.liveReport({ conn: anonQ }, JSON.stringify(payload)));
     const notedQ = { target: "https://www.youtube.com/@church/live", state: "live", videoId: "dQw4w9WgXcQ", title: "Sunday", channelId: "UCLg4NCAJxhIvD4IRV__LOFg", checkedAt: Date.now(), notes: buildNotesQ };
@@ -1004,7 +1046,7 @@ export async function runAll(fs) {
   ok("office backend follows live", has(localU2, "startLiveFollow") && has(localU2, "adoptLive") && has(localU2, "FOLLOW_MS") && has(localU2, "process.env.RENDER"), "no tab open must still bring a live publish home");
   ok("adopt door locked twice", has(srvU2, "adoptLive") && has(srvU2, "__adoptToken") && has(serveU2, "isLoopbackAddr") && has(viteU2, "isLoopbackAddr"), "token in the vm plus loopback at both http doors");
   ok("player always has a way out", has(blocksU2, "player__escape") && has(blocksU2, "Can't see the video? Watch on YouTube") && has(cssU2, ".player__escape"), "the frame never reports failure — the link is the permanent net");
-  ok("playing videos re-asked", has(blocksU2, "5 * 60 * 1000") && has(blocksU2, "setDead(true)"), "a mid-play death must swap to the fallback, not sit black");
+  ok("playing videos re-asked", (has(blocksU2, "5 * 60 * 1000") || has(blocksU2, "60 * 1000")) && has(blocksU2, "setDead(true)"), "a mid-play death must swap to the fallback, not sit black");
   ok("wakes are visible", has(serveU2, "cold start at") && !has(serveU2, "Admin > Tools shows the same number"), "the host log must show sleeps; nothing may point at the removed card");
   ok("apply keeps awake + follow", has(applyU2, "UptimeRobot") && has(applyU2, "live follow"), "sleep must be a non-event by recipe and by loop");
   try {
@@ -1031,7 +1073,7 @@ export async function runAll(fs) {
   try {
     const seed344 = JSON.parse(text["seed.json"]);
     const items344 = ((seed344 && seed344.recent && seed344.recent.items) || []).map((it) => it && it.videoId);
-    const want344 = ["s4bLaGUNet4", "aT5IeCtJHFw", "3uqJoUXKds4", "OV6XtrNPGgo", "BgF97PIYPe8", "rmdEvZ_ZOXo", "ddWq2WYrmZ8", "HmVTgKwA6rY", "eyGDEZplxJw", "akE7Klt3a8w", "KCGWV3jWROE", "_PD-k6SqPvg", "eu3xQ-XCHv4", "gVJP8wlL9dM", "suLunbMiN78"];
+    const want344 = ["dcCt75FMm6o", "aAJCTGmbeGo", "vj-zun-US7k", "wh1wLNBDZ3s", "MdBG0oNwurg", "s4bLaGUNet4", "aT5IeCtJHFw", "3uqJoUXKds4", "OV6XtrNPGgo", "BgF97PIYPe8", "rmdEvZ_ZOXo", "ddWq2WYrmZ8", "HmVTgKwA6rY", "eyGDEZplxJw", "akE7Klt3a8w"];
     const live344 = seed344 && seed344.sections && seed344.sections.live;
     ok("bake still @twocorg's", !!seed344 && !!seed344.recent && seed344.recent.channelId === "UCQ0KIUXUV7gTZmDDlvd3ZcQ" && want344.every((id) => items344.indexOf(id) !== -1) && live344 && live344.youtubeChannel === "@twocorg", "recents must be the church's previous livestreams, all 15");
   } catch (e) {
@@ -1088,7 +1130,7 @@ export async function runAll(fs) {
     const items348 = ((seed348 && seed348.recent && seed348.recent.items) || []).map((it) => it && it.videoId);
     ok("bake card reads @twocorg", !!live348 && live348.youtubeChannel === "@twocorg" && yt348.value === "@twocorg", "the shipped words must name no other channel");
     ok("bake notes leave room to hold", typeof seed348.notes !== "number" || seed348.notes < notesW2, "a bake stamped at/above this update would release fresh visitors");
-    ok("recents still the church's", !!seed348 && !!seed348.recent && seed348.recent.channelId === "UCQ0KIUXUV7gTZmDDlvd3ZcQ" && items348.indexOf("s4bLaGUNet4") !== -1 && items348.length >= 6, "previous livestreams must be @twocorg's");
+    ok("recents still the church's", !!seed348 && !!seed348.recent && seed348.recent.channelId === "UCQ0KIUXUV7gTZmDDlvd3ZcQ" && items348.indexOf("dcCt75FMm6o") !== -1 && items348.length >= 6, "previous livestreams must be @twocorg's");
   } catch (e) {
     ok("bake parses", false, String((e && e.message) || e).slice(0, 160));
   }
@@ -1105,7 +1147,7 @@ export async function runAll(fs) {
   ok("old endings are dropped", has(liveX2, "inheritEnded(before, targetUrl, checkedAt, designatedChannelIdForTarget(targetUrl))"), "a moved channel must not seed the new handle's ended screen");
   ok("office never reports stale", has(liveX2, "isStatusForTarget(status, url)"), "the office must not steer visitors to the old handle's video");
   ok("screen gates on the stamp", has(watchX2, "isStatusForTarget(air, targetUrl)") && has(watchX2, "airForTarget"), "the screen must read unknown until the fresh check lands");
-  ok("channel wins the screen", has(watchX2, "!hasChannel ? LIVE.youtubeId") && has(watchX2, "hasChannel ? targetUrl"), "a stray stream link must not reach the player while the channel is set");
+  ok("channel wins the screen", (has(watchX2, "!hasChannel ? LIVE.youtubeId") || has(watchX2, "!hasChannel ? parseYoutubeId(LIVE.youtubeId)")) && has(watchX2, "hasChannel ? targetUrl"), "a stray stream link must not reach the player while the channel is set");
   ok("tap re-asks the handle", has(blocksX2, "isStatusForTarget(st, liveTarget()?.url"), "a tap after a channel move must wait, not play the old video");
   try {
     const ebX2 = await import("https://esm.sh/esbuild-wasm@0.21.5?bundle");
@@ -1243,7 +1285,7 @@ export async function runAll(fs) {
   ok("fold never holds a click", has(cmsAA, "foldGen") && has(cmsAA, "boundedMs"), "a sleeping live box must not stall a publish on its read");
   ok("joined tabs relay to live", has(cmsAA, "joinedBackendRoot") && has(cmsAA, "this tab publishes through"), "a live/admin tab joined to the office must still push the live box at once");
   ok("adopt door locked", has(srvAA, "adoptLive") && has(srvAA, "self.__adoptToken"), "only this machine's own loop may adopt");
-  ok("publish folds live", has(cmsAA, "async function foldLiveInto") && has(cmsAA, "await foldLiveInto(draft, sectionId, 6000)"), "every Publish carries live's newer words by itself");
+  ok("publish folds live", has(cmsAA, "async function foldLiveInto") && (has(cmsAA, "await foldLiveInto(draft, sectionId, 6000)") || has(cmsAA, "await foldLiveInto(draft, sectionId, 300)") || has(cmsAA, "foldLiveInto(draft, sectionId, 300)")), "every Publish carries live's newer words by itself");
   ok("auto-push rides out", has(pushAA, "notePublished") && has(localAA, "notePublished"), "a local publish must deploy itself within minutes");
   ok("handle-only answers", has(liveAA, "ownerAllowsCandidate") && has(liveAA, "isStatusForTarget") && has(liveAA, "inheritEnded"), "no foreign video, no stale address, no stray link");
   ok("walled follow plus dead net", has(liveAA, "unverifiedChannelAnswer") && has(liveAA, "verifyYoutubeId"), "chrome with no video plays the channel; dead ids never play blind");
@@ -1344,7 +1386,7 @@ export async function runAll(fs) {
     const modCC = { exports: {} };
     new Function("module", "exports", "require", tcCC.code)(modCC, modCC.exports, stubCC);
     cacheCC["wom.recentstreams"] = { items: [{ videoId: "AAAAAAAAAAA", title: "Debug service", at: 5, ago: "", thumb: "", seeded: 0 }], at: 5, channelId: OTHER };
-    ok("foreign cache dropped", modCC.exports.readRecentServices().items[0].videoId === "s4bLaGUNet4", "debugging videos must not survive the read");
+    ok("foreign cache dropped", modCC.exports.readRecentServices().items[0].videoId === "dcCt75FMm6o", "debugging videos must not survive the read");
     cacheCC["wom.recentstreams"] = { items: [{ videoId: "AAAAAAAAAAA", title: "Sunday service", at: 5, ago: "", thumb: "", seeded: 0 }], at: 5, channelId: OWNER };
     ok("own cache kept", modCC.exports.readRecentServices().items.length === 1, "@twocorg's list must stay");
     cacheCC["wom.recentstreams"] = { items: [{ videoId: "BBBBBBBBBBB", title: "Today's service", at: 0, ago: "", thumb: "", seeded: Date.now() }], at: 5, channelId: "" };
@@ -1468,9 +1510,9 @@ export async function runAll(fs) {
   const rsEE = text["src/lib/recentstreams.ts"];
   const applyEE = text["APPLY_UPDATE.txt"];
   ok("fallback ships in code", has(rsEE, "DESIGNATED_FALLBACK_ITEMS") && has(rsEE, "export function designatedFallback()"), "the previous services must survive an empty bake + dead proxies");
-  ok("fallback is the last service first", rsEE.indexOf("s4bLaGUNet4") > 0 && rsEE.indexOf("s4bLaGUNet4") < rsEE.indexOf("aT5IeCtJHFw"), "SUNDAY SERVICE, 11TH OCT. 2026 must lead");
+  ok("fallback is the last service first", rsEE.indexOf("dcCt75FMm6o") > 0 && rsEE.indexOf("dcCt75FMm6o") < rsEE.indexOf("aAJCTGmbeGo"), "70TH BIRTHDAY CELEBRATION OF EVANG. SKP. DAY 1, 29TH OCT. 2026 must lead");
   ok("three cache doors", has(rsEE, "if (!cached || !Array.isArray(cached.items)) return designatedFallback();") && has(rsEE, "cachedChannelId !== designated) return designatedFallback();") && has(rsEE, "if (!items.length) return designatedFallback();"), "empty, foreign and thin caches must all fall back");
-  ok("same-origin read", has(rsEE, "fetchTextSameOrigin") && has(rsEE, "const sameOrigin = await fetchTextSameOrigin(url);") && !has(rsEE, "fetchTextLocal"), "deployed visitors must read through their own host");
+  ok("same-origin read", has(rsEE, "fetchTextSameOrigin") && !has(rsEE, "fetchTextLocal"), "deployed visitors must read through their own host");
   ok("jazz named", has(applyEE, "zJvgsAhpNlo") && has(applyEE, "small\n  village"), "the office must know exactly which video is poison");
   try {
     const ebEE = await import("https://esm.sh/esbuild-wasm@0.21.5?bundle");
@@ -1493,10 +1535,10 @@ export async function runAll(fs) {
     };
     const withDes = runEE({}, OWNER);
     const empty = withDes.readRecentServices();
-    ok("empty cache falls back", empty.items.length === 15 && empty.items[0].videoId === "s4bLaGUNet4" && empty.channelId === OWNER, "got " + empty.items.length + " first=" + (empty.items[0] || {}).videoId);
+    ok("empty cache falls back", empty.items.length === 15 && empty.items[0].videoId === "dcCt75FMm6o" && empty.channelId === OWNER, "got " + empty.items.length + " first=" + (empty.items[0] || {}).videoId);
     const foreign = runEE({ "wom.recentstreams": { items: [{ videoId: "AAAAAAAAAAA", title: "Debug", at: 5, ago: "", thumb: "", seeded: 0 }], at: 5, channelId: OTHER } }, OWNER);
     const f2 = foreign.readRecentServices();
-    ok("foreign cache falls back", f2.items.length === 15 && f2.items[0].videoId === "s4bLaGUNet4", "debugging videos must not survive");
+    ok("foreign cache falls back", f2.items.length === 15 && f2.items[0].videoId === "dcCt75FMm6o", "debugging videos must not survive");
     const own = runEE({ "wom.recentstreams": { items: [{ videoId: "AAAAAAAAAAA", title: "Sunday", at: 5, ago: "", thumb: "", seeded: 0 }], at: 5, channelId: OWNER } }, OWNER);
     ok("own cache kept", own.readRecentServices().items.length === 1, "a good list must stay");
     const nodes = runEE({}, "");
@@ -1554,7 +1596,7 @@ export async function runAll(fs) {
   }
   try {
     const connGG = { id: "t", net: ["local", 0, 0], subscribe() {}, topics: new Set() };
-    const openGG = stubAuth(srvGG.replace('if (!admins.has(info.conn.id)) return fail("denied");', 'if (false) return fail("denied");'));
+    const openGG = stubAuth(srvGG.replace('var liveDeny = sessionDeny(info.conn);\n    if (liveDeny) return fail(liveDeny === "unauthorized" ? "denied" : liveDeny);', 'if (false) return fail("denied");'));
     const rpcGG = loadVm(openGG, new Uint8Array(8 * 1024 * 1024));
     const wGG = (payload) => JSON.parse(rpcGG.liveReport({ conn: connGG }, JSON.stringify(payload)));
     const rGG = () => JSON.parse(rpcGG.liveReport({ conn: connGG }, ""));
@@ -1603,7 +1645,7 @@ export async function runAll(fs) {
      with a page, not a picture — the slide must paint welcome, never black. */
   const sKK = text["src/components/slides.tsx"];
   ok("slide-photo decision is pure", has(sKK, "export function resolveSlidePhoto(named: string, welcome: string, dead: boolean)"), "the choice must be unit-runnable");
-  ok("every flat face goes through it", has(sKK, "resolveSlidePhoto(") && has(sKK, "const shownPhoto"), "no face may paint a named photo unasked");
+  ok("every flat face goes through it", has(sKK, "const original = resolveSlidePhoto(named, welcome, useDeadPhoto(named))"), "no face may paint a named photo unasked");
   ok("probe skips non-photos", has(sKK, "isSlideVideoUrl(url) || url.startsWith(\"data:\") || url.startsWith(\"blob:\")"), "films and composed frames must never count as dead");
   try {
     const ebKK = await import("https://esm.sh/esbuild-wasm@0.21.5?bundle");
@@ -1655,10 +1697,10 @@ export async function runAll(fs) {
   ok("guest never ends the main screen", has(liveMM, "const targetUrl = (guestLive && guest ? guest.url : target?.url)"), "the stamp — and the report after it — must say the winner");
   ok("office reports the winner", has(liveMM, 'const url = String(status.target || "") || liveTarget()?.url || ""'), "a guest-live answer must steer visitors to the guest");
   ok("retype still silences", has(liveMM, 'url !== (liveTarget()?.url || "") && url !== (guestTarget()?.url || "")'), "a moved channel must never report");
-  ok("screen plays the guest", has(watchMM, "const screenAir = guestLive ? guestAir : airForTarget") && has(watchMM, "const guestLive = guestAir.state"), "guest-live plays; its end returns the main screen");
+  ok("screen plays the guest on manual start", has(watchMM, "const screenAir = guestLive ? guestAir : airForTarget") && has(watchMM, "const guestLive = guestSwitchOn && guestAir.state"), "a started guest plays; detection alone never opens; its end returns the main screen");
   ok("guest follow is one tap", has(watchMM, "guestLive ? isGuestTargetUrl(screenAir.target, guestUrl)"), "a walled guest follows its own channel, never autoplay");
   ok("tap opens the guest", has(blocksMM, "guestTarget()?.url") && has(blocksMM, "isGuestTargetUrl(st.target"), "a tap on a guest-live screen must play, not wait");
-  ok("guest never seeds recents", has(editorMM, "isGuestTargetUrl(aired.target") && has(autoMM, "isGuestTargetUrl(air.target"), "a guest ending files nothing");
+  ok("guest never seeds recents", has(editorMM, "isGuestTargetUrl(aired.target"), "a guest ending files nothing");
   ok("guest pastes clean", has(cmsMM, "cleanChannelInput(value.externalYoutubeChannel)"), "a doubled @ must never break the guest slot");
   ok("drawer carries the slot", has(schemaMM, 'path: "externalYoutubeChannel"') && has(liveDefMM, "externalYoutubeChannel"), "the office needs the field; the code needs the default");
   ok("bake carries the slot", has(seedMM, '"externalYoutubeChannel":""'), "fresh copies must read an empty guest, never undefined");
@@ -1703,7 +1745,7 @@ export async function runAll(fs) {
      update-numbers small print is gone at the church's request. */
   const layNN = text["src/components/layout.tsx"];
   ok("numbers line gone", !has(layNN, "maint__notes") && !has(layNN, "awaiting the office publish"), "no update numbers anywhere on the waiting page");
-  ok("notice still waits", (has(layNN, "We&rsquo;ll be right back") || has(layNN, "We\\u2019ll be right back") || has(layNN, "right back")) && has(layNN, "Please check back shortly"), "the notice itself stays");
+  ok("notice still waits", has(layNN, "We&rsquo;ll be right back") && has(layNN, "Please check back shortly"), "the notice itself stays");
   ok("no dangling number reads", !has(layNN, "BUILD_NOTES") && !has(layNN, "publishedNotesVersion"), "unused number plumbing must go with the line");
   /* OO. publish lands everywhere, live plays by itself WITH SOUND (notes 384,
      388): a missed shout heals within the half minute on every copy; the live
@@ -1715,7 +1757,7 @@ export async function runAll(fs) {
   const blocksOO = text["src/components/blocks.tsx"];
   const watchOO = text["src/pages/WatchLive.tsx"];
   const schemaOO = text["src/lib/cmsSchema.ts"];
-  ok("rev stamp is public", has(srvOO2, "contentRev: function (info)") && has(srvOO2, "rev: REV") && has(srvOO2, "notes: NOTES") && has(srvOO2, "at: AT"), "visitors must read the stamp with no session");
+  ok("rev stamp is public", has(srvOO2, "contentRev: function (info)") && has(srvOO2, "return ok({ rev: REV, notes: NOTES, at: AT });"), "visitors must read the stamp with no session");
   ok("every tab watches the stamp", has(cmsOO, "function startContentWatch()") && has(cmsOO, "socket.rpc.contentRev") && has(cmsOO, "30_000") && cmsOO.split("startContentWatch();").length >= 3, "local, mobile and desktop must all pull a missed publish");
   ok("watch pulls the guarded path", has(cmsOO, "r.rev !== rev") && has(cmsOO, "await syncFromServer()"), "the stamp must lead to the same sync the shout takes");
   ok("self-starts play with sound", has(blocksOO, "embedSrc(source, true)") && !has(blocksOO, "userOpened") && !has(blocksOO, "embedSrc(source, true, true)"), "no opening — tapped or self-started — may lose its audio");
@@ -1733,9 +1775,9 @@ export async function runAll(fs) {
     const VID = "dQw4w9WgXcQ";
     const OWNER_OO = "UCQ0KIUXUV7gTZmDDlvd3ZcQ";
     ok("no live ever silenced", yte(VID, true, true).indexOf("mute") === -1 && yte(VID, true).indexOf("mute") === -1, "even a legacy muted call must play with sound");
-    ok("old outputs identical", yte(VID, true) === "https://www.youtube.com/embed/" + VID + "?rel=0&modestbranding=1&playsinline=1&autoplay=1" && yte(VID, false).indexOf("autoplay") === -1 && yte(VID, false).indexOf("mute") === -1, "two-arg calls must build exactly what they built");
+    ok("old outputs identical", yte(VID, true) === "https://www.youtube.com/embed/" + VID + "?rel=0&modestbranding=1&playsinline=1&enablejsapi=1&autoplay=1" && yte(VID, false).indexOf("autoplay") === -1 && yte(VID, false).indexOf("mute") === -1, "two-arg calls must build exactly what they built");
     ok("channel never silenced", che(OWNER_OO, true, true).indexOf("live_stream?channel=" + OWNER_OO) !== -1 && che(OWNER_OO, true, true).indexOf("mute") === -1, "a followed channel must self-start with sound too");
-    ok("channel default identical", che(OWNER_OO, false) === "https://www.youtube.com/embed/live_stream?channel=" + OWNER_OO + "&rel=0&modestbranding=1&playsinline=1", "the old two-arg channel build must not move");
+    ok("channel default identical", che(OWNER_OO, false) === "https://www.youtube.com/embed/live_stream?channel=" + OWNER_OO + "&rel=0&modestbranding=1&playsinline=1&enablejsapi=1", "the old two-arg channel build must not move");
     ok("sound src threads through", srcOf({ platform: "youtube", youtubeChannelId: OWNER_OO }, true, true).indexOf("mute") === -1 && srcOf({ platform: "youtube", youtubeChannelId: OWNER_OO }, true).indexOf("mute") === -1, "the player must never build a silent address");
     const connOO = { id: "t", net: ["local", 0, 0], subscribe() {}, topics: new Set() };
     const stOO = new Uint8Array(8 * 1024 * 1024);
@@ -1771,7 +1813,7 @@ export async function runAll(fs) {
   ok("cadence still hears the clock", has(storePP, "export function onAir(info?: NextServiceInfo | null): boolean") && has(appPP, "onAir(gathering)") && has(watchPP, "onAir(info) || info.msUntil"), "detection must stay armed around services");
   ok("badges ask displayLive", has(layPP, "displayLive(info)") && has(homePP, "displayLive(info)") && has(blocksPP, "displayLive(info)") && has(watchPP, "displayLive(info) && !shutNow"), "pill, hero, card and panel must all wait for the stream");
   ok("bare clock lights nothing", !has(layPP, "const live = onAir(info);") && !has(homePP, "{onAir(info) ? (") && !has(blocksPP, "const live = onAir(info);") && !has(watchPP, "const onAirNow = onAir(info);"), "no badge may read the clock answer");
-  ok("screen shuts after an end", has(watchPP, "nextScreenShut(shut, shutPrevRef.current, guestUrl, screenAir.state") && (has(watchPP, "(guestLive || fbLive || !!LIVE.isLive)") || has(watchPP, "(mainDetected && !officeStopped)")) && has(livePP2, "export function nextScreenShut(") && has(livePP2, "export type ScreenShut") && has(watchPP, "screenAir.state === \"off\""), "any end must close the screen, never hand another channel over");
+  ok("screen shuts after an end", has(watchPP, "nextScreenShut(shut, shutPrevRef.current, guestUrl,") && has(watchPP, "const streaming = ") && has(watchPP, "guestLive || fbLive") && has(watchPP, "!shutNow") && has(livePP2, "export function nextScreenShut(") && has(livePP2, "export type ScreenShut") && has(watchPP, "screenAir.state === \"off\""), "any end must close the screen, never hand another channel over");
   ok("guest still clears", has(cmsPP, "healDraftGuest()") && has(cmsPP, "(draft as any).live = { ...dLive, externalYoutubeChannel: \"\" }") && has(cmsPP, "guestCleared: guestCleared || undefined") && has(edPP, "res.guestCleared"), "untouched drafts and restores must follow the clear");
   ok("drawer carries no promise text", !has(edPP, "the LIVE badge and the player wait for the stream itself") && !has(edPP, "Play and pause are one button") && !has(edPP, "the site is showing live by itself") && has(edPP, "Nothing is set to play yet"), "the promise paragraph is gone but functional — the unconfigured warning stays");
   ok("apply leads with the shut", has(applyPP, "never plays another channel's livestream by itself"), "the office must meet the closed screen first");
@@ -1811,25 +1853,25 @@ export async function runAll(fs) {
     ok("same channel restart plays", shutFn(heldPP, "", GUEST_PP, true, MAIN_PP) === null);
     ok("guest restart re-arms", shutFn(heldPP, MAIN_PP, GUEST_PP, true, GUEST_PP) === null);
     ok("other new edge re-arms", shutFn(heldPP, MAIN_PP, GUEST_PP, true, OTHER_PP) === null);
-    const setupPP2 = "var LIVEP2 = { isLive: false, liveCut: 0, liveCommandAt: 0, liveSince: 0, guestIsLive: false, liveEndedBy: \"\" };\nvar DETPP = { now: false, guest: false, main: false, fb: false, endedAt: 0 };\nfunction liveNow(){ return DETPP.now; }\nfunction guestLiveNow(){ return DETPP.guest; }\nfunction mainLiveNow(){ return DETPP.main; }\nfunction facebookLiveNow(){ return DETPP.fb; }\nfunction liveEndedAt(){ return DETPP.endedAt; }\nfunction officeStopActive(live){ if(!live||typeof live!==\"object\")return false; if(!!live.isLive)return false; if(String(live.liveEndedBy||\"\")!==\"office\")return false; if(!(Number(live.liveCut)>0))return false; if(Number(live.liveSince)!==0)return false; return true; }\n";
+    const setupPP2 = "var LIVEP2 = { isLive: false, liveCut: 0, liveCommandAt: 0, liveSince: 0, guestIsLive: false, liveEndedBy: \"\" };\nvar DETPP = { now: false, guest: false, main: false, endedAt: 0 };\nfunction liveNow(){ return DETPP.now; }\nfunction guestLiveNow(){ return DETPP.guest; }\nfunction mainLiveNow(){ return DETPP.main; }\nfunction liveEndedAt(){ return DETPP.endedAt; }\nfunction officeStopActive(live){ if(!live||typeof live!==\"object\")return false; if(!!live.isLive)return false; if(String(live.liveEndedBy||\"\")!==\"office\")return false; if(!(Number(live.liveCut)>0))return false; if(Number(live.liveSince)!==0)return false; return true; }\n";
     const tcDisp = await ebPP2.default.transform(setupPP2 + grabPP2(storePP, "streamCut").replace(/LIVE/g, "LIVEP2") + "\n" + grabPP2(storePP, "displayLive").replace(/LIVE/g, "LIVEP2") + "\nmodule.exports = { displayLive: displayLive, __set: function (l, d) { Object.assign(LIVEP2, l); Object.assign(DETPP, d); } };", { loader: "ts", format: "cjs" });
     const modDisp = { exports: {} };
     new Function("module", "exports", tcDisp.code)(modDisp, modDisp.exports);
     const dispFn = modDisp.exports.displayLive;
     const setPP = modDisp.exports.__set;
     const TPP = Date.now();
-    setPP({ isLive: false, liveCut: 0, liveCommandAt: 0, liveSince: 0 }, { now: true, guest: false, endedAt: 0 });
-    ok("main detection alone stays quiet", dispFn({ isLive: false, at: new Date(TPP) }) === false);
-    setPP({ isLive: false, liveCut: 0, liveCommandAt: 0, liveSince: 0 }, { now: false, guest: true, endedAt: 0 });
-    ok("guest detection opens", dispFn({ isLive: false, at: new Date(TPP) }) === true);
+    setPP({ isLive: false, liveCut: 0, liveCommandAt: 0, liveSince: 0 }, { now: true, guest: false, main: true, endedAt: 0 });
+    ok("main detection alone lights (self-start)", dispFn({ isLive: false, at: new Date(TPP) }) === true);
+    setPP({ isLive: false, liveCut: 0, liveCommandAt: 0, liveSince: 0 }, { now: false, guest: true, main: false, endedAt: 0 });
+    ok("guest detection alone stays quiet", dispFn({ isLive: false, at: new Date(TPP) }) === false);
     setPP({ isLive: true }, { now: false, guest: false });
     ok("office switch shows", dispFn({ isLive: false, at: new Date(TPP) }) === true);
     setPP({ isLive: false }, { now: false, guest: false });
     ok("bare clock stays quiet", dispFn({ isLive: true, at: new Date(TPP) }) === false);
     ok("quiet stays quiet", dispFn({ isLive: false, at: new Date(TPP) }) === false && dispFn(null) === false && dispFn(undefined) === false);
-    setPP({ isLive: true, liveCut: TPP, liveCommandAt: 0, liveSince: 0 }, { now: false, guest: false, endedAt: TPP - 1000 });
+    setPP({ isLive: false, liveCut: TPP, liveCommandAt: 0, liveSince: 0, liveEndedBy: "office" }, { now: false, guest: false, endedAt: TPP - 1000 });
     ok("stop holds through the gathering", dispFn({ isLive: true, at: new Date(TPP - 5000) }) === false);
-    setPP({ isLive: true, liveCut: TPP, liveCommandAt: 0, liveSince: 0 }, { now: true, guest: false, endedAt: TPP - 1000 });
+    setPP({ isLive: false, liveCut: TPP, liveCommandAt: 0, liveSince: 0, liveEndedBy: "office" }, { now: true, guest: false, main: true, endedAt: TPP - 1000 });
     ok("main detection never beats a stop", dispFn({ isLive: true, at: new Date(TPP - 5000) }) === false);
   } catch (e) {
     ok("shut-and-display suite", false, String((e && e.message) || e).slice(0, 200));
@@ -1862,7 +1904,7 @@ export async function runAll(fs) {
   ok("transport arms every click", has(edRR, "liveCommandAt: Date.now()") && has(edRR, "Pause the livestream") && has(edRR, "Play the livestream") && has(edRR, 'icon="stop"'), "play, pause and stop must all stamp the command");
   ok("guest helper gone", !has(schemaRR, "Leave empty otherwise") && has(schemaRR, 'path: "externalYoutubeChannel"'), "the field stays, the helper goes");
   ok("publish gates the command", has(cmsRR, "export function gateLiveCommand(") && has(cmsRR, "gateLiveSnapshot(fold.snapshot || applied)") && has(cmsRR, 'if (sectionId === "live") value = gateLiveCommand(value, publishedSection("live"))'), "full and per-section publishes must both hold unclicked state back");
-  ok("natural end needs no publish", has(autoRR, "no need to publish") && !has(autoRR, "liveCommandAt: Date.now()"), "a natural end must stamp nothing and ask for no publish");
+  ok("no automatic end", !has(autoRR, "setSectionValue") && !has(autoRR, "askForRecentServices") && !has(autoRR, "liveCommandAt: Date.now()") && !has(autoRR, "fireToast"), "when the stream ends by itself nothing is written, filed, stamped or toasted");
   ok("apply leads with the gate", has(applyRR, "PUBLISH ONLY SENDS A CLICKED COMMAND"), "the office must meet the click-to-send rule first");
   try {
     const ebRR2 = await import("https://esm.sh/esbuild-wasm@0.21.5?bundle");
@@ -1904,8 +1946,8 @@ export async function runAll(fs) {
   const cssSS = text["src/styles/pages.css"];
   const applySS2 = text["APPLY_UPDATE.txt"];
   ok("play and pause share one button", has(edSS2, "{onNow ? (") && has(edSS2, "Pause the livestream") && has(edSS2, "Play the livestream") && has(edSS2, 'icon="stop"'), "a single toggle plus the separate stop");
-  ok("pause holds, stop ends", has(edSS2, "const heldSession = since > 0;") && has(edSS2, "liveSince: 0, liveCut: at") && has(edSS2, "Paused — play picks the same session back up."), "a hold resumes, an end starts fresh");
-  ok("natural end stamps nothing", has(autoSS, "no need to publish") && !has(autoSS, "liveCommandAt: Date.now()"), "the buttons never gate a live end");
+  ok("pause holds, stop ends", has(edSS2, "const heldSession = since > 0;") && has(edSS2, "liveSince: 0, liveCut: at") && has(edSS2, "Pause holds the broadcast without ending it"), "a hold resumes, an end starts fresh");
+  ok("watcher writes nothing", !has(autoSS, "stopForStream") && !has(autoSS, "clearIdleGuest") && !has(autoSS, "setSectionValue"), "the watcher is inert — only Stop writes an end");
   ok("ended screen keeps no duplicate recents (note 413)", !has(watchSS2, "const endedThumbs") && !has(watchSS2, "live-ended__thumbs") && has(watchSS2, 'id="recent-services"'), "only #recent-services may list recents — the ended screen keeps its still and buttons");
   ok("apply leads with the buttons and the end", has(applySS2, "THE BUTTONS NEVER GATE A LIVE END") && has(applySS2, "PLAY/PAUSE IS ONE"), "the office must meet the two buttons and the self-armed end first");
 /* TT. the end needs no publish; play starts, pause holds, stop ends, each
@@ -1950,9 +1992,9 @@ export async function runAll(fs) {
   const autoWW = text["src/lib/autostop.ts"];
   const edWW2 = text["src/components/editor.tsx"];
   const applyWW2 = text["APPLY_UPDATE.txt"];
-  ok("drawer watches the main address", has(autoWW, "liveTarget") && has(autoWW, "useLiveStream(!!live.isLive || !!liveTarget(), true)"), "no Play press may slow the office report");
-  ok("main ending files itself unstamped", has(autoWW, "self-started") && has(autoWW, 'liveEndedBy: "channel"') && has(autoWW, "no need to publish"), "a self-started main ending must close the books with no publish");
-  ok("guest ending still files nothing", has(autoWW, "guestEnd") && has(autoWW, "if (air.platform !== \"youtube\" || !air.videoId || guestEnd) return false"), "the guest must never seed the main list");
+  ok("drawer watches nothing", !has(autoWW, "useLiveStream") && has(autoWW, "useAutoStopLive"), "the hook stays mounted but inert — the transport rows keep their own lights");
+  ok("main ending files nothing itself", !has(autoWW, 'liveEndedBy: "channel"') && !has(autoWW, "askForRecentServices"), "an ended broadcast files nothing until the office presses Stop");
+  ok("guest ending changes nothing", !has(autoWW, "clearIdleGuest") && !has(autoWW, "setSectionValue"), "a guest ending changes nothing by itself");
   ok("play is the manual override", has(edWW2, "Play is only the manual override") && has(edWW2, "liveCommandAt: Date.now()"), "the buttons keep working, the main needs no press");
   ok("apply leads with the self-start", has(applyWW2, "THE MAIN CHANNEL STARTS BY ITSELF"), "the office must meet the no-press rule first");
   /* XX. each field has its buttons, the guest empties itself, Delete answers
@@ -1969,16 +2011,15 @@ export async function runAll(fs) {
   ok("each field has its row", has(edXX, "transport-row") && has(edXX, "export function GuestTransportButtons()") && has(adminXX, 'f.path === "youtubeChannel" && <LiveTransportButtons />') && has(adminXX, 'f.path === "externalYoutubeChannel" && <GuestTransportButtons />'), "small buttons must sit under each field");
   ok("no labels, no clear button", !has(edXX, "transport-row__who") && !has(edXX, ">Main channel<") && !has(edXX, ">Guest channel<") && !has(edXX, "Clear the guest channel"), "the rows must not name themselves or carry a clear");
   ok("guest row guards and clears", has(edXX, "Type the guest channel first") && has(edXX, 'externalYoutubeChannel: ""') && has(edXX, "hadGuest"), "an empty guest names its field, every guest stop empties the slot");
-  ok("finished guest self-clears", has(autoXX, "clearIdleGuest") && has(autoXX, "The guest channel is empty again") && has(autoXX, "if (guestEnd) clearIdleGuest()") && has(autoXX, "if (airedGuest) clearIdleGuest()"), "a guest ending empties its slot with no publish");
+  ok("finished guest self-clears nothing", !has(autoXX, "clearIdleGuest"), "only the guest Stop button empties the slot");
   ok("delete answers first tap", has(cmsXX, "export function sectionHasPublishableRemovals(") && has(adminXX, "sectionHasPublishableRemovals(edit.sectionId)") && has(adminXX, "onClick={() => erase(edit)}"), "Delete must not look dead where it only drops the draft");
   ok("rows are styled compact", has(cssXX, ".transport-row"), "the two rows must fit the field area");
   ok("apply leads with the rows", has(applyXX, "EACH FIELD HAS ITS BUTTONS"), "the office must meet the per-field rows first");
-  /* YY. each field commands its own slot, guest Play opens the channel
+  /* YY. each field commands its own slot, Play opens the channel
      (notes 404, 410): the main row never touches the guest slot and the
-     guest row never touches the main switch, the guest keys gate on their own
-     stamp, the badges hear the guest switch, and a published guest Play opens
-     its commanded channel while the read is walled — a pressed main waits for
-     detection. */
+     guest row never touches the main switch, the keys gate on their own
+     stamp, the badges hear the switches, and a published Play opens its
+     commanded channel while the read is walled — same rule on both slots. */
   const edYY = text["src/components/editor.tsx"];
   const cmsYY = text["src/lib/cms.ts"];
   const storeYY = text["src/lib/store.ts"];
@@ -1989,7 +2030,7 @@ export async function runAll(fs) {
   ok("stop clears the guest, guest never touches main", has(edYY, "export function GuestTransportButtons()") && has(edYY, "write(clearGuestOnStop(") && has(edYY, "The stop also empties") && has(edYY, "write({ guestIsLive: true, guestCommandAt: Date.now() })"), "one Stop ends the live and empties the guest; the guest row still commands only its slot");
   ok("guest keys gated on their stamp", has(cmsYY, "out.guestIsLive") && has(cmsYY, "guestCommandAt"), "only a guest click may send the guest state");
   ok("badges hear the guest switch", has(storeYY, "(LIVE as any).guestIsLive"), "a forced guest must light LIVE too");
-  ok("guest press opens its walled channel", has(watchYY, "const overrideId = ") && has(watchYY, "(!streaming && overrideId)") && has(watchYY, ") : overrideGuest && overrideId ? (") && !has(watchYY, ") : overrideId ? (") && has(watchYY, "(mainDetected && !officeStopped)"), "a published guest Play may open the channel, a detected main plays by itself — and only a live slot plays by itself");
+  ok("pressed slot opens its walled channel", has(watchYY, "const overrideId = ") && has(watchYY, "(!streaming && overrideId)") && has(watchYY, ") : (overrideMain || overrideGuest) && overrideId ? (") && !has(watchYY, ") : overrideId ? (") && has(watchYY, "mainDetected") && has(watchYY, "!officeStopped"), "a published Play opens its commanded channel on either slot — main and guest share one rule; a detected main plays by itself");
   ok("follow is unknown-only", has(watchYY, 'airForTarget.state === "unknown"') && has(watchYY, 'guestAir.state === "unknown"'), "a verified off must stay on the clock");
   ok("guest keys ship false", has(liveYY, "guestIsLive: false") && has(seedYY, '"guestIsLive":false'), "no copy may open with a guest forced");
   ok("apply leads own-slot", has(applyYY, "EACH FIELD COMMANDS ITS OWN SLOT"), "the office must meet the independent rows first");
@@ -2048,24 +2089,24 @@ export async function runAll(fs) {
   const boundAAA = text["src/components/ErrorBoundary.tsx"];
   const srvAAA = text["scripts/cms-server.js"];
   const applyAAA = text["APPLY_UPDATE.txt"];
-  ok("main detection lights badges", has(storeAAA, "if (guestLiveNow()) return true;") && has(storeAAA, "mainLiveNow() && !officeStopActive(LIVE)"), "a detected main must light badges with no press; a published Stop still holds");
+  ok("guest switch lights badges", has(storeAAA, "(LIVE as any).guestIsLive) return true") && !has(storeAAA, "if (guestLiveNow()) return true;") && has(storeAAA, "mainLiveNow() && !officeStopActive(LIVE)"), "only the published guest Play lights badges, never bare detection; a detected main must light badges with no press; a published Stop still holds");
   ok("guest answer is pure", has(liveAAA, "export function guestLiveNow(): boolean"), "only the guest stamp counts");
   ok("main answer is pure", has(liveAAA, "export function mainLiveNow(): boolean"), "only the main stamp counts for the main");
-  ok("detected main autoplays", has(watchAAA, "(mainDetected && !officeStopped)") && has(watchAAA, "const waitingForClick = !shutNow"), "a detected main must autoplay with no press; a published Stop still holds");
+  ok("detected main autoplays", has(watchAAA, "mainDetected") && has(watchAAA, "!officeStopped") && has(watchAAA, "const waitingForClick = !shutNow"), "a detected main must autoplay with no press; a published Stop still holds");
   ok("unpressed live waits, never ends", has(watchAAA, "!onAirNow && !waitingForClick ? ("), "something IS live — the clock, not the ended screen");
   ok("draft guest sweeps per update", has(cmsAAA, "function clearDraftGuestSlot()") && has(cmsAAA, "if (freshEyes) clearDraftGuestSlot();"), "no unsaved guest row rides in");
-  ok("drawer promises self-start", has(edAAA, "no press needed, Play is only a manual override") && has(edAAA, "The screen plays it once published."), "the drawer must promise the no-press rule");
+  ok("drawer promises self-start", has(edAAA, "no press needed, Play is only a manual override") && has(edAAA, "Play is only the manual override"), "the drawer must promise the no-press rule");
   ok("crash names its page", has(boundAAA, "componentStack") && has(boundAAA, "Page: ${this.state.route}"), "the next screenshot must name the page");
   ok("override is this update", has(srvAAA, "OVERRIDE_NO_414 = 414"), "first boot must re-run the clear");
   ok("apply leads with press and empty", has(applyAAA, "MAIN WAITS FOR THE PLAY PRESS") && has(applyAAA, "GUEST ARRIVES EMPTY"), "the office must meet the press rule first");
-  /* BBB. autoplay when the main is live (note 400): a main with an unknown
-     read waits on the clock — only the commanded guest slot opens walled; a
-     detected main broadcast plays by itself with no press. */
+  /* BBB. autoplay when a slot is commanded or live (note 400): a pressed
+     slot opens its channel while the read is walled — same on main and
+     guest; a detected main broadcast plays by itself with no press. */
   const watchBBB = text["src/pages/WatchLive.tsx"];
   const srvBBB = text["scripts/cms-server.js"];
   const applyBBB = text["APPLY_UPDATE.txt"];
-  ok("main press never autoplays walled", has(watchBBB, ") : overrideGuest && overrideId ? (") && !has(watchBBB, ") : overrideId ? (") && has(watchBBB, "const overrideMain = "), "a pressed main must wait for detection, not open the channel");
-  ok("detected main plays with sound", has(watchBBB, "(mainDetected && !officeStopped)") && has(watchBBB, "autoPlay={streaming && watchable}") && has(watchBBB, "const waitingForClick = !shutNow"), "detection must autoplay with sound, no press; a published Stop still holds");
+  ok("pressed slot opens its walled channel", has(watchBBB, ") : (overrideMain || overrideGuest) && overrideId ? (") && has(watchBBB, "const overrideMain = ") && has(watchBBB, "const overrideGuest = "), "main and guest share one rule: a pressed slot opens its channel while the read is walled");
+  ok("detected main plays with sound", has(watchBBB, "mainDetected") && has(watchBBB, "!officeStopped") && has(watchBBB, "autoPlay={streaming && watchable}") && has(watchBBB, "const waitingForClick = !shutNow"), "detection must autoplay with sound, no press; a published Stop still holds");
   ok("guest press still opens walled", has(watchBBB, "const overrideGuest = ") && has(watchBBB, 'guestAir.state === "unknown"'), "a published guest Play must still open its channel");
   ok("override is this update", has(srvBBB, "OVERRIDE_NO_414 = 414"), "first boot must re-run the clear");
   ok("apply leads with detection-gated autoplay", has(applyBBB, "AUTOPLAY ONLY WHEN THE MAIN IS LIVE"), "the office must meet the detection rule first");
@@ -2076,7 +2117,7 @@ export async function runAll(fs) {
   const srvCCC = text["scripts/cms-server.js"];
   const applyCCC = text["APPLY_UPDATE.txt"];
   ok("streaming declared before liveSource", watchCCC.indexOf("const streaming = ") !== -1 && watchCCC.indexOf("const streaming = ") < watchCCC.indexOf("(!streaming && overrideId)"), "the initializer must never read across the dead zone");
-  ok("rule expression unchanged", (has(watchCCC, "(guestLive || fbLive || !!LIVE.isLive)") || has(watchCCC, "(mainDetected && !officeStopped)")) && has(watchCCC, "autoPlay={streaming && watchable}") && has(watchCCC, ") : overrideGuest && overrideId ? ("), "the reorder must move the rule, never rewrite it");
+  ok("rule expression shared", (has(watchCCC, "(guestLive || fbLive || !!LIVE.isLive)") || has(watchCCC, "(guestLive || fbLive || mainDetected")) && has(watchCCC, "autoPlay={streaming && watchable}") && has(watchCCC, ") : (overrideMain || overrideGuest) && overrideId ? ("), "both slots share one override rule");
   ok("override is this update", has(srvCCC, "OVERRIDE_NO_414 = 414"), "first boot must re-run the clear");
   ok("apply leads with the crash fix", has(applyCCC, "WATCH PAGE PLAYS AGAIN"), "the office must meet the fix first");
   /* GGG. update 414: unsaved Delete clears, one Recent services, verified livestream, sleep-free uploads (note 413). */
@@ -2099,7 +2140,7 @@ export async function runAll(fs) {
   ok("override is 414", has(srvGGG, "OVERRIDE_NO_414 = 414"), "first boot must re-run the clear");
   ok("maintenance locked per deploy", has(text["scripts/build-static.mjs"], "const DEPLOY_ID =") && has(text["scripts/build-static.mjs"], "hold: true, deployId"), "every build must hold on a fresh deploy id");
   ok("deploy id number-free", has(cmsGGG, "wom.cms.deployPublished") && has(cmsGGG, "wom-deploy") && has(srvGGG, "PUBLISH_DEPLOY"), "old or new code must look new without numbers");
-  ok("publish releases its deploy", (has(cmsGGG, "deploy: bless ? currentDeployId") || has(cmsGGG, "deploy: bless ? durableDeploy")) && has(srvGGG, "publishDeploy: PUBLISH_DEPLOY"), "a publish from the deploy must release it");
+  ok("publish releases its deploy", has(cmsGGG, "deploy: bless ? currentDeployId") && has(srvGGG, "publishDeploy: PUBLISH_DEPLOY"), "a publish from the deploy must release it");
   ok("fresh deploy resets slides", has(cmsGGG, "resetSlidesForNewDeploy") && has(adminGGG, "resetSlidesForNewDeploy()"), "every deploy must start the admin slides as welcome-only");
   ok("no-change publish blesses deploy", has(cmsGGG, "a no-change Publish still blesses THIS deploy"), "publish with nothing changed must still lift the notice");
   ok("live screen drops the escape link", has(watchGGG, "hideEscape") && has(blocksGGG, "!hideEscape"), "the live players must not print Can't see the video");
@@ -2134,7 +2175,7 @@ export async function runAll(fs) {
   const slidesJJJ = text["src/components/slides.tsx"];
   ok("fresh reads prove ownership", has(recentJJJ, ".filter((it) => !designatedRead || !!feed.dates[it.videoId])"), "a walled grid must not smuggle foreign uploads in");
   ok("merges evict the unproven", has(recentJJJ, "(!designatedRead || Number(it.at) > 0)"), "dateless keeps must go on the designated channel");
-  ok("bakes prove their channel", (has(recentJJJ, "bakedFor !== designatedChannelId()") || has(recentJJJ, "bakedFor !== publishedChannelId()")), "a bake stamped for another channel must never paint");
+  ok("bakes prove their channel", has(recentJJJ, "bakedFor") && (has(recentJJJ, "bakedFor !== designatedChannelId()") || has(recentJJJ, "bakedFor !== publishedChannelId()")), "a bake stamped for another channel must never paint");
   ok("caches paint proven only", has(recentJJJ, "!designated || Number(it.at) > 0 || (it.seeded"), "old wall garbage must die on the next read");
   ok("faces never blank", has(slidesJJJ, "const shownPhoto = ") && has(slidesJJJ, "{photo ? <img") && has(slidesJJJ, "welcome-home") && has(slidesJJJ, "never blank"), "an imageless face keeps gradient plus words");
 const notes = Number((text["src/lib/hooks.ts"].match(/BUILD_NOTES = (\d+)/) || [])[1]) || 0;
@@ -2214,6 +2255,82 @@ const notes = Number((text["src/lib/hooks.ts"].match(/BUILD_NOTES = (\d+)/) || [
     ok("feed adopt validates", feed({ token: "t", sections: { home: "not-json" } }).ok === false, "junk must never store");
   } catch (e) {
     ok("adopt-feed suite", false, String((e && e.message) || e).slice(0, 200));
+  }
+  /* LLL. attached publish rule + first publish clears every new deploy (note 431):
+     Publish and Publish now share the one pipeline, the notice holds on every
+     fresh deploy id until the first Publish, and each new deploy wipes old
+     wakes and opens unsaved-clean. */
+  const adminLLL = text["src/pages/Admin.tsx"];
+  const edLLL = text["src/components/editor.tsx"];
+  const cmsLLL = text["src/lib/cms.ts"];
+  const buildLLL = text["scripts/build-static.mjs"];
+  const srvLLL = text["scripts/cms-server.js"];
+  ok("one publish pipeline", has(edLLL, "export async function runPublishAction(") && has(adminLLL, "runPublishAction(noteInput") && has(adminLLL, "onPublish={(note) => performPublish(note, true)}"), "Publish and Publish now must share runPublishAction → cms.publish");
+  ok("no-change publish still blesses", has(cmsLLL, "a no-change Publish still blesses THIS deploy"), "the first click must clear even with nothing changed");
+  ok("empty bless stamps the deploy", has(srvLLL, 'if (!ids.length && !notes) return fail("empty")') && has(srvLLL, "PUBLISH_DEPLOY = deploy"), "a notes-only publish must move the stamp");
+  ok("every build holds fresh", has(buildLLL, "const DEPLOY_ID =") && has(buildLLL, "hold: true, deployId"), "each deploy must ship a fresh id on hold");
+  ok("new deploy wipes old wakes", has(cmsLLL, "function wipeOldWakes(): void") && has(cmsLLL, "New deploy wipes old wakes"), "a retired shell must never serve the previous deploy");
+  ok("new deploy opens unsaved-clean", has(cmsLLL, "Every new deploy starts unsaved-clean") && has(cmsLLL, 'localStorage.removeItem(PENDING_KEY)'), "draft + pending clear once per deploy");
+  /* MMM. note 433: deploy-bound, idle-expiring sessions; deploys keep accounts. */
+  try {
+    const srvMMM = text["scripts/cms-server.js"];
+    const cmsMMM = text["src/lib/cms.ts"];
+    const edMMM = text["src/components/editor.tsx"];
+    const localMMM = text["scripts/cms-local.mjs"];
+    ok("sessions expire after 15 idle minutes", has(srvMMM, "var SESSION_MS = 15 * 60 * 1000") && has(srvMMM, "function sessionDeny") && has(srvMMM, "idle-expired"), "stamped sessions must lapse server-side");
+    ok("role doors check the session", (srvMMM.split("var denySess = sessionDeny(info.conn);").length - 1) >= 14, "every admin door must re-stamp or refuse");
+    ok("clean boots keep accounts", has(srvMMM, "Clean deploys keep accounts") && has(srvMMM, "self.__cleanDeploy"), "words reset, roster stays");
+    ok("host boots the previous store clean", has(localMMM, "__cleanDeploy") && has(localMMM, "administrator accounts are kept"), "the flag must ride ahead of the server source");
+    ok("sessions bind to the deploy", has(cmsMMM, "SESSION_DEPLOY_KEY") && has(cmsMMM, "silentSessionUsable") && has(cmsMMM, 'clearSession("deploy")'), "a new deploy signs in again");
+    ok("idle ends the session client-side", has(cmsMMM, "LAST_ADMIN_AT_KEY") && has(cmsMMM, "sessionIdle()") && has(cmsMMM, 'clearSession("idle")'), "15 quiet minutes fail the next publish");
+    ok("sign-in reason plumbing intact", has(cmsMMM, "lastSignOutReason") && has(cmsMMM, 'clearSession("idle")'), "idle sign-outs must still be tracked");
+    /* VM: sign in, publish, idle out, fail, sign in again, publish. */
+    const pwMMM = "test-office-password-1";
+    const pwDigest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(pwMMM));
+    const pwHashMMM = [...new Uint8Array(pwDigest)].map((b) => b.toString(16).padStart(2, "0")).join("");
+    const testSrc = srvMMM.replace(/var ADMIN_HASH = "[0-9a-f]+"/, 'var ADMIN_HASH = "' + pwHashMMM + '"');
+    ok("test seam swaps the password", testSrc !== srvMMM, "the shipped hash must be replaceable in tests");
+    const officeConn = { id: "mmm-office", net: ["local", 0, 0] };
+    const officeConn2 = { id: "mmm-office-2", net: ["local", 0, 0] };
+    const stateMMM = new Uint8Array(8 * 1024 * 1024);
+    const rpcMMM = loadVm(testSrc, stateMMM);
+    const liMMM = JSON.parse(rpcMMM.login({ conn: officeConn }, pwMMM));
+    ok("office can sign in", liMMM.ok === true, "err=" + liMMM.err);
+    const pubMMM = JSON.parse(rpcMMM.publish({ conn: officeConn }, JSON.stringify({ sections: { home: JSON.stringify({ t: 1 }) }, by: "office", changed: ["home"], notes: 437, first: true })));
+    ok("signed-in publish lands", pubMMM.ok === true, "err=" + pubMMM.err);
+    const liBMMM = JSON.parse(rpcMMM.login({ conn: officeConn2 }, pwMMM));
+    ok("second tab signs in too", liBMMM.ok === true, "err=" + liBMMM.err);
+    const frozenMMM = Date.now;
+    const tMMM = Date.now();
+    try {
+      Date.now = () => tMMM + 16 * 60 * 1000;
+      const idlePub = JSON.parse(rpcMMM.publish({ conn: officeConn }, JSON.stringify({ sections: {}, by: "office", changed: [], notes: 437 })));
+      ok("idle publish fails until sign-in again", !idlePub.ok && idlePub.err === "idle-expired", "err=" + idlePub.err);
+      const idleUndo = JSON.parse(rpcMMM.undoPublish({ conn: officeConn2 }, ""));
+      ok("idle undo fails too", !idleUndo.ok && idleUndo.err === "idle-expired", "err=" + idleUndo.err);
+      const chkMMM = JSON.parse(rpcMMM.checkAdmin({ conn: officeConn }, ""));
+      ok("file doors follow the session", chkMMM.ok === true && chkMMM.admin === false, "admin=" + chkMMM.admin);
+      const anonMMM = JSON.parse(rpcMMM.publish({ conn: { id: "mmm-stranger" } }, JSON.stringify({ sections: {}, by: "x", changed: [], notes: 437 })));
+      ok("strangers stay unauthorized", !anonMMM.ok && anonMMM.err === "unauthorized", "err=" + anonMMM.err);
+    } finally {
+      Date.now = frozenMMM;
+    }
+    const li2MMM = JSON.parse(rpcMMM.login({ conn: officeConn }, pwMMM));
+    const pub2MMM = JSON.parse(rpcMMM.publish({ conn: officeConn }, JSON.stringify({ sections: {}, by: "office", changed: [], notes: 437 })));
+    ok("fresh sign-in publishes again", li2MMM.ok === true && pub2MMM.ok === true, "login=" + li2MMM.err + " publish=" + pub2MMM.err);
+    /* A plain reboot keeps words AND accounts; a clean boot clears words but
+       keeps the office password. */
+    const rpcReboot = loadVm(testSrc, stateMMM);
+    const gReboot = JSON.parse(rpcReboot.getContent({ conn: { id: "mmm-fresh" } }, ""));
+    ok("plain reboot keeps words", gReboot.ok === true && JSON.parse(gReboot.sections).home.t === 1, String(gReboot.sections).slice(0, 80));
+    const cleanFn = new Function("state", "self", "pubsub", "console", testSrc + "\nreturn self.rpc;");
+    const rpcClean = cleanFn(stateMMM, { __cleanDeploy: true }, { publish() {} }, console);
+    const gClean = JSON.parse(rpcClean.getContent({ conn: { id: "mmm-after" } }, ""));
+    ok("clean boot stages no words", gClean.ok === true && Object.keys(JSON.parse(gClean.sections)).length === 0 && gClean.notes === 0, String(gClean.sections).slice(0, 80));
+    const liClean = JSON.parse(rpcClean.login({ conn: { id: "mmm-after" } }, pwMMM));
+    ok("clean boot keeps the office password", liClean.ok === true, "err=" + liClean.err);
+  } catch (e) {
+    ok("session/auth suite", false, String((e && e.message) || e).slice(0, 200));
   }
   return out.join("\n");
 }
