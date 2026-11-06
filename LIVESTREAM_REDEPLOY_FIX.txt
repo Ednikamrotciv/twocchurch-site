@@ -1,0 +1,64 @@
+LIVESTREAM REDEPLOY FIX — read this first (update 440 bundle, 2026-11-06)
+==============================================================================
+
+WHAT WAS WRONG (why every redeploy broke the livestream)
+--------------------------------------------------------
+1. This zip used to contain a file called clean-deploy.txt. While that file
+   sits beside package.json, EVERY build ships EMPTY words (no content) and
+   every deploy opens on the maintenance "We'll be right back" screen until
+   the office clicks Recover + Publish. That looked like a "page error".
+   --> FIXED IN THIS ZIP: clean-deploy.txt has been REMOVED, so builds now
+       carry your words again. Do NOT put that file back unless you want a
+       fresh-clean opening (Recover + Publish, then remove it and rebuild).
+2. The live backend (Render) was on update 441 while this bundle is 440.
+   Mixed versions ignore each other's live reports, so visitors fall back to
+   slow direct YouTube reads: endless spinner, then the grey circular-arrow
+   error that never heals.
+   --> FIXED BY PROCEDURE: redeploy BOTH sides from THIS zip so both sides
+       are 440. Never run the frontend and the backend on different updates.
+3. If the red "Watch on YouTube" button works but the site player shows the
+   grey arrow, the office Play switch is ON while no broadcast is actually
+   live (or embedding is disabled in YouTube Studio). The arrow's repair
+   re-asks and gets the same answer, so it never heals by itself.
+
+REDEPLOY IN THIS EXACT ORDER
+----------------------------
+0. BACK UP FIRST. Admin console -> Tools -> backup, and download the file.
+1. Extract this zip FULLY on the office computer (including index.html),
+   overwriting everything.
+2. On the office computer: `npm run dev:fresh`, restart the backend
+   (`npm start` or start.bat), hard-refresh the browser, sign in again
+   (every new deploy signs out — that is normal).
+3. Recover your backup (Tools -> restore), then click Publish ONCE from any
+   signed-in admin copy. Every copy lifts within seconds (online).
+4. `npm run bake-seed`, then commit + push the full step-0 set.
+5. Rebuild BOTH hosts from that same commit:
+   - Render: build `npm ci --no-audit --no-fund && npm run build`,
+     start `node scripts/serve.mjs`, health check path `/healthz`.
+   - Static host: build `npm run build`, publish the CONTENTS of `dist/`.
+   - IMPORTANT for Netlify: drag-and-drop of dist/ does NOT deploy the
+     YouTube proxy (`netlify/functions/yt.mjs`). Deploy via a git-connected
+     Netlify site (functions directory: netlify/functions) so the livestream
+     doors deploy too. Otherwise the site depends only on the Render proxy
+     plus public proxies, which is slower and flakier.
+6. Publish once on each host (clears the maintenance hold — every deploy
+   locks until the office publishes; that is by design).
+7. Verify in the browser:
+   - /version.json shows the SAME notes + code on both hosts (440/unified440).
+   - /seed.json has real sections (not rev 0 empty).
+   - /server.json has your Render URL.
+   - /watch-live shows the ENDED screen (not a player, not a spinner) when
+     nothing is broadcasting. That is the correct healthy offline state.
+
+LIVESTREAM QUICK CHECKS
+-----------------------
+- Nothing live + ended screen showing  = healthy. Not an error.
+- Spinner forever during service hours  = the check can't reach YouTube
+  (backend asleep, functions missing, or proxies blocked). Wake/check the
+  backend, confirm the functions deployed, reload.
+- Grey circular arrow while nothing is live = stuck office Play switch:
+  admin -> Live stream -> Stop -> Publish. Then Reload -> Publish.
+- Grey arrow while LIVE = open the red "Watch on YouTube" button: if it
+  plays there, fix embedding in YouTube Studio (allow embedding) or swap
+  the video; the site player cannot play what YouTube blocks.
+- After any office Reload press, always Publish so visitors get the repair.

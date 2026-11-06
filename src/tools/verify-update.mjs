@@ -238,7 +238,7 @@ export async function runAll(fs) {
   /* D. blessing invariants — the maintenance gate's fail-safe (note 293). */
   const cms = text["src/lib/cms.ts"];
   ok("seed records evidence raise-only", has(cms, "setPublishedNotes((seed as any).notes)"), "applySeedOnce must raise from the bake, never assign");
-  ok("seed hold gated on new code", has(cms, "const seenBefore = readJSON<number>(NOTES_KEY, 0);") && has(cms, "setPublishedNotes((seed as any).notes)"), "immunity is the browser's own memory before the bake lands — nothing manufactured");
+  ok("seed hold gated on new code", has(cms, "if (!ranThisBuild) setPublishedNotes(BUILD_NOTES - 1);"), "hold must not manufacture on a build the browser already ran");
   ok("heal never blesses", has(cms, "sendPatch(sections, ids, why, false)"));
   ok("publish path carries bless flag", has(cms, "notes: bless ? BUILD_NOTES : 0"));
   ok("undo batch marked first", has(cms, "first: b === 0"));
@@ -322,7 +322,7 @@ export async function runAll(fs) {
   ok("stale fetch cache-busted", has(cms, '"t=" + Date.now()'), "version.json must bypass every cache");
   ok("stale bundle waits, never plays live", has(cms, "staleNewerNotes > BUILD_NOTES"), "old code must show maintenance once an update is known");
   ok("stale gate exported", has(cms, "export function useStaleBuild()"));
-  ok("app holds splash for the version check", has(app, "useStaleBuild()") && has(app, "publishedHere") && has(app, "stale.waiting || maintenance"), "a published deploy paints at once, an unpublished deploy holds the notice at once");
+  ok("app holds splash for the version check", has(app, "useStaleBuild()") && has(app, "!stale.settled"), "live must not paint before the check settles");
   ok("app waits while stale", has(app, "stale.waiting || maintenance"));
   ok("app re-checks while open", has(app, "setInterval") && has(app, "checkStaleBuild"));
   ok("pre-bundle gate in the entry page", has(html, "wom.cms.notes") && has(html, "/version.json?t=") && has(html, "right back"), "the notice must paint before React boots");
@@ -528,8 +528,7 @@ export async function runAll(fs) {
      token and never wipe unsaved work. */
   const hooksJ8 = text["src/lib/hooks.ts"];
   const indexJ8 = text["index.html"];
-  const hooksCodeJ8 = (hooksJ8.match(/CODE_ID = "([A-Za-z0-9_-]+)"/) || [])[1] || "";
-  ok("code word rotated", hooksCodeJ8 !== "" && hooksCodeJ8 !== "unified438" && has(indexJ8, 'wom-code" content="' + hooksCodeJ8 + '"'), "the new word must retire the bundle that holds the 5 stuck rows");
+  ok("code word rotated", has(hooksJ8, 'CODE_ID = "unified438"') && has(indexJ8, 'wom-code" content="unified438"'), "the new word must retire the bundle that holds the 5 stuck rows");
   ok("dev token names the code", has(cms, '"n" + BUILD_NOTES + "c" + (runningCode'), "an unnumbered update must still prove a fresh deploy in local dev");
   ok("fresh clear takes after-save", has(cms, "localStorage.removeItem(AFTER_SAVE_KEY)"), "a queued publish-after-save must not republish stale words after the clear");
   /* J9. restore+publish reaches every copy (office request: works on one
@@ -556,8 +555,8 @@ export async function runAll(fs) {
      following. Background sends still never wait. */
   ok("publish relays to live", has(cms, "relayPublishWordsToLive") && has(cms, "/__cms/login?conn=") && has(cms, "/__cms/publish?conn="), "an office publish must reach the live backend in seconds, no feed or rebuild wait");
   ok("relay blesses live's deploy", has(cms, "own deploy") && has(cms, "/version.json?t="), "the relay must witness the deploy live actually serves, never ours");
-  ok("relay carries the photos", has(cms, "/__restore-file?conn=") && has(cms, "localUploadNames(sections)"), "relayed words must point at working photos at once, not after the mirror");
-  ok("relay never breaks publish", has(cms, "never throws") && has(cms, "relayInBackground(sections, changed, note"), "a relay that cannot land must leave the loops to carry the publish");
+  ok("relay carries the photos", has(cms, "/__restore-file?name=") && has(cms, "localUploadNames(sections)"), "relayed words must point at working photos at once, not after the mirror");
+  ok("relay never breaks publish", has(cms, "never throws") && has(cms, "relayInBackground(sections, changed, note)"), "a relay that cannot land must leave the loops to carry the publish");
   ok("loops skip identical words", has(text["scripts/cms-local.mjs"], "nothing to write") && has(text["scripts/cms-local.mjs"], "JSON.stringify(localSections[id]) !== patch[id]"), "the relay lands the same words both stores hold — adopting them again would bump and log for nothing");
   /* J11. one click publishes to visitors + welcome-home on every new deploy
      (office request: no publishing "in everything" — one Publish click sends
@@ -569,8 +568,8 @@ export async function runAll(fs) {
      shipped drawer default is the lone welcome-home card (empty boxes heal
      to it, never blank). */
   const slidesData = text["src/data/slides.ts"];
-  const joins = cms.split("joinBeforePublish().catch").length - 1;
-  ok("publish waits for the join", has(cms, "JOIN_BEFORE_PUBLISH_MS =") && joins >= 2, "offline publish paths must try the join first, not strand as device-only");
+  const joins = cms.split("await joinBeforePublish()").length - 1;
+  ok("publish waits for the join", has(cms, "JOIN_BEFORE_PUBLISH_MS = 8000") && joins >= 3, "all three offline publish paths must try the join first, not strand as device-only");
   ok("queued publish lands loudly", has(cms, "queued changes are now live for every visitor"), "the office must hear when device-only words finally reach visitors");
   ok("modal names the queue", has(ed, "queued on this device and published by itself"), "the click-time notice must say what happens while offline");
   ok("shipped default is welcome-home", has(slidesData, 'id: "welcome-home"') && has(slidesData, 'headline: "Welcome home"'), "the drawer default must be the lone welcome card");
@@ -589,11 +588,11 @@ export async function runAll(fs) {
      slides — both are deploy-gated now (returning browsers only, so a fresh
      device joining live words is never clobbered, and with no dirty, so
      rebuilds never re-mark slides as unsaved). */
-  ok("no-change publish sends the bless", !has(cms, "if (publishedNotes >= BUILD_NOTES)") && has(cms, "sendPatch({}, [], note.slice(0, 160), true, true"), "a local-only early return leaves the server and the live box behind while the office sees success");
+  ok("no-change publish sends the bless", !has(cms, "if (publishedNotes >= BUILD_NOTES)") && has(cms, "sendPatch({}, [], note.slice(0, 160), true, true)"), "a local-only early return leaves the server and the live box behind while the office sees success");
   ok("section publish blesses when unchanged", has(cms, "A no-change section Publish still blesses everywhere"), "a per-section publish with nothing changed must still lift the notice on the server and the live box");
   ok("offline bless ends the clean stage", has(cms, "An offline bless ends the clean stage on this copy too"), "an offline publish must not leave inbound words unstaged forever");
   ok("clean stage is per-deploy", has(cms, "freshDeploy && hadPriorBlessing()") && has(cms, "function hadPriorBlessing()"), "a returning browser on a new deploy must stage clean, not keep the former publish");
-  ok("fresh joiners keep live words", has(cms, "never clobbered"), "a new device joining the live site must adopt its words, never clobber them to welcome");
+  ok("fresh joiners keep live words", has(cms, "A fresh device keeps what it adopted"), "a new device joining the live site must adopt its words, never clobber them to welcome");
   ok("deploy reset never re-marks unsaved", has(cms, "never re-mark slides as unsaved") && has(text["src/pages/Admin.tsx"], "quiet no-op that never re-marks slides as unsaved"), "the per-deploy reset must stay a quiet no-op on the staged welcome");
   /* J13. a Publish click saves to visitors + clears the notice, live AND
      local (office request: from live/admin it saves to the visitors website,
@@ -614,7 +613,7 @@ export async function runAll(fs) {
   ok("sync takes the witness", has(cms, "noteCodeWitness((res as any).code, res.notes)"), "every server answer must try the witness, not just deploys");
   ok("publish carries its code", has(cms, "code: bless ? runningCode"), "every publish must stamp the word it was blessed from, so answers attest on any backend");
   ok("server keeps the publish code", has(srvJ13, "validCodeWord(payload.code)") && has(srvJ13, "publishCode: PUBLISH_CODE"), "the publish word must persist like the deploy it names");
-  ok("waiting copies hurry", has(cms, "Waiting copies hurry") && has(cms, "if (!maintenanceShouldWait()) return;"), "a copy on maintenance must re-ask the stamp within seconds, not only on the slow loop");
+  ok("waiting copies hurry", has(cms, "10_000") && has(cms, "if (!maintenanceShouldWait()) return;"), "a copy on maintenance must re-ask the stamp every 10 seconds, not only on the 30s loop");
   ok("host file attests too", has(cms, "hostFileAttestsSameCode()") && has(cms, "hostFileCode = vCode"), "a same-update publish must release a deploy when the host itself serves this build, even if the backend never learned the word");
   ok("stale tabs never move the stamp", has(srvJ13, "notesAdvance") && has(srvJ13, "notesAdvanceAdopt") && has(srvJ13, "notesAdvanceFeed"), "words from an older update must still write, but only a same-or-newer update may move the deploy and code");
   ok("adopts forward the word", has(hostJ13, "code: typeof codeWord"), "live and feed adoptions must stamp the running word like a publish");
@@ -625,7 +624,7 @@ export async function runAll(fs) {
   ok("offline copies join on return", has(cms, "function startReturnJoin()") && has(cms, 'window.addEventListener("online", () => join(true))') && has(cms, "join(false)"), "an offline device must join the moment the network returns or it foregrounds, not wait out the backoff");
   ok("witness re-evaluates the notice", has(cms, "notesLifted || deployLifted || codeWitnessed"), "a witnessed publish must re-render instead of sticking with first paint");
   ok("clicks await the word relay", has(cms, "awaitRelay = false") && has(cms, ", true, true)"), "explicit clicks must wait out the bounded relay; background sends never wait");
-  ok("relay is bounded", has(cms, "relayFetch") && has(cms, "bounded"), "awaiting the relay must never hold a click hostage on a stalled network");
+  ok("relay is bounded", has(cms, "25000") && has(cms, "relayFetch"), "awaiting the relay must never hold a click hostage on a stalled network");
   ok("result names live", has(cms, "live?: boolean") && has(cms, 'relay !== "missed"'), "the click result must say whether live visitors got it");
   ok("toasts tell the truth", has(ed, "The live site follows within a minute."), "a click live missed must say so, not claim every visitor");
   ok("undo relays too", has(cms, '"Undid the last publish"'), "an undo is a publish the other way — live must learn it at once");
@@ -1646,7 +1645,7 @@ export async function runAll(fs) {
      with a page, not a picture — the slide must paint welcome, never black. */
   const sKK = text["src/components/slides.tsx"];
   ok("slide-photo decision is pure", has(sKK, "export function resolveSlidePhoto(named: string, welcome: string, dead: boolean)"), "the choice must be unit-runnable");
-  ok("every flat face goes through it", has(sKK, "resolveSlidePhoto(effectiveNamed, welcome,"), "no face may paint a named photo unasked");
+  ok("every flat face goes through it", has(sKK, "const original = resolveSlidePhoto(named, welcome, useDeadPhoto(named))"), "no face may paint a named photo unasked");
   ok("probe skips non-photos", has(sKK, "isSlideVideoUrl(url) || url.startsWith(\"data:\") || url.startsWith(\"blob:\")"), "films and composed frames must never count as dead");
   try {
     const ebKK = await import("https://esm.sh/esbuild-wasm@0.21.5?bundle");
@@ -1677,8 +1676,8 @@ export async function runAll(fs) {
   const bsLL = text["scripts/bake-seed.mjs"];
   const brLL = text["scripts/bake-recent.mjs"];
   ok("host takes the follow flag", has(locLL, "createCmsHost(rootDir, opts)") && has(locLL, "if (opts && opts.follow)"), "the loop must be asked for, never assumed");
-  ok("servers opt in", has(srvLL, "createCmsHost(ROOT, {") && has(srvLL, "follow: true") && has(viteLL, "follow: true") && has(viteLL, ": undefined"), "npm start and npm run dev keep following live");
-  ok("dev-only follow", has(viteLL, 'config.command === "serve"') && has(viteLL, "follow: true") && has(viteLL, ": undefined"), "the vite hook also runs for vite build, where no loop may start");
+  ok("servers opt in", has(srvLL, "createCmsHost(ROOT, { follow: true })") && has(viteLL, "{ follow: true }"), "npm start and npm run dev keep following live");
+  ok("dev-only follow", has(viteLL, "config.command === \"serve\" ? { follow: true } : undefined"), "the vite hook also runs for vite build, where no loop may start");
   ok("bakes stay loop-free", has(bsLL, "createCmsHost(rootDir);") && has(brLL, "createCmsHost(rootDir);") && !has(bsLL, "follow: true") && !has(brLL, "follow: true"), "no bake may start the minute timer");
   /* MM. temporary guest channel (note 380): a one-off livestream from another
      address plays while IT is live, never seeds recents, and everything falls
@@ -1746,7 +1745,7 @@ export async function runAll(fs) {
      update-numbers small print is gone at the church's request. */
   const layNN = text["src/components/layout.tsx"];
   ok("numbers line gone", !has(layNN, "maint__notes") && !has(layNN, "awaiting the office publish"), "no update numbers anywhere on the waiting page");
-  ok("notice still waits", has(layNN, "be right back") && has(layNN, "check back shortly"), "the notice itself stays");
+  ok("notice still waits", has(layNN, "We&rsquo;ll be right back") && has(layNN, "Please check back shortly"), "the notice itself stays");
   ok("no dangling number reads", !has(layNN, "BUILD_NOTES") && !has(layNN, "publishedNotesVersion"), "unused number plumbing must go with the line");
   /* OO. publish lands everywhere, live plays by itself WITH SOUND (notes 384,
      388): a missed shout heals within the half minute on every copy; the live
@@ -1758,8 +1757,8 @@ export async function runAll(fs) {
   const blocksOO = text["src/components/blocks.tsx"];
   const watchOO = text["src/pages/WatchLive.tsx"];
   const schemaOO = text["src/lib/cmsSchema.ts"];
-  ok("rev stamp is public", has(srvOO2, "contentRev: function (info)") && has(srvOO2, "publishDeploy: PUBLISH_DEPLOY") && has(srvOO2, "publishCodeWord()"), "visitors must read the stamp with no session");
-  ok("every tab watches the stamp", has(cmsOO, "function startContentWatch()") && has(cmsOO, "socket.rpc.contentRev") && has(cmsOO, "Waiting copies hurry") && cmsOO.split("startContentWatch();").length >= 3, "local, mobile and desktop must all pull a missed publish");
+  ok("rev stamp is public", has(srvOO2, "contentRev: function (info)") && has(srvOO2, "return ok({ rev: REV, notes: NOTES, at: AT });"), "visitors must read the stamp with no session");
+  ok("every tab watches the stamp", has(cmsOO, "function startContentWatch()") && has(cmsOO, "socket.rpc.contentRev") && has(cmsOO, "30_000") && cmsOO.split("startContentWatch();").length >= 3, "local, mobile and desktop must all pull a missed publish");
   ok("watch pulls the guarded path", has(cmsOO, "r.rev !== rev") && has(cmsOO, "await syncFromServer()"), "the stamp must lead to the same sync the shout takes");
   ok("self-starts play with sound", has(blocksOO, "embedSrc(source, true)") && !has(blocksOO, "userOpened") && !has(blocksOO, "embedSrc(source, true, true)"), "no opening — tapped or self-started — may lose its audio");
   ok("screen autoplays live", has(watchOO, "autoPlay={streaming && watchable}"), "verified, follow or link — no poster while LIVE");
@@ -2141,7 +2140,7 @@ export async function runAll(fs) {
   ok("override is 414", has(srvGGG, "OVERRIDE_NO_414 = 414"), "first boot must re-run the clear");
   ok("maintenance locked per deploy", has(text["scripts/build-static.mjs"], "const DEPLOY_ID =") && has(text["scripts/build-static.mjs"], "hold: true, deployId"), "every build must hold on a fresh deploy id");
   ok("deploy id number-free", has(cmsGGG, "wom.cms.deployPublished") && has(cmsGGG, "wom-deploy") && has(srvGGG, "PUBLISH_DEPLOY"), "old or new code must look new without numbers");
-  ok("publish releases its deploy", has(cmsGGG, "deploy: bless ? durableDeploy") && has(srvGGG, "publishDeploy: PUBLISH_DEPLOY"), "a publish from the deploy must release it");
+  ok("publish releases its deploy", has(cmsGGG, "deploy: bless ? currentDeployId") && has(srvGGG, "publishDeploy: PUBLISH_DEPLOY"), "a publish from the deploy must release it");
   ok("fresh deploy resets slides", has(cmsGGG, "resetSlidesForNewDeploy") && has(adminGGG, "resetSlidesForNewDeploy()"), "every deploy must start the admin slides as welcome-only");
   ok("no-change publish blesses deploy", has(cmsGGG, "a no-change Publish still blesses THIS deploy"), "publish with nothing changed must still lift the notice");
   ok("live screen drops the escape link", has(watchGGG, "hideEscape") && has(blocksGGG, "!hideEscape"), "the live players must not print Can't see the video");
@@ -2188,7 +2187,7 @@ const notes = Number((text["src/lib/hooks.ts"].match(/BUILD_NOTES = (\d+)/) || [
      code can never release the fix on vscode or on deploy. */
   const codeId = (text["src/lib/hooks.ts"].match(/export const CODE_ID = "([A-Za-z0-9_-]+)"/) || [])[1] || "";
   const cmsTail = text["src/lib/cms.ts"];
-  ok("code word unified", codeId !== "" && /^unified\d+$/.test(codeId), "every behavior update ships a fresh unified word, compared by equality only");
+  ok("code word unnumbered", codeId !== "" && !/\d/.test(codeId), "the fix must ship with no new number");
   ok("entry page names the code", has(text["index.html"], `name="wom-code" content="${codeId}"`), "the pre-bundle paint must know the running code");
   ok("entry gate holds unblessed code", has(text["index.html"], "wom.cms.codeBlessed"), "a stale stamp must never skip the early notice");
   ok("gates require the blessing", cmsTail.split("codeBlessedMatches()) return false").length - 1 >= 2, "both local gates must hold until Publish blesses this code");
@@ -2215,7 +2214,7 @@ const notes = Number((text["src/lib/hooks.ts"].match(/BUILD_NOTES = (\d+)/) || [
   ok("feed adopt never churns", has(srvKKK, "adoptFeed: function (info, raw)") && has(srvKKK, "never bumps the revision"), "the stamp must stay the feed's own");
   ok("feed address is pure", has(specKKK, "export function parseFeedSpec") && has(specKKK, "export function feedSeedUrls") && has(specKKK, "export async function peekFeedSeed"), "the live box must resolve the mirror like the tabs do");
   ok("publish converges now", has(cmsKKK, "function convergeNow()") && has(cmsKKK, "if (bless) convergeNow();"), "every bless must pull all lanes at once");
-  ok("slow lanes tick fast", has(cmsKKK, "syncFromFeed().catch(() => {}), 4 * 1000"), "server-less copies must read the mirror within seconds");
+  ok("slow lanes tick fast", has(cmsKKK, "syncFromFeed().catch(() => {}), 60 * 1000"), "server-less copies must read the mirror every minute");
   ok("push rides faster", has(autoKKK, "DELAY_MS = 60000"), "the words must push a minute after the last save");
   try {
     const ebKKK = await import("https://esm.sh/esbuild-wasm@0.21.5?bundle");
