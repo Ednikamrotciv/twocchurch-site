@@ -3670,7 +3670,7 @@ function startContentWatch() {
   };
   window.setInterval(() => {
     tick().catch(() => {});
-  }, 2000);
+  }, 3000);
   /* Waiting copies hurry (publish reaches everywhere): while this copy holds
      on maintenance, re-ask the stamp every 10s instead of only on the loop
      above — the moment the server learns the publish, the notice lifts with
@@ -6604,7 +6604,7 @@ function scheduleRelayRetry(sections: Record<string, string | null>, changed: st
       .catch(() => {});
   };
   try {
-    relayRetryTimer = window.setInterval(tick, 2500);
+    relayRetryTimer = window.setInterval(tick, 4000);
   } catch {
     return;
   }

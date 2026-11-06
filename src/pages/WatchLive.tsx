@@ -182,75 +182,14 @@ export function WatchLive() {
      the black "unavailable" frame, and never the ticking clock for a live
      that is already on air. */
   const deadLiveId = detectedId && idVerdict === false && (isDesignatedChannel(airForTarget.channelId, designatedId) || (guestLive && isGuestTargetUrl(screenAir.target, guestUrl))) ? detectedId : "";
-
-  /* Office-published verified video = deployed parity with local (note: local
-     scrape succeeds from the office residential IP while a deployed copy's own
-     scrape is walled from datacenters/proxies): the office Play stamps the
-     verified broadcast id + headline into the published words
-     (liveVideoId/liveVideoTitle, guest row -> guestVideoId/guestVideoTitle),
-     so deployed plays the SAME confirmed video with no re-scrape. Gated like
-     the scrape: office switch on, Stop not pressed, designated-channel match
-     (a moved handle never inherits the old video), never a proven-dead id,
-     never over a definitive off (a true end shows the ended screen; lone
-     blinks ride the 25s grace, like offFresh above). Guest first, like the
-     screen; a detected playable id always wins over this. */
-  const lastPublishedRef = useRef({ main: "", guest: "", at: 0 });
-  const publishedGuestRaw = ((): string => {
-    try {
-      if (!guestSwitchOn || officeStopActive(LIVE)) return "";
-      if (guestAir.state === "off") return "off";
-      const id = parseYoutubeId((LIVE as any).guestVideoId || "");
-      if (!id) return "";
-      if (idVerdict === false && id === detectedId) return "";
-      const ch = String((LIVE as any).guestVideoChannelId || "");
-      const gd = guestUrl ? designatedChannelIdForTarget(guestUrl) : "";
-      if (!isDesignatedChannel(ch, gd)) return "";
-      return id;
-    } catch { return ""; }
-  })();
-  const publishedMainRaw = ((): string => {
-    try {
-      if (!(LIVE as any).isLive || officeStopActive(LIVE)) return "";
-      if (guestLive) return "";
-      if (airForTarget.state === "off") return "off";
-      const id = parseYoutubeId((LIVE as any).liveVideoId || "");
-      if (!id) return "";
-      if (idVerdict === false && id === detectedId) return "";
-      const ch = String((LIVE as any).liveVideoChannelId || "");
-      if (!isDesignatedChannel(ch, designatedId)) return "";
-      return id;
-    } catch { return ""; }
-  })();
-  useEffect(() => {
-    try {
-      const m = publishedMainRaw && publishedMainRaw !== "off" ? publishedMainRaw : "";
-      const g = publishedGuestRaw && publishedGuestRaw !== "off" ? publishedGuestRaw : "";
-      if (m || g) lastPublishedRef.current = { main: m, guest: g, at: Date.now() };
-    } catch { /* grace cache never breaks the screen */ }
-  });
-  const publishedGuestId = publishedGuestRaw === "off"
-    ? (Date.now() - lastPublishedRef.current.at < 25_000 ? lastPublishedRef.current.guest : "")
-    : publishedGuestRaw;
-  const publishedMainId = publishedMainRaw === "off"
-    ? (Date.now() - lastPublishedRef.current.at < 25_000 ? lastPublishedRef.current.main : "")
-    : publishedMainRaw;
-  const publishedId = guestSwitchOn && publishedGuestId ? publishedGuestId : (!guestLive ? publishedMainId : "");
-  const publishedTitle = guestSwitchOn && publishedGuestId
-    ? (String((LIVE as any).guestVideoTitle || "") || "")
-    : (String((LIVE as any).liveVideoTitle || "") || "");
-  /* A held published video keeps the shutters open through a blink (like
-     offFresh above) — but never across a handover: while the screen is live
-     for another address (guest ended into a live main), the shut latch still
-     wins and the screen closes instead of auto-playing the other channel. */
-  const shutEffective = publishedId && screenAir.state !== "live" ? null : shutNow;
-  const watchable = !!playableId || !!publishedId || !!deadLiveId || !!detectedChannel || fbLive || !!verifiedFallbackId;
+  const watchable = !!playableId || !!deadLiveId || !!detectedChannel || fbLive || !!verifiedFallbackId;
   /* Dead-video gate (note 413, opened note 420): a named id reaches the
      player while its verdict is still unknown — offline, probe down, still
      checking — and the player verifies behind the frame, swapping to its
      fallback when the id proves dead. A proven-dead id goes straight to that
      fallback below. Dead never plays blind into the black frame. */
-  const checkingLiveId = !!detectedId && idVerdict === null && !publishedId;
-  const checkingFallbackId = !!fallbackId && !playableId && !publishedId && !detectedChannel && !fbLive && fallbackVerdict === null;
+  const checkingLiveId = !!detectedId && idVerdict === null;
+  const checkingFallbackId = !!fallbackId && !playableId && !detectedChannel && !fbLive && fallbackVerdict === null;
   /* Play means play for the guest, patience for the main (notes 404, 410):
      the office pressed Play for a slot and published it, yet the read cannot
      confirm a broadcast (bot wall) — so the commanded GUEST channel opens by
@@ -276,14 +215,13 @@ export function WatchLive() {
      until Play. Press alone never autoplays — autoplay only works once the
      main livestream has started live on the channel. */
   const mainDetected = screenAir.state === "live" && !guestLive && !fbLive;
-  const hasPublished = !!publishedId && !officeStopped;
-  const streaming = (screenAir.state === "live" || offFresh || hasPublished) && !shutEffective && !officeStopped && (guestLive || fbLive || mainDetected || offFresh || hasPublished);
+  const streaming = (screenAir.state === "live" || offFresh) && !shutNow && !officeStopped && (guestLive || fbLive || mainDetected || offFresh);
 
   /* The two lists under the screen: recent services (read off the channel) and previous sermons (the office's write-ups). */
   const limit = recentLimit();
   const past = pastLimit();
   const recentStreams = useRecentServices({ soon: justNow, liveNow: airForTarget.state === "live" });
-  const onScreenId = detectedId || publishedId;
+  const onScreenId = screenAir.state === "live" ? detectedId : "";
   /* A service the office has already uploaded as a message *is* that message —
      it should not also sit in the list as a raw stream. */
   const curatedIds = new Set(replays.map((s) => parseYoutubeId(s.youtubeId || "")).filter(Boolean));
@@ -331,11 +269,11 @@ export function WatchLive() {
      Play-override channel was available. */
   const available: VideoPlatform[] = (() => {
     const list: VideoPlatform[] = [];
-    if (detectedId || publishedId || detectedChannel || overrideId || (!hasChannel && parseYoutubeId(LIVE.youtubeId))) list.push("youtube");
+    if (detectedId || detectedChannel || overrideId || (!hasChannel && parseYoutubeId(LIVE.youtubeId))) list.push("youtube");
     if (isFacebookVideoUrl(LIVE.facebookUrl)) list.push("facebook");
     return list;
   })();
-  const preferred: VideoPlatform = fbLive ? "facebook" : detectedId || publishedId || detectedChannel || overrideId ? "youtube" : LIVE.provider === "facebook" ? "facebook" : "youtube";
+  const preferred: VideoPlatform = fbLive ? "facebook" : detectedId || detectedChannel || overrideId ? "youtube" : LIVE.provider === "facebook" ? "facebook" : "youtube";
   const [chosen, setChosen] = useState<VideoPlatform>(preferred);
   /* The service notepad behind the *Service notes* arrow (note 223). */
   const [notesOpen, setNotesOpen] = useState(false);
@@ -345,14 +283,14 @@ export function WatchLive() {
       ? { platform: "facebook", facebookUrl: LIVE.facebookUrl }
       : platform === "facebook"
       ? { platform: "facebook", facebookUrl: LIVE.facebookUrl }
-      : { platform: "youtube", youtubeId: playableId || publishedId || deadLiveId || verifiedFallbackId, youtubeChannelId: detectedChannel || (!streaming && overrideId) || undefined };
+      : { platform: "youtube", youtubeId: playableId || deadLiveId || verifiedFallbackId, youtubeChannelId: detectedChannel || (!streaming && overrideId) || undefined };
   /* The grace window replays the last playable address: a fresh off keeps the
      frame on exactly what was playing instead of an empty follow. */
   const graceRef = useRef<VideoSource | null>(null);
   if (streaming && watchable) graceRef.current = freshSource;
   const liveSource: VideoSource = offFresh && graceRef.current ? graceRef.current : freshSource;
   const youtubeLink =
-    watchUrl({ platform: "youtube", youtubeId: playableId || publishedId }) ||
+    watchUrl({ platform: "youtube", youtubeId: playableId }) ||
     (guestLive && guestUrl ? guestUrl : hasChannel ? targetUrl : watchUrl({ platform: "youtube", youtubeId: LIVE.youtubeId }) || targetUrl);
 
   /* The `streaming` answer lives above, beside `overrideId` (note 412). */
@@ -360,18 +298,18 @@ export function WatchLive() {
      verifies (or the screen sits behind a press-free detection) — the screen
      waits on the ticking clock (never the ended screen: something IS live),
      naming the gathering. The shut latch still closes first. */
-  const waitingForClick = !shutEffective && !officeStopped && !LIVE.isLive && !guestLive && !fbLive && !hasPublished && airForTarget.state === "live";
+  const waitingForClick = !shutNow && !officeStopped && !LIVE.isLive && !guestLive && !fbLive && airForTarget.state === "live";
   /* What the badges show (note 386): the detected stream itself lights
      LIVE even before the office switch paints — never the bare service
      clock, never another channel while shut, and a Stop still holds it off. */
-  const onAirNow = (displayLive(info) && !shutEffective) || (screenAir.state === "live" && !shutEffective && !officeStopped) || (hasPublished && !shutEffective && !officeStopped);
+  const onAirNow = (displayLive(info) && !shutNow) || (screenAir.state === "live" && !shutNow && !officeStopped);
   /* What the panel calls the broadcast while on air (notes 133, 406): the
      detected stream's own title; else the gathering the clock has on — or the
      next one, so a Play press for a coming broadcast names it instead of the
      office's standing headline; a forced guest with no detected title keeps
      the headline, since the church schedule never names a guest event. */
   const guestForcedOnly = (guestLive || !!(LIVE as any).guestIsLive) && !LIVE.isLive && airForTarget.state !== "live";
-  const liveName = tx(air.title || publishedTitle || (guestForcedOnly ? LIVE.liveTitle : info?.slot.name || LIVE.liveTitle) || "");
+  const liveName = tx(air.title || (guestForcedOnly ? LIVE.liveTitle : info?.slot.name || LIVE.liveTitle) || "");
   const streamCountdown = info ? countdownParts(info.msUntil) : null;
   /* Office Reload repair press (published liveReloadAt): the general fix for
      any livestream-screen error. The live players below remount + rejoin on
@@ -522,7 +460,7 @@ export function WatchLive() {
                 </div>
               )}
 
-              {(checkingLiveId || checkingFallbackId) && !playableId && !publishedId && !deadLiveId && !verifiedFallbackId && !shutEffective && !officeStopped ? (
+              {(checkingLiveId || checkingFallbackId) && !playableId && !deadLiveId && !verifiedFallbackId && !shutNow && !officeStopped ? (
                 <LiveWaiting cover={cover} />
               /* Grace replay (flap guard): a fresh off replays the last playable
                  address instead of flashing the ended screen or clock. */
