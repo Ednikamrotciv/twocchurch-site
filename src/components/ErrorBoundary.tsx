@@ -95,6 +95,7 @@ export class ErrorBoundary extends React.Component<{ children: React.ReactNode }
               Try the home page
             </Btn>
           </div>
+          {errorDetails(this.state.error, this.state.stack, this.state.route)}
         </Section>
       );
     }
@@ -138,6 +139,41 @@ export class SectionBoundary extends React.Component<{ children: React.ReactNode
     }
     return <React.Fragment key={this.state.nonce}>{this.props.children}</React.Fragment>;
   }
+}
+
+/* Tap-open details on the error card (office diagnosis): the card used to
+   name only the route, so a persistent crash on one device/host could never
+   say whether it was a failed chunk load (stale or incomplete deploy) or a
+   render throw — now the page itself carries the message, the component
+   stack and the running build stamps. Never throws; purely additive. */
+function errorDetails(error: Error | null, stack: string, route: string): React.ReactNode {
+  let message = "";
+  try {
+    message = String((error && (error as Error).message) || error || "unknown error");
+  } catch {
+    message = "unknown error";
+  }
+  let deploy = "";
+  let code = "";
+  let notes = "";
+  try {
+    const q = (n: string) => document.querySelector('meta[name="' + n + '"]')?.getAttribute("content") || "";
+    deploy = q("wom-deploy");
+    code = q("wom-code");
+    notes = q("wom-notes");
+  } catch {}
+  let body = "";
+  try {
+    body = [message, "", String(stack || "").slice(0, 1500), "", "route: " + route, "deploy: " + deploy, "code: " + code, "notes: " + notes].join("\n");
+  } catch {
+    body = message;
+  }
+  return (
+    <details style={{ marginTop: "1rem", fontSize: "0.8rem", opacity: 0.85 }}>
+      <summary>Error details (for the office)</summary>
+      <pre style={{ whiteSpace: "pre-wrap", wordBreak: "break-word", textAlign: "left" }}>{body}</pre>
+    </details>
+  );
 }
 
 /* The address that broke — read in one place so the card, the report and the

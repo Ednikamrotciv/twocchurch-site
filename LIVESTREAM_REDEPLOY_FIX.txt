@@ -82,6 +82,11 @@ card. Do this:
 3. Check integrity: /version.json (notes + code + deployId) must match the
    wom-notes / wom-code / wom-deploy metas in the served index.html
    (view-source). Mismatch = mixed deploy = repeat step 2.
+4. If the card persists on one device/host only, open its new "Error details"
+   (for the office) line, screenshot it, and send it to the developer: a
+   "Failed to fetch dynamically imported module" message means that host's
+   dist/ upload is incomplete (re-upload fully + purge cache); any other
+   message names the exact render throw to fix.
 Code note: src/lib/router.tsx lazyPage() wraps every lazy page chunk
 (routes + admin) with the one-shot chunk reload; warm-up prefetchers keep
 their silent catch so they never trigger reloads speculatively.
