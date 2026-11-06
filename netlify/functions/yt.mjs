@@ -5,11 +5,6 @@
 // scripts/serve.mjs), no deps, GET ?url=<youtube url>.
 const ALLOWED = new Set(["www.youtube.com", "youtube.com", "m.youtube.com", "youtu.be"]);
 const MAX_BYTES = 3 * 1024 * 1024;
-/* Error responses carry the same CORS + no-store headers as success (fix):
-   cross-origin callers (local dev, previews) must be able to READ the 502
-   and treat it as "unknown" — without ACAO the fetch rejects opaquely and
-   a distinguishable off/unknown answer degrades into an exception. */
-const ERR_HEADERS = { "cache-control": "no-store", "access-control-allow-origin": "*" };
 
 export async function handler(event) {
   try {
@@ -17,7 +12,7 @@ export async function handler(event) {
     let host = "";
     try { host = new URL(url).hostname.toLowerCase(); } catch { host = ""; }
     if (!ALLOWED.has(host)) {
-      return { statusCode: 400, headers: ERR_HEADERS, body: "bad url" };
+      return { statusCode: 400, headers: { "cache-control": "no-store" }, body: "bad url" };
     }
     const ctrl = typeof AbortController !== "undefined" ? new AbortController() : null;
     const timer = ctrl ? setTimeout(() => { try { ctrl.abort(); } catch {} }, 10000) : 0;
@@ -29,29 +24,12 @@ export async function handler(event) {
         },
         signal: ctrl ? ctrl.signal : undefined,
       });
-      /* Streamed cap like scripts/serve.mjs /__yt (deployed parity): cancel
-         past 3 MB instead of buffering an unbounded body into the function. */
-      let text = "";
-      let tooLarge = false;
-      try {
-        if (!upstream.body) throw new Error("empty");
-        let bytes = 0;
-        const parts = [];
-        for await (const chunk of upstream.body) {
-          bytes += chunk.length;
-          if (bytes > MAX_BYTES) {
-            tooLarge = true;
-            try { await upstream.cancel(); } catch {}
-            break;
-          }
-          parts.push(chunk);
-        }
-        if (!tooLarge) text = Buffer.concat(parts).toString("utf8");
-      } catch {
-        tooLarge = true;
-      }
+      const text = await upstream.text().catch(() => "");
       if (!upstream.ok || !text) {
-        return { statusCode: 502, headers: ERR_HEADERS, body: tooLarge ? "too large" : "unreachable" };
+        return { statusCode: 502, headers: { "cache-control": "no-store" }, body: "unreachable" };
+      }
+      if (text.length > MAX_BYTES) {
+        return { statusCode: 502, headers: { "cache-control": "no-store" }, body: "too large" };
       }
       return {
         statusCode: 200,
@@ -62,6 +40,6 @@ export async function handler(event) {
       if (timer) clearTimeout(timer);
     }
   } catch {
-    return { statusCode: 502, headers: ERR_HEADERS, body: "unreachable" };
+    return { statusCode: 502, headers: { "cache-control": "no-store" }, body: "unreachable" };
   }
 }

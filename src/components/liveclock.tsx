@@ -8,9 +8,6 @@ import { ct } from "../data/copy";
 
 /** The four numerals a clock face needs; the marks say the rest. */
 const NUMERALS = [12, 3, 6, 9];
-/* Static dial marks, hoisted (perf fix): 60 spans that never change — built
-   once, not on every 1s tick. */
-const MARKS = Array.from({ length: 60 }, (_, i) => i);
 
 /** The ticking, while this screen is on: started on the page's first touch. */
 function useTickSound() {
@@ -51,9 +48,6 @@ function useTickSound() {
     let timer = 0;
     const loop = () => {
       timer = window.setTimeout(() => {
-        try {
-          if (typeof document !== "undefined" && document.visibilityState === "hidden") { loop(); return; }
-        } catch {}
         const second = new Date().getSeconds();
         playTick(second % 2 === 1, second === 0);
         loop();
@@ -64,9 +58,7 @@ function useTickSound() {
   }, [running]);
 }
 
-/* Memoized (perf fix): the dial marks never change — only the three hands
-   move each second, so the 60 spans skip re-render. */
-const ClockFace = React.memo(function ClockFace({ now }: { now: Date }) {
+function ClockFace({ now }: { now: Date }) {
   const seconds = now.getSeconds();
   const minutes = now.getMinutes();
   const hours = now.getHours();
@@ -76,7 +68,7 @@ const ClockFace = React.memo(function ClockFace({ now }: { now: Date }) {
         <div className="live-clock__stage">
           <span className="live-clock__rim" />
           <span className="live-clock__face">
-            {MARKS.map((i) => (
+            {Array.from({ length: 60 }, (_, i) => (
               <span
                 key={i}
                 className={
@@ -102,7 +94,7 @@ const ClockFace = React.memo(function ClockFace({ now }: { now: Date }) {
       </div>
     </div>
   );
-});
+}
 
 /** The screen itself: last still, faded, under the clock (`cover` from WatchLive). Never blank: a dead still swaps to the latest previous thumbnail. */
 const LIVE_WAIT_FALLBACK = "https://i.ytimg.com/vi/dcCt75FMm6o/hqdefault.jpg";

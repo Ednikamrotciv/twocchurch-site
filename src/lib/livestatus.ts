@@ -50,8 +50,9 @@ export const LIVE_STATUS_KEY = "wom.livestatus";
 const FRESH_MS = 6_000;
 /** Give the proxy this long before calling the check a failure.
     Fast live: 3.5s is plenty for YouTube to answer; the old 15s held the
-    Watch screen on the waiting clock past the moment the broadcast started. */
-const CHECK_TIMEOUT_MS = 8_000;
+    Watch screen on the waiting clock past the moment the broadcast started.
+    First-valid-wins: 6s drops dead doors sooner without touching good ones. */
+const CHECK_TIMEOUT_MS = 6_000;
 /** Poll cadence (note 310): fast while a broadcast is expected or the Watch
     page is open — a YouTube start shows in seconds and the waiting clock
     vanishes with it — slower in the quiet week. Live and local share this
@@ -1109,7 +1110,7 @@ function delay() {
   /* The Watch page (urgent watcher) polls faster than the quiet week without
      changing the shared cadence above: a YouTube start shows in seconds where
      someone is actually watching, while background tabs stay cheap. */
-  if (wantsUrgent()) return 8_000;
+  if (wantsUrgent()) return 5_000;
   return wantsSoon() ? SOON_MS : IDLE_MS;
 }
 

@@ -102,6 +102,24 @@ export class ErrorBoundary extends React.Component<{ children: React.ReactNode }
   }
 }
 
+/* A new deploy landing mid-visit breaks dynamic chunk imports with these
+   messages — the in-place retry would only re-request the same chunk, so the
+   card reloads straight onto the new code instead. Never throws. */
+function isChunkError(text: string): boolean {
+  try {
+    const t = String(text || "").toLowerCase();
+    return (
+      t.includes("dynamically imported module") ||
+      t.includes("chunkloaderror") ||
+      t.includes("loading chunk") ||
+      t.includes("failed to fetch") ||
+      t.includes("importing a module")
+    );
+  } catch {
+    return false;
+  }
+}
+
 /* A per-section net for list-heavy pages (Watch live, sermons): one bad card
    (a corrupt write-up, a bad thumbnail, a translator miss) clears to a quiet
    placeholder instead of taking the whole page to the error card above. The
