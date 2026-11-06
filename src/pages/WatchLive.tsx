@@ -23,16 +23,10 @@ export function WatchLive() {
   const [branchId] = useLocalState<string>(KEYS.branch, DEFAULT_BRANCH_ID);
   const branch = BRANCHES.find((b) => b.id === branchId) || BRANCHES[0];
   const [reminders, setReminders] = useLocalState<Record<string, boolean>>("wom.reminders", {});
-  /* Page-level clock, coarse on purpose (perf fix): the whole screen used to
-     re-render every second off this clock — the full panel, lists and player
-     props reconciled 60x/min for a countdown that only one line shows. The
-     on-air answer itself is event-driven (useLiveStream below), so a 15s page
-     tick is plenty; the ticking bits (countdown line, waiting clock) keep
-     their own isolated 1s clocks and no longer drag the page with them. */
-  const now = useNow(15000);
+  const now = useNow(1000);
   /* Published Play/Stop words mutate LIVE in place with no event of their own —
      subscribe to the content version so the screen answers at once instead of
-     waiting out the page clock above. Cheap on this page: visitors never type. */
+     waiting out the 1s clock above. Cheap on this page: visitors never type. */
   useCmsVersion();
   /* The office's Weekly services card, read on the church's own clock. */
   const info = nextService(SERVICES, now, churchTimezone());
@@ -136,11 +130,7 @@ export function WatchLive() {
   useEffect(() => {
     if (screenAir.state === "live" && liveSrcNow) lastLiveRef.current = { src: liveSrcNow, at: Date.now() };
   });
-  /* Render-pure (perf/correctness fix): read the page clock above, never
-     Date.now() during render — the render output is then a pure function of
-     state, so concurrent renders cannot disagree and flicker around the
-     25s grace edge. */
-  const offFresh = screenAir.state === "off" && now.getTime() - lastLiveRef.current.at < 25_000 && !!lastLiveRef.current.src;
+  const offFresh = screenAir.state === "off" && Date.now() - lastLiveRef.current.at < 25_000 && !!lastLiveRef.current.src;
   const [shut, setShut] = useState<ScreenShut>(null);
   const nowLiveTarget = screenAir.state === "live" ? String(screenAir.target || "") : "";
   const shutNext = nextScreenShut(shut, shutPrevRef.current, guestUrl, screenAir.state === "live", nowLiveTarget, screenAir.state === "off");
@@ -258,17 +248,15 @@ export function WatchLive() {
 
   /* The still behind the waiting and ended screens (note 133): the ended
      broadcast's frame, else the newest recent service's own thumbnail, else
-     a sermon still, else the hero — else the designated channel's last
-     previous service standing in by itself (note 372 — @twocorg's latest
-     thumbnail even before any read settles). Never blank: the chain always
-     ends on the latest baked previous thumbnail.
-     Order fix: the baked thumbnail used to sit third and shadow the sermon
-     and hero stills whenever no recent had loaded yet — it now closes the
-     chain, so every still above it is reachable. */
+     the designated channel's last previous service standing in by itself
+     (note 372 — @twocorg's latest thumbnail even before any read settles),
+     else a sermon still, else the hero. Never blank: the chain always ends
+     on the latest baked previous thumbnail, then the hero. */
   const bakedLatestThumb = designatedFallback().items[0]?.thumb || "https://i.ytimg.com/vi/dcCt75FMm6o/hqdefault.jpg";
   const cover =
     (airForTarget.endedAt && airForTarget.videoId && airForTarget.platform !== "facebook" ? youtubeThumb(airForTarget.videoId) : "") ||
     recentStreams.items[0]?.thumb ||
+    bakedLatestThumb ||
     (latest && sermonThumb(latest)) ||
     img("watch-live") ||
     bakedLatestThumb;
@@ -322,10 +310,7 @@ export function WatchLive() {
      the headline, since the church schedule never names a guest event. */
   const guestForcedOnly = (guestLive || !!(LIVE as any).guestIsLive) && !LIVE.isLive && airForTarget.state !== "live";
   const liveName = tx(air.title || (guestForcedOnly ? LIVE.liveTitle : info?.slot.name || LIVE.liveTitle) || "");
-  /* Countdown target only — the ticking text lives in <StreamCountdown/>
-     below with its own isolated 1s clock, so the page no longer re-renders
-     every second for one line. */
-  const streamTarget = info ? info.at.getTime() : 0;
+  const streamCountdown = info ? countdownParts(info.msUntil) : null;
   /* Office Reload repair press (published liveReloadAt): the general fix for
      any livestream-screen error. The live players below remount + rejoin on
      it (see VideoPlayer reloadSignal); the screen also re-asks the on-air
@@ -444,7 +429,13 @@ export function WatchLive() {
                 {tx(DAY_NAMES[when?.day ?? 0])}
                 {ct("auto.live.e58d3887c0716716")}
                 {to12h(when?.time || "10:00")} · {visitorPlace() || HQ.city}
-                {!!streamTarget && <StreamCountdown target={streamTarget} />}
+                {streamCountdown && (
+                  <>
+                    {" · "}
+                    {streamCountdown.days > 0 ? tidyCount(ct("auto.live.7bb8b701077b0130", { days: streamCountdown.days })) : ""}
+                    {streamCountdown.hours} {ct("auto.live.204d342adf100c7b")}
+                  </>
+                )}
               </p>
             )}
 
@@ -567,14 +558,6 @@ export function WatchLive() {
 
             {available.length > 0 && (
               <div className="btn-row center live-panel__links">
-                {/* Unblock path (user rule): while the screen calls for live —
-                   playing, blocked, or verifying — this red button is the way
-                   out through YouTube itself, where the same broadcast always
-                   plays or says why. It opens in a new tab (see Btn): the site
-                   stays open behind it, and coming back re-asks the on-air
-                   check at once via the visibility watcher above. When the
-                   live ends it hides with the screen (onAirNow false) — no
-                   dead button under the ended screen. */}
                 {available.includes("youtube") && onAirNow && (
                   <Btn variant="crimson" icon="youtube" href={youtubeLink}>
                     {ct("live.watch.button1")}
@@ -797,21 +780,4 @@ function ServiceNotesModal({ info, onClose }: { info: NextServiceInfo | null; on
 /** This gathering on the visitor's own clock (note 85). */
 function whenOf(info: NextServiceInfo) {
   return clockHere(info.slot.time, info.slot.day, churchTimezone());
-}
-
-/* The "in Xd Yh" line under the title. Isolated 1s clock (perf fix): only
-   this line re-renders every second — the page above ticks at 15s. Pure
-   countdown off the target timestamp; past the start it renders nothing. */
-function StreamCountdown({ target }: { target: number }) {
-  const now = useNow(1000);
-  const ms = target - now.getTime();
-  if (!(ms > 0)) return null;
-  const parts = countdownParts(ms);
-  return (
-    <>
-      {" · "}
-      {parts.days > 0 ? tidyCount(ct("auto.live.7bb8b701077b0130", { days: parts.days })) : ""}
-      {parts.hours} {ct("auto.live.204d342adf100c7b")}
-    </>
-  );
 }

@@ -1,0 +1,41 @@
+LOCAL-PARITY FIX v2 — deployed livestream = local, maintenance/clean intact
+=============================================================================
+
+Kept intact (not touched):
+- Maintenance notice: EVERY build stamps fresh DEPLOY_ID + hold:true
+  (scripts/build-static.mjs). Fresh visitors wait until office Publish clears it
+  (witnessed publishDeploy / deploy-scoped gates in src/lib/cms.ts). New deploy
+  always holds again, Publish always clears.
+- clean-deploy.txt KEPT: every deploy ships no words (fresh/new/clean/empty,
+  welcome-home slide only, unsaved draft empty) until Recover + Publish.
+  Server boot with the flag clears INDEX/SECTIONS/REV/LOG (scripts/cms-server.js
+  __cleanDeploy block), boot guard parks previous store timestamped under
+  data-backups/ (scripts/backup-data.mjs guardAtBoot), live-follow holds so old
+  slides cannot re-serve from disk/backups/live. First Publish consumes the flag
+  (push commit deletes it), next rebuild carries words. Admin accounts survive
+  (roster never cleared).
+- Live-relay intact: live-follow (adoptLive) + feed-follow (adoptFeed) + auto-push
+  + instant-push untouched in scripts/cms-local.mjs. New deploy wipes old wakes
+  via fresh DEPLOY_ID + empty bake + boot clear; old wake seeds cannot override
+  used words (seeded guard in live-follow.mjs).
+- Unsaved changes clean on new code: staged clean via same-code check
+  (CODE_ID/BUILD_NOTES in src/lib/hooks.ts + cms.ts cleanStageForNewCode) —
+  new word retires older drafts/publishes.
+
+Changed for local parity (livestream only):
+- ADDED functions/yt.mjs (Cloudflare Pages, serves /yt) — mirrors
+  netlify/functions/yt.mjs. Same YouTube-only SSRF guard, no deps.
+- PATCHED src/lib/livestatus.ts fetchPageStaticProxy()
+  Was Netlify-only (/.netlify/functions/yt). Now races:
+    /.netlify/functions/yt + /yt + /functions/yt
+  first valid YouTube HTML wins. Render deploys keep same-origin /__yt via
+  scripts/serve.mjs — identical path as local (npm run dev). No change to
+  scrape/parse/poll/office-report logic.
+
+Ship:
+1. npm install, npm run build (dist/seed.json will be empty rev 0 by design).
+2. Commit + push. Render rebuilds.
+3. Open <live-url>/admin -> Recover backup -> Review and publish. Lifts maintenance
+   everywhere at once, locks words in.
+4. Watch Live then behaves like local: fast poll (20s on Watch), same doors,
+   same off/live/unknown semantics. Test with @twocorg live and off-air.
