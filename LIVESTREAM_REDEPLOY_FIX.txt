@@ -1,5 +1,8 @@
-LIVESTREAM REDEPLOY FIX — read this first (update 440 bundle, 2026-11-06)
+LIVESTREAM REDEPLOY FIX — read this first (update 440 bundle, final_9 package, 2026-11-06)
 ==============================================================================
+(final_9 = verified re-package: chunk-load self-heal on all lazy pages,
+tap-open error details on the crash card, maintenance-hold / Publish-clear /
+wipe-old-wakes / per-deploy unsaved-clean / live-relay all re-verified.)
 
 WHAT WAS WRONG (why every redeploy broke the livestream)
 --------------------------------------------------------
