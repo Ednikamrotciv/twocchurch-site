@@ -644,31 +644,21 @@ async function fetchPageRemote(url: string): Promise<string | null> {
   }
 }
 
-/** Static-host YouTube doors (`netlify/functions/yt.mjs`, `api/yt.js` for Vercel;
-    Cloudflare Pages serves same-origin /__yt via `functions/__yt.js` so it needs
-    no door here): static deploys have no /__yt (the SPA fallback answers 200
-    index.html there), so without these the only door left was the public proxy.
-    Same-origin, no CORS, and YouTube-only by design like /__yt. Missing
-    anywhere else -> null. */
+/** Netlify-function YouTube door (`netlify/functions/yt.mjs`): static deploys
+    have no /__yt (the SPA fallback answers 200 index.html there), so without
+    this the only door left was the public proxy. Same-origin, no CORS, and
+    YouTube-only by design like /__yt. Missing anywhere else -> null. */
 async function fetchPageStaticProxy(url: string): Promise<string | null> {
-  const doors = [
-    `/.netlify/functions/yt?url=${encodeURIComponent(url)}`,
-    `/api/yt?url=${encodeURIComponent(url)}`,
-  ];
   try {
-    const jobs = doors.map(async (door) => {
-      try {
-        const res = await withTimeout(fetch(door, { cache: "no-store" }), CHECK_TIMEOUT_MS);
-        if (!res || !res.ok) return null;
-        const text = await res.text();
-        if (typeof text !== "string" || text.length === 0) return null;
-        if (!isYoutubeHtml(text)) return null;
-        return text;
-      } catch {
-        return null;
-      }
-    });
-    return await firstValidHtml(jobs);
+    const res = await withTimeout(
+      fetch(`/.netlify/functions/yt?url=${encodeURIComponent(url)}`, { cache: "no-store" }),
+      CHECK_TIMEOUT_MS
+    );
+    if (!res || !res.ok) return null;
+    const text = await res.text();
+    if (typeof text !== "string" || text.length === 0) return null;
+    if (!isYoutubeHtml(text)) return null;
+    return text;
   } catch {
     return null;
   }

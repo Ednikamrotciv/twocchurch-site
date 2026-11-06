@@ -352,12 +352,12 @@ export function VideoPlayer({
      live (channel/Facebook). Anything dead drops to the fallback instead,
      thumbnail and all. */
   const [frameConfirmed, setFrameConfirmed] = useState(false);
-  /* Autoplay-blocked flag: browsers block audible autoplay on a fresh visit
-     with no gesture — the frame keeps trying audible first, and only when the
-     player sits cued/unstarted instead of playing does this flip. No pill is
-     shown: the first tap/keypress anywhere on the page hands the browser its
-     gesture and the live opens WITH sound by itself (see the auto-unblock
-     effect beside unmutePlay below). */
+  /* Autoplay-blocked flag (correctness fix, rule preserved): browsers block
+     audible autoplay on a fresh visit with no gesture — the rule still says
+     every live opens WITH sound, so the frame keeps trying audible first,
+     and only when the player sits cued/unstarted instead of playing does
+     this flip and offer the one-tap "Tap for sound" pill below. Tapping it
+     unmutes + plays; nothing ever autoplays muted behind the visitor's back. */
   const [blocked, setBlocked] = useState(false);
   const playerRef = useRef<any>(null);
   /* One-shot auto-recovery guard (see the auto-fallback effect below): which
@@ -449,9 +449,10 @@ export function VideoPlayer({
   const retry = () => {
     repair();
   };
-  /* Blocked-autoplay escape: the browser held the audible open for want of a
-     gesture — the first tap/keypress anywhere hands it that gesture: unmute
-     at full volume + play. Never autoplays muted. Runs without any pill. */
+  /* Blocked-autoplay escape (correctness fix): the browser held the audible
+     open for want of a gesture — one tap on the pill below hands it the
+     gesture: unmute at full volume + play. Never autoplays muted; the pill
+     only ever appears after the audible attempt was actually blocked. */
   const unmutePlay = () => {
     try {
       const p = playerRef.current;
@@ -464,28 +465,6 @@ export function VideoPlayer({
     try { setBlocked(false); } catch {}
     try { onPlay?.(); } catch {}
   };
-  /* No "Tap for sound" pill: the live plays instantly (muted autoplay when the
-     browser forbids audible autoplay) and the first tap/keypress anywhere on
-     the page brings sound. */
-  useEffect(() => {
-    if (!playing || dead) return;
-    if (platform !== "youtube") return;
-    if (!liveVideoId && !ytId) return;
-    const resume = () => { try { unmutePlay(); } catch {} };
-    try {
-      window.addEventListener("pointerdown", resume);
-      window.addEventListener("touchend", resume);
-      window.addEventListener("keydown", resume);
-    } catch {}
-    return () => {
-      try {
-        window.removeEventListener("pointerdown", resume);
-        window.removeEventListener("touchend", resume);
-        window.removeEventListener("keydown", resume);
-      } catch {}
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [playing, dead, liveVideoId, ytId, platform]);
   /* No host ref, no innerHTML: the frame below is a plain React iframe, so
      nothing outside React ever replaces or removes a node it owns. */
   /* Sound on (note 388): every opening plays with its audio — a tap, or a
@@ -893,24 +872,20 @@ export function VideoPlayer({
       try { setDead(true); } catch {}
     };
     const watchdog = window.setTimeout(() => fail("watchdog"), 12_000);
-    /* Autoplay-blocked net: a fresh visit has no gesture, so the browser may
-       refuse audible autoplay. Never sit on the spinner: force muted
-       playback at once so the live plays instantly without sound, and the
-       first gesture anywhere brings sound (effect above). PLAYING/settled/
-       error all clear the flag. */
+    /* Autoplay-blocked net (correctness fix): a fresh visit has no gesture,
+       so the browser may refuse the audible autoplay the rule calls for —
+       the player then sits cued/unstarted instead of playing. After 2.5s
+       still unsettled, peek: a non-playing, non-error player means blocked,
+       so offer the one-tap pill (unmute + play on tap) instead of a silent
+       frame. PLAYING/settled/error all clear it without ever showing. */
     const blockedTimer = window.setTimeout(() => {
       if (settled || cancelled) return;
       try {
         const p = player;
         const st = p && typeof p.getPlayerState === "function" ? Number(p.getPlayerState()) : -99;
         /* 1 = playing (would have settled), 0 = ended. Anything else with no
-           error is the browser holding the audible frame for a gesture —
-           drop to muted playback now instead of waiting. */
-        if (st !== 0) {
-          try { if (typeof p.mute === "function") p.mute(); } catch {}
-          try { if (typeof p.playVideo === "function") p.playVideo(); } catch {}
-          try { setBlocked(true); } catch {}
-        }
+           error is the browser holding the frame for a gesture. */
+        if (st !== 0) { try { setBlocked(true); } catch {} }
       } catch {}
     }, 2500);
     loadYtPlayerApi()
@@ -922,17 +897,9 @@ export function VideoPlayer({
           try { const w = (window as any); apiOrigin = w && w.location && w.location.origin ? String(w.location.origin) : ""; } catch { apiOrigin = ""; }
           player = new api.Player(host, {
             videoId: vid,
-            playerVars: { autoplay: 1, mute: 1, rel: 0, modestbranding: 1, playsinline: 1, ...(apiOrigin ? { origin: apiOrigin } : {}) },
+            playerVars: { autoplay: 1, rel: 0, modestbranding: 1, playsinline: 1, ...(apiOrigin ? { origin: apiOrigin } : {}) },
             events: {
               onReady: (e: any) => {
-                /* Start muted so playback begins instantly even where the
-                   browser forbids audible autoplay — the first gesture
-                   anywhere unmutes (effect above). Then try sound at once
-                   for visitors whose browser allows it. */
-                try { if (e && e.target && typeof e.target.mute === "function") e.target.mute(); } catch {}
-                try { if (e && e.target && typeof e.target.playVideo === "function") e.target.playVideo(); } catch {}
-                try { if (e && e.target && typeof e.target.unMute === "function") e.target.unMute(); } catch {}
-                try { if (e && e.target && typeof e.target.setVolume === "function") e.target.setVolume(100); } catch {}
                 /* Ready is not healthy — an unavailable video also becomes
                    ready before it errors — so the cover stays until PLAYING. */
                 try {
@@ -948,9 +915,7 @@ export function VideoPlayer({
               },
               onStateChange: (e: any) => {
                 /* PLAYING (1) is the only proof the video is really there:
-                   the cover lifts on this and nothing else. A muted start
-                   still counts as playing — sound follows on the first
-                   gesture (or at once where the browser allows it). */
+                   the cover lifts on this and nothing else. */
                 try {
                   if (Number(e && (e as any).data) === 1) {
                     settled = true;
@@ -958,10 +923,6 @@ export function VideoPlayer({
                     try { window.clearTimeout(blockedTimer); } catch {}
                     try { setFrameConfirmed(true); } catch {}
                     try { setBlocked(false); } catch {}
-                    /* Sound where allowed: no-op where blocked — the video
-                       keeps playing muted and the next gesture unmutes it. */
-                    try { if (player && typeof player.unMute === "function") player.unMute(); } catch {}
-                    try { if (player && typeof player.setVolume === "function") player.setVolume(100); } catch {}
                   }
                 } catch {}
               },
@@ -1306,9 +1267,22 @@ export function VideoPlayer({
               <span className="player__cover-spin" />
             </span>
           ) : null}
-          {/* No pill: while the browser holds the audible open for want of a
-              gesture, the first tap/keypress anywhere auto-resumes WITH sound
-              (effect above). Nothing renders here. */}
+          {/* Blocked-autoplay pill: the browser held the audible open for
+             want of a gesture (fresh visit, no tap yet) — one tap hands it
+             the gesture and the live opens WITH sound as the rule calls for.
+             Renders only over an unproven YouTube frame, never over playback
+             or the fallbacks, and never autoplays anything muted. */}
+          {blocked && !dead && !frameConfirmed && platform === "youtube" && (liveVideoId || ytId) ? (
+            <button type="button" className="player__unmute" onClick={unmutePlay} aria-label={tx("Tap for sound")}>
+              <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
+                <path
+                  fill="currentColor"
+                  d="M3 9v6h4l5 5V4L7 9H3zm13.5 3a4.5 4.5 0 0 0-2.5-4v8a4.5 4.5 0 0 0 2.5-4zM14 3.2v2.1a7 7 0 0 1 0 13.4v2.1a9 9 0 0 0 0-17.6z"
+                />
+              </svg>
+              {tx("Tap for sound")}
+            </button>
+          ) : null}
           {/* The frame itself never reports a failure (note 344): a video
               YouTube refuses to embed, blocks in this country, or takes down
               mid-play swaps to the grey-arrow fallback above via the
