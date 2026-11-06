@@ -352,12 +352,12 @@ export function VideoPlayer({
      live (channel/Facebook). Anything dead drops to the fallback instead,
      thumbnail and all. */
   const [frameConfirmed, setFrameConfirmed] = useState(false);
-  /* Autoplay-blocked flag (correctness fix, rule preserved): browsers block
-     audible autoplay on a fresh visit with no gesture — the rule still says
-     every live opens WITH sound, so the frame keeps trying audible first,
-     and only when the player sits cued/unstarted instead of playing does
-     this flip and offer the one-tap "Tap for sound" pill below. Tapping it
-     unmutes + plays; nothing ever autoplays muted behind the visitor's back. */
+  /* Autoplay-blocked flag: browsers block audible autoplay on a fresh visit
+     with no gesture — the frame keeps trying audible first, and only when the
+     player sits cued/unstarted instead of playing does this flip. No pill is
+     shown: the first tap/keypress anywhere on the page hands the browser its
+     gesture and the live opens WITH sound by itself (see the auto-unblock
+     effect beside unmutePlay below). */
   const [blocked, setBlocked] = useState(false);
   const playerRef = useRef<any>(null);
   /* One-shot auto-recovery guard (see the auto-fallback effect below): which
@@ -449,10 +449,9 @@ export function VideoPlayer({
   const retry = () => {
     repair();
   };
-  /* Blocked-autoplay escape (correctness fix): the browser held the audible
-     open for want of a gesture — one tap on the pill below hands it the
-     gesture: unmute at full volume + play. Never autoplays muted; the pill
-     only ever appears after the audible attempt was actually blocked. */
+  /* Blocked-autoplay escape: the browser held the audible open for want of a
+     gesture — the first tap/keypress anywhere hands it that gesture: unmute
+     at full volume + play. Never autoplays muted. Runs without any pill. */
   const unmutePlay = () => {
     try {
       const p = playerRef.current;
@@ -465,6 +464,25 @@ export function VideoPlayer({
     try { setBlocked(false); } catch {}
     try { onPlay?.(); } catch {}
   };
+  /* No "Tap for sound" pill: while blocked, the first gesture anywhere on the
+     page resumes the live WITH sound automatically. */
+  useEffect(() => {
+    if (!blocked) return;
+    const resume = () => { try { unmutePlay(); } catch {} };
+    try {
+      window.addEventListener("pointerdown", resume);
+      window.addEventListener("touchend", resume);
+      window.addEventListener("keydown", resume);
+    } catch {}
+    return () => {
+      try {
+        window.removeEventListener("pointerdown", resume);
+        window.removeEventListener("touchend", resume);
+        window.removeEventListener("keydown", resume);
+      } catch {}
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [blocked]);
   /* No host ref, no innerHTML: the frame below is a plain React iframe, so
      nothing outside React ever replaces or removes a node it owns. */
   /* Sound on (note 388): every opening plays with its audio — a tap, or a
@@ -872,12 +890,12 @@ export function VideoPlayer({
       try { setDead(true); } catch {}
     };
     const watchdog = window.setTimeout(() => fail("watchdog"), 12_000);
-    /* Autoplay-blocked net (correctness fix): a fresh visit has no gesture,
-       so the browser may refuse the audible autoplay the rule calls for —
-       the player then sits cued/unstarted instead of playing. After 2.5s
-       still unsettled, peek: a non-playing, non-error player means blocked,
-       so offer the one-tap pill (unmute + play on tap) instead of a silent
-       frame. PLAYING/settled/error all clear it without ever showing. */
+    /* Autoplay-blocked net: a fresh visit has no gesture,
+       so the browser may refuse the audible autoplay — the player then sits
+       cued/unstarted instead of playing. After 2.5s still unsettled, peek: a
+       non-playing, non-error player means blocked. PLAYING/settled/error all
+       clear it. The first gesture anywhere auto-resumes with sound (effect
+       above) — no pill, never muted. */
     const blockedTimer = window.setTimeout(() => {
       if (settled || cancelled) return;
       try {
@@ -1267,22 +1285,9 @@ export function VideoPlayer({
               <span className="player__cover-spin" />
             </span>
           ) : null}
-          {/* Blocked-autoplay pill: the browser held the audible open for
-             want of a gesture (fresh visit, no tap yet) — one tap hands it
-             the gesture and the live opens WITH sound as the rule calls for.
-             Renders only over an unproven YouTube frame, never over playback
-             or the fallbacks, and never autoplays anything muted. */}
-          {blocked && !dead && !frameConfirmed && platform === "youtube" && (liveVideoId || ytId) ? (
-            <button type="button" className="player__unmute" onClick={unmutePlay} aria-label={tx("Tap for sound")}>
-              <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
-                <path
-                  fill="currentColor"
-                  d="M3 9v6h4l5 5V4L7 9H3zm13.5 3a4.5 4.5 0 0 0-2.5-4v8a4.5 4.5 0 0 0 2.5-4zM14 3.2v2.1a7 7 0 0 1 0 13.4v2.1a9 9 0 0 0 0-17.6z"
-                />
-              </svg>
-              {tx("Tap for sound")}
-            </button>
-          ) : null}
+          {/* No pill: while the browser holds the audible open for want of a
+              gesture, the first tap/keypress anywhere auto-resumes WITH sound
+              (effect above). Nothing renders here. */}
           {/* The frame itself never reports a failure (note 344): a video
               YouTube refuses to embed, blocks in this country, or takes down
               mid-play swaps to the grey-arrow fallback above via the

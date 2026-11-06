@@ -255,18 +255,30 @@ async function fetchTextSameOrigin(url: string): Promise<string | null> {
   }
 }
 
-/** Netlify-function YouTube door (`netlify/functions/yt.mjs`): a top-level
-    racer like the live check's — static deploys have no /__yt, so without
-    this the public proxy was the only fast door left. Missing anywhere
-    else -> null, exactly like every other door. */
+/** Static-host YouTube doors (`netlify/functions/yt.mjs`, `api/yt.js` for Vercel;
+    Cloudflare Pages serves same-origin /__yt via `functions/__yt.js`): a
+    top-level racer like the live check's — static deploys have no /__yt, so
+    without these the public proxy was the only fast door left. Missing
+    anywhere else -> null, exactly like every other door. */
 async function fetchTextStaticProxy(url: string): Promise<string | null> {
+  const doors = [
+    `/.netlify/functions/yt?url=${encodeURIComponent(url)}`,
+    `/api/yt?url=${encodeURIComponent(url)}`,
+  ];
   try {
-    const res = await withTimeout(fetch(`/.netlify/functions/yt?url=${encodeURIComponent(url)}`, { cache: "no-store" }), TIMEOUT_MS);
-    if (!res || !res.ok) return null;
-    const text = await res.text();
-    if (typeof text !== "string" || text.length === 0) return null;
-    if (!isExpectedBody(url, text)) return null;
-    return text;
+    const jobs = doors.map(async (door) => {
+      try {
+        const res = await withTimeout(fetch(door, { cache: "no-store" }), TIMEOUT_MS);
+        if (!res || !res.ok) return null;
+        const text = await res.text();
+        if (typeof text !== "string" || text.length === 0) return null;
+        if (!isExpectedBody(url, text)) return null;
+        return text;
+      } catch {
+        return null;
+      }
+    });
+    return await firstValidText(jobs);
   } catch {
     return null;
   }
