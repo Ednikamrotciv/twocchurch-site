@@ -1072,6 +1072,38 @@
   border-top-color: #e3b75c;
   animation: player-reload-spin 0.9s linear infinite;
 }
+/* Blocked-autoplay pill: sits over the unproven frame (above the cover, below
+   nothing else) — one tap hands the browser the gesture so the live opens
+   WITH sound. Hidden whenever playback is proven or the fallback takes over. */
+.player__unmute {
+  position: absolute;
+  left: 50%;
+  bottom: 18px;
+  transform: translateX(-50%);
+  z-index: 3;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 18px;
+  border: 1px solid rgba(227, 183, 92, 0.65);
+  border-radius: 999px;
+  background: rgba(8, 8, 14, 0.82);
+  color: #f4e9d2;
+  font: inherit;
+  font-weight: 650;
+  cursor: pointer;
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  box-shadow: 0 6px 22px rgba(0, 0, 0, 0.45);
+}
+.player__unmute:hover {
+  background: rgba(20, 16, 10, 0.92);
+  border-color: #e3b75c;
+}
+.player__unmute:focus-visible {
+  outline: 2px solid #e3b75c;
+  outline-offset: 2px;
+}
 /* Empty-state thumbnail paints like the dead one. */
 .player--empty img {
   position: absolute;
@@ -1204,6 +1236,22 @@
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+/* Unblock link under a dead card title: gold, tappable (the dead body
+   disables pointer events so the reload arrow owns the surface). */
+.player__deadlink {
+  margin: 0.15rem 0 0;
+  font-size: 0.85rem;
+  pointer-events: auto;
+}
+.player__deadlink a {
+  color: #e3b75c;
+  font-weight: 700;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.player__deadlink a:hover {
+  color: #f4e9d2;
 }
 
 .player__deadtext {

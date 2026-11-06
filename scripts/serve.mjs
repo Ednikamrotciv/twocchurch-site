@@ -513,29 +513,9 @@ const server = http.createServer(async (req, res) => {
       }
       const allowed = host === "www.youtube.com" || host === "youtube.com" || host === "m.youtube.com" || host === "youtu.be";
       if (!allowed) {
-        res.writeHead(400, { "cache-control": "no-store" });
+        res.writeHead(400, { "cache-control": "no-store", "access-control-allow-origin": "*" });
         res.end("bad url");
         return;
-      }
-      /* Short server cache (update 441, speed): every open tab polls the same
-         2-3 YouTube URLs seconds apart — serve the last good read for 15s
-         instead of re-fetching YouTube per tab per check. Same on local and
-         deployed; failures are never cached. */
-      try {
-        const cache = (globalThis.__womYtCache || (globalThis.__womYtCache = new Map()));
-        const hit = cache.get(target);
-        if (hit && typeof hit.text === "string" && Date.now() - hit.at < 15_000) {
-          const body = Buffer.from(hit.text, "utf8");
-          res.writeHead(200, {
-            "content-type": "text/html; charset=utf-8",
-            "content-length": body.length,
-            "cache-control": "no-store",
-          });
-          res.end(body);
-          return;
-        }
-      } catch {
-        /* cache unreadable — fetch live below */
       }
       try {
         const upstream = await fetch(target, {
@@ -565,20 +545,14 @@ const server = http.createServer(async (req, res) => {
           ytTooBig = true;
         }
         const text = ytTooBig ? "" : Buffer.concat(ytParts).toString("utf8");
+        /* Deployed parity (like netlify/functions/yt.mjs): a joined copy on
+           another origin must be able to READ these, so every /__yt answer
+           carries ACAO. Same-origin local runs behave exactly as before. */
+        const ytCORS = { "cache-control": "no-store", "access-control-allow-origin": "*" };
         if (!upstream.ok || !text) {
-          res.writeHead(502, { "cache-control": "no-store" });
+          res.writeHead(502, ytCORS);
           res.end(ytTooBig ? "too large" : "unreachable");
           return;
-        }
-        try {
-          const cache = (globalThis.__womYtCache || (globalThis.__womYtCache = new Map()));
-          cache.set(target, { text, at: Date.now() });
-          if (cache.size > 50) {
-            const oldest = cache.keys().next().value;
-            cache.delete(oldest);
-          }
-        } catch {
-          /* caching is best-effort only */
         }
         const body = Buffer.from(text, "utf8");
         const accept = req.headers["accept-encoding"] || "";
@@ -589,6 +563,7 @@ const server = http.createServer(async (req, res) => {
             "content-length": gz.length,
             "content-encoding": "gzip",
             "cache-control": "no-store",
+            "access-control-allow-origin": "*",
             vary: "accept-encoding",
           });
           res.end(gz);
@@ -598,10 +573,11 @@ const server = http.createServer(async (req, res) => {
           "content-type": "text/html; charset=utf-8",
           "content-length": body.length,
           "cache-control": "no-store",
+          "access-control-allow-origin": "*",
         });
         res.end(body);
       } catch {
-        res.writeHead(502, { "cache-control": "no-store" });
+        res.writeHead(502, { "cache-control": "no-store", "access-control-allow-origin": "*" });
         res.end("unreachable");
       }
       return;

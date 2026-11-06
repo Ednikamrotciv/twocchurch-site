@@ -7273,15 +7273,3 @@ manual-start rule (MM screen gate, PP display matrix, AAA badge gate). Verified:
 edited files parse (esbuild transform), and the display matrix holds against the
 shipped sources — guest detection alone stays quiet, guest switch shows, main
 detection shows, Stop holds, pause does not read as stopped.
-
-## 441. Deployed livestream reads what local reads, and faster
-
-Office request: deployed must work exactly like local, and the livestream must be faster.
-
-Measured causes. (1) Deployed datacenter IPs get a login/consent/captcha wall that still carries ytInitialData but no player and no live marker — the check read it as "read, not live" (false OFF) while the local copy (residential IP) correctly read LIVE. (2) A fast readable off from any door beat a slightly slower live from the office door (first-valid-wins). (3) The office report was awaited (up to 2s) before any page fetch started. (4) Candidate watch pages verified one by one (up to 3 timeouts in a row). (5) Cadence 20s/90s, urgent 8s, per-door timeout 8s.
-
-Changed (src/lib/livestatus.ts): a walled page is now unread (unknown, never off) — consent/sorry/unusual-traffic/LOGIN_REQUIRED markers with no player; LIVE WINS — a non-live first answer grants the slower doors a 1.2s grace to overtake it; the office report gets a 250ms head start (fresh report = zero YouTube fetches) then races the already-started page fetches; candidates verify in parallel (worst case one 3.5s timeout); timeouts 8s→3.5s, report 2s→1.2s, verify 6s→3.5s, SOON 20s→10s, IDLE 90s→45s, urgent 8s→4s, wake 4s→1.5s, hidden-quiet 30s→15s, FRESH 6s→3s; cross-tab instant share — a definitive answer saved by any tab is adopted at once by every other tab via the storage event. Unchanged: wall-free off still reads off; bot-walled chrome-live (note 322) still reads live; unverified-channel and designated-channel gates (notes 331/358/380) behave exactly as before; unknown never ends a stream (off needs two consecutive, stale live retires after 3m).
-
-Changed around it: same-origin /__yt (scripts/serve.mjs, scripts/vite-cms-backend.mjs) and the Netlify yt function cache the last good read 15-20s so every tab's poll reuses it; src/lib/recentstreams.ts timeout 8s→3.5s, SOON 30s→15s, IDLE 60s→45s; verifier cadence assertion updated; BUILD_NOTES 440→441, CODE_ID unified440→unified441, entry metas to match — one office Publish blesses the new code everywhere.
-
-Verified: edited files parse (esbuild transform); the real patched livestatus bundle (stubbed imports) returns live+id on a live watch page, off on a real off channel page, unread on a datacenter wall, live on bot-walled chrome, and the correct @twocorg designation; wall predicate 7/7 cases.

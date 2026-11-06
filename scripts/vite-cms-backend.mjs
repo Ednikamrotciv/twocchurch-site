@@ -783,26 +783,6 @@ export function cmsBackend() {
               res.end("bad url");
               return;
             }
-            /* Short server cache (update 441, speed): every open tab polls the same
-               2-3 YouTube URLs seconds apart — serve the last good read for 15s
-               instead of re-fetching YouTube per tab per check. Failures are
-               never cached. */
-            try {
-              const cache = (globalThis.__womYtCache || (globalThis.__womYtCache = new Map()));
-              const hit = cache.get(target);
-              if (hit && typeof hit.text === "string" && Date.now() - hit.at < 15_000) {
-                const body = Buffer.from(hit.text, "utf8");
-                res.writeHead(200, {
-                  "content-type": "text/html; charset=utf-8",
-                  "content-length": body.length,
-                  "cache-control": "no-store",
-                });
-                res.end(body);
-                return;
-              }
-            } catch {
-              /* cache unreadable — fetch live below */
-            }
             try {
               const upstream = await fetch(target, {
                 headers: {
@@ -835,16 +815,6 @@ export function cmsBackend() {
                 res.writeHead(502, { "cache-control": "no-store" });
                 res.end(ytTooBig ? "too large" : "unreachable");
                 return;
-              }
-              try {
-                const cache = (globalThis.__womYtCache || (globalThis.__womYtCache = new Map()));
-                cache.set(target, { text, at: Date.now() });
-                if (cache.size > 50) {
-                  const oldest = cache.keys().next().value;
-                  cache.delete(oldest);
-                }
-              } catch {
-                /* caching is best-effort only */
               }
               const body = Buffer.from(text, "utf8");
               const accept = req.headers["accept-encoding"] || "";
@@ -883,3 +853,4 @@ export function cmsBackend() {
     },
   };
 }
+

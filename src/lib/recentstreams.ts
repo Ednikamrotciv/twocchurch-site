@@ -41,18 +41,17 @@ const KEEP = 24;
 /** Two uploads this close together — with the same headline — are one message. */
 const SAME_MESSAGE_MS = 20 * 60 * 60 * 1000;
 /** The channel is re-read this often in the quiet week… */
-const IDLE_MS = 45_000;
+const IDLE_MS = 60_000;
 /** …and this often while a service is on the clock or on air. */
-const SOON_MS = 15_000;
+const SOON_MS = 30_000;
 /** …and how long the short cadence is kept after a service comes off air. */
 const BURST_MS = 6 * 60_000;
 /** How long a just-ended service waits for YouTube to publish it. */
 const SEED_MAX_MS = 12 * 60 * 60 * 1000;
 /** Give the proxy this long before calling a read a failure (note 372:
     three doors at the old 20 seconds each held the deployed feed up to a
-    minute past a dead proxy — eight is plenty for YouTube to answer).
-    Update 441 (deployed parity + speed): 3.5s, same as the live check. */
-const TIMEOUT_MS = 3_500;
+    minute past a dead proxy — eight is plenty for YouTube to answer). */
+const TIMEOUT_MS = 8_000;
 
 const EMPTY: RecentServices = { items: [], at: 0, channelId: "" };
 
@@ -140,9 +139,14 @@ function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
 /** Fetch a YouTube page: same-origin / office-server proxy, else public CORS
     proxy. All doors race — first VALID answer wins, never the slowest door. */
 async function fetchText(url: string): Promise<string | null> {
+  /* Deployed parity with the live check (livestatus.ts): all doors race at
+     once — same-origin, Netlify-function, office, public proxy — so a static
+     deploy reads like a local run instead of waiting out one door at a time.
+     First valid answer wins; a miss degrades as before (last good list). */
   try {
     return await firstValidText([
       fetchTextSameOrigin(url),
+      fetchTextStaticProxy(url),
       fetchTextOffice(url),
       fetchTextRemote(url),
     ]);
@@ -239,24 +243,42 @@ async function fetchTextRemote(url: string): Promise<string | null> {
 async function fetchTextSameOrigin(url: string): Promise<string | null> {
   try {
     const res = await withTimeout(fetch(`/__yt?url=${encodeURIComponent(url)}`, { cache: "no-store" }), TIMEOUT_MS);
-    if (res && res.ok) {
-      const text = await res.text();
-      /* Static hosts answer /__yt with the SPA fallback (200 index.html) — not
-         YouTube, so it must not beat the doors that work. */
-      if (typeof text === "string" && text.length > 0 && isExpectedBody(url, text)) return text;
-    }
+    if (!res || !res.ok) return null;
+    const text = await res.text();
+    if (typeof text !== "string" || text.length === 0) return null;
+    /* Static hosts answer /__yt with the SPA fallback (200 index.html) — not
+       YouTube, so it must not beat the doors that work. */
+    if (!isExpectedBody(url, text)) return null;
+    return text;
   } catch {
-    /* fall through to the Netlify-function door below */
+    return null;
   }
-  /* Netlify-function door (netlify/functions/yt.mjs): static deploys have no
-     /__yt, so without this the public proxy was the only door left. */
+}
+
+/** Static-host YouTube doors (`netlify/functions/yt.mjs`, `api/yt.js` for Vercel;
+    Cloudflare Pages serves same-origin /__yt via `functions/__yt.js`): a
+    top-level racer like the live check's — static deploys have no /__yt, so
+    without these the public proxy was the only fast door left. Missing
+    anywhere else -> null, exactly like every other door. */
+async function fetchTextStaticProxy(url: string): Promise<string | null> {
+  const doors = [
+    `/.netlify/functions/yt?url=${encodeURIComponent(url)}`,
+    `/api/yt?url=${encodeURIComponent(url)}`,
+  ];
   try {
-    const res2 = await withTimeout(fetch(`/.netlify/functions/yt?url=${encodeURIComponent(url)}`, { cache: "no-store" }), TIMEOUT_MS);
-    if (!res2 || !res2.ok) return null;
-    const text2 = await res2.text();
-    if (typeof text2 !== "string" || text2.length === 0) return null;
-    if (!isExpectedBody(url, text2)) return null;
-    return text2;
+    const jobs = doors.map(async (door) => {
+      try {
+        const res = await withTimeout(fetch(door, { cache: "no-store" }), TIMEOUT_MS);
+        if (!res || !res.ok) return null;
+        const text = await res.text();
+        if (typeof text !== "string" || text.length === 0) return null;
+        if (!isExpectedBody(url, text)) return null;
+        return text;
+      } catch {
+        return null;
+      }
+    });
+    return await firstValidText(jobs);
   } catch {
     return null;
   }
