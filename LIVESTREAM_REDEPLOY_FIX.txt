@@ -1,4 +1,4 @@
-LIVESTREAM REDEPLOY FIX — read this first (update 440 bundle, final_9 package, 2026-11-06)
+LIVESTREAM REDEPLOY FIX — read this first (update 442 bundle, final_9 package, 2026-11-06)
 ==============================================================================
 (final_9 = verified re-package: chunk-load self-heal on all lazy pages,
 tap-open error details on the crash card, maintenance-hold / Publish-clear /
@@ -18,12 +18,12 @@ WHAT WAS WRONG (why every redeploy broke the livestream)
    --> FIXED IN THIS ZIP: clean-deploy.txt has been REMOVED, so builds now
        carry your words again. Do NOT put that file back unless you want a
        fresh-clean opening (Recover + Publish, then remove it and rebuild).
-2. The live backend (Render) was on update 441 while this bundle is 440.
+2. The live backend (Render) was on update 441 while this bundle is 442, or vice versa.
    Mixed versions ignore each other's live reports, so visitors fall back to
    slow direct YouTube reads: endless spinner, then the grey circular-arrow
    error that never heals.
    --> FIXED BY PROCEDURE: redeploy BOTH sides from THIS zip so both sides
-       are 440. Never run the frontend and the backend on different updates.
+       are 442. Never run the frontend and the backend on different updates.
 3. If the red "Watch on YouTube" button works but the site player shows the
    grey arrow, the office Play switch is ON while no broadcast is actually
    live (or embedding is disabled in YouTube Studio). The arrow's repair
@@ -52,7 +52,7 @@ REDEPLOY IN THIS EXACT ORDER
 6. Publish once on each host (clears the maintenance hold — every deploy
    locks until the office publishes; that is by design).
 7. Verify in the browser:
-   - /version.json shows the SAME notes + code on both hosts (440/unified440).
+   - /version.json shows the SAME notes + code on both hosts (442/unified442).
    - /seed.json has real sections (not rev 0 empty).
    - /server.json has your Render URL.
    - /watch-live shows the ENDED screen (not a player, not a spinner) when
