@@ -2,7 +2,12 @@ LIVESTREAM REDEPLOY FIX — read this first (update 440 bundle, final_9 package,
 ==============================================================================
 (final_9 = verified re-package: chunk-load self-heal on all lazy pages,
 tap-open error details on the crash card, maintenance-hold / Publish-clear /
-wipe-old-wakes / per-deploy unsaved-clean / live-relay all re-verified.)
+wipe-old-wakes / per-deploy unsaved-clean / live-relay all re-verified.
+final_10 = the card heals itself: a first crash retries in place silently,
+a repeat spends one budgeted auto-reload per page per 10 minutes (volatile
+live caches dropped first, exactly like the manual button) — only a crash
+that survives both reaches the card, with its details. The office never
+taps; reload loops are impossible by construction.)
 
 WHAT WAS WRONG (why every redeploy broke the livestream)
 --------------------------------------------------------

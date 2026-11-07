@@ -1,11 +1,14 @@
 import React from "react";
 import { Btn, Icon, Section } from "./ui";
 
-/** Keeps a broken page from taking the whole site down with it. */
-export class ErrorBoundary extends React.Component<{ children: React.ReactNode }, { error: Error | null; route: string; stack: string; nonce: number; retriedRoute: string; retryFailed: boolean; scroll: number }> {
+/** Keeps a broken page from taking the whole site down with it. Self-healing
+    tiers (the office never taps): a first crash retries in place silently; a
+    repeat spends one budgeted auto-reload per page per 10 minutes; only a
+    crash that survives both reaches the card below, with its details. */
+export class ErrorBoundary extends React.Component<{ children: React.ReactNode }, { error: Error | null; route: string; stack: string; nonce: number; retriedRoute: string; retryFailed: boolean; scroll: number; phase: "" | "healing" | "reloading"; healed: number }> {
   constructor(props: { children: React.ReactNode }) {
     super(props);
-    this.state = { error: null, route: "", stack: "", nonce: 0, retriedRoute: "", retryFailed: false, scroll: 0 };
+    this.state = { error: null, route: "", stack: "", nonce: 0, retriedRoute: "", retryFailed: false, scroll: 0, phase: "", healed: 0 };
   }
   static getDerivedStateFromError(error: Error) {
     return { error };
@@ -27,12 +30,71 @@ export class ErrorBoundary extends React.Component<{ children: React.ReactNode }
       /* no scroll to keep */
     }
     const stack = String(info?.componentStack || "");
+    const now = Date.now();
+    /* Tier 0 — silent in-place retry (at most one per 5s, so a stubborn
+       break can never spin: one extra render, no card, no reload). */
+    const canSilent = !this.state.healed || now - this.state.healed > 5000;
+    if (canSilent) {
+      try {
+        window.setTimeout(() => {
+          try {
+            this.setState((q) => (q.error ? { error: null, nonce: q.nonce + 1, phase: "", healed: Date.now() } : null));
+          } catch {}
+        }, 0);
+      } catch {}
+      this.setState((s) => ({
+        error,
+        route,
+        stack,
+        scroll,
+        phase: "healing",
+        healed: now,
+        retryFailed: !!s.retriedRoute && s.retriedRoute === route,
+        retriedRoute: "",
+      }));
+      console.error("World Overcomers app error (silent retry):", { route, error, stack });
+      return;
+    }
+    /* Tier 1 — one budgeted auto-reload (volatile live caches dropped
+       first, exactly like the manual button). Budget lives in session
+       storage so a crash that survives its own reload lands on the card
+       instead of looping; without working storage there is no budget, so
+       no auto-reload either. */
+    if (storageOk() && autoReloadDue(route)) {
+      takeAutoReload(route);
+      try {
+        localStorage.removeItem("wom.livestatus");
+      } catch {}
+      try {
+        sessionStorage.removeItem("wom.live.targetNote");
+      } catch {}
+      try {
+        window.setTimeout(() => {
+          try {
+            window.location.reload();
+          } catch {}
+        }, 350);
+      } catch {}
+      this.setState((s) => ({
+        error,
+        route,
+        stack,
+        scroll,
+        phase: "reloading",
+        retryFailed: !!s.retriedRoute && s.retriedRoute === route,
+        retriedRoute: "",
+      }));
+      console.error("World Overcomers app error (auto reload):", { route, error, stack });
+      return;
+    }
+    /* Tier 2 — the crash survived: the card, with everything the office
+       needs to report it. */
     this.setState((s) => ({
+      error,
       route,
       stack,
       scroll,
-      /* Crashed again on the route our own retry just restored: the render
-         itself is broken, so the next tap takes the full reload instead. */
+      phase: "",
       retryFailed: !!s.retriedRoute && s.retriedRoute === route,
       retriedRoute: "",
     }));
@@ -47,7 +109,7 @@ export class ErrorBoundary extends React.Component<{ children: React.ReactNode }
       try {
         here = readBoundaryRoute();
       } catch {}
-      if (here && here !== this.state.route) this.setState({ error: null, route: "", stack: "", retriedRoute: "", retryFailed: false, scroll: 0 });
+      if (here && here !== this.state.route) this.setState({ error: null, route: "", stack: "", retriedRoute: "", retryFailed: false, scroll: 0, phase: "", healed: 0 });
     } else if (this.state.retriedRoute) {
       /* A retry that survived: forget it once the visitor moves on, so a
          later crash elsewhere still gets its own in-place retry first. */
@@ -77,6 +139,16 @@ export class ErrorBoundary extends React.Component<{ children: React.ReactNode }
   };
   render() {
     if (this.state.error) {
+      /* Healing tiers never show the error card: a brief neutral moment
+         while the page brings itself back (silent retry, then at most one
+         auto-reload). Only a crash that survives both reaches the card. */
+      if (this.state.phase === "healing" || this.state.phase === "reloading") {
+        return (
+          <Section className="error-state">
+            <p className="muted">One moment — bringing the page back.</p>
+          </Section>
+        );
+      }
       return (
         <Section className="error-state">
           <span className="prayer-success__icon"><Icon name="alert" size={26} /></span>
@@ -183,5 +255,46 @@ function readBoundaryRoute(): string {
     return window.location.hash || window.location.pathname || "";
   } catch {
     return "";
+  }
+}
+
+/* Auto-reload budget (loop-proof): at most one silent reload per page per
+   10 minutes, tracked in session storage so a crash that survives its own
+   reload lands on the card instead of looping. Without working storage
+   there is no budget — and no auto-reload. Never throws. */
+const AUTO_KEY = "wom.eb.auto";
+const AUTO_MS = 10 * 60_000;
+function storageOk(): boolean {
+  try {
+    sessionStorage.setItem("__wom_t", "1");
+    sessionStorage.removeItem("__wom_t");
+    return true;
+  } catch {
+    return false;
+  }
+}
+function autoReloadDue(route: string): boolean {
+  try {
+    const raw = sessionStorage.getItem(AUTO_KEY);
+    const all = raw ? (JSON.parse(raw) as Record<string, number>) : {};
+    const ts = Number((all && all[route]) || 0);
+    return !ts || Date.now() - ts > AUTO_MS;
+  } catch {
+    return true;
+  }
+}
+function takeAutoReload(route: string): void {
+  try {
+    const raw = sessionStorage.getItem(AUTO_KEY);
+    let all: Record<string, number> = {};
+    try {
+      all = raw ? (JSON.parse(raw) as Record<string, number>) : {};
+    } catch {
+      all = {};
+    }
+    all[route] = Date.now();
+    sessionStorage.setItem(AUTO_KEY, JSON.stringify(all));
+  } catch {
+    /* no budget without storage — the card stays instead */
   }
 }
