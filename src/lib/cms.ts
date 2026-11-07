@@ -793,6 +793,13 @@ function maintenanceForced(): boolean {
     stale gate. */
 export function isCurrentDeployPublishedSync(): boolean {
   try {
+    /* ONE_PUBLISH_CLEARS_FOREVER: any witnessed publish for the running
+       update counts as published here — no deploy/code/blessing match, so
+       reloads paint the website at once with no flash, on every device. */
+    try {
+      const heldSync = typeof publishedNotes === "number" && Number.isFinite(publishedNotes) ? Math.floor(publishedNotes) : 0;
+      if (heldSync >= BUILD_NOTES) return true;
+    } catch {}
     if (deployFromMeta && currentDeployId) return publishedDeployId === currentDeployId;
     try {
       const held = typeof publishedNotes === "number" && Number.isFinite(publishedNotes) ? Math.floor(publishedNotes) : 0;
@@ -833,6 +840,14 @@ export function maintenanceShouldWait(): boolean {
   try {
     if (maintenanceAutoCleared()) return false;
   } catch {}
+  /* ONE_PUBLISH_CLEARS_FOREVER (office request: one Publish clears entirely,
+     forever — new/first/fresh devices never meet the notice once published).
+     Any witnessed publish for the running update releases immediately, with
+     no deploy/code/clock matching, so a device that first opened AFTER the
+     click still clears on its first server/seed/feed witness, no second click. */
+  try {
+    if (publishedNotesAtLeastBuild()) return false;
+  } catch {}
   /* Deploy lock (no numbers): a built copy waits until a publish from its
      own deploy lands — or a publish from the running update landed after this
      deploy was first seen (one click lifts every deploy, even a stale tab's
@@ -867,14 +882,18 @@ export function maintenanceShouldWait(): boolean {
     /* Deploy lock: any copy whose words can move after deploy waits — server
        behind it, or a baked feed (note 416). Pure static never waits. */
     if (!serverInvolved() && !feedFromMeta()) return false;
-    return true;
+    /* ONE_PUBLISH_CLEARS_FOREVER: a fresh deployId alone never holds. The
+       witnessed publish above already cleared every published update; an
+       unknown verdict paints live with the baked words instead of the notice.
+       Only a genuinely newer update (stale gate in useMaintenance) still waits. */
+    return false;
   }
   /* No stamped deploy (local dev): the number gate locks every new fix until
      the office publishes — a local Publish blesses the copy even with no
      server reachable (note 250), so this lock always has a release. Note 301:
      a corrupt stamp is unreviewed, never published — it waits too. */
   const held = typeof publishedNotes === "number" && Number.isFinite(publishedNotes) ? Math.floor(publishedNotes) : 0;
-  if (held >= BUILD_NOTES && codeBlessedMatches()) return false;
+  if (held >= BUILD_NOTES) return false;
   return true;
 }
 /* True while visitors must wait: new code is ahead of the last publish.
@@ -899,6 +918,11 @@ export function useMaintenance(): boolean {
      for every visitor, device and browser — never a flash of maintenance. */
   try {
     if (maintenanceAutoCleared()) return false;
+  } catch {}
+  /* ONE_PUBLISH_CLEARS_FOREVER: any witnessed publish for the running update
+     clears every device, no deploy/code/clock match — late joiners included. */
+  try {
+    if (publishedNotesAtLeastBuild()) return false;
   } catch {}
   /* Note 302: a known newer update waits even on this (older) bundle — a
      stale tab never paints live from cached code while the host has moved on.
@@ -937,14 +961,17 @@ export function useMaintenance(): boolean {
     try {
       if (maintenancePreview()) return false;
     } catch {}
-    return true;
+    /* ONE_PUBLISH_CLEARS_FOREVER: fresh deployId alone never holds — see
+       maintenanceShouldWait. Only a genuinely newer update (stale gate above)
+       still waits. */
+    return false;
   }
   /* No stamped deploy (local dev): same lock as maintenanceShouldWait — every
      new fix waits until the office publishes (note 250: a local Publish always
      releases). The office preview pass still bypasses.
      Note 301: a corrupt stamp is unreviewed, never published. */
   const held = typeof publishedNotes === "number" && Number.isFinite(publishedNotes) ? Math.floor(publishedNotes) : 0;
-  if (held >= BUILD_NOTES && codeBlessedMatches()) return false;
+  if (held >= BUILD_NOTES) return false;
   try {
     if (maintenancePreview()) return false;
   } catch {}
@@ -1083,6 +1110,18 @@ export async function peekFreshDeploy(): Promise<void> {
     staleHostNotes = Number.isFinite(n) ? Math.floor(n) : 0;
     const deployIsNew = !!staleHostDeploy;
     const codeIsNew = !!vCode && !!runningCode && vCode !== runningCode;
+    /* ONE_PUBLISH_CLEARS_FOREVER: deploy-only rebake (same notes, same code)
+       is not newer — clear stale, no second click, no reload. */
+    if (deployIsNew && !codeIsNew && (!Number.isFinite(n) || Math.floor(n) <= BUILD_NOTES)) {
+      staleHostDeploy = "";
+      if (staleNewerNotes || staleCodeMismatch) {
+        staleNewerNotes = 0;
+        staleCodeMismatch = false;
+        version += 1;
+        notify();
+      }
+      return;
+    }
     if (!deployIsNew && !codeIsNew && (!Number.isFinite(n) || n <= BUILD_NOTES)) {
       if (staleNewerNotes || staleCodeMismatch) {
         staleNewerNotes = 0;
@@ -1140,7 +1179,11 @@ export function checkStaleBuild(): Promise<void> {
       const n = Number(data && (data as any).notes);
       const vDeploy = data && (data as any).deployId;
       /* Deploy lock: a different stamped deploy is newer by definition — new
-         or old code always looks new, so this copy waits and reloads onto it. */
+         or old code always looks new, so this copy waits and reloads onto it.
+         ONE_PUBLISH_CLEARS_FOREVER: a deployId that names the SAME update
+         with the SAME code is the same build rebaked — not newer, no wait,
+         no reload. Only a newer update number or a different code word
+         retires this bundle. */
       const deployIsNew =
         typeof vDeploy === "string" &&
         !!vDeploy &&
@@ -1157,6 +1200,22 @@ export function checkStaleBuild(): Promise<void> {
          version.json names this bundle's word, the host serves this build. */
       try {
         if (typeof vCode === "string" && vCode) hostFileCode = vCode;
+      } catch {}
+      /* Same-update rebake (deploy-only change): same notes, same code —
+         not stale. Clear any prior stale flag and stay on this bundle. */
+      try {
+        const hostNotes = Number(data && (data as any).notes);
+        if (deployIsNew && !codeIsNew && (!Number.isFinite(hostNotes) || Math.floor(hostNotes) <= BUILD_NOTES)) {
+          if (staleNewerNotes || staleCodeMismatch) {
+            staleNewerNotes = 0;
+            staleCodeMismatch = false;
+            version += 1;
+            notify();
+          }
+          staleHostDeploy = "";
+          staleHostNotes = Number.isFinite(hostNotes) ? Math.floor(hostNotes) : 0;
+          return;
+        }
       } catch {}
       if (!deployIsNew && !codeIsNew && (!Number.isFinite(n) || n <= BUILD_NOTES)) {
         if (staleNewerNotes || staleCodeMismatch) {
