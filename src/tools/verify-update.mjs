@@ -69,6 +69,10 @@ const FILES = [
   ["scripts/seed-guard.mjs", "js"],
   ["scripts/feed-mirror.mjs", "js"],
   ["scripts/cms-local.mjs", "js"],
+  ["scripts/storage.mjs", "js"],
+  ["scripts/storage-migrate.mjs", "js"],
+  ["scripts/storage-test.mjs", "js"],
+  ["src/lib/backendwake.ts", "ts"],
   ["index.html", null],
   ["src/styles/admin.css", null],
   ["src/styles/pages.css", null],
@@ -1676,9 +1680,27 @@ export async function runAll(fs) {
   const bsLL = text["scripts/bake-seed.mjs"];
   const brLL = text["scripts/bake-recent.mjs"];
   ok("host takes the follow flag", has(locLL, "createCmsHost(rootDir, opts)") && has(locLL, "if (opts && opts.follow)"), "the loop must be asked for, never assumed");
-  ok("servers opt in", has(srvLL, "createCmsHost(ROOT, { follow: true })") && has(viteLL, "{ follow: true }"), "npm start and npm run dev keep following live");
-  ok("dev-only follow", has(viteLL, "config.command === \"serve\" ? { follow: true } : undefined"), "the vite hook also runs for vite build, where no loop may start");
+  ok("servers opt in", has(srvLL, "createCmsHost(ROOT, {") && has(srvLL, "follow: true") && has(srvLL, "storage,") && has(viteLL, "createCmsHost(ROOT, serving") && has(viteLL, "follow: true"), "npm start and npm run dev keep following live (sharing one storage probe)");
+  ok("dev-only follow", has(viteLL, 'config.command === "serve"') && has(viteLL, ": undefined)"), "the vite hook also runs for vite build, where no loop may start");
   ok("bakes stay loop-free", has(bsLL, "createCmsHost(rootDir);") && has(brLL, "createCmsHost(rootDir);") && !has(bsLL, "follow: true") && !has(brLL, "follow: true"), "no bake may start the minute timer");
+  /* RR. explicit storage + single-flight wake (no guessed disks, no silent
+     tmp, no empty CMS on wake). */
+  const stRR = text["scripts/storage.mjs"];
+  const srvRR = text["scripts/serve.mjs"];
+  const ccmsRR = text["src/lib/cms.ts"];
+  const wakeRR = text["src/lib/backendwake.ts"];
+  ok("three explicit modes only", has(stRR, '"external", "backend_disk", "hybrid"') && has(stRR, "STORAGE_MODES"), "modes are named, never probed");
+  ok("unknown mode fails closed", has(stRR, "is unknown — use one of"), "a typo must error, not silently serve");
+  ok("disk path required, never guessed", has(stRR, "refusing to guess") && has(stRR, "BACKEND_DISK_PATH"), "backend_disk without a path is a hard error");
+  ok("relative disk path rejected", has(stRR, "must be an absolute path"), "no cwd-relative mounts");
+  ok("missing mount fails, never autocreates", has(stRR, "Mount the disk") && has(stRR, "Permanent data is NOT being written anywhere") && !has(stRR, "mkdir(cfg.diskPath") && !has(stRR, "mkdir(diskPath"), "a missing mount must shout, not mkdir");
+  ok("populated target never clobbered by empty source", has(stRR, "never overwritten with an empty one"), "migration refuses empty-over-full");
+  ok("migration repeats safely", has(stRR, "identical files are skipped") && has(stRR, "verifyManifest(targetDir"), "re-runs change nothing, targets verify");
+  ok("ready door reports storage", has(srvRR, "/api/health/ready") && has(srvRR, "storage-unavailable"), "wake + office see the disk truth");
+  ok("writes refused when degraded", has(srvRR, "storageReadyForWrites") && has(srvRR, "503"), "no half-persisted publishes");
+  ok("uploads keep their addresses", has(srvRR, "data/uploads/") && has(srvRR, "ACTIVE_UPLOADS"), "media urls survive a mode switch");
+  ok("wake is single-flight with backoff", has(wakeRR, "inflight") && has(wakeRR, "Math.pow(2") && has(wakeRR, "MAX_ATTEMPTS"), "one wait per address, capped retries");
+  ok("join waits for ready", has(ccmsRR, "ensureBackendReady") && has(ccmsRR, "wakePassed"), "no socket before the box is ready");
   /* MM. temporary guest channel (note 380): a one-off livestream from another
      address plays while IT is live, never seeds recents, and everything falls
      back to the main channel when it ends. */

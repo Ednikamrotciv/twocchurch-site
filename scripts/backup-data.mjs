@@ -23,6 +23,18 @@ const KEEP = 10;
 const SEEN_FILE = ".last-seen";
 const NAME_RE = /^(suspect-)?\d{8}-\d{6}$/;
 
+/* Storage-aware directories (scripts/storage.mjs owns the decision): every
+   function below accepts { dataDir, backupsDir } and defaults to the legacy
+   layout (root/data, root/data-backups), so external-mode behavior is
+   byte-for-byte what it has always been. */
+function resolveDirs(rootDir, opts) {
+  const o = opts && typeof opts === "object" ? opts : {};
+  return {
+    dataDir: o.dataDir || path.join(rootDir, "data"),
+    backupsDir: o.backupsDir || path.join(rootDir, "data-backups"),
+  };
+}
+
 function stamp(d) {
   const p = (n) => String(n).padStart(2, "0");
   return `${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}-${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}`;
@@ -33,25 +45,27 @@ function hash(buf) {
 }
 
 let seenCache = "";
-export async function recordSeen(rootDir, sha) {
+export async function recordSeen(rootDir, sha, opts) {
   if (!sha || sha === seenCache) return;
   seenCache = sha;
+  const { dataDir } = resolveDirs(rootDir, opts);
   try {
-    await writeFile(path.join(rootDir, "data", SEEN_FILE), JSON.stringify({ sha, at: new Date().toISOString() }));
+    await writeFile(path.join(dataDir, SEEN_FILE), JSON.stringify({ sha, at: new Date().toISOString() }));
   } catch { /* a store that saves is safe even when the fingerprint is not */ }
 }
 
-async function lastSeen(rootDir) {
+async function lastSeen(rootDir, opts) {
   if (seenCache) return seenCache;
+  const { dataDir } = resolveDirs(rootDir, opts);
   try {
-    const rec = JSON.parse(await readFile(path.join(rootDir, "data", SEEN_FILE), "utf8"));
+    const rec = JSON.parse(await readFile(path.join(dataDir, SEEN_FILE), "utf8"));
     if (rec && rec.sha) seenCache = rec.sha;
   } catch { /* never fingerprinted */ }
   return seenCache;
 }
 
-async function listBackups(rootDir) {
-  const dir = path.join(rootDir, "data-backups");
+async function listBackups(rootDir, opts) {
+  const { backupsDir: dir } = resolveDirs(rootDir, opts);
   let names;
   try {
     names = (await readdir(dir)).filter((n) => NAME_RE.test(n)).sort();
@@ -78,13 +92,13 @@ async function backupShas(dir, names) {
   return out;
 }
 
-async function uploadsManifest(rootDir) {
+async function uploadsManifest(dataDir) {
   let uploads = [];
   try {
-    const files = await readdir(path.join(rootDir, "data", "uploads"));
+    const files = await readdir(path.join(dataDir, "uploads"));
     for (const f of files) {
       try {
-        const bytes = (await readFile(path.join(rootDir, "data", "uploads", f))).length;
+        const bytes = (await readFile(path.join(dataDir, "uploads", f))).length;
         uploads.push({ name: f, bytes });
       } catch { /* a directory, or vanished mid-listing */ }
     }
@@ -95,9 +109,11 @@ async function uploadsManifest(rootDir) {
 
 /* Snapshot the current store. Skips when the bytes match the newest snapshot,
    and (unless minHours is 0) when the newest snapshot is younger than that —
-   so publish bursts cost one snapshot, not ten. */
-export async function backup(rootDir, why, minHours) {
-  const dataDir = path.join(rootDir, "data");
+   so publish bursts cost one snapshot, not ten. Writes a checksummed
+   manifest beside the snapshot (scripts/storage.mjs) so restores are
+   verifiable, and mirrors off-site when EXTERNAL_MIRROR_URL is configured. */
+export async function backup(rootDir, why, minHours, opts) {
+  const { dataDir } = resolveDirs(rootDir, opts);
   let state;
   try {
     state = await readFile(path.join(dataDir, "cms-state.bin"));
@@ -105,7 +121,7 @@ export async function backup(rootDir, why, minHours) {
     return { skipped: "no state yet" };
   }
   if (!state.length) return { skipped: "state is empty" };
-  const { dir, names } = await listBackups(rootDir);
+  const { dir, names } = await listBackups(rootDir, opts);
   const sum = hash(state);
   const newestMeta = names.length ? await readMeta(dir, names[names.length - 1]) : null;
   if (newestMeta && newestMeta.sha === sum) return { skipped: "unchanged" };
@@ -125,32 +141,54 @@ export async function backup(rootDir, why, minHours) {
   await writeFile(
     path.join(dest, "meta.json"),
     JSON.stringify(
-      { at: new Date().toISOString(), why: why || "manual", sha: sum, bytes: state.length, uploads: await uploadsManifest(rootDir) },
+      { at: new Date().toISOString(), why: why || "manual", sha: sum, bytes: state.length, uploads: await uploadsManifest(dataDir) },
       null,
       1
     )
   );
+  /* Checksum manifest: every file in the snapshot hashed, so a restore can
+     prove the bytes before the live store is touched. */
+  try {
+    const { writeManifest } = await import("./storage.mjs");
+    await writeManifest(dest, { backupOf: dataDir, why: why || "manual" });
+  } catch { /* manifest is evidence, never a blocker */ }
   const regular = names.filter((n) => !n.startsWith("suspect-"));
   for (const old of regular.slice(0, Math.max(0, regular.length + 1 - KEEP))) {
     try {
       await rm(path.join(dir, old), { recursive: true, force: true });
     } catch { /* a snapshot that will not delete is kept, not fatal */ }
   }
-  await recordSeen(rootDir, sum);
+  await recordSeen(rootDir, sum, opts);
+  /* Off-site second copy for disk mode (best-effort, never blocks). */
+  try {
+    const { mirrorBackup } = await import("./storage.mjs");
+    const mirrorUrl = String(process.env.EXTERNAL_MIRROR_URL || "").trim();
+    if (mirrorUrl) {
+      const r = await mirrorBackup({ mirrorUrl, mirrorToken: String(process.env.EXTERNAL_MIRROR_TOKEN || ""), stateBytes: state, meta: { at: new Date().toISOString(), sha: sum, bytes: state.length, why: why || "manual" } });
+      if (!r.mirrored) console.warn(`backup mirror skipped: ${r.error || "unreachable"}`);
+    }
+  } catch { /* the local snapshot above is the backup; the mirror is extra */ }
   return { saved: name, bytes: state.length };
 }
 
 /* Put a snapshot back. No name = the newest. Refuses to overwrite a differing
-   live store unless forced (a differing store means real publishing happened). */
-export async function restore(rootDir, name, force) {
-  const { dir, names } = await listBackups(rootDir);
-  if (!names.length) return { error: "no backups found in data-backups/" };
+   live store unless forced (a differing store means real publishing happened).
+   Verifies the snapshot manifest first — a corrupt backup never touches the
+   live store. */
+export async function restore(rootDir, name, force, opts) {
+  const { dir, names } = await listBackups(rootDir, opts);
+  const { dataDir } = resolveDirs(rootDir, opts);
+  if (!names.length) return { error: `no backups found in ${dir}/` };
   const pick = name || names[names.length - 1];
   if (!NAME_RE.test(pick) || !names.includes(pick)) {
     return { error: `no backup named ${pick} (have: ${names.join(", ")})` };
   }
+  try {
+    const { verifyManifest } = await import("./storage.mjs");
+    const v = await verifyManifest(path.join(dir, pick));
+    if (!v.ok) return { error: `backup ${pick} failed integrity check (${(v.mismatches || []).join(", ") || v.error || "unreadable"}) — refusing to restore it` };
+  } catch { /* manifest unreadable — meta check below still guards */ }
   const meta = await readMeta(dir, pick);
-  const dataDir = path.join(rootDir, "data");
   await mkdir(dataDir, { recursive: true });
   let live = null;
   try {
@@ -168,7 +206,7 @@ export async function restore(rootDir, name, force) {
     const ver = await readFile(path.join(dir, pick, "cms-version.txt"));
     await writeFile(path.join(dataDir, "cms-version.txt"), ver);
   } catch { /* snapshot predates versioning */ }
-  await recordSeen(rootDir, hash(snap));
+  await recordSeen(rootDir, hash(snap), opts);
   let missingUploads = [];
   if (meta && meta.uploads) {
     for (const u of meta.uploads) {
@@ -182,15 +220,16 @@ export async function restore(rootDir, name, force) {
 /* Bless the live bytes as this folder's own (after deliberately placing a
    store by hand, e.g. adopting a state file from a zip). Stops the boot guard
    from "recovering" it away. */
-export async function adoptLive(rootDir) {
+export async function adoptLive(rootDir, opts) {
+  const { dataDir } = resolveDirs(rootDir, opts);
   let live;
   try {
-    live = await readFile(path.join(rootDir, "data", "cms-state.bin"));
+    live = await readFile(path.join(dataDir, "cms-state.bin"));
   } catch {
     return { error: "no live store to adopt" };
   }
   if (!live.length) return { error: "live store is empty — nothing to adopt" };
-  await recordSeen(rootDir, hash(live));
+  await recordSeen(rootDir, hash(live), opts);
   return { adopted: hash(live) };
 }
 
@@ -198,7 +237,8 @@ export async function adoptLive(rootDir) {
    cannot touch the timestamped names), and if the live bytes are foreign —
    missing, or never produced by this folder — bring the newest snapshot back
    before anything else loads. */
-export async function guardAtBoot(rootDir) {
+export async function guardAtBoot(rootDir, opts) {
+  const { dataDir } = resolveDirs(rootDir, opts);
   /* Clean-deploy mode (office request: every new deploy opens fresh —
      welcome-home slide only — until Recover + Publish): while
      clean-deploy.txt sits beside package.json the live store is snapshotted
@@ -211,9 +251,9 @@ export async function guardAtBoot(rootDir) {
   try {
     await readFile(path.join(rootDir, "clean-deploy.txt"), "utf8");
     try {
-      const r = await backup(rootDir, "clean deploy snapshot", 0);
+      const r = await backup(rootDir, "clean deploy snapshot", 0, opts);
       if (r.saved) {
-        console.log(`clean deploy: snapshotted the previous store in data-backups/${r.saved}/ — this deploy opens fresh (welcome-home slide only) until Recover + Publish. Accounts are kept. Nothing was deleted.`);
+        console.log(`clean deploy: snapshotted the previous store in ${r.saved}/ — this deploy opens fresh (welcome-home slide only) until Recover + Publish. Accounts are kept. Nothing was deleted.`);
         return { ok: true, clean: true, parked: r.saved };
       }
       if (r.skipped) {
@@ -224,24 +264,23 @@ export async function guardAtBoot(rootDir) {
     }
     return { ok: true, clean: true, fresh: false };
   } catch { /* no flag — guard as usual below */ }
-  const dataDir = path.join(rootDir, "data");
   let live = null;
   try {
     live = await readFile(path.join(dataDir, "cms-state.bin"));
   } catch { /* gone */ }
   if (!live || !live.length) {
-    const { names } = await listBackups(rootDir);
+    const { names } = await listBackups(rootDir, opts);
     if (!names.length) return { ok: true, fresh: true };
-    const r = await restore(rootDir, names[names.length - 1], true);
+    const r = await restore(rootDir, names[names.length - 1], true, opts);
     if (r.restored) {
-      console.log(`content recovered: live store was missing — restored data-backups/${r.restored}/ from ${r.at || "unknown time"}`);
+      console.log(`content recovered: live store was missing — restored ${r.restored}/ from ${r.at || "unknown time"}`);
       reportMissingUploads(rootDir, r);
     }
     return { ok: true, recovered: r.restored };
   }
   const sum = hash(live);
-  const seen = await lastSeen(rootDir);
-  const { dir, names } = await listBackups(rootDir);
+  const seen = await lastSeen(rootDir, opts);
+  const { dir, names } = await listBackups(rootDir, opts);
   const known = seen ? [seen, ...(await backupShas(dir, names))] : await backupShas(dir, names);
   if (names.length && !known.includes(sum)) {
     const sname = "suspect-" + stamp(new Date());
@@ -254,21 +293,21 @@ export async function guardAtBoot(rootDir) {
         JSON.stringify({ at: new Date().toISOString(), why: "stashed foreign bytes at boot", sha: sum, bytes: live.length }, null, 1)
       );
     } catch { /* stashing failed — restore still proceeds below */ }
-    const r = await restore(rootDir, names[names.length - 1], true);
+    const r = await restore(rootDir, names[names.length - 1], true, opts);
     console.log("================================================================");
     console.log("CONTENT GUARD: the store on disk was NOT this folder's own work —");
     console.log("most likely a fresh zip was extracted over it. The newest snapshot");
     console.log(`was put back (${r.restored || "restore failed"}). The foreign bytes were kept`);
-    console.log(`as data-backups/${sname}/ — nothing was deleted.`);
+    console.log(`in the backups dir as ${sname}/ — nothing was deleted.`);
     console.log("If the replaced words were placed ON PURPOSE, run: npm run adopt");
     console.log("To choose a different snapshot instead, run: npm run restore");
     console.log("================================================================");
     if (r.restored) reportMissingUploads(rootDir, r);
     return { ok: true, recovered: r.restored, stashed: sname };
   }
-  const r = await backup(rootDir, "server boot");
-  if (r.saved) console.log(`content backup saved: data-backups/${r.saved}/ (${r.bytes} bytes)`);
-  await recordSeen(rootDir, sum);
+  const r = await backup(rootDir, "server boot", undefined, opts);
+  if (r.saved) console.log(`content backup saved: ${r.saved}/ (${r.bytes} bytes)`);
+  await recordSeen(rootDir, sum, opts);
   return { ok: true };
 }
 
@@ -279,8 +318,30 @@ function reportMissingUploads(_rootDir, _r) {
   }
 }
 
-export async function list(rootDir) {
-  return (await listBackups(rootDir)).names;
+export async function list(rootDir, opts) {
+  return (await listBackups(rootDir, opts)).names;
+}
+
+/* Verify every snapshot's manifest (backup integrity check). Returns the
+   failures; empty means every backup is intact. */
+export async function verifyAll(rootDir, opts) {
+  const { dir, names } = await listBackups(rootDir, opts);
+  let storage = null;
+  try {
+    storage = await import("./storage.mjs");
+  } catch {
+    return { error: "storage module unavailable" };
+  }
+  const failures = [];
+  for (const n of names) {
+    try {
+      const v = await storage.verifyManifest(path.join(dir, n));
+      if (!v.ok) failures.push({ name: n, mismatches: v.mismatches || [], error: v.error || "" });
+    } catch (err) {
+      failures.push({ name: n, mismatches: [], error: String(err?.message || err) });
+    }
+  }
+  return { checked: names.length, failures };
 }
 
 const CLI = typeof process !== "undefined" && process.argv && process.argv[1] && process.argv[1].endsWith("backup-data.mjs");
@@ -313,8 +374,20 @@ if (CLI) {
   } else if (cmd === "list" || !cmd) {
     const names = await list(root);
     console.log(names.length ? names.join("\n") : "no backups yet — one is taken on every server start");
+  } else if (cmd === "verify") {
+    const r = await verifyAll(root);
+    if (r.error) {
+      console.error("verify: " + r.error);
+      process.exitCode = 1;
+    } else if (r.failures.length) {
+      console.error(`verify: ${r.failures.length} of ${r.checked} backups FAILED integrity:`);
+      for (const f of r.failures) console.error(`  ${f.name}: ${(f.mismatches || []).join(", ") || f.error}`);
+      process.exitCode = 1;
+    } else {
+      console.log(`verify: all ${r.checked} backups intact`);
+    }
   } else {
-    console.error("usage: npm run backup | npm run restore [name|force] | npm run adopt | node scripts/backup-data.mjs list");
+    console.error("usage: npm run backup | npm run restore [name|force] | npm run adopt | node scripts/backup-data.mjs list | node scripts/backup-data.mjs verify");
     process.exitCode = 1;
   }
 }

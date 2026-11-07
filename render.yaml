@@ -10,3 +10,20 @@ services:
     envVars:
       - key: NODE_VERSION
         value: 24
+      # Storage strategy (see STORAGE.md). Free/no-disk: leave the default
+      # (STORAGE_MODE=external) — durability rides git + the seed bake.
+      # When you add a Persistent Disk, set STORAGE_MODE=backend_disk and
+      # BACKEND_DISK_PATH to the disk's mount path (Render default /var/data),
+      # then migrate + restart. Set it explicitly — never rely on a default.
+      - key: STORAGE_MODE
+        value: external
+      # - key: BACKEND_DISK_PATH
+      #   value: /var/data
+      # Optional: backups every N minutes (default 360, min 60).
+      # - key: BACKUP_INTERVAL_MIN
+      #   value: 360
+    # To attach a Persistent Disk later, add e.g.:
+    # disk:
+    #   name: church-data
+    #   mountPath: /var/data
+    #   sizeGB: 1

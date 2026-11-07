@@ -3339,6 +3339,24 @@ input, select, textarea { font-size: 1rem !important; }
     width: 100%;
   }
 }
+/* Backend wake banner (sleep/wake): the same slim line as the preview
+   banner, but calm — the server is being woken while the visitor keeps
+   reading the last published page. The dot pulses while waking. */
+.previewbar--wake {
+  justify-content: center;
+  background: #101c2e;
+  color: #bcd6f5;
+  border-bottom: 1px solid #274a75;
+}
+.previewbar--wake .live-dot {
+  display: inline-block;
+  margin-right: 0.45rem;
+  animation: wom-wake-pulse 1.2s ease-in-out infinite;
+}
+@keyframes wom-wake-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.25; }
+}
 /* Boot splash removed: the site paints immediately, so these rules are retired. */
 /* Maintenance mode (note 249): the header's logo and notice are the whole
    site — no pages, no footer, no buttons. Follows the page theme. */
