@@ -1,6 +1,6 @@
 import React, { useEffect } from "react";
 import { useRoute, navigate, ADMIN_PREFIX, lazyPage } from "./lib/router";
-import { Header, Footer, ScrollTop, SkipLink, MaintenanceSite, PreviewBanner, BackendWakeBanner } from "./components/layout";
+import { Header, Footer, ScrollTop, SkipLink, MaintenanceSite, PreviewBanner } from "./components/layout";
 import { Toaster } from "./components/ui";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import { startCms, useCmsVersion, useCmsReady, useMaintenance, usePreviewingWhileWaiting, useStaleBuild, checkStaleBuild, isCurrentDeployPublishedSync } from "./lib/cms";
@@ -269,7 +269,6 @@ function SiteApp() {
     <>
       <SkipLink />
       {previewing && <PreviewBanner />}
-      <BackendWakeBanner />
       <Header />
       <main id="main" key={to}>
         <ErrorBoundary>

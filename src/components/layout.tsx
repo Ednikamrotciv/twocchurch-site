@@ -12,7 +12,6 @@ import { EVENTS, SEED_TESTIMONIES } from "../data/content";
 import { Icon, IconBtn, OPEN_SEARCH_EVENT } from "./ui";
 import { eventDate, AnnouncementBanner } from "./blocks";
 import { ct } from "../data/copy";
-import { subscribeWake, wakeSnapshot, type WakeState } from "../lib/backendwake";
 
 /* ------------------------------------------------------------------ search index */
 
@@ -533,24 +532,6 @@ export function PreviewBanner() {  return (
       <button type="button" className="previewbar__exit" onClick={() => exitMaintenancePreview()}>
         Exit preview
       </button>
-    </div>
-  );
-}
-
-/* Backend wake banner (sleep/wake): while the sleeping server is being woken,
-   say so in one slim line — the visitor stays on their page reading the last
-   published paint meanwhile. Hides the moment the server answers; a
-   background retry that finally gives up settles into a quiet one-liner,
-   never a block, never an empty page. */
-export function BackendWakeBanner() {
-  const [wake, setWake] = useState<WakeState>(() => wakeSnapshot());
-  useEffect(() => subscribeWake(setWake), []);
-  if (wake.phase !== "waking" && wake.phase !== "failed") return null;
-  return (
-    <div className="previewbar previewbar--wake" role="status" aria-live="polite">
-      <span>
-        <span className="live-dot" aria-hidden="true" /> {wake.detail || "Waking the church server — your page stays right here."}
-      </span>
     </div>
   );
 }

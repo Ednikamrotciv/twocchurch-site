@@ -49,7 +49,7 @@ external mode, `<disk>/backups` in disk modes), `BACKUP_INTERVAL_MIN`
   Public, tiny, no paths or secrets. Visitor browsers poll this (single-flight
   per address, exponential backoff, paused while hidden) and only then open
   the content socket — the page stays painted on the last published content
-  throughout, with a slim "waking the server" banner.
+  throughout (the wait is silent — no banner).
 
 ## 4. Backups (mode-independent)
 

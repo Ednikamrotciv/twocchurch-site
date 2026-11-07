@@ -4,7 +4,7 @@
 import React, { cloneElement, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactElement } from "react";
 import { navigate, useRoute } from "../lib/router";
 import { resolvePath } from "../lib/routes";
-import { Header, Footer, ScrollTop, SkipLink, BackendWakeBanner } from "../components/layout";
+import { Header, Footer, ScrollTop, SkipLink } from "../components/layout";
 import { Btn, Card, Icon, Input, Modal, Select, Toaster } from "../components/ui";
 import { ErrorBoundary } from "../components/ErrorBoundary";
 import {
@@ -400,7 +400,6 @@ export function Admin() {
   return (
     <div className="admin eshell">
       <SkipLink />
-      <BackendWakeBanner />
       <Header />
       {waiting && (
         <div className="admin__quickbtns">
