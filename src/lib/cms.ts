@@ -299,15 +299,15 @@ function serverHoldsPublish(): boolean {
     try {
       if (v.notes === BUILD_NOTES && v.at > 0 && deployFirstSeenAt > 0 && v.at + PUBLISH_AT_SKEW_MS > deployFirstSeenAt) return true;
     } catch {}
-    /* Shared-backend release (live-relay, one click clears all devices):
-       same update + same code + real words on the backend this copy reads
-       means live — no deploy/clock matching, so a late device, a rebuilt
-       device, a fresh/incognito device and the publishing device all read the
-       same answer and agree, with no second click. Deploy, host and clock
-       branches above already cover their cases; anything code-mismatched
-       (genuinely new code), note-behind, empty or unreviewed still waits via
-       the deploy lock below. In particular a new code word with the same
-       update number must still wait for its own publish. */
+    /* Shared-backend release (live-relay, one click clears all devices): this
+       update (or newer) with real words on the backend this copy reads means
+       live, with no deploy/code/clock matching. A late device, a rebuilt
+       device and the publishing device read the same answer and agree.
+       Genuinely new code (server behind this update) and empty/unreviewed
+       backends still wait via the checks above. */
+    try {
+      if (v.notes >= BUILD_NOTES && v.words > 0) return true;
+    } catch {}
     return false;
   } catch {
     return false;
