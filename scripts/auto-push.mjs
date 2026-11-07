@@ -110,21 +110,7 @@ async function pushOnce(rootDir) {
        same commit carries it; a no-op when the file is absent. */
     const flagRm = await run("git", ["rm", "--quiet", "--", "clean-deploy.txt"], rootDir);
     const flagGone = flagRm.code === 0;
-    /* What git carries (storage.mjs): in external mode the operating data/
-       lives beside the code, so data/ + seed.json ride as before. On a
-       persistent disk the data lives OUTSIDE the repo (and a deployed box
-       has no repo at all) — only seed.json rides, never an absolute disk
-       path. The disk itself is the durability there. */
-    let pushPaths = ["data", "seed.json"];
-    try {
-      const { initStorage } = await import("./storage.mjs");
-      const st = await initStorage({ rootDir });
-      if (st.ok && st.mode !== "external") {
-        pushPaths = ["seed.json"];
-        console.log(`auto-deploy: storage mode ${st.mode} — the disk holds the words, git carries the seed bake only`);
-      }
-    } catch { /* storage module unreadable — legacy paths stand */ }
-    const add = await run("git", ["add", "-A", "--", ...pushPaths], rootDir);
+    const add = await run("git", ["add", "-A", "--", "data", "seed.json"], rootDir);
     if (add.code !== 0) return { skipped: "git add failed" };
     /* No file may sink the words (a video over GitHub's 100 MB refusal fails
        the whole push): unstage oversize staged files — they stay on the
@@ -132,7 +118,7 @@ async function pushOnce(rootDir) {
        (no working file to measure), and everything else rides as before. */
     let excludedBig = [];
     try {
-      const staged = await run("git", ["diff", "--cached", "--name-only", "-z", "--", ...pushPaths], rootDir);
+      const staged = await run("git", ["diff", "--cached", "--name-only", "-z", "--", "data", "seed.json"], rootDir);
       const files = String(staged.out || "").split("\0").map((s) => s.trim()).filter(Boolean);
       const { stat } = await import("node:fs/promises");
       for (const f of files) {
@@ -154,7 +140,7 @@ async function pushOnce(rootDir) {
     if (excludedBig.length) {
       console.warn(`auto-deploy: ${excludedBig.length} file(s) over 100 MB stay home, out of this push (${excludedBig.slice(0, 3).join(", ")}) — the words still ride; shrink the file under 100 MB (or host the video elsewhere and paste its link) to carry it`);
     }
-    const again = await run("git", ["status", "--porcelain", "--", ...pushPaths], rootDir);
+    const again = await run("git", ["status", "--porcelain", "--", "data", "seed.json"], rootDir);
     if (!again.out.trim() && !flagGone) return { skipped: "nothing new to deploy" };
     const day = new Date().toISOString().slice(0, 16).replace("T", " ");
     const commit = await run("git", ["commit", "-m", `content update ${day}` + (flagGone ? " (clean-deploy flag consumed by first publish)" : ""), "--quiet"], rootDir);

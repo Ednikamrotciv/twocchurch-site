@@ -88,36 +88,6 @@ export function cmsBackend() {
       if (anomaly) anomaly.observeRpc({ connId, ip: lastIpByConn.get(String(connId || "")) || "-", rpc, ok, err });
     } catch {}
   }
-  /* Dev readiness (see the /api/health/ready door below): storage ok plus a
-     published revision behind this boot, else not ready. Never throws. */
-  async function devReadiness() {
-    const base = { ok: false, mode: (devStorage && devStorage.ok ? devStorage.mode : "external"), uptimeMs: 0 };
-    if (!devStorage || !devStorage.ok) {
-      return { ...base, reason: "storage-unavailable", detail: String((devStorage && devStorage.error) || "storage not initialized").slice(0, 200) };
-    }
-    let clean = false;
-    try {
-      await readFile(path.join(ROOT, "clean-deploy.txt"), "utf8");
-      clean = true;
-    } catch { /* words ride as usual */ }
-    let rev = 0, notes = 0, at = 0;
-    try {
-      if (cms) {
-        const r = await cms.call("contentRev", "ready-probe", "");
-        if (r && r.status === 200) {
-          const d = JSON.parse(r.body);
-          if (d && d.ok === true) {
-            rev = Math.floor(Number(d.rev)) || 0;
-            notes = Math.floor(Number(d.notes)) || 0;
-            at = Number(d.at) || 0;
-          }
-        }
-      }
-    } catch { /* store unreadable */ }
-    if (rev > 0) return { ...base, ok: true, rev, notes, at, source: "store" };
-    if (clean) return { ...base, ok: true, rev, notes, at, source: "clean-deploy" };
-    return { ...base, reason: "empty", rev, notes, at };
-  }
   async function devLiveUrl() {
     try {
       const raw = await readFile(path.join(ROOT, "cms-server.txt"), "utf8").catch(() => "");
@@ -131,11 +101,6 @@ export function cmsBackend() {
      local publish, confirm the live box has it — or say exactly why others
      still wait. Runtime only, never the build. */
   let publishWatch = null;
-  /* Active storage for this dev process (scripts/storage.mjs): external =
-     local data/ (as before); backend_disk/hybrid = the mounted disk named
-     by BACKEND_DISK_PATH. Initialized once the plugin resolves config. */
-  let devStorage = null;
-  let devStoreOpts = {};
   try {
     publishWatch = createPublishWatch({
       getOfficeStamp: async () => {
@@ -190,21 +155,7 @@ export function cmsBackend() {
         /* stamp unreadable — the page stamp still shows */
       }
       try {
-        const { initStorage } = await import("./storage.mjs");
-        devStorage = await initStorage({ rootDir: ROOT, env: process.env });
-        devStoreOpts = devStorage.ok ? { dataDir: devStorage.dataDir, backupsDir: devStorage.backupsDir } : {};
-        if (!devStorage.ok) {
-          console.error("STORAGE DEGRADED (dev): " + devStorage.error);
-          console.error("Reads continue from the baked seed; WRITES ARE REFUSED. Fix and restart.");
-        } else {
-          for (const line of devStorage.report || []) console.log("storage: " + line);
-          console.log(`storage: mode=${devStorage.mode} data=${devStorage.dataDir} backups=${devStorage.backupsDir}`);
-        }
-      } catch (err) {
-        console.warn("storage init skipped:", err?.message || err);
-      }
-      try {
-        await guardAtBoot(ROOT, devStoreOpts);
+        await guardAtBoot(ROOT);
       } catch {
         /* same snapshot-and-recover as scripts/serve.mjs — never fatal */
       }
@@ -215,7 +166,6 @@ export function cmsBackend() {
       const serving = !!(config && config.command === "serve");
       cms = await createCmsHost(ROOT, serving
         ? {
-          storage: devStorage,
           follow: true,
           onRpc: ({ method, id, status, body }) => {
             try {
@@ -298,10 +248,9 @@ export function cmsBackend() {
         console.warn("static assets not copied:", err?.message || err);
       }
       try {
-        const upSrc = (devStorage && devStorage.ok && devStorage.uploadsDir) || path.join(ROOT, "data", "uploads");
-        const st = await stat(upSrc).catch(() => null);
+        const st = await stat(path.join(ROOT, "data", "uploads")).catch(() => null);
         if (st && st.isDirectory()) {
-          await cp(upSrc, path.join(outDir, "data", "uploads"), { recursive: true });
+          await cp(path.join(ROOT, "data", "uploads"), path.join(outDir, "data", "uploads"), { recursive: true });
         }
       } catch (err) {
         console.warn("uploads not copied:", err?.message || err);
@@ -467,34 +416,19 @@ export function cmsBackend() {
           }
 
           /* Uploads the office saved on their own disk (see /__upload below) —
-             plain files Vite would otherwise 404. Served from the ACTIVE
-             uploads dir first (local data/uploads/ or the persistent disk),
-             then the repo copy. */
+             plain files Vite would otherwise 404. */
           if (pathname.startsWith("/data/uploads/") && req.method === "GET") {
-            const leaf = pathname.replace(/^\/+/, "").slice("data/uploads/".length);
-            if (!/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(leaf)) {
+            const file = path.normalize(path.join(ROOT, pathname.replace(/^\/+/, "")));
+            if (!file.startsWith(ROOT)) {
               res.writeHead(403);
               res.end("forbidden");
               return;
             }
-            const cands = [];
-            if (devStorage && devStorage.ok && devStorage.uploadsDir) cands.push(path.normalize(path.join(devStorage.uploadsDir, leaf)));
-            cands.push(path.normalize(path.join(ROOT, pathname.replace(/^\/+/, ""))));
-            let hit = "";
-            /* Leaf names cannot contain slashes or ".." (validated above), so
-               both candidates are inherently inside their homes — no prefix
-               games needed. */
-            for (const c of cands) {
-              const st = await stat(c).catch(() => null);
-              if (st && st.isFile()) {
-                hit = c;
-                break;
-              }
-            }
-            if (!hit) return next();
-            const body = await readFile(hit);
+            const st = await stat(file).catch(() => null);
+            if (!st || !st.isFile()) return next();
+            const body = await readFile(file);
             res.writeHead(200, {
-              "content-type": MIME[path.extname(hit).toLowerCase()] || "application/octet-stream",
+              "content-type": MIME[path.extname(file).toLowerCase()] || "application/octet-stream",
               "content-length": body.length,
               "cache-control": "no-cache",
               "x-content-type-options": "nosniff",
@@ -679,7 +613,7 @@ export function cmsBackend() {
                   res.end("bad filetype");
                   return;
                 }
-                const dir = (devStorage && devStorage.ok && devStorage.uploadsDir) || path.join(ROOT, "data", "uploads");
+                const dir = path.join(ROOT, "data", "uploads");
                 await mkdir(dir, { recursive: true });
                 const fname = Date.now().toString(36) + "-" + safe;
                 await writeFile(path.join(dir, fname), Buffer.concat(chunks));
@@ -746,7 +680,7 @@ export function cmsBackend() {
             req.on("end", async () => {
               if (tooBig) return;
               try {
-                const dir = (devStorage && devStorage.ok && devStorage.uploadsDir) || path.join(ROOT, "data", "uploads");
+                const dir = path.join(ROOT, "data", "uploads");
                 await mkdir(dir, { recursive: true });
                 await writeFile(path.join(dir, asked), Buffer.concat(chunks));
                 const body = JSON.stringify({ url: "/data/uploads/" + asked, restored: true });
@@ -784,8 +718,7 @@ export function cmsBackend() {
               return;
             }
             try {
-              const upBase = (devStorage && devStorage.ok && devStorage.uploadsDir) || path.join(ROOT, "data", "uploads");
-              const target = path.join(upBase, asked);
+              const target = path.join(ROOT, "data", "uploads", asked);
               const st = await stat(target).catch(() => null);
               if (!st || !st.isFile()) {
                 res.writeHead(404, { "cache-control": "no-store" });
@@ -802,23 +735,10 @@ export function cmsBackend() {
             return;
           }
 
-          /* Readiness (sleep/wake + storage): the visitor wake-up polls this
-             until it says ready — same contract as scripts/serve.mjs, dev
-             flavor. Never throws. */
-          if (pathname === "/api/health/ready" && req.method === "GET") {
-            try {
-              const body = JSON.stringify(await devReadiness());
-              res.writeHead(200, { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" });
-              res.end(body);
-            } catch {
-              res.writeHead(200, { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" });
-              res.end(JSON.stringify({ ok: false, reason: "report-failed" }));
-            }
-            return;
-          }
-
-          /* Live address for the two-way sync (note 308): office copies ask
-             this door where "live" is (the first origin in cms-server.txt). */
+          /* Live address for the two-way sync (note 308; ported to this line
+             in note 346 — without this door the live→local pull never
+             answered on dev): office copies ask this door where "live" is
+             (the first origin in cms-server.txt). */
           if (pathname === "/__live-url" && req.method === "GET") {
             let live = "";
             try {

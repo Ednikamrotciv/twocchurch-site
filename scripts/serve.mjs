@@ -4,7 +4,7 @@ import { gzipSync } from "node:zlib";
 import path from "node:path";
 import { createCmsHost, hashText } from "./cms-local.mjs";
 import { isLoopbackAddr } from "./live-follow.mjs";
-import { answerWithSeedFallback, primeMirrorSeed, loadBakedSeed } from "./seed-fallback.mjs";
+import { answerWithSeedFallback, primeMirrorSeed } from "./seed-fallback.mjs";
 import { createGeoProxy } from "./geo-proxy.mjs";
 import { guardAtBoot } from "./backup-data.mjs";
 import { MIME } from "./mime.mjs";
@@ -18,75 +18,6 @@ const ROOT = process.cwd();
 const PORT = Number(process.env.PORT || 5173);
 const DIST = path.join(ROOT, "dist");
 const SHIM_TAG = '<script src="/scripts/local-shim.js"></script>';
-
-/* Permanent-data home for this process (scripts/storage.mjs — the single
-   probe both the CMS host and these http doors share). external = local
-   data/ (durability via the git/seed/mirror net); backend_disk/hybrid = the
-   mounted disk named by BACKEND_DISK_PATH. A bad disk boots DEGRADED: reads
-   serve the baked seed, writes answer 503, /api/health/ready says why. */
-const { initStorage } = await import("./storage.mjs");
-const storage = await initStorage({ rootDir: ROOT, env: process.env });
-const storeOpts = storage.ok ? { dataDir: storage.dataDir, backupsDir: storage.backupsDir } : {};
-if (!storage.ok) {
-  console.error("================================================================");
-  console.error("STORAGE DEGRADED: " + storage.error);
-  console.error("Reads continue from the baked seed; WRITES ARE REFUSED until this");
-  console.error("is fixed and the server restarts. /api/health/ready reports it.");
-  console.error("================================================================");
-} else {
-  for (const line of storage.report || []) console.log("storage: " + line);
-  console.log(`storage: mode=${storage.mode} data=${storage.dataDir} uploads=${storage.uploadsDir} backups=${storage.backupsDir}`);
-}
-const BOOT_AT = Date.now();
-
-/* Active uploads home (storage.mjs): local data/uploads/ in external mode,
-   the persistent disk in disk mode. Degraded (bad disk) refuses writes. */
-const ACTIVE_UPLOADS = storage.ok ? storage.uploadsDir : "";
-function storageReadyForWrites(res) {
-  if (ACTIVE_UPLOADS) return true;
-  res.writeHead(503, { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" });
-  res.end(JSON.stringify({ ok: false, err: "storage-unavailable" }));
-  return false;
-}
-
-/* Readiness for the visitor wake-up (GET /api/health/ready): ok while the
-   store holds a publish, a usable baked seed stands behind an empty one, or
-   a clean-deploy flag explains the emptiness. Never ok on degraded storage.
-   Public and tiny — status only, no paths, no secrets. Never throws. */
-async function readinessReport() {
-  const uptimeMs = Date.now() - BOOT_AT;
-  const base = { ok: false, mode: storage.ok ? storage.mode : (storage.mode || "external"), uptimeMs };
-  if (!storage.ok) return { ...base, reason: "storage-unavailable", detail: String(storage.error || "").slice(0, 200) };
-  let clean = false;
-  try {
-    await readFile(path.join(ROOT, "clean-deploy.txt"), "utf8");
-    clean = true;
-  } catch { /* words ride as usual */ }
-  let rev = 0, notes = 0, at = 0;
-  try {
-    const r = await cms.call("contentRev", "ready-probe", "");
-    if (r && r.status === 200) {
-      const d = JSON.parse(r.body);
-      if (d && d.ok === true) {
-        rev = Math.floor(Number(d.rev)) || 0;
-        notes = Math.floor(Number(d.notes)) || 0;
-        at = Number(d.at) || 0;
-      }
-    }
-  } catch { /* store unreadable — the seed below still answers */ }
-  let seedRev = 0, seedSections = 0;
-  try {
-    const seed = await loadBakedSeed(ROOT, DIST);
-    if (seed) {
-      seedRev = Number(seed.rev) || 0;
-      seedSections = seed.sections ? Object.keys(seed.sections).length : 0;
-    }
-  } catch { /* no bake readable */ }
-  if (rev > 0) return { ...base, ok: true, rev, notes, at, source: "store" };
-  if (clean) return { ...base, ok: true, rev, notes, at, source: "clean-deploy", seedRev, seedSections };
-  if (seedSections > 0) return { ...base, ok: true, rev, notes, at, source: "seed", seedRev, seedSections };
-  return { ...base, reason: "empty", rev, notes, at, seedRev, seedSections };
-}
 
 /* Served pages are the production build (`npm run build`). The shim connects
    the local browser to this backend (sign-in, publish, uploads) — deployed
@@ -241,14 +172,13 @@ const cms = await (async () => {
      timestamped backup names), and recover the newest snapshot if the live
      store is missing — e.g. a fresh extract landed over the folder. */
   try {
-    await guardAtBoot(ROOT, storeOpts);
+    await guardAtBoot(ROOT);
   } catch (err) {
     console.warn("content backup skipped:", err?.message || err);
   }
   // Security shield observes every RPC (privilege/volume) — never blocks here,
   // never slows deploys; the WAF at the http layer does the blocking.
   return createCmsHost(ROOT, {
-    storage,
     follow: true,
     onRpc: ({ method, id, status, body }) => {
       try {
@@ -350,55 +280,6 @@ import("./bake-recent.mjs").then(({ bakeRecent }) => import("./auto-push.mjs").t
   /* a bake that cannot load never stops the server */
 });
 
-/* Scheduled backups (mode-independent protection): the boot guard above
-   already snapshots every start; this keeps a fresh snapshot while the
-   process runs for weeks, verifies integrity, and alerts loudly on failure —
-   in external mode AND on a persistent disk alike. Failures log here and to
-   the security evidence log; status lands in backup-status.json beside the
-   snapshots for the admin Tools card. Never throws out. */
-import("./backup-data.mjs").then(({ backup, verifyAll }) => {
-  const mins = Math.max(60, Math.floor(Number(process.env.BACKUP_INTERVAL_MIN) || 360));
-  const runBackup = async () => {
-    const statusPath = path.join(storeOpts.backupsDir || path.join(ROOT, "data-backups"), "backup-status.json");
-    const note = async (s) => {
-      try {
-        await writeFile(statusPath, JSON.stringify({ at: new Date().toISOString(), ...s }, null, 1));
-      } catch { /* status is advisory */ }
-    };
-    try {
-      const r = await backup(ROOT, "scheduled", 0, storeOpts);
-      /* Integrity check every run is cheap (hashes only); a failure pages
-         the terminal AND the security log so a rotting disk is never quiet. */
-      const v = await verifyAll(ROOT, storeOpts).catch(() => ({ checked: 0, failures: [{ name: "verify-crashed" }] }));
-      const failures = (v && v.failures) || [];
-      if (failures.length) {
-        const detail = `backup integrity FAILED (${failures.length} of ${v.checked} snapshots): ${failures.slice(0, 3).map((f) => f.name).join(", ")} — inspect ${storeOpts.backupsDir || "data-backups"}/ at once; nothing was deleted`;
-        console.error("BACKUP ALERT: " + detail);
-        try {
-          secLog.log({ level: "high", kind: "backup-fail", ip: "-", route: "-", detail, hint: "backups exist but do not verify — disk trouble or partial writes. `npm run backup` a fresh one, then `node scripts/backup-data.mjs verify`.", category: "backup", source: "local" });
-        } catch {}
-        await note({ saved: r.saved || null, skipped: r.skipped || null, checked: v.checked, failures: failures.map((f) => f.name) });
-      } else if (r.saved) {
-        console.log(`scheduled backup saved (${r.bytes} bytes, ${v.checked} snapshots verified intact)`);
-        await note({ saved: r.saved, checked: v.checked, failures: [] });
-      } else {
-        await note({ skipped: r.skipped || "unchanged", checked: v.checked, failures: [] });
-      }
-    } catch (err) {
-      const detail = `scheduled backup FAILED: ${err?.message || err} — the last good snapshot is untouched; fix disk space/permissions and run \`npm run backup\``;
-      console.error("BACKUP ALERT: " + detail);
-      try {
-        secLog.log({ level: "high", kind: "backup-fail", ip: "-", route: "-", detail, hint: "run `npm run backup`, then `node scripts/backup-data.mjs verify`.", category: "backup", source: "local" });
-      } catch {}
-      await note({ error: String(err?.message || err).slice(0, 200) });
-    }
-  };
-  setInterval(runBackup, mins * 60 * 1000);
-  setTimeout(() => runBackup().catch(() => {}), 5 * 60 * 1000);
-}).catch(() => {
-  /* a backup module that cannot load never stops the server */
-});
-
 /* Attached sharing: with sharing on (auto-share.txt, see scripts/expose.mjs),
    this machine joins every deployed copy to itself on every boot — tunnel,
    registration and push, with no command. Runs beside the server, never ahead
@@ -471,23 +352,6 @@ const server = http.createServer(async (req, res) => {
     if (pathname === "/healthz" && req.method === "GET") {
       res.writeHead(200, { "content-type": "text/plain; charset=utf-8", "cache-control": "no-store" });
       res.end("ok");
-      return;
-    }
-
-    /* Readiness (sleep/wake + storage): the visitor wake-up polls this until
-       it says ready. ok=false while the backend is still cold, the store is
-       empty with no usable seed behind it, or storage is degraded — the page
-       keeps serving its last good content meanwhile and never paints empty.
-       Public and tiny on purpose (no paths, no secrets — only status). */
-    if (pathname === "/api/health/ready" && req.method === "GET") {
-      try {
-        const body = JSON.stringify(await readinessReport());
-        res.writeHead(200, { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" });
-        res.end(body);
-      } catch {
-        res.writeHead(200, { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" });
-        res.end(JSON.stringify({ ok: false, reason: "report-failed" }));
-      }
       return;
     }
 
@@ -744,12 +608,11 @@ const server = http.createServer(async (req, res) => {
 
     /* Local file uploads: the Platform upload service only exists on the live
        site, so local runs keep the office's photos and videos on their own
-       disk (the ACTIVE uploads dir — local data/uploads/ or the persistent
-       disk), served back like any other file. */
+       disk (data/uploads/), served back like any other file. */
     if (pathname === "/__upload" && req.method === "POST") {
-      if (!storageReadyForWrites(res)) return;
       /* HIGH fix: writes take a signed-in admin connection — see isAdminConn. */
-      if (!(await isAdminConn(String(url.searchParams.get("conn") || "")))) {        try {
+      if (!(await isAdminConn(String(url.searchParams.get("conn") || "")))) {
+        try {
           anomaly.observeFileDeny({ connId, ip: client, route: pathname });
         } catch {}
         secLog.log({ level: "low", kind: "file-deny", ip: client, route: pathname, detail: "anonymous /__upload attempt denied (403) — likely an expired tab", hint: "uploads need a signed-in admin; sustained hits escalate automatically.", category: "upload", status: 403, reqId: rid, source: "local" });
@@ -801,7 +664,7 @@ const server = http.createServer(async (req, res) => {
             res.end("bad filetype");
             return;
           }
-          const dir = ACTIVE_UPLOADS;
+          const dir = path.join(ROOT, "data", "uploads");
           await mkdir(dir, { recursive: true });
           const fname = Date.now().toString(36) + "-" + safe;
           await writeFile(path.join(dir, fname), Buffer.concat(chunks));
@@ -826,7 +689,6 @@ const server = http.createServer(async (req, res) => {
        pattern is refused. Uploads are never deleted by the server — they sit
        in data/uploads/ until the office removes them by hand. */
     if (pathname === "/__restore-file" && req.method === "POST") {
-      if (!storageReadyForWrites(res)) return;
       /* HIGH fix: writes take a signed-in admin connection — see isAdminConn. */
       if (!(await isAdminConn(String(url.searchParams.get("conn") || "")))) {
         try {
@@ -875,7 +737,7 @@ const server = http.createServer(async (req, res) => {
       req.on("end", async () => {
         if (tooBig) return;
         try {
-          const dir = ACTIVE_UPLOADS;
+          const dir = path.join(ROOT, "data", "uploads");
           await mkdir(dir, { recursive: true });
           await writeFile(path.join(dir, asked), Buffer.concat(chunks));
           const body = JSON.stringify({ url: "/data/uploads/" + asked, restored: true });
@@ -896,7 +758,6 @@ const server = http.createServer(async (req, res) => {
     /* Delete an upload for good: it leaves data/uploads/ and stops riding in
        backups afterwards. Same naming guard as the other file endpoints. */
     if (pathname === "/__delete-file" && req.method === "POST") {
-      if (!storageReadyForWrites(res)) return;
       /* HIGH fix: deletes take a signed-in admin connection — see isAdminConn. */
       if (!(await isAdminConn(String(url.searchParams.get("conn") || "")))) {
         try {
@@ -914,7 +775,7 @@ const server = http.createServer(async (req, res) => {
         return;
       }
       try {
-        const target = path.join(ACTIVE_UPLOADS, asked);
+        const target = path.join(ROOT, "data", "uploads", asked);
         const st = await stat(target).catch(() => null);
         if (!st || !st.isFile()) {
           res.writeHead(404, { "cache-control": "no-store" });
@@ -995,40 +856,7 @@ const server = http.createServer(async (req, res) => {
 
     let rel = decodeURIComponent(pathname).replace(/^\/+/, "");
     if (!rel) rel = "index.html";
-    /* Uploads keep their addresses (/data/uploads/*) in every mode: served
-       from the ACTIVE uploads dir first (local data/uploads/ or the
-       persistent disk), then the dist/ baked copy. */
-    if (rel.startsWith("data/uploads/")) {
-      const leaf = rel.slice("data/uploads/".length);
-      if (!/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(leaf)) {
-        res.writeHead(403);
-        res.end("forbidden");
-        return;
-      }
-      const cands = [];
-      if (ACTIVE_UPLOADS) cands.push(path.join(ACTIVE_UPLOADS, leaf));
-      cands.push(path.join(DIST, rel));
-      let found = null;
-      for (const c of cands) {
-        const f = path.normalize(c);
-        const st = await stat(f).catch(() => null);
-        if (st && st.isFile()) {
-          found = { file: f, st };
-          break;
-        }
-      }
-      if (!found) {
-        res.writeHead(404);
-        res.end("not found");
-        return;
-      }
-      const body = await readFile(found.file);
-      sendBody(req, res, body, MIME[path.extname(found.file).toLowerCase()] || "application/octet-stream", found.st.size + "-" + Math.round(found.st.mtimeMs), {
-        "content-security-policy": "sandbox",
-      });
-      return;
-    }
-    const roots = [DIST];
+    const roots = rel.startsWith("data/uploads/") ? [ROOT, DIST] : [DIST];
     let file = path.normalize(path.join(roots[0], rel));
     if (!file.startsWith(roots[0])) {
       res.writeHead(403);

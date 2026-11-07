@@ -77,39 +77,8 @@ export async function createCmsHost(rootDir, opts) {
     if (word) codeWord = word[1];
   } catch { /* unattested — clients keep the old behavior */ }
 
-  const { initStorage } = await import("./storage.mjs");
-  /* WHERE permanent data lives (scripts/storage.mjs): external = local
-     data/ beside the code (durability via git/seed/mirrors); backend_disk /
-     hybrid = the mounted persistent disk named by BACKEND_DISK_PATH. Explicit
-     config only — a missing/misconfigured disk boots DEGRADED (reads serve
-     the baked seed, every write is refused), never a quiet local stand-in.
-     The http layer may pass an already-initialized storage via opts so both
-     share one probe (see scripts/serve.mjs). */
-  const storage = (opts && opts.storage && typeof opts.storage === "object") ? opts.storage : await initStorage({ rootDir });
-  if (!storage.ok) {
-    console.error("================================================================");
-    console.error("STORAGE DEGRADED: " + storage.error);
-    console.error("Reads continue from the baked seed; WRITES ARE REFUSED until this");
-    console.error("is fixed and the server restarts. Permanent data is NOT being");
-    console.error("written anywhere. /api/health/ready reports this too.");
-    console.error("================================================================");
-  } else {
-    for (const line of storage.report || []) console.log("storage: " + line);
-  }
-  const degraded = !storage.ok;
-  /* Degraded = memory only, never a local stand-in file: the store below
-     stays zeroed and saveSoon is a no-op, so no write can pretend to be
-     permanent. Reads still serve the baked seed through the normal
-     seed-fallback door. */
-  const dataDir = degraded ? path.join(rootDir, "data") : storage.dataDir;
-  const statePath = degraded ? "" : storage.statePath;
-  const versionPath = degraded ? "" : storage.versionPath;
-  const storeOpts = degraded ? {} : { dataDir: storage.dataDir, backupsDir: storage.backupsDir };
-  if (!degraded) {
-    try {
-      await mkdir(dataDir, { recursive: true });
-    } catch { /* validated writable by initStorage; belt and braces */ }
-  }
+  const dataDir = path.join(rootDir, "data");
+  await mkdir(dataDir, { recursive: true });
 
   /* Clean-deploy mode (office request: every new deploy opens fresh —
      welcome-home slide only — until Recover + Publish): with
@@ -134,12 +103,12 @@ export async function createCmsHost(rootDir, opts) {
      nothing old can override the new code yet no content is lost.
      Same-version restarts keep everything. */
   const scriptHash = hashText(scriptSrc);
-  /* versionPath/statePath ride the active storage (declared above): the
-     persistent disk when configured, local data/ in external mode. */
+  const versionPath = path.join(dataDir, "cms-version.txt");
   let prevHash = "";
   try {
-    prevHash = versionPath ? (await readFile(versionPath, "utf8")).trim() : "";
+    prevHash = (await readFile(versionPath, "utf8")).trim();
   } catch { /* first run */ }
+  const statePath = path.join(dataDir, "cms-state.bin");
   const state = new Uint8Array(STATE_SIZE);
   let saveTimer = null;
   let saving = false;
@@ -148,13 +117,11 @@ export async function createCmsHost(rootDir, opts) {
     console.log("cms backend: clean deploy (clean-deploy.txt) — opening with no words until Recover + Publish; administrator accounts are kept");
   }
   try {
-    const prev = statePath ? await readFile(statePath) : null;
-    if (prev && prev.length) {
-      state.set(prev.subarray(0, Math.min(prev.length, STATE_SIZE)));
-      console.log(`cms backend: loaded ${prev.length} bytes from ${statePath}`);
-    } else throw new Error("empty");
+    const prev = await readFile(statePath);
+    state.set(prev.subarray(0, Math.min(prev.length, STATE_SIZE)));
+    if (prev.length) console.log(`cms backend: loaded ${prev.length} bytes from data/cms-state.bin`);
   } catch {
-    console.log(`cms backend: fresh state (${degraded ? "degraded — memory only, writes refused" : "will be created on first publish"})`);
+    console.log("cms backend: fresh state (data/cms-state.bin will be created on first publish)");
   }
   if (prevHash && prevHash !== scriptHash) {
     if (clearPublishLog(state, scriptSrc)) {
@@ -166,13 +133,10 @@ export async function createCmsHost(rootDir, opts) {
     }
   }
   try {
-    if (versionPath) await writeFile(versionPath, scriptHash + "\n");
+    await writeFile(versionPath, scriptHash + "\n");
   } catch { /* best-effort */ }
 
   function saveSoon() {
-    /* Degraded: persistence is gone, so pretending to save would lie — the
-       rpc gate already refuses every write; this just never touches disk. */
-    if (degraded) return;
     if (saveTimer) return;
     saveTimer = setTimeout(async () => {
       saveTimer = null;
@@ -187,7 +151,7 @@ export async function createCmsHost(rootDir, opts) {
            boot guard can tell our bytes from a zip's (see backup-data.mjs). */
         try {
           const sum = createHash("sha256").update(state).digest("hex").slice(0, 16);
-          await recordSeen(rootDir, sum, storeOpts);
+          await recordSeen(rootDir, sum);
         } catch { /* fingerprinting never breaks a save */ }
         /* The new words deploy themselves a couple of minutes later
            (see auto-push.mjs) — never blocks or breaks the save. */
@@ -301,7 +265,7 @@ export async function createCmsHost(rootDir, opts) {
      how a Vercel deploy got stuck mid-build. */
   if (opts && opts.follow) {
     try {
-      startLiveFollow({ rootDir, rpcCall: call, adoptToken, codeWord, uploadsDir: degraded ? "" : storage.uploadsDir });
+      startLiveFollow({ rootDir, rpcCall: call, adoptToken, codeWord });
     } catch (err) {
       console.warn("live follow skipped:", err?.message || err);
     }
@@ -312,7 +276,7 @@ export async function createCmsHost(rootDir, opts) {
        already owns this direction). Like all loops here, serving processes
        only (note 377) — never bakes or builds. */
     try {
-      startFeedFollow({ rootDir, rpcCall: call, adoptToken, codeWord, uploadsDir: degraded ? "" : storage.uploadsDir });
+      startFeedFollow({ rootDir, rpcCall: call, adoptToken, codeWord });
     } catch (err) {
       console.warn("feed follow skipped:", err?.message || err);
     }
@@ -336,21 +300,7 @@ export async function createCmsHost(rootDir, opts) {
     } catch { /* best-effort */ }
   }
 
-  /* Degraded write gate (persistent disk misconfigured): reads keep serving
-     the baked seed, but no rpc may mutate anything — a publish that cannot
-     persist must fail loudly at the door, never half-land. Login is refused
-     too: sessions could not survive the next sleep, so a sign-in would be a
-     lie. checkAdmin/contentRev/getContent/mainState/listSubs/totpStatus stay
-     readable so the office can see status. */
-  const DEGRADED_READ_ONLY = { getContent: 1, contentRev: 1, checkAdmin: 1, totpStatus: 1, mainState: 1, listSubs: 1 };
   async function call(method, id, raw) {
-    if (degraded && !DEGRADED_READ_ONLY[String(method || "")]) {
-      const res = { status: 503, body: JSON.stringify({ ok: false, err: "storage-unavailable" }) };
-      try {
-        if (opts && typeof opts.onRpc === "function") opts.onRpc({ method, id, rawLength: typeof raw === "string" ? raw.length : 0, status: res.status, body: res.body });
-      } catch {}
-      return res;
-    }
     /* Security hook (WAF/anomaly): the http layers pass onRpc to observe
        privilege/volume signals. Best-effort — never breaks the rpc. */
     const emitRpc = (status, body) => {
@@ -400,7 +350,7 @@ export async function createCmsHost(rootDir, opts) {
     senders.delete(id);
   }
 
-  return { openConn, closeConn, setConnNet, attachSender, detachSender, call, storage: degraded ? null : storage };
+  return { openConn, closeConn, setConnNet, attachSender, detachSender, call };
 }
 
 /* This folder's own update number (BUILD_NOTES in src/lib/hooks.ts) — the
@@ -418,26 +368,24 @@ async function folderBuildNotes(rootDir) {
 /* Last-publish upload backfill (office request: the last publish saves its
    photos, not just its words — for live AND local): after a follow loop
    adopts sections, every upload file they point at but this folder lacks is
-   fetched home into the ACTIVE uploads dir (local data/uploads in external
-   mode, the persistent disk in disk mode), so a later sleep-wipe restores
-   the last publish instead of dropping to the welcome photo. Only newly
-   adopted sections are ever read, so a new clean deploy (no adopts)
-   resurrects nothing. baseUrls are tried in order, first good answer wins;
-   app-fallback HTML and oversize files are refused with a log line instead
-   of breaking the push that carries the words. Never throws out. */
-async function backfillUploadFiles(rootDir, names, baseUrls, where, uploadsDir) {
+   fetched home into data/uploads/, so a later sleep-wipe restores the last
+   publish instead of dropping to the welcome photo. Only newly adopted
+   sections are ever read, so a new clean deploy (no adopts) resurrects
+   nothing. baseUrls are tried in order, first good answer wins; app-fallback
+   HTML and oversize files are refused with a log line instead of breaking
+   the push that carries the words. Never throws out. */
+async function backfillUploadFiles(rootDir, names, baseUrls, where) {
   const list = Array.isArray(names) ? [...new Set(names)] : [];
   const bases = Array.isArray(baseUrls) ? baseUrls.filter(Boolean) : [];
   if (!list.length || !bases.length) return { fetched: 0 };
-  const dest = uploadsDir || path.join(rootDir, "data", "uploads");
   let fetched = 0;
   try {
-    await mkdir(dest, { recursive: true });
+    await mkdir(path.join(rootDir, "data", "uploads"), { recursive: true });
   } catch { return { fetched: 0 }; }
   for (const name of list) {
     if (!/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(String(name || ""))) continue;
     try {
-      const st = await stat(path.join(dest, name)).catch(() => null);
+      const st = await stat(path.join(rootDir, "data", "uploads", name)).catch(() => null);
       if (st && st.isFile() && st.size > 0) continue;
     } catch { /* missing — fetch it home */ }
     for (const base of bases) {
@@ -462,7 +410,7 @@ async function backfillUploadFiles(rootDir, names, baseUrls, where, uploadsDir) 
           console.log(`upload backfill: ${name} is ${(buf.length / 1048576).toFixed(0)} MB — over the backfill cap, left where published (upload it on the office copy, under 100 MB, so it rides git)`);
           break;
         }
-        await writeFile(path.join(dest, name), buf);
+        await writeFile(path.join(rootDir, "data", "uploads", name), buf);
         fetched++;
         break;
       } catch {
@@ -482,7 +430,7 @@ async function backfillUploadFiles(rootDir, names, baseUrls, where, uploadsDir) 
    within seconds even with the stream down; the half-minute full round is
    the backstop for old hosts without the stamp answer. Never throws out. */
 const FOLLOW_MS = 5 * 1000;let followStarted = false;
-function startLiveFollow({ rootDir, rpcCall, adoptToken, codeWord, uploadsDir }) {
+function startLiveFollow({ rootDir, rpcCall, adoptToken, codeWord }) {
   if (followStarted) return;
   followStarted = true;
   if (process.env.RENDER) return; // the live box IS live — never follows
@@ -607,7 +555,7 @@ function startLiveFollow({ rootDir, rpcCall, adoptToken, codeWord, uploadsDir })
            wipe on live AND local — then re-arm the push so bytes and words
            ride one commit. */
         try {
-          const got = await backfillUploadFiles(rootDir, referencedUploads(patch), [origin + "/data/uploads/"], "live follow", uploadsDir);
+          const got = await backfillUploadFiles(rootDir, referencedUploads(patch), [origin + "/data/uploads/"], "live follow");
           if (got && got.fetched) notePublished(rootDir);
         } catch { /* words already adopted above */ }
       }
@@ -703,7 +651,7 @@ function startLiveFollow({ rootDir, rpcCall, adoptToken, codeWord, uploadsDir })
    office minute loop above already owns this direction. Never throws out. */
 const FEED_FOLLOW_MS = 5 * 1000;
 let feedFollowStarted = false;
-function startFeedFollow({ rootDir, rpcCall, adoptToken, codeWord, uploadsDir }) {
+function startFeedFollow({ rootDir, rpcCall, adoptToken, codeWord }) {
   if (feedFollowStarted) return;
   feedFollowStarted = true;
   if (!process.env.RENDER) return; // the live box only — it IS live
@@ -811,7 +759,7 @@ function startFeedFollow({ rootDir, rpcCall, adoptToken, codeWord, uploadsDir })
             `https://cdn.jsdelivr.net/gh/${base}@${spec.branch}/uploads/`,
             `https://raw.githubusercontent.com/${base}/${spec.branch}/data/uploads/`,
             `https://cdn.jsdelivr.net/gh/${base}@${spec.branch}/data/uploads/`,
-          ], "feed follow", uploadsDir);
+          ], "feed follow");
         } catch { /* words already adopted above */ }
       }
     } finally {

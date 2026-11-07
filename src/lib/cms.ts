@@ -10,7 +10,6 @@ import { purgeExpiredAnnouncements } from "../data/announcements";
 import { fmtDate } from "./store";
 import { fireToast } from "./hooks";
 import { createRemoteSocket, initServerUrl, refreshServerUrl, serverOverride, serverUrl, setServerOverride } from "./remoteserver";
-import { ensureBackendReady } from "./backendwake";
 import { applyBakedRecent, clearRecentCaches } from "./recentstreams";
 import { bakedFeedSpec, feedIsNewer, peekSeed, siteFile, type FeedSeed, type FeedSpec } from "./livefeed";
 import { BUILD_NOTES, CODE_ID } from "./hooks";
@@ -1322,9 +1321,6 @@ export function officeFileConn(): string {
 }
 let reconnectTimer = 0;
 let reconnectAttempt = 0;
-/* Sleep/wake gate state: one shared /ready wait per address (see connect). */
-let wakeGate: Promise<boolean> | null = null;
-let wakePassed = false;
 let starting = false;
 let localOnly = false;
 
@@ -4109,7 +4105,8 @@ export async function startCms() {
 }
 
 /* Drop a dead socket so the next attempt starts fresh (a kept one blocks retries). */
-function dropSocket() {  const sock = socket;
+function dropSocket() {
+  const sock = socket;
   socket = null;
   try {
     (sock?.close as any)?.call(sock);
@@ -4119,7 +4116,6 @@ function dropSocket() {  const sock = socket;
 /* A user-initiated join: fresh backoff, no waiting out the timer, no dead socket. */
 export async function retryNow() {
   reconnectAttempt = 0;
-  wakePassed = false;
   if (reconnectTimer) {
     window.clearTimeout(reconnectTimer);
     reconnectTimer = 0;
@@ -4143,37 +4139,6 @@ function openTimeout(ms: number): Promise<void> {
 }
 
 function connect() {
-  /* Sleep/wake gate (single funnel): every join — boot, retry, return-join,
-     server watch — waits for the backend's /ready before opening the socket,
-     through one shared single-flight wait per address. The page is already
-     painted (seed + caches), so the wait is invisible; a failed wait lands
-     "offline" and the normal backoff tries again. Verified again on every
-     fresh wake (wakePassed resets on close), cheap when warm. */
-  if (!socket && !reconnectTimer && socketFactory() && serverUrl() && !wakePassed && !wakeGate) {
-    status = "connecting";
-    connNote = "waking the church server…";
-    notify();
-    const base = serverUrl();
-    wakeGate = ensureBackendReady(base);
-    wakeGate.then((ok) => {
-      wakeGate = null;
-      if (socket || status === "online") {
-        settleInitialSync();
-        return;
-      }
-      if (ok) {
-        wakePassed = true;
-        connect();
-        return;
-      }
-      status = "offline";
-      connNote = "server still waking — retrying";
-      notify();
-      scheduleReconnect();
-      settleInitialSync();
-    });
-    return;
-  }
   if (socket) {
     /* A live connection is kept; a dead one is dropped so this attempt is real. */
     if (status === "online") {
@@ -4265,8 +4230,6 @@ function connect() {
         return;
       }
       socket = null;
-      /* The join failed — the box may be asleep or gone; re-verify next round. */
-      wakePassed = false;
       status = "offline";
       connNote = String(err?.message || err || "unreachable").slice(0, 120);
       notify();
@@ -4477,9 +4440,6 @@ function onMessage(event: any) {
 
 function onClose(event: any) {
   socket = null;
-  /* A dropped connection may mean the box slept again — the next join
-     re-verifies readiness (cheap when warm) instead of assuming. */
-  wakePassed = false;
   /* The sign-in survives a dropped connection (note 296): sleep/wake cycles,
      server restarts and network blips all close the socket, and signing the
      office out on every one of them — then burning the saved session on a

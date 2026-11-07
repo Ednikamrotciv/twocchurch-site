@@ -523,7 +523,8 @@ export function ScrollTop() {
    notice via ?preview=1 while visitors still wait, say so out loud — otherwise
    the desktop (previewing) looks live while a phone (never previewed) correctly
    waits, which reads as "mobile shows maintenance but desktop doesn't". */
-export function PreviewBanner() {  return (
+export function PreviewBanner() {
+  return (
     <div className="previewbar" role="status">
       <span>
         Preview — visitors see the maintenance notice.{" "}
