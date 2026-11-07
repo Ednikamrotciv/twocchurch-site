@@ -19,6 +19,40 @@ const PORT = Number(process.env.PORT || 5173);
 const DIST = path.join(ROOT, "dist");
 const SHIM_TAG = '<script src="/scripts/local-shim.js"></script>';
 
+/* Server-side public-proxy read for /__yt (local livestream fix): runs only
+   when the direct YouTube read fails (bot-walled egress). Same YouTube-only
+   target the caller already allow-listed, same 3 MB guard, and the answer must
+   still look like YouTube before it is served — otherwise "" (the caller
+   answers 502 exactly as before). */
+async function fetchYoutubeViaProxy(target) {
+  try {
+    const ctrl = typeof AbortController !== "undefined" ? new AbortController() : null;
+    const timer = ctrl ? setTimeout(() => { try { ctrl.abort(); } catch {} }, 8000) : 0;
+    try {
+      const upstream = await fetch("https://api.allorigins.win/raw?url=" + encodeURIComponent(target), {
+        headers: {
+          "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36",
+        },
+        signal: ctrl ? ctrl.signal : undefined,
+      });
+      if (!upstream || !upstream.ok || !upstream.body) return "";
+      const parts = [];
+      let bytes = 0;
+      try {
+        for await (const chunk of upstream.body) {
+          bytes += chunk.length;
+          if (bytes > 3 * 1024 * 1024) return "";
+          parts.push(chunk);
+        }
+      } catch { return ""; }
+      const html = Buffer.concat(parts).toString("utf8");
+      if (html.length < 500) return "";
+      if (!/ytInitialData|"videoDetails":\{|ytInitialPlayerResponse/.test(html)) return "";
+      return html;
+    } finally { if (timer) clearTimeout(timer); }
+  } catch { return ""; }
+}
+
 /* Served pages are the production build (`npm run build`). The shim connects
    the local browser to this backend (sign-in, publish, uploads) — deployed
    copies join the office server through server.json instead. */
@@ -520,8 +554,21 @@ const server = http.createServer(async (req, res) => {
       try {
         const upstream = await fetch(target, {
           headers: {
+            /* Browser-shaped read (local livestream fix): YouTube answers a
+               bare Node fetch with a consent/login wall instead of the watch
+               page, so the check reads "unknown" forever. The consent cookie
+               + navigation headers below ask for the same page a visitor's
+               browser gets — best effort, harmless where unneeded. */
             "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36",
+            accept: "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
             "accept-language": "en-US,en;q=0.9",
+            cookie: "CONSENT=YES+cb.20210328-17-p0.en+FX+667",
+            "upgrade-insecure-requests": "1",
+            referer: "https://www.youtube.com/",
+            "sec-fetch-dest": "document",
+            "sec-fetch-mode": "navigate",
+            "sec-fetch-site": "none",
+            "sec-fetch-user": "?1",
           },
           /* A hung YouTube fetch must never hold the backend: 10s, then 502. */
           signal: typeof AbortSignal !== "undefined" && typeof AbortSignal.timeout === "function" ? AbortSignal.timeout(10000) : undefined,
@@ -544,12 +591,18 @@ const server = http.createServer(async (req, res) => {
         } catch {
           ytTooBig = true;
         }
-        const text = ytTooBig ? "" : Buffer.concat(ytParts).toString("utf8");
+        let text = ytTooBig ? "" : Buffer.concat(ytParts).toString("utf8");
         /* Deployed parity (like netlify/functions/yt.mjs): a joined copy on
            another origin must be able to READ these, so every /__yt answer
            carries ACAO. Same-origin local runs behave exactly as before. */
         const ytCORS = { "cache-control": "no-store", "access-control-allow-origin": "*" };
-        if (!upstream.ok || !text) {
+        /* Office-network fallback (local livestream fix): a walled egress
+           still fails even with browser headers above — one short
+           server-side proxy read before answering 502. */
+        if ((!upstream.ok || !text) && !ytTooBig) {
+          text = await fetchYoutubeViaProxy(target);
+        }
+        if (!text) {
           res.writeHead(502, ytCORS);
           res.end(ytTooBig ? "too large" : "unreachable");
           return;

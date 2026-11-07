@@ -212,6 +212,12 @@ export function WatchLive() {
   const overrideMain = !!LIVE.isLive && hasChannel && !guestLive && screenAir.state !== "live" && airForTarget.state === "unknown" && !shutNow;
   const overrideGuest = !!(LIVE as any).guestIsLive && !!guestUrl && !guestLive && screenAir.state !== "live" && guestAir.state === "unknown" && !shutNow;
   const overrideId = overrideMain ? designatedChannelIdForTarget(targetUrl) : overrideGuest ? designatedChannelIdForTarget(guestUrl) : "";
+  /* Play pressed on a stream-link target (note 404, same intent as the channel
+     override above): the office named a video, not a channel, and the read is
+     walled — so the named video opens by itself instead of the ended screen.
+     Only while unknown (a verified off still waits), only the office-typed id,
+     and only while its verdict is not proven-dead (note 420). */
+  const overrideVideo = !!LIVE.isLive && !hasChannel && !guestLive && screenAir.state !== "live" && airForTarget.state === "unknown" && !shutNow ? verifiedFallbackId || "" : "";
   /* Anywhere for the check to look — channel, stream link or Facebook page. */
   const configured = !!liveTarget() || !!facebookTarget();
   /* The shared on-air answer (notes 83, 133); `streaming` is the narrower screen question. Declared
@@ -285,7 +291,7 @@ export function WatchLive() {
     if (isFacebookVideoUrl(LIVE.facebookUrl)) list.push("facebook");
     return list;
   })();
-  const preferred: VideoPlatform = fbLive ? "facebook" : detectedId || detectedChannel || overrideId ? "youtube" : LIVE.provider === "facebook" ? "facebook" : "youtube";
+  const preferred: VideoPlatform = fbLive ? "facebook" : detectedId || detectedChannel || overrideId || overrideVideo ? "youtube" : LIVE.provider === "facebook" ? "facebook" : "youtube";
   const [chosen, setChosen] = useState<VideoPlatform>(preferred);
   /* The service notepad behind the *Service notes* arrow (note 223). */
   const [notesOpen, setNotesOpen] = useState(false);
@@ -490,10 +496,10 @@ export function WatchLive() {
                   autoPlay={streaming && watchable}
                   reloadSignal={reloadSignal}
                 />
-              ) : (overrideMain || overrideGuest) && overrideId ? (
+              ) : ((overrideMain || overrideGuest) && overrideId) || overrideVideo ? (
                 <VideoPlayer
                   hideEscape
-                  source={{ platform: "youtube", youtubeId: "", youtubeChannelId: overrideId }}
+                  source={overrideVideo ? { platform: "youtube", youtubeId: overrideVideo } : { platform: "youtube", youtubeId: "", youtubeChannelId: overrideId }}
                   title={liveName || ct("auto.live.bc108377bb47f9e6")}
                   poster={cover}
                   fallbackPoster={cover}
@@ -501,7 +507,8 @@ export function WatchLive() {
                   live
                   /* The office commanded the slot and the read is walled —
                      main and guest alike open their commanded channel by
-                     itself instead of the waiting clock, WITH SOUND like
+                     itself instead of the waiting clock (a stream-link Play
+                     opens its named video the same way), WITH SOUND like
                      every live. A verified off still waits; a detected
                      broadcast still wins. */
                   autoPlay

@@ -24,8 +24,19 @@ export async function handler(event) {
     try {
       const upstream = await fetch(url, {
         headers: {
+          /* Browser-shaped read (local livestream fix): consent cookie +
+             navigation headers so YouTube answers with the watch page
+             instead of a consent/login wall. */
           "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36",
+          accept: "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
           "accept-language": "en-US,en;q=0.9",
+          cookie: "CONSENT=YES+cb.20210328-17-p0.en+FX+667",
+          "upgrade-insecure-requests": "1",
+          referer: "https://www.youtube.com/",
+          "sec-fetch-dest": "document",
+          "sec-fetch-mode": "navigate",
+          "sec-fetch-site": "none",
+          "sec-fetch-user": "?1",
         },
         signal: ctrl ? ctrl.signal : undefined,
       });
