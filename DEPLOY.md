@@ -240,35 +240,6 @@ demand, `npm run restore` picks a snapshot by hand. Uploaded photos and videos
 are not copied into snapshots — if any are missing after a recovery the
 console says which.
 
-## Office reader — deployed livestream reads like local
-
-The deployed backend runs in a datacenter, and YouTube walls datacenter
-reads (login wall, no live marker, watch pages 502). Without anything else,
-deployed copies can only follow the channel — and the channel embed answers
-YouTube's "unavailable" frame when the read cannot resolve the broadcast —
-while `npm run dev` on the office computer reads the same channel perfectly
-(home IP) and plays the video id.
-
-`office-server.txt` (beside `package.json`) closes that gap: put the office
-computer's tunnel address alone on its own line (the `OFFICE ADDRESS` the
-terminal prints when the office server boots with sharing on), commit, push,
-and rebuild the frontend hosts once. From then on every deployed copy races
-the office's residential `/__yt` alongside its other YouTube doors, resolves
-the live video id, and plays exactly like local — with no office tab open.
-
-- Keep the office computer on `npm start` (or double-click `start.bat`) and
-  awake. While it is offline, copies fall back to their previous behavior.
-- The tunnel address rotates on every office restart; the office server
-  refreshes `office-server.txt` by itself on boot (same commit+push as the
-  office address) whenever the main server file already points at a hosted
-  backend — the next host rebuild picks it up. Office-topology setups (the
-  tunnel IS the server in `cms-server.txt`) behave exactly as before.
-- Verify: with the service live, `/watch-live` on the deployed site plays
-  the same video as the office preview within a poll or two. If it shows the
-  waiting clock instead, the office computer or its tunnel is unreachable;
-  if it shows the ended screen while live, an office tab is reporting a
-  stale answer — Admin → Live stream → Reload → Publish.
-
 ## If the host says "Permission denied" or "command not found"
 
 That means `node_modules/` got committed to the repo by mistake (it must

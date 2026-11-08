@@ -98,32 +98,3 @@ card. Do this:
 Code note: src/lib/router.tsx lazyPage() wraps every lazy page chunk
 (routes + admin) with the one-shot chunk reload; warm-up prefetchers keep
 their silent catch so they never trigger reloads speculatively.
-
-OFFICE READER (deployed plays exactly like local - no open tab needed)
---------------------------------------------------------------------------
-If the deployed Watch screen shows YouTube's own unavailable frame (or the
-channel that never resolves) while the office preview plays fine, the cause
-is measured, not a guess: the deployed backend reads YouTube from a
-datacenter (login-walled page, no video id, watch pages 502), so the check
-can only follow the channel - and the channel embed errors on some
-broadcasts - while the office computer reads the same channel from a home IP
-and resolves the video id. A signed-in office tab used to be the only bridge
-(it reports its residential answer); with no tab open the bridge is gone.
-
-The fix ships in this zip (office-server.txt + office reader doors):
-
-0. BACK UP FIRST (Admin -> Tools -> back up now).
-1. On the always-on office computer: run npm start (or start.bat), leave it
-   running. The terminal prints OFFICE ADDRESS
-   (https://office-word-word.trycloudflare.com).
-2. Put that address alone on its own line in office-server.txt (this zip
-   carries the file with instructions inside), commit, push.
-3. Rebuild BOTH hosts from that commit (Render auto-deploys on push;
-   static host rebuilds from git), then Publish once on each host.
-4. Verify during a live: deployed /watch-live plays the SAME video id as
-   the office preview. The tunnel address rotates on every office restart;
-   the office server refreshes office-server.txt by itself (same commit+push
-   as the office address) whenever cms-server.txt points at a hosted
-   backend, so restarts heal after the next host rebuild. While the office
-   computer is offline, deployed copies fall back to their previous
-   behavior (channel follow / waiting screen) - nothing else changes.

@@ -9,7 +9,7 @@ import { SLIDES, purgeExpiredSlides } from "../data/slides";
 import { purgeExpiredAnnouncements } from "../data/announcements";
 import { fmtDate } from "./store";
 import { fireToast } from "./hooks";
-import { createRemoteSocket, initServerUrl, initOfficeUrl, refreshServerUrl, serverOverride, serverUrl, setServerOverride } from "./remoteserver";
+import { createRemoteSocket, initServerUrl, refreshServerUrl, serverOverride, serverUrl, setServerOverride } from "./remoteserver";
 import { applyBakedRecent, clearRecentCaches } from "./recentstreams";
 import { bakedFeedSpec, feedIsNewer, peekSeed, siteFile, type FeedSeed, type FeedSpec } from "./livefeed";
 import { BUILD_NOTES, CODE_ID } from "./hooks";
@@ -3768,10 +3768,6 @@ export async function startCms() {
   /* Which shared store, if any: the local backend, or the office
      server this copy was pointed at (deploy config or admin console). */
   await initServerUrl().catch(() => {});
-  /* The office reader (office.json → wom-office meta): warmed beside the
-     server address so deployed YouTube reads fan out to the office tunnel
-     from the first check — the residential read `npm run dev` enjoys. */
-  await initOfficeUrl().catch(() => {});
 
   /* Read the stored draft first: applying the cache below writes a draft, which would bury it. */
   const storedDraft = readJSON<{ rev: number; content: Snapshot; dirty?: Record<string, true> } | null>(DRAFT_KEY, null);

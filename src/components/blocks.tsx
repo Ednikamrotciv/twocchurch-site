@@ -968,12 +968,12 @@ export function VideoPlayer({
     };
   }, [playing, dead, liveVideoId, ytId, platform, iframeKey]);
 
-  /* Plain-frame net (Facebook + followed YouTube channels — a walled
-     live with no verifiable video id plays the channel's live_stream
-     frame here): the iframe never reports content errors cross-origin.
-     Watchdog re-asks what's live now: a fresh verified broadcast upgrades
-     to its own id (API path, which does report errors); a proven-off
-     channel and any never-loaded frame land on the thumbnail fallback. */
+  /* Plain-frame net (Facebook only now — YouTube mounts no blind frame, so a
+     channel with no verified id waits on its thumbnail above): the iframe
+     never reports content errors cross-origin. Watchdog re-asks what's live
+     now: a fresh verified broadcast upgrades to its own id (API path, which
+     does report errors); a proven-off channel and any never-loaded frame
+     land on the thumbnail fallback. */
   const frameLoadedRef = useRef(false);
   useEffect(() => {
     frameLoadedRef.current = false;
@@ -1227,11 +1227,12 @@ export function VideoPlayer({
                reaches this frame — that is what keeps the "unavailable"
                text off the screen. */
             <div key={iframeKey} ref={apiHostRef} className="player__frame-host" />
-          ) : platform === "youtube" && !followId ? (
-            /* YouTube with no verified video id and no channel to follow:
-               nothing to mount — the latest thumbnail waits here while
-               the check resolves; if none comes the watchdog drops to
-               the thumbnail fallback instead. */
+          ) : platform === "youtube" ? (
+            /* YouTube with no verified video id: NEVER mount the channel
+               embed blind — an offline or ended channel renders YouTube's
+               own "unavailable" text. The latest thumbnail waits here while
+               the check resolves to a verified id (API path above); if none
+               comes the watchdog drops to the thumbnail fallback instead. */
             <div className="player__poster player__poster--live" aria-live="polite">
               {still ? (
                 <img src={still} alt="" loading="lazy" onError={handleStillError} />
@@ -1260,13 +1261,10 @@ export function VideoPlayer({
                 frameLoadedRef.current = true;
               } catch {}
               /* Plain frames never report errors cross-origin: the Facebook
-                 cover lifts on load; a followed YouTube channel lifts the
-                 same way — the check said live for this channel, so the
-                 live_stream frame is the broadcast, not a blind guess.
-                 A truly offline channel still lands on the fallback via
-                 the watchdog below. */
+                 cover lifts on load; YouTube never mounts a blind frame
+                 above, so there is nothing else to confirm here. */
               try {
-                if (platform === "facebook" || (platform === "youtube" && !!followId && !liveVideoId && !ytId)) setFrameConfirmed(true);
+                if (platform === "facebook") setFrameConfirmed(true);
               } catch {}
             }}
             onError={() => {
@@ -1277,10 +1275,10 @@ export function VideoPlayer({
           />
           )}
           {/* Cover-up: opaque thumbnail over the unproven frame — the
-             "unavailable" text can never show through. Lifts on real
-             playback (API PLAYING / Facebook load / followed-channel load
-             above). A bare YouTube id still only ever guards a verified id. */}
-          {!frameConfirmed && still && (platform !== "youtube" || liveVideoId || ytId || (!!followId && !liveVideoId && !ytId)) ? (
+             "unavailable" text can never show through. Lifts only on real
+             playback (API PLAYING / Facebook load above). YouTube mounts no
+             blind frame at all, so its cover only ever guards a verified id. */}
+          {!frameConfirmed && still && (platform !== "youtube" || liveVideoId || ytId) ? (
             <span className="player__cover" aria-hidden="true">
               <img src={still} alt="" loading="lazy" onError={handleStillError} />
               <span className="player__scrim" />

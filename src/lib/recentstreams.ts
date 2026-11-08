@@ -7,7 +7,7 @@ import { LIVE } from "../data/live";
 import { parseYoutubeId, cleanChannelInput } from "./embed";
 import { liveTarget, designatedChannelId } from "./livestatus";
 import { readStore, writeStore } from "./hooks";
-import { serverUrl, officeUrl } from "./remoteserver";
+import { serverUrl } from "./remoteserver";
 
 export type RecentService = {
   /** The YouTube video the service was published as. */
@@ -146,7 +146,6 @@ async function fetchText(url: string): Promise<string | null> {
   try {
     return await firstValidText([
       fetchTextSameOrigin(url),
-      fetchTextOfficeReader(url),
       fetchTextStaticProxy(url),
       fetchTextOffice(url),
       fetchTextRemote(url),
@@ -291,30 +290,6 @@ async function fetchTextOffice(url: string): Promise<string | null> {
   try {
     const base = serverUrl();
     if (!base) return null;
-    const res = await withTimeout(fetch(`${base}/__yt?url=${encodeURIComponent(url)}`, { cache: "no-store" }), TIMEOUT_MS);
-    if (!res || !res.ok) return null;
-    const text = await res.text();
-    if (typeof text !== "string" || text.length === 0) return null;
-    if (!isExpectedBody(url, text)) return null;
-    return text;
-  } catch {
-    return null;
-  }
-}
-
-/** The office reader's residential YouTube read (office-server.txt): same
-    home-IP /__yt as the live check's office door above, so Recent services
-    reads like a local run. Skipped when unconfigured, or when it is the same
-    box the office door already asks. */
-async function fetchTextOfficeReader(url: string): Promise<string | null> {
-  try {
-    const base = officeUrl();
-    if (!base) return null;
-    try {
-      if (base === serverUrl()) return null;
-    } catch {
-      /* compare best-effort — the doors are cheap to double-ask */
-    }
     const res = await withTimeout(fetch(`${base}/__yt?url=${encodeURIComponent(url)}`, { cache: "no-store" }), TIMEOUT_MS);
     if (!res || !res.ok) return null;
     const text = await res.text();
