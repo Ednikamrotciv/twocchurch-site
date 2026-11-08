@@ -98,3 +98,25 @@ card. Do this:
 Code note: src/lib/router.tsx lazyPage() wraps every lazy page chunk
 (routes + admin) with the one-shot chunk reload; warm-up prefetchers keep
 their silent catch so they never trigger reloads speculatively.
+
+ADDENDUM — deployed plays exactly what local plays (parity fix)
+--------------------------------------------------------------------------
+Deployed used to ignore the office-verified video in the publish and scrape
+YouTube itself. From a datacenter (Render) that scrape is bot-walled, so
+deployed guessed (blind channel follow / stale fallback) while local on the
+office network read the real broadcast — hence "This video is unavailable"
+on deployed while local played fine.
+
+`src/pages/WatchLive.tsx` now stands the published stamp in for the
+detection when its own read is walled (unknown): the Play/Reload-stamped
+`liveVideoId`/`guestVideoId` plays through the same verifier + player
+fallback as a detection, with the stamped headline, while the office switch
+holds it. It never overrides a detection with a video, a definitive off, a
+Stop, a stale stamp (>12h), another channel's video, a dead id, or a
+retyped channel (cached answer for another address waits for the fresh
+check). `src/tools/verify-update.mjs` section MM locks the new behavior.
+
+Redeploy BOTH sides from THIS zip (Render + static host, same commit) so
+both are the same code, then office: Stop -> Publish once if a stuck switch
+is suspected, Play at stream start, Publish. No settings or YouTube changes
+needed.
