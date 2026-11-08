@@ -94,6 +94,87 @@ export function serverUrl(): string {
   return cached || serverOverride();
 }
 
+/* ------------------------------------------------- the office reader */
+
+/** This browser's manual office override (set from the console). */
+const OFFICE_KEY = "wom.cms.office";
+/** The deploy-time office address, written by scripts/build-static.mjs. */
+const OFFICE_FILE = "office.json";
+
+let officeCached = "";
+let officeLoaded = false;
+
+/* The office's residential reader (office-server.txt → dist/office.json):
+   the always-on office computer's tunnel. Deployed copies read YouTube
+   through it — its /__yt answers from a home IP, with the live video id,
+   exactly like `npm run dev` — instead of only through the datacenter
+   backend + static functions + public proxies. Empty when unconfigured:
+   every reader door skips it and behavior is exactly as before. */
+function officeMeta(): string {
+  try {
+    const m = document.querySelector('meta[name="wom-office"]');
+    return normalizeServerUrl(m && m.getAttribute("content"));
+  } catch {
+    return "";
+  }
+}
+
+export function officeOverride(): string {
+  try {
+    return normalizeServerUrl(localStorage.getItem(OFFICE_KEY));
+  } catch {
+    return "";
+  }
+}
+
+export function setOfficeOverride(url: string) {
+  try {
+    const clean = normalizeServerUrl(url);
+    if (clean) localStorage.setItem(OFFICE_KEY, clean);
+    else localStorage.removeItem(OFFICE_KEY);
+  } catch { /* a browser that stores nothing still reads the site */ }
+}
+
+async function siteOffice(): Promise<string> {
+  const meta = officeMeta();
+  if (meta) return meta;
+  try {
+    const res = await fetch(siteFile(OFFICE_FILE), { cache: "no-store" });
+    if (!res.ok) return "";
+    const data = await res.json().catch(() => null);
+    return normalizeServerUrl(data && (data.url || data.office));
+  } catch {
+    return "";
+  }
+}
+
+/** Resolve once at boot (override first, then the deploy's file). */
+export async function initOfficeUrl(): Promise<string> {
+  if (!officeLoaded) {
+    officeLoaded = true;
+    officeCached = officeOverride() || (await siteOffice());
+  }
+  return officeCached;
+}
+
+/* Re-resolve from scratch; boot's answer is cached, so this picks up late arrivals. */
+export async function refreshOfficeUrl(): Promise<string> {
+  officeLoaded = false;
+  officeCached = "";
+  try {
+    await initOfficeUrl();
+    return officeCached;
+  } catch {
+    return officeCached || officeOverride();
+  }
+}
+
+/** The resolved office reader address, or "" when unconfigured. */
+export function officeUrl(): string {
+  if (!officeCached) officeCached = officeMeta();
+  return officeCached || officeOverride();
+}
+
 /* ------------------------------------------------------------------ same PC */
 
 /** This browser's remembered same-machine office address (a validated probe

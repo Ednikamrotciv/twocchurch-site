@@ -202,6 +202,46 @@ try {
   console.warn("server.json skipped:", err?.message || err);
 }
 
+/* The office reader, baked in: when the repo carries an office-server.txt
+    with the office tunnel address (one origin, e.g.
+    https://office-word-word.trycloudflare.com), every deployed copy reads
+    YouTube through the office's own residential connection — the same read
+    `npm run dev` enjoys — so the live video id resolves and the deployed
+    livestream plays exactly like the local one. Absent file, or a blank one,
+    and YouTube reads behave exactly as before. */
+try {
+  const raw = await readFile(path.join(ROOT, "office-server.txt"), "utf8").catch(() => "");
+  const lines = String(raw).split(/\r?\n/).map((l) => l.trim()).filter((l) => l && !l.startsWith("#"));
+  const first = lines[0] || "";
+  const url = first && /^https?:\/\/[^/\s]+$/i.test(first.replace(/\/+$/, "")) ? first.replace(/\/+$/, "") : "";
+  if (url) {
+    await writeFile(path.join(OUT, "office.json"), JSON.stringify({ url }));
+    console.log(`office reader baked in: ${url} — deployed copies read YouTube through the office (like local)`);
+    /* Same synchronous first-paint stamp as the server meta (note 279): the
+       copy knows at once that a residential read is available. Route copies
+       below inherit it with the shell. */
+    try {
+      const shellPath = path.join(OUT, "index.html");
+      let shell = await readFile(shellPath, "utf8");
+      if (!shell.includes('name="wom-office"')) {
+        const tag = `<meta name="wom-office" content="${url}">`;
+        if (shell.includes("</head>")) shell = shell.replace("</head>", `  ${tag}\n</head>`);
+        else shell = tag + "\n" + shell;
+        await writeFile(shellPath, shell);
+        console.log("office meta stamped into dist/index.html");
+      }
+    } catch (err) {
+      console.warn("office meta skipped:", err?.message || err);
+    }
+  } else if (!lines.length) {
+    console.log("no office reader in office-server.txt — YouTube reads behave as before (see DEPLOY.md, office reader)");
+  } else {
+    console.warn(`office-server.txt ignored: "${first}" is not an origin (want just https://your-office-tunnel, nothing after it) — YouTube reads behave as before`);
+  }
+} catch (err) {
+  console.warn("office.json skipped:", err?.message || err);
+}
+
 /* Deploy ID on the entry page (deploy lock): stamped synchronously so the
    first paint knows its deploy without fetching. Route copies below are made
    from this shell, so they inherit it. */
@@ -321,6 +361,8 @@ try {
   Cache-Control: no-store, must-revalidate
 /server.json
   Cache-Control: no-store, must-revalidate
+/office.json
+  Cache-Control: no-store, must-revalidate
 /feed.json
   Cache-Control: no-store, must-revalidate
 `;
@@ -328,7 +370,7 @@ try {
   const htaccess =
 `<IfModule mod_headers.c>
   # note 302 — entry files always fresh (see _headers for Netlify/Cloudflare)
-  <FilesMatch "^(index\\.html|404\\.html|version\\.json|seed\\.json|server\\.json|feed\\.json)$">
+  <FilesMatch "^(index\\.html|404\\.html|version\\.json|seed\\.json|server\\.json|office\\.json|feed\\.json)$">
     Header set Cache-Control "no-store, must-revalidate"
   </FilesMatch>
 </IfModule>

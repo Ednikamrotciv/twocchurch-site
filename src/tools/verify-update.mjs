@@ -1697,8 +1697,7 @@ export async function runAll(fs) {
   ok("guest never ends the main screen", has(liveMM, "const targetUrl = (guestLive && guest ? guest.url : target?.url)"), "the stamp — and the report after it — must say the winner");
   ok("office reports the winner", has(liveMM, 'const url = String(status.target || "") || liveTarget()?.url || ""'), "a guest-live answer must steer visitors to the guest");
   ok("retype still silences", has(liveMM, 'url !== (liveTarget()?.url || "") && url !== (guestTarget()?.url || "")'), "a moved channel must never report");
-  ok("screen plays the guest on manual start", has(watchMM, "screenAirBase = guestLive ? guestAir : airForTarget") && has(watchMM, "const guestLive = guestSwitchOn && guestAir.state"), "a started guest plays; detection alone never opens; its end returns the main screen");
-  ok("stamped broadcast stands in", has(watchMM, "pubMainStandby") && has(watchMM, "liveVideoId") && has(watchMM, "pubGuestStandby") && has(watchMM, "guestVideoId") && has(watchMM, 'airForTarget.state !== "off"'), "the office-verified video must open for walled visitors exactly like a detection, never over a definitive off");
+  ok("screen plays the guest on manual start", has(watchMM, "const screenAir = guestLive ? guestAir : airForTarget") && has(watchMM, "const guestLive = guestSwitchOn && guestAir.state"), "a started guest plays; detection alone never opens; its end returns the main screen");
   ok("guest follow is one tap", has(watchMM, "guestLive ? isGuestTargetUrl(screenAir.target, guestUrl)"), "a walled guest follows its own channel, never autoplay");
   ok("tap opens the guest", has(blocksMM, "guestTarget()?.url") && has(blocksMM, "isGuestTargetUrl(st.target"), "a tap on a guest-live screen must play, not wait");
   ok("guest never seeds recents", has(editorMM, "isGuestTargetUrl(aired.target"), "a guest ending files nothing");

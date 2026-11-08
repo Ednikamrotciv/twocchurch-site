@@ -11,7 +11,7 @@ import { useEffect, useState, useSyncExternalStore } from "react";
 import { LIVE } from "../data/live";
 import { parseYoutubeId, cleanChannelInput } from "./embed";
 import { BUILD_NOTES, readStore, writeStore } from "./hooks";
-import { serverUrl } from "./remoteserver";
+import { serverUrl, officeUrl } from "./remoteserver";
 
 export type LiveState = "live" | "off" | "unset" | "unknown";
 
@@ -474,16 +474,32 @@ async function resolveYoutube(
   const liveTabFirst = liveTabId && cands.includes(liveTabId)
     ? [liveTabId, ...cands.filter((c) => c !== liveTabId)].slice(0, 3)
     : cands.slice(0, 3);
+  /* Deployed parity (reads like local): a walled watch page answers 502/empty
+     (null here) or a login wall with no readable model — neither can confirm
+     absence. Only a READABLE watch page that is not live counts as a verified
+     off. When suggestions existed but none could be read, the answer stays
+     `unknown`, never `off`, so a deployed copy never ends a service it merely
+     could not verify — it waits instead, exactly like a local run that lost
+     its proxy. */
+  let sawReadableWatch = false;
   for (const vid of liveTabFirst) {
     const url = `https://www.youtube.com/watch?v=${vid}`;
     const watchHtml = await fetchPage(url);
     if (watchHtml === null) continue;
     const watch = parseLivePage(watchHtml, url);
+    if (watch.read) sawReadableWatch = true;
     if (watch.live && (watch.videoId || vid)) {
       if (!ownerAllowsCandidate(owner, watchChannelId(watchHtml))) continue;
       if (!candidateStandsForDesignated(watchChannelId(watchHtml), designatedId, vid === liveTabId)) continue;
       return { state: "live" as const, videoId: watch.videoId || vid, title: watch.title, channelId: "" };
     }
+  }
+  /* Nothing verifiable (walled datacenter read, proxies down): unknown, never
+     off. Verified absence (a readable watch page, none live) and the
+     no-suggestion case still settle through `unverifiedChannelAnswer` below —
+     off only when the chrome itself is absent. */
+  if (!parsed.live && liveTabFirst.length > 0 && !sawReadableWatch) {
+    return { state: "unknown" as const, videoId: "", title: "", channelId: "" };
   }
   /* Walled but on air (note 331): the channel page carries the full on-air
      chrome yet no suggestion verifies — measured on a real service, every
@@ -528,16 +544,19 @@ function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
 }
 
 /** Page HTML via a same-origin / office-server proxy, else public CORS proxy.
-    Fast path: same-origin + office race in parallel (was sequential timeouts).
-    First VALID answer wins — a fast door never waits out a slow one. */
+    Fast path: same-origin + office reader + office race in parallel (was
+    sequential timeouts). First DECISIVE answer wins — a fast door never waits
+    out a slow one, but a fast walled page never beats a full one. */
 async function fetchPage(url: string): Promise<string | null> {
-  /* Fast live: all doors race at once — same-origin, office, public proxy.
-     The old code waited out same+office before even trying the public door,
-     which held the Watch screen past the live start on static hosts. First
-     valid answer wins; a miss degrades exactly as before (unknown). */
+  /* Fast live: all doors race at once — same-origin, the office reader, the
+     joined office server, static functions, public proxy. The old code waited
+     out same+office before even trying the public door, which held the Watch
+     screen past the live start on static hosts. First decisive answer wins; a
+     miss degrades exactly as before (unknown). */
   try {
-    return await firstValidHtml([
+    return await firstDecisiveHtml(url, [
       fetchPageSameOrigin(url),
+      fetchPageOfficeReader(url),
       fetchPageStaticProxy(url),
       fetchPageOffice(url),
       fetchPageRemote(url),
@@ -545,6 +564,82 @@ async function fetchPage(url: string): Promise<string | null> {
   } catch {
     return null;
   }
+}
+
+/** First DECISIVE answer wins (deployed reads like local): doors race, but a
+    fast walled page (live chrome, no video id — the datacenter read) must not
+    beat a slower full page (the same broadcast WITH its video id — the office
+    reader's residential read). A video-bearing live page returns at once, and
+    so does any other readable page — only the ambiguous walled-live page
+    waits (bounded by the doors' own timeout) for a video-bearing one, then
+    settles for itself. While a walled-live page is held, later off pages wait
+    with it: a stale proxy cache must not cancel a fresh live read — the settle
+    prefers the held live page, exactly like the first-valid race did when the
+    live page simply arrived first. Off/unknown answers without a held live
+    page stay as fast as before. */
+function firstDecisiveHtml(url: string, jobs: Promise<string | null>[]): Promise<string | null> {
+  return new Promise((resolve) => {
+    let pending = jobs.length;
+    let done = false;
+    /* The held walled-live page and the first off-class page, in arrival order. */
+    let held: string | null = null;
+    let firstOff: string | null = null;
+    if (!pending) {
+      resolve(null);
+      return;
+    }
+    const settle = () => {
+      if (done) return;
+      done = true;
+      resolve(held || firstOff);
+    };
+    for (const job of jobs) {
+      Promise.resolve(job).then(
+        (html) => {
+          if (done) return;
+          if (typeof html === "string" && html.length > 0) {
+            let parsed: { live: boolean; videoId: string } | null = null;
+            try {
+              parsed = parseLivePage(html, url);
+            } catch {
+              parsed = null;
+            }
+            /* Video-bearing live: verifiable and strongest — return at once. */
+            if (parsed && parsed.live && parsed.videoId) {
+              done = true;
+              resolve(html);
+              return;
+            }
+            /* Walled live (chrome, no id): hold for a video-bearing page. */
+            if (parsed && parsed.live) {
+              if (!held) held = html;
+              pending -= 1;
+              if (pending <= 0) settle();
+              return;
+            }
+            /* Any other readable page: decisive at once — unless a live page
+               is already held, in which case it waits out the race with it. */
+            if (held) {
+              if (!firstOff) firstOff = html;
+              pending -= 1;
+              if (pending <= 0) settle();
+              return;
+            }
+            done = true;
+            resolve(html);
+            return;
+          }
+          pending -= 1;
+          if (pending <= 0) settle();
+        },
+        () => {
+          if (done) return;
+          pending -= 1;
+          if (pending <= 0) settle();
+        }
+      );
+    }
+  });
 }
 
 /** First valid (non-null) door wins; never waits out the slowest door.
@@ -692,6 +787,37 @@ async function fetchPageOffice(url: string): Promise<string | null> {
     if (typeof text !== "string" || text.length === 0) return null;
     /* The office door is YouTube-only too — a login wall or error page is not
        an answer and must not beat the public door that has the real page. */
+    if (!isYoutubeHtml(text)) return null;
+    return text;
+  } catch {
+    return null;
+  }
+}
+
+/** The office reader's residential YouTube read (office-server.txt): the
+    always-on office computer answers /__yt from a home IP — full pages with
+    the live video id, exactly like `npm run dev` — so deployed copies resolve
+    the broadcast instead of only following the channel. Skipped when
+    unconfigured, or when it is the same box the office door above already
+    asks (local runs, office-joined copies). */
+async function fetchPageOfficeReader(url: string): Promise<string | null> {
+  try {
+    const base = officeUrl();
+    if (!base) return null;
+    try {
+      if (base === serverUrl()) return null;
+    } catch {
+      /* compare best-effort — the doors are cheap to double-ask */
+    }
+    const res = await withTimeout(
+      fetch(`${base}/__yt?url=${encodeURIComponent(url)}`, { cache: "no-store" }),
+      CHECK_TIMEOUT_MS
+    );
+    if (!res || !res.ok) return null;
+    const text = await res.text();
+    if (typeof text !== "string" || text.length === 0) return null;
+    /* Same YouTube-only guard as every /__yt door: error pages and the SPA
+       fallback never count as answers. */
     if (!isYoutubeHtml(text)) return null;
     return text;
   } catch {

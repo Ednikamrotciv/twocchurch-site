@@ -1,0 +1,37 @@
+# Office reader address — where deployed copies read YouTube through (one
+# origin per line, the first one wins). Lines starting with # are ignored.
+#
+# WHY THIS EXISTS: the deployed backend (e.g. Render) runs in a datacenter,
+# and YouTube walls datacenter reads (login wall, no live marker, watch pages
+# 502) — so without this file the deployed livestream can only follow the
+# channel and often lands on YouTube's "unavailable" frame, while `npm run
+# dev` on the office computer reads the same channel perfectly (home IP).
+# Pointing deployed copies at the office computer gives them the same
+# residential read the office itself enjoys: the live video id resolves and
+# the site plays exactly like local — no office tab needs to stay open.
+#
+# SETUP (once, ~2 minutes):
+#   1. On the always-on office computer, run the site (`npm start`, or
+#      double-click start.bat) and leave it running. With sharing on (the
+#      default), the terminal prints OFFICE ADDRESS like
+#      https://office-word-word.trycloudflare.com on every boot.
+#   2. Put that address alone on its own line below (or run
+#      `npm run set-server` — no, that writes cms-server.txt; for this file,
+#      paste the line by hand), commit, and push.
+#   3. Rebuild the frontend hosts from that commit (Render/Netlify rebuild on
+#      push automatically). Done: deployed copies read YouTube through the
+#      office from then on. If the office computer is offline, copies fall
+#      back to their previous behavior (channel follow / waiting screen).
+#
+# ROTATION: the tunnel address changes on every office restart. The office
+# server refreshes this file by itself on boot (same commit+push as the
+# office address) whenever the main server file already points at a hosted
+# backend — so after the one-time setup above, restarts heal themselves once
+# the hosts rebuild. Keep the office computer awake and online.
+#
+# While every line here is a comment (or the file is missing), deployed
+# copies read YouTube exactly as before (backend + static functions + public
+# proxies) — nothing else changes.
+#
+# Example (remove the # and use YOUR office tunnel address):
+# https://office-word-word.trycloudflare.com

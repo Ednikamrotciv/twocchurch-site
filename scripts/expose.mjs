@@ -90,7 +90,70 @@ function openTunnel(bin) {
   });
 }
 
+async function currentFirstAddress(file) {
+  try {
+    const raw = await readFile(path.join(ROOT, file), "utf8");
+    const line = String(raw).split(/\r?\n/).map((l) => String(l || "").trim()).find((l) => l && !l.startsWith("#")) || "";
+    return line.replace(/\/+$/, "");
+  } catch {
+    return "";
+  }
+}
+
+/* Hosted-backend hostnames (Render topology): when the main server file
+   already points at one of these, this boot's tunnel is the OFFICE READER
+   (office-server.txt) — the main file keeps pointing at the hosted backend.
+   Anything else (empty, loopback, a tunnel URL) is the office topology, where
+   the tunnel itself IS the server (cms-server.txt, as always). */
+const HOSTED_RE = /(onrender\.com|netlify\.app|vercel\.app|pages\.dev|github\.io|cloudfront\.net|herokuapp\.com|fly\.dev|azurewebsites\.net|render\.com)$/i;
+
 async function registerAndPush(url, log) {
+  /* Reader routing (Render topology): the tunnel refreshes office-server.txt
+     and the hosted address in cms-server.txt is left alone — so the tunnel
+     rotation heals itself on the next rebuild instead of hijacking the
+     backend pointer. Office topology keeps the legacy path untouched. */
+  try {
+    const cmsAddr = await currentFirstAddress("cms-server.txt");
+    const officeAddr = await currentFirstAddress("office-server.txt");
+    let officeExists = false;
+    try {
+      await readFile(path.join(ROOT, "office-server.txt"), "utf8");
+      officeExists = true;
+    } catch {
+      officeExists = false;
+    }
+    const hosted = /^https:\/\//i.test(cmsAddr || "") && HOSTED_RE.test(cmsAddr);
+    if (officeExists && (officeAddr || hosted)) {
+      const prev = await readFile(path.join(ROOT, "office-server.txt"), "utf8").catch(() => "");
+      const keep = prev.split(/\r?\n/).filter((l) => l.trim().startsWith("#"));
+      await writeFile(path.join(ROOT, "office-server.txt"), (keep.length ? keep.join("\n") + "\n" : "") + url + "\n");
+      log(`office reader is now ${url} (office-server.txt — rebuild the frontend hosts to pick it up)`);
+      const add = await sh("git", ["add", "office-server.txt"]);
+      if (add.code !== 0) {
+        log("not a git checkout — commit office-server.txt by hand wherever the repo lives");
+        return;
+      }
+      const diff = await sh("git", ["diff", "--cached", "--quiet"]);
+      if (diff.code === 0) {
+        log("office-server.txt already carried this address — nothing to push");
+        return;
+      }
+      const commit = await sh("git", ["commit", "-m", `office reader ${url}`]);
+      if (commit.code !== 0) {
+        log("could not commit (nothing to commit, or git needs setup) — run: git commit -m \"office reader\" office-server.txt && git push");
+        return;
+      }
+      const push = await sh("git", ["push"]);
+      log(
+        push.code === 0
+          ? "pushed — every deployed copy reads YouTube through the office after the next redeploy (a few minutes)"
+          : "commit saved but push failed (" + (push.err || push.out).trim().split("\n")[0] + ") — run: git push"
+      );
+      return;
+    }
+  } catch (err) {
+    log("office reader update skipped (" + (err?.message || err) + ") — falling back to the office address");
+  }
   const set = await sh(process.execPath, ["scripts/set-server.mjs", url]);
   if (set.code !== 0) throw new Error((set.err || set.out).trim() || "set-server failed");
   log((set.out || "").trim());
@@ -145,6 +208,14 @@ export async function attachShare(log) {
    not. The flag ships ON with the site; `npm run share-off` writes the
    override (git-ignored, so a fresh zip never turns sharing back on). */
 export async function shareWanted(rootDir) {
+  /* A hosted backend (Render) must never share itself: its tunnel would be a
+     datacenter read (walled, like its own /__yt) and its commit would fight
+     the office's. The office computer shares; the hosted box serves. */
+  try {
+    if (process.env.RENDER) return false;
+  } catch {
+    /* env unreadable — fall through to the file flags */
+  }
   try {
     await readFile(path.join(rootDir, "auto-share.txt"));
   } catch {

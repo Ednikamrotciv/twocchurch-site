@@ -9,7 +9,7 @@ import { sermonsNewestFirst, sermonSource, sermonThumb } from "../data/sermons";
 import { useLocalState, useNow, fireToast } from "../lib/hooks";
 import { KEYS, nextService, onAir, displayLive, to12h, DAY_NAMES, countdownParts, addToCalendar, mailto, clockHere, tidyCount, churchTimezone, visitorPlace, fmtDate, downloadText, serviceNoteKey, type NextServiceInfo } from "../lib/store";
 import { isFacebookVideoUrl, parseYoutubeId, platformLabel, watchUrl, youtubeThumb, type VideoPlatform, type VideoSource } from "../lib/embed";
-import { useLiveStream, liveTarget, guestTarget, isGuestTargetUrl, facebookTarget, useYoutubeVerdict, isStatusForTarget, designatedChannelIdForTarget, isDesignatedChannel, nextScreenShut, officeStopActive, recheckLiveNow, forgetAllVerified, readLiveStatus, type ScreenShut } from "../lib/livestatus";
+import { useLiveStream, liveTarget, guestTarget, isGuestTargetUrl, facebookTarget, useYoutubeVerdict, isStatusForTarget, designatedChannelIdForTarget, isDesignatedChannel, nextScreenShut, officeStopActive, recheckLiveNow, forgetAllVerified, type ScreenShut } from "../lib/livestatus";
 import { useLibrary } from "../lib/collections";
 import { useRecentServices, designatedFallback } from "../lib/recentstreams";
 import { Badge, Btn, Icon, IconBtn, Modal, Notice, Reveal, Rich, Section, SectionHeading, Textarea } from "../components/ui";
@@ -116,40 +116,7 @@ export function WatchLive() {
      IT is live, else the main answer above. The still, the ended video and
      the lists below stay main-owned — a guest ending returns every one of
      them untouched. */
-  const screenAirBase = guestLive ? guestAir : airForTarget;
-  /* Office-stamped broadcast (deployed parity with local): Play stamps the
-     verified video + headline into the publish, so a deployed visitor whose
-     own read is walled (unknown) opens the office-verified broadcast at once —
-     no scrape wait, no blind channel guess — exactly what a local run reads
-     off the channel itself. Never overrides a detection that named a video, a
-     definitive off, another channel's video, a stale stamp, or a dead id (the
-     stamped id still verifies through detectedId below, so a gone video can
-     never reach the black frame). */
-  const pubMainId = parseYoutubeId(String((LIVE as any).liveVideoId || ""));
-  const pubGuestId = parseYoutubeId(String((LIVE as any).guestVideoId || ""));
-  const pubMainVerdict = useYoutubeVerdict(pubMainId);
-  const pubGuestVerdict = useYoutubeVerdict(pubGuestId);
-  const pubStampFresh = (at: unknown) => !(Number(at) > 0) || Date.now() - Number(at) < 12 * 60 * 60 * 1000;
-  const rawHasVideo = screenAirBase.state === "live" && screenAirBase.platform !== "facebook" && !!screenAirBase.videoId;
-  const pubMainChannel = String((LIVE as any).liveVideoChannelId || "");
-  const pubGuestCore = !!pubGuestId && !!guestUrl && !rawHasVideo && !!guestSwitchOn &&
-    pubStampFresh((LIVE as any).guestVideoAt) &&
-    (pubGuestVerdict === true || pubGuestVerdict === null) && guestAir.state !== "off";
-  /* A moved channel drops the old stamp (note 350): an answer cached for
-     another address means the office retyped since the check — the standby
-     waits for the fresh check instead of playing somebody else's service. */
-  const cachedTarget = (() => { try { return String(readLiveStatus()?.target || ""); } catch { return ""; } })();
-  const pubMainStandby0 = !!pubMainId && !rawHasVideo && !!LIVE.isLive && !officeStopActive(LIVE) &&
-    (!/^UC[\w-]{20,24}$/.test(pubMainChannel) || !designatedId || pubMainChannel === designatedId) &&
-    pubStampFresh((LIVE as any).liveVideoAt) &&
-    (pubMainVerdict === true || pubMainVerdict === null) && airForTarget.state !== "off";
-  const pubMainStandby = pubMainStandby0 && (!cachedTarget || cachedTarget === targetUrl);
-  const pubGuestStandby = pubGuestCore && (!cachedTarget || cachedTarget === guestUrl || cachedTarget === targetUrl);
-  const screenAir = pubGuestStandby
-    ? { ...screenAirBase, state: "live", platform: "youtube", videoId: pubGuestId, title: String((LIVE as any).guestVideoTitle || screenAirBase.title || ""), channelId: "", target: guestUrl }
-    : pubMainStandby
-    ? { ...screenAirBase, state: "live", platform: "youtube", videoId: pubMainId, title: String((LIVE as any).liveVideoTitle || screenAirBase.title || ""), channelId: "", target: targetUrl }
-    : screenAirBase;
+  const screenAir = guestLive ? guestAir : airForTarget;
   /* Shut the moment a live ends (notes 386, 388): when the screen's broadcast
      reads off — the guest ending, the main ending, or the office stopping it —
      the screen closes at once onto the main channel's last ended thumbnail
@@ -218,13 +185,13 @@ export function WatchLive() {
      which verifies behind the frame itself. Only a proven-dead id is held
      back, and it still reaches the player below for its fallback. */
   const idOk = idVerdict === true || idVerdict === null;
-  const playableId = detectedId && idOk && (isDesignatedChannel(airForTarget.channelId, designatedId) || pubMainStandby || ((guestLive || pubGuestStandby) && isGuestTargetUrl(screenAir.target, guestUrl))) ? detectedId : "";
+  const playableId = detectedId && idOk && (isDesignatedChannel(airForTarget.channelId, designatedId) || (guestLive && isGuestTargetUrl(screenAir.target, guestUrl))) ? detectedId : "";
   const verifiedFallbackId = fallbackId && (fallbackVerdict === true || fallbackVerdict === null) ? fallbackId : "";
   /* A named id YouTube says is gone still reaches the player (note 420): the
      player's own dead fallback names it and offers the platform link — never
      the black "unavailable" frame, and never the ticking clock for a live
      that is already on air. */
-  const deadLiveId = detectedId && idVerdict === false && (isDesignatedChannel(airForTarget.channelId, designatedId) || pubMainStandby || ((guestLive || pubGuestStandby) && isGuestTargetUrl(screenAir.target, guestUrl))) ? detectedId : "";
+  const deadLiveId = detectedId && idVerdict === false && (isDesignatedChannel(airForTarget.channelId, designatedId) || (guestLive && isGuestTargetUrl(screenAir.target, guestUrl))) ? detectedId : "";
   const watchable = !!playableId || !!deadLiveId || !!detectedChannel || fbLive || !!verifiedFallbackId;
   /* Dead-video gate (note 413, opened note 420): a named id reaches the
      player while its verdict is still unknown — offline, probe down, still
@@ -336,7 +303,7 @@ export function WatchLive() {
   const liveSource: VideoSource = offFresh && graceRef.current ? graceRef.current : freshSource;
   const youtubeLink =
     watchUrl({ platform: "youtube", youtubeId: playableId }) ||
-    ((guestLive || pubGuestStandby) && guestUrl ? guestUrl : hasChannel ? targetUrl : watchUrl({ platform: "youtube", youtubeId: LIVE.youtubeId }) || targetUrl);
+    (guestLive && guestUrl ? guestUrl : hasChannel ? targetUrl : watchUrl({ platform: "youtube", youtubeId: LIVE.youtubeId }) || targetUrl);
 
   /* The `streaming` answer lives above, beside `overrideId` (note 412). */
   /* Live but not yet playable: the main address reads live while its id still
@@ -354,7 +321,7 @@ export function WatchLive() {
      office's standing headline; a forced guest with no detected title keeps
      the headline, since the church schedule never names a guest event. */
   const guestForcedOnly = (guestLive || !!(LIVE as any).guestIsLive) && !LIVE.isLive && airForTarget.state !== "live";
-  const liveName = tx(screenAir.title || (guestForcedOnly ? LIVE.liveTitle : info?.slot.name || LIVE.liveTitle) || "");
+  const liveName = tx(air.title || (guestForcedOnly ? LIVE.liveTitle : info?.slot.name || LIVE.liveTitle) || "");
   /* Countdown target only — the ticking text lives in <StreamCountdown/>
      below with its own isolated 1s clock, so the page no longer re-renders
      every second for one line. */
