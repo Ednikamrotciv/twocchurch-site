@@ -474,16 +474,32 @@ async function resolveYoutube(
   const liveTabFirst = liveTabId && cands.includes(liveTabId)
     ? [liveTabId, ...cands.filter((c) => c !== liveTabId)].slice(0, 3)
     : cands.slice(0, 3);
+  /* Deployed parity (reads like local): a walled watch page answers 502/empty
+     (null here) or a login wall with no readable model — neither can confirm
+     absence. Only a READABLE watch page that is not live counts as a verified
+     off. When suggestions existed but none could be read, the answer stays
+     `unknown`, never `off`, so a deployed copy never ends a service it merely
+     could not verify — it waits instead, exactly like a local run that lost
+     its proxy. */
+  let sawReadableWatch = false;
   for (const vid of liveTabFirst) {
     const url = `https://www.youtube.com/watch?v=${vid}`;
     const watchHtml = await fetchPage(url);
     if (watchHtml === null) continue;
     const watch = parseLivePage(watchHtml, url);
+    if (watch.read) sawReadableWatch = true;
     if (watch.live && (watch.videoId || vid)) {
       if (!ownerAllowsCandidate(owner, watchChannelId(watchHtml))) continue;
       if (!candidateStandsForDesignated(watchChannelId(watchHtml), designatedId, vid === liveTabId)) continue;
       return { state: "live" as const, videoId: watch.videoId || vid, title: watch.title, channelId: "" };
     }
+  }
+  /* Nothing verifiable (walled datacenter read, proxies down): unknown, never
+     off. Verified absence (a readable watch page, none live) and the
+     no-suggestion case still settle through `unverifiedChannelAnswer` below —
+     off only when the chrome itself is absent. */
+  if (!parsed.live && liveTabFirst.length > 0 && !sawReadableWatch) {
+    return { state: "unknown" as const, videoId: "", title: "", channelId: "" };
   }
   /* Walled but on air (note 331): the channel page carries the full on-air
      chrome yet no suggestion verifies — measured on a real service, every
