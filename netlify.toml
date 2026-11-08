@@ -17,6 +17,18 @@
   for = "/seed.json"
   [headers.values]
     Cache-Control = "no-store, must-revalidate"
+[[headers]]
+  for = "/server.json"
+  [headers.values]
+    Cache-Control = "no-store, must-revalidate"
+[[headers]]
+  for = "/feed.json"
+  [headers.values]
+    Cache-Control = "no-store, must-revalidate"
+[[headers]]
+  for = "/404.html"
+  [headers.values]
+    Cache-Control = "no-store, must-revalidate"
 [[redirects]]
   from = "/*"
   to = "/index.html"
