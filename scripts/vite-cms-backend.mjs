@@ -779,7 +779,7 @@ export function cmsBackend() {
               host === "www.youtube.com" || host === "youtube.com" ||
               host === "m.youtube.com" || host === "youtu.be";
             if (!allowed) {
-              res.writeHead(400, { "cache-control": "no-store", "access-control-allow-origin": "*" });
+              res.writeHead(400, { "cache-control": "no-store" });
               res.end("bad url");
               return;
             }
@@ -812,7 +812,7 @@ export function cmsBackend() {
               }
               const text = ytTooBig ? "" : Buffer.concat(ytParts).toString("utf8");
               if (!upstream.ok || !text) {
-                res.writeHead(502, { "cache-control": "no-store", "access-control-allow-origin": "*" });
+                res.writeHead(502, { "cache-control": "no-store" });
                 res.end(ytTooBig ? "too large" : "unreachable");
                 return;
               }
@@ -825,7 +825,6 @@ export function cmsBackend() {
                   "content-length": gz.length,
                   "content-encoding": "gzip",
                   "cache-control": "no-store",
-                  "access-control-allow-origin": "*",
                   vary: "accept-encoding",
                 });
                 res.end(gz);
@@ -835,12 +834,11 @@ export function cmsBackend() {
                 "content-type": "text/html; charset=utf-8",
                 "content-length": body.length,
                 "cache-control": "no-store",
-                "access-control-allow-origin": "*",
               });
               res.end(body);
               return;
             } catch {
-              res.writeHead(502, { "cache-control": "no-store", "access-control-allow-origin": "*" });
+              res.writeHead(502, { "cache-control": "no-store" });
               res.end("unreachable");
               return;
             }

@@ -359,12 +359,6 @@ export function VideoPlayer({
      gesture and the live opens WITH sound by itself (see the auto-unblock
      effect beside unmutePlay below). */
   const [blocked, setBlocked] = useState(false);
-  const blockedRef = useRef(false);
-  useEffect(() => { try { blockedRef.current = !!blocked; } catch {} }, [blocked]);
-  /* Plain-embed fallback when the YouTube IFrame API is blocked (adblock/Brave/offline):
-     the API host stays empty and the 12s watchdog would grey-arrow a healthy live.
-     A plain iframe needs no API and plays the same verified id. */
-  const [apiFailed, setApiFailed] = useState(false);
   const playerRef = useRef<any>(null);
   /* One-shot auto-recovery guard (see the auto-fallback effect below): which
      source already spent its automatic "ask what's live now" try, so a truly
@@ -380,7 +374,6 @@ export function VideoPlayer({
      verifier + in-frame error decide). Never replays a stale dead id blind. */
   const [repairing, setRepairing] = useState(false);
   const repair = () => {
-    try { setApiFailed(false); } catch {}
     try {
       forgetAllVerified();
     } catch {}
@@ -544,7 +537,6 @@ export function VideoPlayer({
     setLiveVideoId("");
     setFrameConfirmed(false);
     setBlocked(false);
-    try { setApiFailed(false); } catch {}
     try { playerRef.current = null; } catch {}
     autoFollowTriedRef.current = "";
     setPlaying(false);
@@ -880,7 +872,6 @@ export function VideoPlayer({
     if (platform !== "youtube") return;
     const vid = liveVideoId || ytId;
     if (!vid) return;
-    if (apiFailed) return;
     const host = apiHostRef.current;
     if (!host) return;
     /* New video, new proof: the cover stays until THIS video plays. */
@@ -894,10 +885,6 @@ export function VideoPlayer({
     let settled = false;
     const fail = (why: string, code?: number) => {
       if (settled || cancelled) return;
-      /* Autoplay-blocked is not death: the browser holds audible autoplay for a gesture
-         and the player sits cued/unstarted. Killing it here grey-arrows a healthy live
-         on every fresh visit. Wait for the gesture auto-resume instead. */
-      try { if (why === "watchdog" && blockedRef.current) { settled = true; try { window.clearTimeout(watchdog); } catch {} return; } } catch {}
       settled = true;
       try { console.warn("church player: showing fallback", { videoId: vid, why, code }); } catch {}
       try { setDead(true); } catch {}
@@ -921,17 +908,7 @@ export function VideoPlayer({
     }, 2500);
     loadYtPlayerApi()
       .then((api) => {
-        if (cancelled) return;
-        if (!api || !api.Player) {
-          /* IFrame API blocked (adblock/Brave/offline): never grey-arrow for this.
-             The plain iframe below plays the same verified id with no API. */
-          try { console.warn("church player: api blocked, plain fallback", { videoId: vid }); } catch {}
-          try { window.clearTimeout(watchdog); } catch {}
-          try { window.clearTimeout(blockedTimer); } catch {}
-          settled = true;
-          try { setApiFailed(true); } catch {}
-          return;
-        }
+        if (cancelled || !api || !api.Player) return;
         if (apiHostRef.current !== host) return;
         try {
           let apiOrigin = "";
@@ -989,14 +966,14 @@ export function VideoPlayer({
       try { if (player && typeof player.destroy === "function") player.destroy(); } catch {}
       try { if (playerRef.current === player) playerRef.current = null; } catch {}
     };
-  }, [playing, dead, liveVideoId, ytId, platform, iframeKey, apiFailed]);
+  }, [playing, dead, liveVideoId, ytId, platform, iframeKey]);
 
-  /* Plain-frame net (Facebook only now — YouTube mounts no blind frame, so a
-     channel with no verified id waits on its thumbnail above): the iframe
-     never reports content errors cross-origin. Watchdog re-asks what's live
-     now: a fresh verified broadcast upgrades to its own id (API path, which
-     does report errors); a proven-off channel and any never-loaded frame
-     land on the thumbnail fallback. */
+  /* Plain-frame net (Facebook + followed YouTube channels — a walled
+     live with no verifiable video id plays the channel's live_stream
+     frame here): the iframe never reports content errors cross-origin.
+     Watchdog re-asks what's live now: a fresh verified broadcast upgrades
+     to its own id (API path, which does report errors); a proven-off
+     channel and any never-loaded frame land on the thumbnail fallback. */
   const frameLoadedRef = useRef(false);
   useEffect(() => {
     frameLoadedRef.current = false;
@@ -1244,37 +1221,17 @@ export function VideoPlayer({
             <img className="player__underlay" src={still} alt="" aria-hidden="true" loading="lazy" onError={handleStillError} />
           ) : null}
           {(platform === "youtube" && (liveVideoId || ytId)) ? (
-            apiFailed ? (
-              /* API blocked: plain iframe plays the same verified id with no API.
-                 onLoad lifts the cover; the verifier still guards dead ids. */
-              <iframe
-                key={iframeKey}
-                className="player__frame"
-                src={freshSrc}
-                title={shown}
-                referrerPolicy={EMBED_REFERRER_POLICY}
-                allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; fullscreen"
-                allowFullScreen
-                onLoad={() => {
-                  try { frameLoadedRef.current = true; } catch {}
-                  try { setFrameConfirmed(true); } catch {}
-                }}
-                onError={() => { try { setDead(true); } catch {} }}
-              />
-            ) : (
-              /* API-managed frame (bare video id): the API injects its own
-                 iframe into this host div and reports its own errors; React
-                 never touches what's inside it. Only a verified id ever
-                 reaches this frame — that is what keeps the "unavailable"
-                 text off the screen. */
-              <div key={iframeKey} ref={apiHostRef} className="player__frame-host" />
-            )
-          ) : platform === "youtube" ? (
-            /* YouTube with no verified video id: NEVER mount the channel
-               embed blind — an offline or ended channel renders YouTube's
-               own "unavailable" text. The latest thumbnail waits here while
-               the check resolves to a verified id (API path above); if none
-               comes the watchdog drops to the thumbnail fallback instead. */
+            /* API-managed frame (bare video id): the API injects its own
+               iframe into this host div and reports its own errors; React
+               never touches what's inside it. Only a verified id ever
+               reaches this frame — that is what keeps the "unavailable"
+               text off the screen. */
+            <div key={iframeKey} ref={apiHostRef} className="player__frame-host" />
+          ) : platform === "youtube" && !followId ? (
+            /* YouTube with no verified video id and no channel to follow:
+               nothing to mount — the latest thumbnail waits here while
+               the check resolves; if none comes the watchdog drops to
+               the thumbnail fallback instead. */
             <div className="player__poster player__poster--live" aria-live="polite">
               {still ? (
                 <img src={still} alt="" loading="lazy" onError={handleStillError} />
@@ -1303,10 +1260,13 @@ export function VideoPlayer({
                 frameLoadedRef.current = true;
               } catch {}
               /* Plain frames never report errors cross-origin: the Facebook
-                 cover lifts on load; YouTube never mounts a blind frame
-                 above, so there is nothing else to confirm here. */
+                 cover lifts on load; a followed YouTube channel lifts the
+                 same way — the check said live for this channel, so the
+                 live_stream frame is the broadcast, not a blind guess.
+                 A truly offline channel still lands on the fallback via
+                 the watchdog below. */
               try {
-                if (platform === "facebook") setFrameConfirmed(true);
+                if (platform === "facebook" || (platform === "youtube" && !!followId && !liveVideoId && !ytId)) setFrameConfirmed(true);
               } catch {}
             }}
             onError={() => {
@@ -1317,10 +1277,10 @@ export function VideoPlayer({
           />
           )}
           {/* Cover-up: opaque thumbnail over the unproven frame — the
-             "unavailable" text can never show through. Lifts only on real
-             playback (API PLAYING / Facebook load above). YouTube mounts no
-             blind frame at all, so its cover only ever guards a verified id. */}
-          {!frameConfirmed && still && (platform !== "youtube" || liveVideoId || ytId) ? (
+             "unavailable" text can never show through. Lifts on real
+             playback (API PLAYING / Facebook load / followed-channel load
+             above). A bare YouTube id still only ever guards a verified id. */}
+          {!frameConfirmed && still && (platform !== "youtube" || liveVideoId || ytId || (!!followId && !liveVideoId && !ytId)) ? (
             <span className="player__cover" aria-hidden="true">
               <img src={still} alt="" loading="lazy" onError={handleStillError} />
               <span className="player__scrim" />
