@@ -1135,10 +1135,11 @@ export function liveTargetSignature(): string {
 }
 
 function delay() {
-  /* The Watch page (urgent watcher) polls faster than the quiet week without
-     changing the shared cadence above: a YouTube start shows in seconds where
-     someone is actually watching, while background tabs stay cheap. */
-  if (wantsUrgent()) return 8_000;
+  /* The Watch page (urgent watcher) polls every 2s while someone is actually
+     watching — a YouTube start shows in seconds and the waiting clock
+     vanishes with it — without changing the shared cadence above, so
+     background tabs stay cheap. */
+  if (wantsUrgent()) return 2_000;
   return wantsSoon() ? SOON_MS : IDLE_MS;
 }
 

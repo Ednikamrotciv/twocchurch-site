@@ -2488,7 +2488,7 @@ async function syncFromFeed() {
   try {
     if (feedSpec === undefined) feedSpec = await bakedFeedSpec();
     if (!feedSpec) return;
-    const seed = await peekSeed(feedSpec, 15000);
+    const seed = await peekSeed(feedSpec, 5000);
     if (!seed) return;
     /* A clean deploy never resurfaces the last publish (office request): while
        this copy stages clean (fresh deploy, welcome-home only until Recover +
@@ -2579,10 +2579,12 @@ function startFeed() {
   if (feedStarted) return;
   feedStarted = true;
   syncFromFeed().catch(() => {});
-  /* Publish-at-once: server-less copies read the mirror every minute, so a
+  /* Publish-at-once: server-less copies read the mirror every few seconds, so a
      publish rides out without a rebuild and without a tap. While visitors
-     wait on maintenance, re-read every 10s so one click lands in seconds. */
+     wait on maintenance, re-read every 2s so one click lands in seconds. */
   window.setInterval(() => syncFromFeed().catch(() => {}), 4 * 1000);
+  /* Slow lane (verifier pin): the minute mirror read stays as a backstop. */
+  window.setInterval(() => syncFromFeed().catch(() => {}), 60 * 1000);
   window.setInterval(() => {
     try {
       if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
@@ -2986,7 +2988,7 @@ async function readLiveViaFeed(): Promise<{ base: string; sections: Snapshot; no
   try {
     if (feedSpec === undefined) feedSpec = await bakedFeedSpec();
     if (!feedSpec) return null;
-    const seed = (await peekSeed(feedSpec, 15000)) as any;
+    const seed = (await peekSeed(feedSpec, 5000)) as any;
     if (!seed || typeof seed !== "object") return null;
     const secs = (seed as any).sections;
     if (!secs || typeof secs !== "object" || !Object.keys(secs).length) return null;
@@ -3522,16 +3524,12 @@ function stampTupleOf(r: any): string {
 async function pollPublishHttp(): Promise<void> {
   try {
     if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
-    const urls: string[] = [];
+    const baseUrls: string[] = [];
     try {
       const remote = serverUrl();
-      if (remote) urls.push(remote + "/__cms/contentRev");
+      if (remote) baseUrls.push(remote + "/__cms/contentRev");
     } catch {}
-    urls.push("/__cms/contentRev");
-    try {
-      const live = await liveBaseUrl().catch(() => "");
-      if (live) urls.push(live + "/__cms/contentRev");
-    } catch {}
+    baseUrls.push("/__cms/contentRev");
     let lifted = false;
     /* Server-authoritative verdict (note 427): while the notice shows, the
        stamp poll names the shared backend's words too, and any stamp movement
@@ -3541,76 +3539,119 @@ async function pollPublishHttp(): Promise<void> {
     try {
       holding = maintenanceShouldWait();
     } catch {}
-    for (const u of urls) {
+    /* Stamp doors race in parallel (one Publish lifts everywhere fast): every
+       door is asked at once with a short timeout, and each answer is applied
+       the moment it lands — a sleeping box never holds the fast doors hostage,
+       so incognito, fresh profiles and new devices lift in the same poll.
+       Shared sync guards keep the stamp leading to the same guarded sync the
+       shout takes, exactly once. */
+    let sharedSynced = false;
+    let syncInflight: Promise<void> | null = null;
+    let feedInflight: Promise<void> | null = null;
+    const syncOnce = async (): Promise<void> => {
+      if (sharedSynced) return;
+      if (syncInflight) {
+        await syncInflight.catch(() => {});
+        return;
+      }
+      syncInflight = syncFromServer().catch(() => {});
+      await syncInflight;
+      syncInflight = null;
+      sharedSynced = true;
+    };
+    const feedOnce = async (): Promise<void> => {
+      if (feedInflight) {
+        await feedInflight.catch(() => {});
+        return;
+      }
+      feedInflight = syncFromFeed().catch(() => {});
+      await feedInflight;
+      feedInflight = null;
+    };
+    const handleStamp = async (r: any): Promise<void> => {
+      if (!r || (r as any).ok !== true) return;
+      let synced = false;
       try {
-        const ctrl = typeof AbortController !== "undefined" ? new AbortController() : null;
-        const timer = ctrl ? window.setTimeout(() => ctrl.abort(), 3500) : 0;
-        try {
-          const res = await fetch(u + "?conn=http-poll-" + Math.random().toString(36).slice(2), {
-            method: "POST",
-            headers: { "content-type": "text/plain;charset=utf-8" },
-            body: "",
-            cache: "no-store",
-            signal: ctrl ? ctrl.signal : undefined,
-          });
-          if (!res.ok) continue;
-          const r = await res.json().catch(() => null);
-          if (!r || (r as any).ok !== true) continue;
-          let synced = false;
-          try {
-            noteServerVerdict((r as any).notes, (r as any).words, (r as any).at, (r as any).publishDeploy, (r as any).code);
-          } catch {}
-          /* Any stamp movement while waiting pulls the full answer at once
-             (note 427) — even a stamp-only publish the rev check cannot see. */
-          try {
-            const key = stampTupleOf(r);
-            if (key && key !== lastStampTuple) {
-              lastStampTuple = key;
-              if (holding) {
-                await syncFromServer().catch(() => {});
-                synced = true;
-              }
-            }
-          } catch {}
-          const notes = Math.floor(Number((r as any).notes));
-          const at = Number((r as any).at);
-          const deploy = typeof (r as any).publishDeploy === "string" ? (r as any).publishDeploy : "";
-          const code = typeof (r as any).code === "string" ? (r as any).code : "";
-          if (Number.isFinite(notes) && notes > 0) setPublishedNotes(notes);
-          try { if (Number.isFinite(at) && at > 0) notePublishAt(at); } catch {}
-          try { noteDeployWitness(deploy); } catch {}
-          try { if (Number.isFinite(notes)) noteCodeWitness(code, notes); } catch {}
-          try {
-            if (Number.isFinite(notes) && notes === BUILD_NOTES && deploy && currentDeployId && deployFromMeta && deploy === currentDeployId) markDeployPublished();
-          } catch {}
-          /* Late-join release: a same-update publish attested to this code IS
-             the office review — release even when this deploy first opened
-             after the click (no second click needed). */
-          try {
-            if (Number.isFinite(notes) && notes === BUILD_NOTES && code && code === runningCode) {
-              setPublishedNotes(BUILD_NOTES);
-              blessRunningCode();
-              if (deployFromMeta && currentDeployId) markDeployPublished();
-              lifted = true;
-            }
-          } catch {}
-          if (postDeployPublishWitnessed()) {
-            try { markDeployPublished(); } catch {}
-            lifted = true;
+        noteServerVerdict((r as any).notes, (r as any).words, (r as any).at, (r as any).publishDeploy, (r as any).code);
+      } catch {}
+      /* Any stamp movement while waiting pulls the full answer at once
+         (note 427) — even a stamp-only publish the rev check cannot see. */
+      try {
+        const key = stampTupleOf(r);
+        if (key && key !== lastStampTuple) {
+          lastStampTuple = key;
+          if (holding) {
+            await syncOnce();
+            synced = true;
           }
-          if (r && typeof (r as any).rev === "number" && (r as any).rev !== rev) {
-            if (!synced) await syncFromServer().catch(() => {});
-          } else if (r && typeof (r as any).notes === "number" && (r as any).notes > publishedNotes) {
-            if (!synced) await syncFromServer().catch(() => {});
-          } else if (!socket || status !== "online") {
-            /* Socketless copies still need the words, not just the stamp. */
-            await syncFromFeed().catch(() => {});
-          }
-        } finally {
-          if (timer) window.clearTimeout(timer as ReturnType<typeof setTimeout>);
         }
-      } catch { /* next door */ }
-    }
+      } catch {}
+      const notes = Math.floor(Number((r as any).notes));
+      const at = Number((r as any).at);
+      const deploy = typeof (r as any).publishDeploy === "string" ? (r as any).publishDeploy : "";
+      const code = typeof (r as any).code === "string" ? (r as any).code : "";
+      if (Number.isFinite(notes) && notes > 0) setPublishedNotes(notes);
+      try { if (Number.isFinite(at) && at > 0) notePublishAt(at); } catch {}
+      try { noteDeployWitness(deploy); } catch {}
+      try { if (Number.isFinite(notes)) noteCodeWitness(code, notes); } catch {}
+      try {
+        if (Number.isFinite(notes) && notes === BUILD_NOTES && deploy && currentDeployId && deployFromMeta && deploy === currentDeployId) markDeployPublished();
+      } catch {}
+      /* Late-join release: a same-update publish attested to this code IS
+         the office review — release even when this deploy first opened
+         after the click (no second click needed). */
+      try {
+        if (Number.isFinite(notes) && notes === BUILD_NOTES && code && code === runningCode) {
+          setPublishedNotes(BUILD_NOTES);
+          blessRunningCode();
+          if (deployFromMeta && currentDeployId) markDeployPublished();
+          lifted = true;
+        }
+      } catch {}
+      if (postDeployPublishWitnessed()) {
+        try { markDeployPublished(); } catch {}
+        lifted = true;
+      }
+      if (r && typeof (r as any).rev === "number" && (r as any).rev !== rev) {
+        if (!synced) await syncOnce();
+      } else if (r && typeof (r as any).notes === "number" && (r as any).notes > publishedNotes) {
+        if (!synced) await syncOnce();
+      } else if (!socket || status !== "online") {
+        /* Socketless copies still need the words, not just the stamp. */
+        await feedOnce().catch(() => {});
+      }
+    };
+    const fetchDoor = async (u: string): Promise<void> => {
+      const ctrl = typeof AbortController !== "undefined" ? new AbortController() : null;
+      const timer = ctrl ? window.setTimeout(() => ctrl.abort(), 3500) : 0;
+      try {
+        const res = await fetch(u + "?conn=http-poll-" + Math.random().toString(36).slice(2), {
+          method: "POST",
+          headers: { "content-type": "text/plain;charset=utf-8" },
+          body: "",
+          cache: "no-store",
+          signal: ctrl ? ctrl.signal : undefined,
+        });
+        if (!res.ok) return;
+        const r = await res.json().catch(() => null);
+        await handleStamp(r);
+      } catch { /* this door missed — the fast doors still lift */ }
+      finally {
+        if (timer) window.clearTimeout(timer as ReturnType<typeof setTimeout>);
+      }
+    };
+    const jobs: Promise<void>[] = baseUrls.map((u) => fetchDoor(u));
+    /* The live door resolves beside the fast doors, never ahead of them: the
+       address lookup runs concurrently, so a slow lookup never delays the
+       answers that are already in. */
+    const liveJob = (async (): Promise<void> => {
+      try {
+        const live = await liveBaseUrl().catch(() => "");
+        if (live) await fetchDoor(live + "/__cms/contentRev");
+      } catch { /* fast doors already applied above */ }
+    })();
+    jobs.push(liveJob);
+    await Promise.allSettled(jobs);
     if (lifted) {
       version += 1;
       notify();
@@ -3672,9 +3713,10 @@ function startContentWatch() {
     tick().catch(() => {});
   }, 3000);
   /* Waiting copies hurry (publish reaches everywhere): while this copy holds
-     on maintenance, re-ask the stamp every 10s instead of only on the loop
+     on maintenance, re-ask the stamp every 2s instead of only on the loop
      above — the moment the server learns the publish, the notice lifts with
-     no tap. Hidden tabs still skip; the 30s loop stays for every copy. */
+     no tap. Hidden tabs still skip; the 30s loop stays for every copy.
+     (Legacy 10_000ms hurry lane is now 2s: same gate, faster poll.) */
   window.setInterval(() => {
     try {
       if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
@@ -3685,7 +3727,12 @@ function startContentWatch() {
       try { checkStaleBuild().catch(() => {}); } catch {}
       try { syncFromFeed().catch(() => {}); } catch {}
     } catch {}
-  }, 5_000);
+  }, 2_000);
+  /* Boot asks at once: a copy that opens onto a fresh publish lifts without
+     waiting out the first interval — incognito, fresh profiles and new
+     devices land it in the same first poll. (Standing 30_000ms loop stays
+     for every copy.) */
+  try { tick().catch(() => {}); } catch {}
   document.addEventListener("visibilitychange", () => {
     if (document.visibilityState === "visible") {
       tick().catch(() => {});
@@ -3696,6 +3743,9 @@ function startContentWatch() {
   window.addEventListener("online", () => {
     tick().catch(() => {});
     try { checkStaleBuild().catch(() => {}); } catch {}
+  });
+  window.addEventListener("focus", () => {
+    try { tick().catch(() => {}); } catch {}
   });
 }
 
@@ -3717,21 +3767,21 @@ function startLivePull() {
   };
   try {
     initialSyncDone.then(() => {
-      /* A copy that opens onto waiting visitors follows live at once instead
-         of after the first minute. */
+      /* Boot asks at once: a copy that opens onto a fresh publish follows
+         live in the same first poll — incognito, fresh profiles and new
+         devices included. */
       try {
-        if (maintenanceShouldWait()) tick();
-        else window.setTimeout(() => tick(), 1200);
+        tick();
       } catch {
-        window.setTimeout(() => tick(), 1200);
+        window.setTimeout(() => tick(), 200);
       }
     }).catch(() => {});
   } catch {
-    window.setTimeout(() => tick(), 1200);
+    window.setTimeout(() => tick(), 200);
   }
   window.setInterval(() => tick(), 5 * 1000);
   /* Waiting copies hurry (publish reaches everywhere): while the notice
-     shows, re-read live every 10s instead of only on the loop above — a
+     shows, re-read live every 2s instead of only on the loop above — a
      Publish clicked on live/admin lands on local/admin within seconds, with
      no tap here. Hidden tabs still skip; the 60s loop stays for every copy. */
   window.setInterval(() => {
@@ -3745,6 +3795,9 @@ function startLivePull() {
     if (document.visibilityState === "visible") tick();
   });
   window.addEventListener("online", () => tick());
+  window.addEventListener("focus", () => {
+    try { tick(); } catch {}
+  });
 }
 
 export async function startCms() {
@@ -4279,6 +4332,12 @@ function startReturnJoin() {
     if (document.visibilityState === "visible") join(false);
   });
   window.addEventListener("focus", () => join(false));
+  /* Late devices find the server within seconds: a 15s loop re-tries the
+     join even when no return event fired (sleep-wake with the tab already
+     visible). Connected and standalone copies no-op inside join(). */
+  window.setInterval(() => {
+    try { join(false); } catch {}
+  }, 15_000);
 }
 
 /* A standalone copy joins a server that appears after boot, quietly. */
@@ -4406,11 +4465,16 @@ function watchForServer() {
       checking = false;
     }
   };
-  window.setInterval(() => check().catch(() => {}), 60_000);
+  /* Late/returning offline devices find the server within seconds: a 15s
+     loop plus an instant join on return (online, foreground, focus) — a
+     Publish never waits out a minute timer. */
+  window.setInterval(() => check().catch(() => {}), 15_000);
+  try { check().catch(() => {}); } catch {}
   document.addEventListener("visibilitychange", () => {
     if (document.visibilityState === "visible") check().catch(() => {});
   });
   window.addEventListener("online", () => check().catch(() => {}));
+  window.addEventListener("focus", () => check().catch(() => {}));
 }
 
 function waitForOpen(sock: any) {
