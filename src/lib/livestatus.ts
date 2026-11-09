@@ -308,11 +308,10 @@ export function designatedChannelIdForTarget(targetUrl: string): string {
   return "";
 }
 /** True while this channel may stand for the designated broadcast (note 358),
-    gated for both slots: a named channel that is not the slot's designated
-    one is somebody else's video and never plays; an unnamed one passes
-    through (the candidate and report gates below judge those — a thin read
-    must still be able to end silence). Main slot checks against the main
-    designation, guest slot against the guest designation (see WatchLive). */
+    pure for the verifier: a named channel that is not the designated one is
+    somebody else's video and never plays; an unnamed one passes through (the
+    candidate and report gates below judge those — a thin read must still be
+    able to end silence). */
 export function isDesignatedChannel(channelId: string, designatedId: string): boolean {
   const c = String(channelId || "");
   const d = String(designatedId || "");
@@ -320,29 +319,21 @@ export function isDesignatedChannel(channelId: string, designatedId: string): bo
   return c === d;
 }
 /** True while a suggestion may stand for the designated broadcast (note 358),
-    gated for both slots: the page that names the suggestions is a grab-bag,
+    pure for the verifier: the page that names the suggestions is a grab-bag,
     so a suggestion from another channel is skipped like an off answer — and
     with the designation known, an ownerless grab-bag mention plays only when
     the channel's own Live tab points at it. The Live tab names the channel's
-    own video, so it vouches where a walled watch page cannot. When no
-    designation is known (guest handle outside the baked map), an ownerless
-    mention still needs the Live-tab vouch — otherwise any related upload on
-    the page could play as the slot's live. */
+    own video, so it vouches where a walled watch page cannot. */
 export function candidateStandsForDesignated(
   candidateChannelId: string,
   designatedId: string,
   fromLiveTab = false
 ): boolean {
   const d = String(designatedId || "");
+  if (!d) return true;
   const c = String(candidateChannelId || "");
-  if (d) {
-    if (c) return c === d;
-    return fromLiveTab === true;
-  }
-  // No baked designation (e.g. a guest handle): a named candidate already
-  // passed the owner check above; an unnamed one plays only on Live-tab vouch.
-  if (!c) return fromLiveTab === true;
-  return true;
+  if (c) return c === d;
+  return fromLiveTab === true;
 }
 
 /** True while this answer belongs to the address asked for (note 350), pure
@@ -359,10 +350,7 @@ export function isStatusForTarget(status: { target?: unknown }, targetUrl: strin
     for the verifier: the ended screen keeps the video it was — but only when
     it was the SAME address. A moved channel drops the old video outright
     instead of seeding the new handle's ended screen, cover and recents with
-    somebody else's service. Gated for both slots: a kept video from another
-    channel is dropped too — the new handle never inherits somebody else's
-    service on its ended screen. Older callers pass nothing and behave exactly
-    like before. */
+    somebody else's service. */
 export function inheritEnded(
   before: LiveStatus,
   targetUrl: string,
@@ -370,13 +358,12 @@ export function inheritEnded(
   designatedId = ""
 ): { endedAt: number; videoId: string; title: string; channelId: string; platform: LivePlatform | "" } {
   if ((before.state === "live" || before.endedAt > 0) && isStatusForTarget(before, targetUrl)) {
-    /* A kept video from another channel is dropped too: the new handle never
-       inherits somebody else's service on its ended screen. */
-    {
-      const d = String(designatedId || "");
-      const keptId = String(before.channelId || "");
-      if (d && keptId && keptId !== d) return { endedAt: 0, videoId: "", title: "", channelId: "", platform: "" };
-    }
+    /* A kept video from another channel is dropped too (note 358): the new
+       handle never inherits somebody else's service on its ended screen.
+       Older callers pass nothing and behave exactly like before. */
+    const d = String(designatedId || "");
+    const keptId = String(before.channelId || "");
+    if (d && keptId && keptId !== d) return { endedAt: 0, videoId: "", title: "", channelId: "", platform: "" };
     return {
       endedAt: before.state === "live" ? checkedAt : before.endedAt,
       videoId: before.videoId,
@@ -456,14 +443,12 @@ export function unverifiedChannelAnswer(
   channelId: string,
   designatedId = ""
 ): { state: LiveState; videoId: string; title: string; channelId: string } {
-  /* Gated for both slots: a chrome-only page follows the channel only when
-     the page names the slot's designated owner (or when the slot has no baked
-     designation, the page's own clear owner) — an unnamed or foreign owner
-     stays unknown and the screen waits instead of playing a guess. */
-  {
-    const d = String(designatedId || "");
-    if (live && channelId && (!d || channelId === d)) return { state: "live", videoId: "", title, channelId };
-  }
+  /* Strict (note 358): a chrome-only page follows the channel only when the
+     page names the designated owner — an unnamed or foreign owner stays
+     unknown and the screen waits instead of playing a guess. Older callers
+     pass nothing and behave exactly like before. */
+  const d = String(designatedId || "");
+  if (live && channelId && (!d || channelId === d)) return { state: "live", videoId: "", title, channelId };
   if (live) return { state: "unknown", videoId: "", title: "", channelId: "" };
   return { state: "off", videoId: "", title: "", channelId: "" };
 }
@@ -785,14 +770,14 @@ export function reportMatchesBuild(rep: { notes?: unknown }): boolean {
   return Number(rep?.notes) === BUILD_NOTES;
 }
 /** True while an office report names something the player may open (note 358),
-    gated upstream for both slots: a "live" report carrying the broadcast
-    (video id) or the channel to follow (channel id) may open the player — the
-    office's own scrape was already gated to the slot's channel and the report
-    is stamped for its address, so a channel follow is the asked channel's own
-    live, not a guess. "off" reports carry no video by design and pass through. */
-export function reportCarriesVideo(rep: { state?: unknown; videoId?: unknown; channelId?: unknown }): boolean {
+    pure for the verifier: a "live" report with no video id is an unverified
+    channel follow — it must never open the player by itself. Readers fall
+    through to their own scrape (usually `unknown` → the waiting screen)
+    instead of playing a guess. "off" reports carry no video by design and
+    pass through. */
+export function reportCarriesVideo(rep: { state?: unknown; videoId?: unknown }): boolean {
   if (String((rep && rep.state) || "") !== "live") return true;
-  return !!String((rep && rep.videoId) || "") || !!String((rep && rep.channelId) || "");
+  return !!String((rep && rep.videoId) || "");
 }
 
 /** The latest office report, or null — public read, never throws. */
@@ -1017,11 +1002,10 @@ function maybeReport(status: LiveStatus) {
        finds must never overwrite the office's real answer on the server. */
     if (status.state !== "live" && status.state !== "off") return;
     if (status.state === "live" && status.platform !== "youtube") return;
-    /* Gated upstream: a live answer carrying the broadcast (video id)
-       or the channel to follow (channel id) reports — the scrape already
-       proved it is the slot's own channel, stamped for its address. A live
-       naming neither stays local. */
-    if (status.state === "live" && !status.videoId && !status.channelId) return;
+    /* Only a verified broadcast id is reported (note 358): an unverified
+       channel-live answer names no video, so reporting it would steer every
+       visitor's player at a guess — it stays local, and the readers wait. */
+    if (status.state === "live" && !status.videoId) return;
     /* The winning address reports (note 380): a guest-live answer carries the
        guest stamp, so the office steers visitors to the guest broadcast —
        and back to the main channel with the next answer after it ends. */

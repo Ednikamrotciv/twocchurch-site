@@ -71,23 +71,12 @@ async function fetchJson(url: string, timeoutMs: number): Promise<unknown> {
 
 /** The feed's seed, whatever its age — null when no mirror answers. Never throws. */
 export async function peekSeed(spec: FeedSpec, timeoutMs = 15000): Promise<unknown> {
-  /* Fast path: race both mirrors in parallel — the first good answer wins
-     instead of waiting out a slow mirror (one Publish must lift fresh
-     profiles and new devices in seconds, not after a dead door times out). */
-  const urls = feedSeedUrls(spec);
-  try {
-    const racers = urls.map((url) =>
-      fetchJson(url, timeoutMs).then(
-        (v) => ({ ok: true as const, v }),
-        () => ({ ok: false as const, v: null as unknown })
-      )
-    );
-    const first = await Promise.race(racers);
-    if (first.ok) return first.v;
-    const rest = await Promise.all(racers);
-    for (const r of rest) if (r.ok) return r.v;
-  } catch {
-    /* fall through to null */
+  for (const url of feedSeedUrls(spec)) {
+    try {
+      return await fetchJson(url, timeoutMs);
+    } catch {
+      /* mirror failed — try the next one */
+    }
   }
   return null;
 }

@@ -109,11 +109,6 @@ export function WatchLive() {
      from another channel, or an unverified channel follow for one, reads as
      waiting until the fresh check proves the handle is on air. */
   const designatedId = designatedChannelIdForTarget(targetUrl);
-  /* Guest slot's own designation: a UC in the guest address is the
-     designation itself; an @handle answers from the baked map; anything else
-     names nothing (then the guest is still gated to its own page owner +
-     target stamp upstream, and to its own observed channel below). */
-  const guestDesignatedId = guestUrl ? designatedChannelIdForTarget(guestUrl) : "";
   const airForTarget = isStatusForTarget(air, targetUrl)
     ? air
     : { ...air, state: "unknown" as const, videoId: "", title: "", channelId: "" };
@@ -122,6 +117,47 @@ export function WatchLive() {
      the lists below stay main-owned — a guest ending returns every one of
      them untouched. */
   const screenAir = guestLive ? guestAir : airForTarget;
+  /* Published-video fast path (one Publish lifts every visitor at once):
+     the office stamps the verified broadcast id + channel at Play time, so a
+     Publish carries the real video — fresh profiles, incognito, new devices
+     and late/offline returns open it with no scrape wait. The published
+     command stands like local: only a check that proves THAT slot off
+     retires it (a stale command after a newer off-read never replays). A
+     check that could not speak — unknown, offline, or answering the other
+     address — never retires anything. Detection still wins when it names a
+     video (a restarted stream's new id beats the stamp until Reload). */
+  const pubGuestVideo = guestSwitchOn ? parseYoutubeId((LIVE as any).guestVideoId || "") : "";
+  const pubGuestChannelRaw = guestSwitchOn ? String((LIVE as any).guestVideoChannelId || "") : "";
+  const pubGuestChannel = /^UC[\w-]{20,24}$/.test(pubGuestChannelRaw) ? pubGuestChannelRaw : "";
+  const pubGuestTitle = guestSwitchOn ? String((LIVE as any).guestVideoTitle || "") : "";
+  const pubMainVideo = !!LIVE.isLive ? parseYoutubeId((LIVE as any).liveVideoId || "") : "";
+  const pubMainChannelRaw = !!LIVE.isLive ? String((LIVE as any).liveVideoChannelId || "") : "";
+  const pubMainChannel = /^UC[\w-]{20,24}$/.test(pubMainChannelRaw) ? pubMainChannelRaw : "";
+  const pubMainTitle = !!LIVE.isLive ? String((LIVE as any).liveVideoTitle || "") : "";
+  const guestCheckedAt = Number(air.checkedAt) || 0;
+  /* A stale command never replays or steals the screen (the office forgot
+     Stop): a check newer than the command that does not show THIS slot live
+     retires it — an off read, or a live read for the other address. A check
+     that could not speak (unknown, offline) or predates the command never
+     retires anything, so the published command stands exactly like the
+     office copy — the stamped id underneath was itself verified live at
+     stamp time, and a proven-dead stamp never plays. */
+  /* A stale command never replays or steals the screen (the office forgot
+     Stop): a check newer than the command that does not show THIS slot live
+     retires it — an off read, or a live read for the other address. A check
+     that could not speak (unknown, offline) or predates the command never
+     retires anything, so the published command stands exactly like the
+     office copy. */
+  const checkNewerThanGuestCmd = guestCheckedAt > (Number((LIVE as any).guestCommandAt) || 0);
+  const checkNewerThanMainCmd = guestCheckedAt > (Number((LIVE as any).liveCommandAt) || 0);
+  const checkShowsGuestLive = !!guestUrl && air.state === "live" && isStatusForTarget(air, guestUrl);
+  const checkShowsMainLive = !!targetUrl && air.state === "live" && isStatusForTarget(air, targetUrl);
+  const guestVetoed = !!guestSwitchOn && checkNewerThanGuestCmd && !checkShowsGuestLive && air.state !== "unknown";
+  const mainVetoed = !!LIVE.isLive && checkNewerThanMainCmd && !checkShowsMainLive && air.state !== "unknown";
+  const guestPubActive = !!guestSwitchOn && (!!pubGuestVideo || !!pubGuestChannel) && !guestVetoed;
+  const mainPubActive = !!LIVE.isLive && (!!pubMainVideo || !!pubMainChannel) && !mainVetoed && !guestLive && !guestPubActive;
+  const effPubVideo = guestPubActive ? pubGuestVideo : mainPubActive ? pubMainVideo : "";
+  const effPubChannel = guestPubActive ? pubGuestChannel : mainPubActive ? pubMainChannel : "";
   /* Shut the moment a live ends (notes 386, 388): when the screen's broadcast
      reads off — the guest ending, the main ending, or the office stopping it —
      the screen closes at once onto the main channel's last ended thumbnail
@@ -172,10 +208,7 @@ export function WatchLive() {
      358): only the designated channel is followed, and only one tap, never
      autoplay — anything else waits. A live guest's own channel follows the
      same way (note 380): one tap, never autoplay. */
-  /* Gated for both slots: main follows only its designated owner, guest only
-     its own guest address (plus its designated owner when the guest address
-     names one) — any other channel's follow waits instead of playing. */
-  const detectedChannel = screenAir.state === "live" && !screenAir.videoId && !!screenAir.channelId && (guestLive ? (isGuestTargetUrl(screenAir.target, guestUrl) && (!guestDesignatedId || screenAir.channelId === guestDesignatedId)) : (!designatedId || screenAir.channelId === designatedId)) ? screenAir.channelId : "";
+  const detectedChannel = screenAir.state === "live" && !screenAir.videoId && !!screenAir.channelId && (guestLive ? isGuestTargetUrl(screenAir.target, guestUrl) : (!designatedId || screenAir.channelId === designatedId)) ? screenAir.channelId : "";
   /* Dead-video gate (note 333): a named id that YouTube says is gone never
      autoplays into the black "unavailable" frame — and the unverified channel
      follow below is always one tap, never autoplay. Unknown (offline, probe
@@ -193,20 +226,24 @@ export function WatchLive() {
      which verifies behind the frame itself. Only a proven-dead id is held
      back, and it still reaches the player below for its fallback. */
   const idOk = idVerdict === true || idVerdict === null;
-  /* Gated for both slots: main video plays only for its designated channel
-     (video answers carry no channel id so those pass here — they were already
-     gated to the slot's channel upstream); guest video plays only while IT is
-     live for its own stamped address, and a named guest channel must match the
-     guest designation when the guest address names one. */
-  const guestChannelOk = !guestAir.channelId || !guestDesignatedId || guestAir.channelId === guestDesignatedId;
-  const playableId = detectedId && idOk && (isDesignatedChannel(airForTarget.channelId, designatedId) || (guestLive && isGuestTargetUrl(screenAir.target, guestUrl) && guestChannelOk)) ? detectedId : "";
+  const playableId = detectedId && idOk && (isDesignatedChannel(airForTarget.channelId, designatedId) || (guestLive && isGuestTargetUrl(screenAir.target, guestUrl))) ? detectedId : "";
+  /* The published id plays with the same unknown-plays rule (note 420): it
+     was verified at stamp time, so no designated gate — the office already
+     proved it. Only a proven-dead stamp is held back (it still reaches the
+     player below for its fallback). */
+  const pubVerdict = useYoutubeVerdict(effPubVideo);
+  const usePubVideo = !detectedId && !detectedChannel && !fbLive && !!effPubVideo && (pubVerdict === true || pubVerdict === null);
+  const usePubChannel = !detectedId && !detectedChannel && !fbLive && !usePubVideo && !!effPubChannel && (!effPubVideo || pubVerdict === false);
+  const playId = playableId || (usePubVideo ? effPubVideo : "");
+  const followChannel = detectedChannel || (usePubChannel ? effPubChannel : "");
   const verifiedFallbackId = fallbackId && (fallbackVerdict === true || fallbackVerdict === null) ? fallbackId : "";
   /* A named id YouTube says is gone still reaches the player (note 420): the
      player's own dead fallback names it and offers the platform link — never
      the black "unavailable" frame, and never the ticking clock for a live
      that is already on air. */
-  const deadLiveId = detectedId && idVerdict === false && (isDesignatedChannel(airForTarget.channelId, designatedId) || (guestLive && isGuestTargetUrl(screenAir.target, guestUrl) && guestChannelOk)) ? detectedId : "";
-  const watchable = !!playableId || !!deadLiveId || !!detectedChannel || fbLive || !!verifiedFallbackId;
+  const deadLiveId = detectedId && idVerdict === false && (isDesignatedChannel(airForTarget.channelId, designatedId) || (guestLive && isGuestTargetUrl(screenAir.target, guestUrl))) ? detectedId : "";
+  const deadPubId = !detectedId && !detectedChannel && !fbLive && !!effPubVideo && pubVerdict === false && !effPubChannel ? effPubVideo : "";
+  const watchable = !!playId || !!deadLiveId || !!deadPubId || !!followChannel || fbLive || !!verifiedFallbackId;
   /* Dead-video gate (note 413, opened note 420): a named id reaches the
      player while its verdict is still unknown — offline, probe down, still
      checking — and the player verifies behind the frame, swapping to its
@@ -223,32 +260,18 @@ export function WatchLive() {
      says unknown (a verified off stays on the clock), only the commanded
      slot, only with a known channel id — and a detected broadcast still wins
      first. */
-  const overrideMain = !!LIVE.isLive && hasChannel && !guestLive && screenAir.state !== "live" && airForTarget.state === "unknown" && !shutNow;
-  const overrideGuest = !!(LIVE as any).guestIsLive && !!guestUrl && !guestLive && screenAir.state !== "live" && guestAir.state === "unknown" && !shutNow;
-  /* Gated override: the commanded slot opens its own channel by itself
-     instead of the waiting clock — main opens the main designation (or its
-     own observed channel when the address names none), guest opens the guest
-     designation (or its own observed channel). Neither slot ever opens the
-     other's channel or a third channel. */
-  const ucOf = (v: unknown) => (/^UC[\w-]{20,24}$/.test(String(v || "")) ? String(v) : "");
-  const mainChannelFallback = designatedId || ucOf((LIVE as any).liveVideoChannelId) || ucOf(airForTarget.channelId);
-  const guestChannelFallback = guestDesignatedId || ucOf((LIVE as any).guestVideoChannelId) || ucOf(guestAir.channelId);
-  const overrideId = overrideMain ? mainChannelFallback : overrideGuest ? guestChannelFallback : "";
-  /* Published verified video (captured by the office at Play time, when its
-     own read is unwalled): visitors play it at once while their own scrape
-     is walled — same manual rules (main needs its switch, guest needs its
-     own), same auto-stop below. A detected broadcast still wins first. */
-  const mainPublishedId = !!LIVE.isLive ? parseYoutubeId((LIVE as any).liveVideoId || "") : "";
-  const guestPublishedId = !!guestSwitchOn ? parseYoutubeId((LIVE as any).guestVideoId || "") : "";
-  /* Gated for both slots: a published video plays at once only for its own
-     slot's channel — a captured channel that names somebody else's video never
-     opens (the screen waits instead). No captured channel on old publishes
-     passes through like before. */
-  const mainPubChannel = String((LIVE as any).liveVideoChannelId || "");
-  const guestPubChannel = String((LIVE as any).guestVideoChannelId || "");
-  const mainPubOk = !mainPublishedId || !mainPubChannel || !designatedId || mainPubChannel === designatedId;
-  const guestPubOk = !guestPublishedId || !guestPubChannel || !guestDesignatedId || guestPubChannel === guestDesignatedId;
-  const overrideVideoId = overrideMain ? (mainPubOk ? mainPublishedId : "") : overrideGuest ? (guestPubOk ? guestPublishedId : "") : "";
+  /* A handle guest has no designated id (only @twocorg does), so its Publish
+     could never open its commanded channel — the ticking clock stayed until a
+     scrape verified. The stamped office channel id fills that gap, so a guest
+     Publish lifts the same way the main one always did. The same stamped id
+     covers a main channel the office retyped away from the designation. */
+  const overrideGuestChannel = pubGuestChannel || designatedChannelIdForTarget(guestUrl);
+  const overrideMainChannel = pubMainChannel || designatedChannelIdForTarget(targetUrl);
+  /* A fresh off-read for the other slot retires a stale override (the office
+     forgot Stop): walled/unknown reads never retire anything. */
+  const overrideMain = !!LIVE.isLive && hasChannel && !guestLive && !guestPubActive && screenAir.state !== "live" && airForTarget.state === "unknown" && !shutNow;
+  const overrideGuest = !!(LIVE as any).guestIsLive && !!guestUrl && !guestLive && !guestPubActive && screenAir.state !== "live" && guestAir.state === "unknown" && !guestVetoed && !shutNow;
+  const overrideId = overrideMain ? overrideMainChannel : overrideGuest ? overrideGuestChannel : "";
   /* Anywhere for the check to look — channel, stream link or Facebook page. */
   const configured = !!liveTarget() || !!facebookTarget();
   /* The shared on-air answer (notes 83, 133); `streaming` is the narrower screen question. Declared
@@ -262,7 +285,12 @@ export function WatchLive() {
      until Play. Press alone never autoplays — autoplay only works once the
      main livestream has started live on the channel. */
   const mainDetected = screenAir.state === "live" && !guestLive && !fbLive;
-  const streaming = (screenAir.state === "live" || offFresh) && !shutNow && !officeStopped && (guestLive || fbLive || mainDetected || offFresh);
+  /* A published Stop still holds the MAIN screen (until Play releases it),
+     but it never holds the commanded guest — the guest has its own stop,
+     which clears its switch. */
+  const guestScreen = guestLive || guestPubActive;
+  const stoppedForScreen = guestScreen ? false : officeStopped;
+  const streaming = (screenAir.state === "live" || guestPubActive || mainPubActive || offFresh) && !shutNow && !stoppedForScreen && (guestLive || fbLive || guestPubActive || mainDetected || mainPubActive || offFresh);
 
   /* The two lists under the screen: recent services (read off the channel) and previous sermons (the office's write-ups). */
   const limit = recentLimit();
@@ -318,11 +346,11 @@ export function WatchLive() {
      Play-override channel was available. */
   const available: VideoPlatform[] = (() => {
     const list: VideoPlatform[] = [];
-    if (detectedId || detectedChannel || overrideId || overrideVideoId || (!hasChannel && parseYoutubeId(LIVE.youtubeId))) list.push("youtube");
+    if (detectedId || detectedChannel || effPubVideo || effPubChannel || overrideId || (guestSwitchOn && guestUrl) || (!hasChannel && parseYoutubeId(LIVE.youtubeId))) list.push("youtube");
     if (isFacebookVideoUrl(LIVE.facebookUrl)) list.push("facebook");
     return list;
   })();
-  const preferred: VideoPlatform = fbLive ? "facebook" : detectedId || detectedChannel || overrideId || overrideVideoId ? "youtube" : LIVE.provider === "facebook" ? "facebook" : "youtube";
+  const preferred: VideoPlatform = fbLive ? "facebook" : detectedId || detectedChannel || playId || followChannel || overrideId ? "youtube" : LIVE.provider === "facebook" ? "facebook" : "youtube";
   const [chosen, setChosen] = useState<VideoPlatform>(preferred);
   /* The service notepad behind the *Service notes* arrow (note 223). */
   const [notesOpen, setNotesOpen] = useState(false);
@@ -332,15 +360,15 @@ export function WatchLive() {
       ? { platform: "facebook", facebookUrl: LIVE.facebookUrl }
       : platform === "facebook"
       ? { platform: "facebook", facebookUrl: LIVE.facebookUrl }
-      : { platform: "youtube", youtubeId: playableId || deadLiveId || verifiedFallbackId || (!streaming && overrideVideoId) || "", youtubeChannelId: detectedChannel || (!streaming && overrideId) || undefined };
+      : { platform: "youtube", youtubeId: playId || deadLiveId || deadPubId || verifiedFallbackId, youtubeChannelId: followChannel || (!streaming && overrideId) || undefined };
   /* The grace window replays the last playable address: a fresh off keeps the
      frame on exactly what was playing instead of an empty follow. */
   const graceRef = useRef<VideoSource | null>(null);
   if (streaming && watchable) graceRef.current = freshSource;
   const liveSource: VideoSource = offFresh && graceRef.current ? graceRef.current : freshSource;
   const youtubeLink =
-    watchUrl({ platform: "youtube", youtubeId: playableId }) ||
-    (guestLive && guestUrl ? guestUrl : hasChannel ? targetUrl : watchUrl({ platform: "youtube", youtubeId: LIVE.youtubeId }) || targetUrl);
+    watchUrl({ platform: "youtube", youtubeId: playId }) ||
+    (guestUrl && (guestScreen || (guestSwitchOn && screenAir.state !== "live")) ? guestUrl : hasChannel ? targetUrl : watchUrl({ platform: "youtube", youtubeId: LIVE.youtubeId }) || targetUrl);
 
   /* The `streaming` answer lives above, beside `overrideId` (note 412). */
   /* Live but not yet playable: the main address reads live while its id still
@@ -358,7 +386,8 @@ export function WatchLive() {
      office's standing headline; a forced guest with no detected title keeps
      the headline, since the church schedule never names a guest event. */
   const guestForcedOnly = (guestLive || !!(LIVE as any).guestIsLive) && !LIVE.isLive && airForTarget.state !== "live";
-  const liveName = tx(air.title || (guestForcedOnly ? LIVE.liveTitle : info?.slot.name || LIVE.liveTitle) || "");
+  const guestTitle = ((guestLive && screenAir.title) || pubGuestTitle || "") as string;
+  const liveName = tx(guestScreen ? (guestTitle || LIVE.liveTitle || info?.slot.name || "") : (air.title || pubMainTitle || (guestForcedOnly ? LIVE.liveTitle : info?.slot.name || LIVE.liveTitle) || ""));
   /* Countdown target only — the ticking text lives in <StreamCountdown/>
      below with its own isolated 1s clock, so the page no longer re-renders
      every second for one line. */
@@ -506,7 +535,7 @@ export function WatchLive() {
                 </div>
               )}
 
-              {(checkingLiveId || checkingFallbackId) && !playableId && !deadLiveId && !verifiedFallbackId && !overrideVideoId && !shutNow && !officeStopped ? (
+              {(checkingLiveId || checkingFallbackId) && !playId && !deadLiveId && !deadPubId && !followChannel && !verifiedFallbackId && !shutNow && !stoppedForScreen ? (
                 <LiveWaiting cover={cover} />
               /* Grace replay (flap guard): a fresh off replays the last playable
                  address instead of flashing the ended screen or clock. */
@@ -527,10 +556,10 @@ export function WatchLive() {
                   autoPlay={streaming && watchable}
                   reloadSignal={reloadSignal}
                 />
-              ) : (overrideMain || overrideGuest) && (overrideId || overrideVideoId) ? (
+              ) : (overrideMain || overrideGuest) && overrideId ? (
                 <VideoPlayer
                   hideEscape
-                  source={{ platform: "youtube", youtubeId: overrideVideoId || "", youtubeChannelId: (!overrideVideoId && overrideId) || undefined }}
+                  source={{ platform: "youtube", youtubeId: "", youtubeChannelId: overrideId }}
                   title={liveName || ct("auto.live.bc108377bb47f9e6")}
                   poster={cover}
                   fallbackPoster={cover}
