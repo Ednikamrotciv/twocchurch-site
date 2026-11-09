@@ -168,6 +168,16 @@ export function parseLivePage(html: string, pageUrl = ""): { read: boolean; live
   const fromUrl = /(?:watch\?v=|\/live\/|\/embed\/|\/v\/|youtu\.be\/)([\w-]{11})/.exec(String(pageUrl || ""));
   const canonical = /<link rel="canonical" href="https:\/\/www\.youtube\.com\/watch\?v=([\w-]{11})"/.exec(text);
   const details = /"videoDetails":\{[^}]*?"videoId":"([\w-]{11})"/.exec(text);
+  /* A channel's /live page carries no player marker when live — it inlines the
+     live video's own object instead (measured Nov 2026: liveBroadcastDetails
+     with isLiveNow true + its externalVideoId, no '"title":"Live"' tab marker
+     at all). Without this the live answer stayed unnamed and fell into the
+     candidate walk, where the walled watch page + missing Live-tab vouch
+     rejected it and the main channel read unknown while the guest played.
+     Only an object marked live now counts — past archives carry isLiveNow
+     false and never match. */
+  const liveExternal =
+    /"liveBroadcastDetails":\{"isLiveNow":true[^\}]*\}[\s\S]{0,800}?"externalVideoId":"([\w-]{11})"/.exec(text)?.[1] || "";
   /* No bare first-`videoId` fallback (note 324): a channel page is a grab-bag
      of ads, autoplay and related videos, so the first id in it is whoever
      YouTube put first this fetch — it once steered the player to an unrelated
@@ -183,7 +193,7 @@ export function parseLivePage(html: string, pageUrl = ""): { read: boolean; live
   return {
     read,
     live: true,
-    videoId: fromUrl?.[1] || canonical?.[1] || details?.[1] || "",
+    videoId: fromUrl?.[1] || canonical?.[1] || details?.[1] || liveExternal || "",
     title: decodeEntities(headline),
   };
 }
@@ -193,6 +203,15 @@ export function parseLivePage(html: string, pageUrl = ""): { read: boolean; live
     this id to its watch page for the real answer. "" when the tab is empty. */
 export function channelLiveVideoId(html: string): string {
   const text = String(html || "");
+  /* Robust live marker first (measured Nov 2026): the /live page inlines the
+     live video's own object (liveBroadcastDetails.isLiveNow true + its
+     externalVideoId) with no '"title":"Live"' tab marker at all — the old
+     tab search alone returned "" even while live, which broke the Live-tab
+     vouch the designated main channel needs for walled watch pages. Past
+     archives carry isLiveNow false and never match. */
+  const liveExt =
+    /"liveBroadcastDetails":\{"isLiveNow":true[^\}]*\}[\s\S]{0,800}?"externalVideoId":"([\w-]{11})"/.exec(text)?.[1] || "";
+  if (liveExt) return liveExt;
   const tab = text.indexOf('"title":"Live","selected":true');
   if (tab >= 0) {
     const seg = text.slice(tab, tab + 30_000);
@@ -1116,10 +1135,11 @@ export function liveTargetSignature(): string {
 }
 
 function delay() {
-  /* The Watch page (urgent watcher) polls faster than the quiet week without
-     changing the shared cadence above: a YouTube start shows in seconds where
-     someone is actually watching, while background tabs stay cheap. */
-  if (wantsUrgent()) return 8_000;
+  /* The Watch page (urgent watcher) polls every 2s while someone is actually
+     watching — a YouTube start shows in seconds and the waiting clock
+     vanishes with it — without changing the shared cadence above, so
+     background tabs stay cheap. */
+  if (wantsUrgent()) return 2_000;
   return wantsSoon() ? SOON_MS : IDLE_MS;
 }
 
