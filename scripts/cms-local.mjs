@@ -3,7 +3,7 @@ import { readFile, writeFile, mkdir, stat } from "node:fs/promises";
 import path from "node:path";
 import { createHash } from "node:crypto";
 import { recordSeen } from "./backup-data.mjs";
-import { notePublished } from "./auto-push.mjs";
+import { notePublished, notePublishFast } from "./auto-push.mjs";
 import { DEFAULT_LIVE_ORIGIN, pickLiveOrigin, shouldAdoptLive, adoptPatch, referencedUploads, BACKFILL_MAX_BYTES } from "./live-follow.mjs";
 import { openInstantPush } from "./instant-push.mjs";
 import { parseFeedSpec, peekFeedSeed } from "./feed-spec.mjs";
@@ -337,6 +337,15 @@ export async function createCmsHost(rootDir, opts) {
     } catch {
       /* the publish itself already landed */
     }
+    /* A real publish pushes itself out seconds later (never a mere save):
+       one Publish lifts every copy — incognito, fresh profiles, new devices
+       and late returns — on their next mirror read. The batching minute
+       above still covers saves. */
+    try {
+      if (method === "publish" || method === "adoptLive" || method === "undoPublish") notePublishFast(rootDir);
+    } catch {
+      /* the publish itself already landed */
+    }
     const res = { status: 200, body: typeof out === "string" ? out : JSON.stringify(out === undefined ? { ok: true } : out) };
     emitRpc(res.status, res.body);
     return res;
@@ -569,7 +578,7 @@ function startLiveFollow({ rootDir, rpcCall, adoptToken, codeWord }) {
      guarded round above runs only when it moved — a live/admin publish lands
      here within seconds even with the event stream down. Old hosts without
      the stamp answer stay on the half-minute full round below. */
-  const STAMP_MS = 10 * 1000;
+  const STAMP_MS = 5 * 1000;
   let stamping = false;
   let lastStamp = "";
   const stampRound = async () => {
