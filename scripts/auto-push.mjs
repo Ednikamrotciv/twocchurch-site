@@ -46,13 +46,6 @@ export function setHookSender(fn) {
 }
 
 const timers = new Map();
-/* Publish-at-once fast lane: a real publish (never a mere save) pushes itself
-   out seconds later instead of after the batching minute, so one Publish
-   lifts every copy fast — incognito, fresh profiles, new devices and late
-   returns read it off the mirror on their next poll. The normal batch timer
-   is left alone (later saves still batch the session); pushOnce clears both
-   timers so the words never ride twice. */
-const fastTimers = new Map();
 let repoState = null;
 
 async function repoReady(rootDir) {
@@ -84,7 +77,6 @@ async function disabledByFile(rootDir) {
 
 async function pushOnce(rootDir) {
   timers.delete(rootDir);
-  fastTimers.delete(rootDir);
   try {
     if (await disabledByFile(rootDir)) return { skipped: "disabled" };
     const repo = await repoReady(rootDir);
@@ -225,25 +217,6 @@ export function notePublished(rootDir, delayMs) {
     rootDir,
     setTimeout(() => pushOnce(rootDir), delayMs == null ? DELAY_MS : delayMs)
   );
-}
-
-/* Called on a real publish only (never a mere save): the words push out
-   seconds later instead of after the batching minute. A pending batch is
-   left to pushOnce, which clears both timers — one push, never two. */
-export function notePublishFast(rootDir, delayMs) {
-  try {
-    if (fastTimers.has(rootDir)) return;
-    const wait = typeof delayMs === "number" && delayMs >= 0 ? delayMs : 15000;
-    fastTimers.set(
-      rootDir,
-      setTimeout(() => {
-        fastTimers.delete(rootDir);
-        pushOnce(rootDir);
-      }, wait)
-    );
-  } catch {
-    /* auto-deploy never breaks a publish */
-  }
 }
 
 export { pushOnce, fireDeployHook };
