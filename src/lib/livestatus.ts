@@ -308,26 +308,40 @@ export function designatedChannelIdForTarget(targetUrl: string): string {
   return "";
 }
 /** True while this channel may stand for the designated broadcast (note 358),
-    no designation gate (both channels play deployed like local): every
-    channel passes — the target stamp and the owner check below still decide
-    whose answer plays. Kept for the verifier's call sites. */
+    gated for both slots: a named channel that is not the slot's designated
+    one is somebody else's video and never plays; an unnamed one passes
+    through (the candidate and report gates below judge those — a thin read
+    must still be able to end silence). Main slot checks against the main
+    designation, guest slot against the guest designation (see WatchLive). */
 export function isDesignatedChannel(channelId: string, designatedId: string): boolean {
-  void channelId;
-  void designatedId;
-  return true;
+  const c = String(channelId || "");
+  const d = String(designatedId || "");
+  if (!d || !c) return true;
+  return c === d;
 }
 /** True while a suggestion may stand for the designated broadcast (note 358),
-    no designation gate (both channels play deployed like local): every
-    suggestion passes — the owner check above still skips another channel's
-    video. Kept for the verifier's call sites. */
+    gated for both slots: the page that names the suggestions is a grab-bag,
+    so a suggestion from another channel is skipped like an off answer — and
+    with the designation known, an ownerless grab-bag mention plays only when
+    the channel's own Live tab points at it. The Live tab names the channel's
+    own video, so it vouches where a walled watch page cannot. When no
+    designation is known (guest handle outside the baked map), an ownerless
+    mention still needs the Live-tab vouch — otherwise any related upload on
+    the page could play as the slot's live. */
 export function candidateStandsForDesignated(
   candidateChannelId: string,
   designatedId: string,
   fromLiveTab = false
 ): boolean {
-  void candidateChannelId;
-  void designatedId;
-  void fromLiveTab;
+  const d = String(designatedId || "");
+  const c = String(candidateChannelId || "");
+  if (d) {
+    if (c) return c === d;
+    return fromLiveTab === true;
+  }
+  // No baked designation (e.g. a guest handle): a named candidate already
+  // passed the owner check above; an unnamed one plays only on Live-tab vouch.
+  if (!c) return fromLiveTab === true;
   return true;
 }
 
@@ -345,9 +359,10 @@ export function isStatusForTarget(status: { target?: unknown }, targetUrl: strin
     for the verifier: the ended screen keeps the video it was — but only when
     it was the SAME address. A moved channel drops the old video outright
     instead of seeding the new handle's ended screen, cover and recents with
-    somebody else's service. No designation gate: the target stamp above is
-    the ownership check — the ended screen, still and recents stay main-owned
-    through the screen/cover chain, never through this drop. */
+    somebody else's service. Gated for both slots: a kept video from another
+    channel is dropped too — the new handle never inherits somebody else's
+    service on its ended screen. Older callers pass nothing and behave exactly
+    like before. */
 export function inheritEnded(
   before: LiveStatus,
   targetUrl: string,
@@ -355,7 +370,13 @@ export function inheritEnded(
   designatedId = ""
 ): { endedAt: number; videoId: string; title: string; channelId: string; platform: LivePlatform | "" } {
   if ((before.state === "live" || before.endedAt > 0) && isStatusForTarget(before, targetUrl)) {
-    void designatedId;
+    /* A kept video from another channel is dropped too: the new handle never
+       inherits somebody else's service on its ended screen. */
+    {
+      const d = String(designatedId || "");
+      const keptId = String(before.channelId || "");
+      if (d && keptId && keptId !== d) return { endedAt: 0, videoId: "", title: "", channelId: "", platform: "" };
+    }
     return {
       endedAt: before.state === "live" ? checkedAt : before.endedAt,
       videoId: before.videoId,
@@ -435,11 +456,14 @@ export function unverifiedChannelAnswer(
   channelId: string,
   designatedId = ""
 ): { state: LiveState; videoId: string; title: string; channelId: string } {
-  /* No designation gate (both channels play deployed like local): a chrome-only
-     page follows whatever owner the channel page names — the target stamp and
-     the owner check already proved whose page this is. Unnamed stays unknown. */
-  void designatedId;
-  if (live && channelId) return { state: "live", videoId: "", title, channelId };
+  /* Gated for both slots: a chrome-only page follows the channel only when
+     the page names the slot's designated owner (or when the slot has no baked
+     designation, the page's own clear owner) — an unnamed or foreign owner
+     stays unknown and the screen waits instead of playing a guess. */
+  {
+    const d = String(designatedId || "");
+    if (live && channelId && (!d || channelId === d)) return { state: "live", videoId: "", title, channelId };
+  }
   if (live) return { state: "unknown", videoId: "", title: "", channelId: "" };
   return { state: "off", videoId: "", title: "", channelId: "" };
 }
@@ -761,11 +785,11 @@ export function reportMatchesBuild(rep: { notes?: unknown }): boolean {
   return Number(rep?.notes) === BUILD_NOTES;
 }
 /** True while an office report names something the player may open (note 358),
-    no designation gate (both channels play deployed like local): a "live"
-    report carrying the broadcast (video id) or the channel to follow
-    (channel id) may open the player — a channel follow is the asked
-    channel's own live, stamped for its address, not a guess. "off" reports
-    carry no video by design and pass through. */
+    gated upstream for both slots: a "live" report carrying the broadcast
+    (video id) or the channel to follow (channel id) may open the player — the
+    office's own scrape was already gated to the slot's channel and the report
+    is stamped for its address, so a channel follow is the asked channel's own
+    live, not a guess. "off" reports carry no video by design and pass through. */
 export function reportCarriesVideo(rep: { state?: unknown; videoId?: unknown; channelId?: unknown }): boolean {
   if (String((rep && rep.state) || "") !== "live") return true;
   return !!String((rep && rep.videoId) || "") || !!String((rep && rep.channelId) || "");
@@ -993,10 +1017,10 @@ function maybeReport(status: LiveStatus) {
        finds must never overwrite the office's real answer on the server. */
     if (status.state !== "live" && status.state !== "off") return;
     if (status.state === "live" && status.platform !== "youtube") return;
-    /* No designation gate: a live answer carrying the broadcast (video id)
-       or the channel to follow (channel id) reports — the follow is the
-       asked channel's own live, stamped for its address. A live naming
-       neither stays local. */
+    /* Gated upstream: a live answer carrying the broadcast (video id)
+       or the channel to follow (channel id) reports — the scrape already
+       proved it is the slot's own channel, stamped for its address. A live
+       naming neither stays local. */
     if (status.state === "live" && !status.videoId && !status.channelId) return;
     /* The winning address reports (note 380): a guest-live answer carries the
        guest stamp, so the office steers visitors to the guest broadcast —
