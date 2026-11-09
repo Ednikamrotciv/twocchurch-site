@@ -211,7 +211,22 @@ export function WatchLive() {
      first. */
   const overrideMain = !!LIVE.isLive && hasChannel && !guestLive && screenAir.state !== "live" && airForTarget.state === "unknown" && !shutNow;
   const overrideGuest = !!(LIVE as any).guestIsLive && !!guestUrl && !guestLive && screenAir.state !== "live" && guestAir.state === "unknown" && !shutNow;
-  const overrideId = overrideMain ? designatedChannelIdForTarget(targetUrl) : overrideGuest ? designatedChannelIdForTarget(guestUrl) : "";
+  /* No designation gate (both channels play deployed like local): the
+     override opens the commanded slot's channel by itself instead of the
+     waiting clock. The UC id is resolved without the designated map so any
+     handle works — published channel first, then the checked answer's own
+     channel, then the map (which still answers @twocorg / UC addresses). */
+  const ucOf = (v: unknown) => (/^UC[\w-]{20,24}$/.test(String(v || "")) ? String(v) : "");
+  const mainChannelFallback = ucOf((LIVE as any).liveVideoChannelId) || ucOf(airForTarget.channelId) || designatedChannelIdForTarget(targetUrl);
+  const guestChannelFallback = ucOf((LIVE as any).guestVideoChannelId) || ucOf(guestAir.channelId) || designatedChannelIdForTarget(guestUrl);
+  const overrideId = overrideMain ? mainChannelFallback : overrideGuest ? guestChannelFallback : "";
+  /* Published verified video (captured by the office at Play time, when its
+     own read is unwalled): visitors play it at once while their own scrape
+     is walled — same manual rules (main needs its switch, guest needs its
+     own), same auto-stop below. A detected broadcast still wins first. */
+  const mainPublishedId = !!LIVE.isLive ? parseYoutubeId((LIVE as any).liveVideoId || "") : "";
+  const guestPublishedId = !!guestSwitchOn ? parseYoutubeId((LIVE as any).guestVideoId || "") : "";
+  const overrideVideoId = overrideMain ? mainPublishedId : overrideGuest ? guestPublishedId : "";
   /* Anywhere for the check to look — channel, stream link or Facebook page. */
   const configured = !!liveTarget() || !!facebookTarget();
   /* The shared on-air answer (notes 83, 133); `streaming` is the narrower screen question. Declared
@@ -281,11 +296,11 @@ export function WatchLive() {
      Play-override channel was available. */
   const available: VideoPlatform[] = (() => {
     const list: VideoPlatform[] = [];
-    if (detectedId || detectedChannel || overrideId || (!hasChannel && parseYoutubeId(LIVE.youtubeId))) list.push("youtube");
+    if (detectedId || detectedChannel || overrideId || overrideVideoId || (!hasChannel && parseYoutubeId(LIVE.youtubeId))) list.push("youtube");
     if (isFacebookVideoUrl(LIVE.facebookUrl)) list.push("facebook");
     return list;
   })();
-  const preferred: VideoPlatform = fbLive ? "facebook" : detectedId || detectedChannel || overrideId ? "youtube" : LIVE.provider === "facebook" ? "facebook" : "youtube";
+  const preferred: VideoPlatform = fbLive ? "facebook" : detectedId || detectedChannel || overrideId || overrideVideoId ? "youtube" : LIVE.provider === "facebook" ? "facebook" : "youtube";
   const [chosen, setChosen] = useState<VideoPlatform>(preferred);
   /* The service notepad behind the *Service notes* arrow (note 223). */
   const [notesOpen, setNotesOpen] = useState(false);
@@ -295,7 +310,7 @@ export function WatchLive() {
       ? { platform: "facebook", facebookUrl: LIVE.facebookUrl }
       : platform === "facebook"
       ? { platform: "facebook", facebookUrl: LIVE.facebookUrl }
-      : { platform: "youtube", youtubeId: playableId || deadLiveId || verifiedFallbackId, youtubeChannelId: detectedChannel || (!streaming && overrideId) || undefined };
+      : { platform: "youtube", youtubeId: playableId || deadLiveId || verifiedFallbackId || (!streaming && overrideVideoId) || "", youtubeChannelId: detectedChannel || (!streaming && overrideId) || undefined };
   /* The grace window replays the last playable address: a fresh off keeps the
      frame on exactly what was playing instead of an empty follow. */
   const graceRef = useRef<VideoSource | null>(null);
@@ -469,7 +484,7 @@ export function WatchLive() {
                 </div>
               )}
 
-              {(checkingLiveId || checkingFallbackId) && !playableId && !deadLiveId && !verifiedFallbackId && !shutNow && !officeStopped ? (
+              {(checkingLiveId || checkingFallbackId) && !playableId && !deadLiveId && !verifiedFallbackId && !overrideVideoId && !shutNow && !officeStopped ? (
                 <LiveWaiting cover={cover} />
               /* Grace replay (flap guard): a fresh off replays the last playable
                  address instead of flashing the ended screen or clock. */
@@ -490,10 +505,10 @@ export function WatchLive() {
                   autoPlay={streaming && watchable}
                   reloadSignal={reloadSignal}
                 />
-              ) : (overrideMain || overrideGuest) && overrideId ? (
+              ) : (overrideMain || overrideGuest) && (overrideId || overrideVideoId) ? (
                 <VideoPlayer
                   hideEscape
-                  source={{ platform: "youtube", youtubeId: "", youtubeChannelId: overrideId }}
+                  source={{ platform: "youtube", youtubeId: overrideVideoId || "", youtubeChannelId: (!overrideVideoId && overrideId) || undefined }}
                   title={liveName || ct("auto.live.bc108377bb47f9e6")}
                   poster={cover}
                   fallbackPoster={cover}
