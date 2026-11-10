@@ -1,0 +1,61 @@
+{
+  "at": "2026-11-09T21:47:48.430Z",
+  "rows": [
+    {
+      "area": "Security event monitoring",
+      "status": "NOTICE",
+      "severity": "low",
+      "attack": false,
+      "detail": "shield active, no events recorded yet — first request or probe will appear here",
+      "hint": "run npm run dev and load the site; probes log in real time to this terminal."
+    },
+    {
+      "area": "Incident classification",
+      "status": "NOTICE",
+      "severity": "low",
+      "attack": false,
+      "detail": "no incidents classified yet — taxonomy ready (blocked-request / rate-limit / suspicious-pattern / security-incident / notice)",
+      "hint": "see scripts/SECURITY.md section 3; a blocked request or throttle is never counted as a compromise."
+    },
+    {
+      "area": "Production backend availability",
+      "status": "SECURE",
+      "severity": "low",
+      "attack": false,
+      "detail": "live backend online (https://twocchurch-site.onrender.com); local dist not built (dev mode ok)",
+      "hint": "single instance keeps in-memory rate buckets exact; if ever scaled horizontally add sticky sessions."
+    },
+    {
+      "area": "Admin login and password protection",
+      "status": "WARNING",
+      "severity": "medium",
+      "attack": false,
+      "detail": "server-side hash sign-in + 2FA + per-connection/network throttles — but ADMIN_HASH_OVERRIDE not set, so diskless sleeps fall back to the shipped default",
+      "hint": "set ADMIN_HASH_OVERRIDE to the 64-hex SHA-256 of the office password (never the password) in the host dashboard."
+    },
+    {
+      "area": "Protection against unauthorized publishing",
+      "status": "SECURE",
+      "severity": "low",
+      "attack": false,
+      "detail": "publish / undoPublish / password changes / adopt doors require a signed-in admin session; adopt token rotates on restart; publish rate-limited per IP",
+      "hint": "public reads stay public by design; every write takes a live session checked server-side."
+    },
+    {
+      "area": "Persistent storage and backups",
+      "status": "WARNING",
+      "severity": "medium",
+      "attack": false,
+      "detail": "no published store and no snapshots yet — nothing to lose, nothing to restore",
+      "hint": "publish once, then run npm run backup; snapshots land in data-backups/ (kept out of git)."
+    },
+    {
+      "area": "Protection against common web attacks",
+      "status": "SECURE",
+      "severity": "low",
+      "attack": false,
+      "detail": "SQLi / XSS / traversal / command-injection / LFI / sensitive-file / SSRF / oversized-URL blocked (403); legit pages + publish bodies allowed; tiered 429 buckets armed",
+      "hint": "repeat probes throttle automatically; block at the host firewall only if one IP persists."
+    }
+  ]
+}
