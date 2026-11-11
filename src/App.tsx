@@ -52,6 +52,8 @@ const Admin = React.lazy(
     import("./pages/Admin").then((m) => ({ default: m.Admin })),
   ),
 );
+const ErrorBoundaryCompat =
+  ErrorBoundary as unknown as React.ComponentType<React.PropsWithChildren>;
 
 /* Explicit local preview only (?maintenance=1): the office's way to see the
    notice on demand. Visitors on a fresh deploy see it until Publish clears it. */
@@ -71,21 +73,13 @@ function forcedMaintenancePreview(): boolean {
   return false;
 }
 
-function scheduleIdle(callback: () => void, timeout: number) {
-  try {
-    const ric = (window as any).requestIdleCallback;
-    if (typeof ric === "function") ric.call(window, callback, { timeout });
-    else window.setTimeout(callback, timeout);
-  } catch {
-    window.setTimeout(callback, timeout);
-  }
-}
-
 export function App() {
   const route = useRoute();
   const version = useCmsVersion();
-  /* New code since the last publish: visitors wait, the office never does. */
-  const maintenance = useMaintenance();
+  /* New code since the last publish: visitors wait, the office never does.
+     The office can also force the notice on locally to inspect the maintenance
+     page, regardless of the CMS state. */
+  const maintenance = useMaintenance() || forcedMaintenancePreview();
   /* Where the visitor is (their IP's time zone). Reading it here re-renders the
      whole site the moment the answer lands, so every time on the page moves
      onto the visitor's own clock in one pass (SPEC note 85). */
@@ -167,9 +161,18 @@ export function App() {
       warmPageChunks();
     } catch {}
     try {
-      scheduleIdle(() => {
-        import("./pages/Admin").catch(() => {});
-      }, 3000);
+      const ric = (window as any).requestIdleCallback;
+      if (typeof ric === "function")
+        ric(
+          () => {
+            import("./pages/Admin").catch(() => {});
+          },
+          { timeout: 3000 },
+        );
+      else
+        window.setTimeout(() => {
+          import("./pages/Admin").catch(() => {});
+        }, 2000);
     } catch {}
     /* Shader deferred: first paint first, eye-candy after (skipped on reduced-motion/save-data). */
     let unmountShader: (() => void) | void;
@@ -187,7 +190,12 @@ export function App() {
             } catch {}
           }
         };
-        scheduleIdle(start, 2500);
+        /* Same timing, warning-free shape: `typeof` on the looked-up value
+           instead of the `in` narrowing the editor flagged. */
+        const ric2 = (window as any).requestIdleCallback;
+        if (typeof ric2 === "function")
+          ric2.call(window, start, { timeout: 2500 });
+        else window.setTimeout(start, 800);
       }
     } catch {
       try {
@@ -218,19 +226,17 @@ export function App() {
 
   // #/admin (and everything under it) is the very same site, with the office's
   // tools on top. See src/pages/Admin.tsx.
-  const SafeErrorBoundary =
-    ErrorBoundary as unknown as React.ComponentType<React.PropsWithChildren>;
   if (route.editing)
     return (
       <>
         {/* Never a loader page: nothing flashes while the admin chunk arrives —
             the site shell stays on screen, and a crash inside it lands on the
             error card — not a white page. */}
-        <SafeErrorBoundary>
+        <ErrorBoundaryCompat>
           <React.Suspense fallback={null}>
             <Admin />
           </React.Suspense>
-        </SafeErrorBoundary>
+        </ErrorBoundaryCompat>
         <LangAsk />
       </>
     );
