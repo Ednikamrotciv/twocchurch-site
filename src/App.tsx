@@ -9,7 +9,7 @@ import {
   PreviewBanner,
 } from "./components/layout";
 import { Toaster } from "./components/ui";
-import { ErrorBoundary as ErrorBoundaryBase } from "./components/ErrorBoundary";
+import { ErrorBoundary } from "./components/ErrorBoundary";
 import {
   startCms,
   useCmsVersion,
@@ -52,8 +52,8 @@ const Admin = React.lazy(
     import("./pages/Admin").then((m) => ({ default: m.Admin })),
   ),
 );
-const ErrorBoundary =
-  ErrorBoundaryBase as unknown as React.ComponentType<React.PropsWithChildren>;
+const ErrorBoundaryCompat =
+  ErrorBoundary as unknown as React.ComponentType<React.PropsWithChildren>;
 
 /* Explicit local preview only (?maintenance=1): the office's way to see the
    notice on demand. Visitors on a fresh deploy see it until Publish clears it. */
@@ -77,7 +77,7 @@ export function App() {
   const route = useRoute();
   const version = useCmsVersion();
   /* New code since the last publish: visitors wait, the office never does. */
-  const maintenance = useMaintenance();
+  const maintenance = useMaintenance() || forcedMaintenancePreview();
   /* Where the visitor is (their IP's time zone). Reading it here re-renders the
      whole site the moment the answer lands, so every time on the page moves
      onto the visitor's own clock in one pass (SPEC note 85). */
@@ -159,12 +159,9 @@ export function App() {
       warmPageChunks();
     } catch {}
     try {
-      const idle =
-        typeof window !== "undefined"
-          ? (window as any).requestIdleCallback
-          : undefined;
-      if (typeof idle === "function")
-        idle(
+      const ric = (window as any).requestIdleCallback;
+      if (typeof ric === "function")
+        ric(
           () => {
             import("./pages/Admin").catch(() => {});
           },
@@ -180,8 +177,7 @@ export function App() {
     let cancelled = false;
     try {
       const reduce =
-        typeof window !== "undefined" &&
-        typeof window.matchMedia === "function" &&
+        window.matchMedia &&
         window.matchMedia("(prefers-reduced-motion: reduce)").matches;
       const save = (navigator as any)?.connection?.saveData;
       if (!reduce && !save) {
@@ -194,12 +190,9 @@ export function App() {
         };
         /* Same timing, warning-free shape: `typeof` on the looked-up value
            instead of the `in` narrowing the editor flagged. */
-        const idle =
-          typeof window !== "undefined"
-            ? (window as any).requestIdleCallback
-            : undefined;
-        if (typeof idle === "function")
-          idle.call(window, start, { timeout: 2500 });
+        const ric2 = (window as any).requestIdleCallback;
+        if (typeof ric2 === "function")
+          ric2.call(window, start, { timeout: 2500 });
         else window.setTimeout(start, 800);
       }
     } catch {
@@ -237,11 +230,11 @@ export function App() {
         {/* Never a loader page: nothing flashes while the admin chunk arrives —
             the site shell stays on screen, and a crash inside it lands on the
             error card — not a white page. */}
-        <ErrorBoundary>
+        <ErrorBoundaryCompat>
           <React.Suspense fallback={null}>
             <Admin />
           </React.Suspense>
-        </ErrorBoundary>
+        </ErrorBoundaryCompat>
         <LangAsk />
       </>
     );
@@ -375,9 +368,9 @@ function SiteApp() {
       {previewing && <PreviewBanner />}
       <Header />
       <main id="main" key={to}>
-        <ErrorBoundary>
+        <ErrorBoundaryCompat key={to}>
           <React.Suspense fallback={null}>{page}</React.Suspense>
-        </ErrorBoundary>
+        </ErrorBoundaryCompat>
       </main>
       <Footer />
       <ScrollTop />
