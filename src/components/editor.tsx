@@ -1599,7 +1599,7 @@ function DeleteUpload({ url, what, onGone }: { url: string; what: string; onGone
 
 /* Phone/computer photos shrink first, then host; `frame: "slide"` re-cuts to the slide frame. */
 
-export function PhotoUpload({ onDone, frame }: { onDone: (url: string) => void; frame?: "slide" }) {
+export function PhotoUpload({ onDone, frame, onLocalPreview }: { onDone: (url: string) => void; frame?: "slide"; onLocalPreview?: (localUrl: string) => void }) {
   const inputRef = useRef<HTMLInputElement | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -1612,6 +1612,12 @@ export function PhotoUpload({ onDone, frame }: { onDone: (url: string) => void; 
       /* Slides take pictures only: the re-cut sets the size, so the picture
          goes in at full size and comes out 1600×1200. */
       const blob = forSlide ? await frameImageBlob(file) : await compressImageBlob(file, 1600, 0.82);
+      /* Instant preview: the compressed bytes paint immediately while the
+         server copy uploads, so the preview never waits on the round-trip. */
+      try {
+        const local = URL.createObjectURL(blob);
+        if (local) onLocalPreview?.(local);
+      } catch {}
       const url = await localHostFile(blob, file.name || "photo.jpg");
       /* Sleep-free (note 413): keep the bytes in this browser so a host sleep never blanks the slide. */
       try {
@@ -1624,6 +1630,9 @@ export function PhotoUpload({ onDone, frame }: { onDone: (url: string) => void; 
         "success"
       );
     } catch (err) {
+      try {
+        onLocalPreview?.("");
+      } catch {}
       setError(err instanceof Error ? err.message : String(err));
     } finally {
       setBusy(false);
@@ -1785,7 +1794,23 @@ function ImageField({
      from this browser instead of the camera placeholder — blank-free. */
   const cachedPreview = useCachedUploadUrl(rawPreview);
   const feedPreview = useFeedUploadUrl(rawPreview);
-  const preview = cachedPreview || rawPreview;
+  /* Instant while uploading: the compressed bytes paint at once instead of
+     waiting on the server round-trip; the cached copy takes over when ready. */
+  const [localPreview, setLocalPreview] = useState("");
+  useEffect(() => {
+    if (localPreview && cachedPreview) {
+      try {
+        URL.revokeObjectURL(localPreview);
+      } catch {}
+      setLocalPreview("");
+    }
+  }, [localPreview, cachedPreview]);
+  useEffect(() => () => {
+    try {
+      if (localPreview) URL.revokeObjectURL(localPreview);
+    } catch {}
+  }, [localPreview]);
+  const preview = localPreview || cachedPreview || rawPreview;
   const chosenLabel = key ? PHOTO_SLOTS.find((s) => s.key === key)?.label || key : "";
   const forSlide = def.frame === "slide";
   const [fitting, setFitting] = useState(false);
@@ -1879,7 +1904,7 @@ function ImageField({
         </span>
         <div className="admin__imageinputs">
           <p className="admin__imagecaption">{caption}</p>
-          <PhotoUpload onDone={(url) => onChange(url)} frame={def.frame} />
+          <PhotoUpload onDone={(url) => onChange(url)} onLocalPreview={(local) => setLocalPreview((prev) => { if (prev) { try { URL.revokeObjectURL(prev); } catch {} } return local; })} frame={def.frame} />
           <Input
             value={custom ? text : ""}
             onChange={(e) => onChange(e.target.value)}

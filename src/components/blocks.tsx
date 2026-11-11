@@ -57,13 +57,13 @@ import {
 } from "../lib/store";
 import { SITE, STATS, SERVICES, img, type Person } from "../data/site";
 import { photoOr } from "../data/photos";
-import { useResilientUploadUrl } from "../lib/uploadCache";
 import { BRANCHES, DEFAULT_BRANCH_ID, HQ, branchFlag, branchZone, subBranchesOf, type Branch } from "../data/branches";
 import { LIVE, type WatchOption } from "../data/live";
 import type { RecentService } from "../lib/recentstreams";
 import { type Sermon, sermonDate, sermonThumb, ytWatch } from "../data/sermons";
 import { SCRIPTURES, TESTIMONY_CATEGORIES, type ChurchEvent } from "../data/content";
-import { Badge, Btn, Card, Icon, IconBtn, Modal, Notice, Reveal, Stat, TagList, Eyebrow, Field, Input, Monogram, ShareRow } from "./ui";
+import { Badge, Btn, Card, Icon, IconBtn, Modal, Notice, Reveal, Stat, TagList, Eyebrow, Field, Input, Monogram, ShareRow, PhotoImg } from "./ui";
+import { useResilientPhotoUrl } from "../lib/uploadCache";
 import type { Testimony } from "../lib/store";
 
 /* ------------------------------------------------------------------ dates for events */
@@ -187,7 +187,7 @@ export function AnnouncementBanner() {
                     {a.body && <span>{tx(a.body)}</span>}
                     {a.link && (
                       <Link to={a.link} className="notice-strip__link" onClick={(e) => e.stopPropagation()}>
-                        {tx(a.linkLabel || "") || ct("auto.site.6e73bbe0078b8869")} <Icon name="arrowRight" size={13} />
+                        {tx(a.linkLabel) || ct("auto.site.6e73bbe0078b8869")} <Icon name="arrowRight" size={13} />
                       </Link>
                     )}
                   </motion.div>
@@ -1761,17 +1761,13 @@ export function BranchCard({
   const [branchId, setBranchId] = useLocalState<string>(KEYS.branch, DEFAULT_BRANCH_ID);
   const [mapOpen, setMapOpen] = useState(false);
   const [subsOpen, setSubsOpen] = useState(false);
-  /* Blank-free photo: a wiped server copy paints the cached/repo copy, else
-     the bundled branch photo — never a broken frame. Unchanged when healthy. */
-  const branchRaw = photoOr(branch.image, "building2");
-  const branchSrc = useResilientUploadUrl(branchRaw, photoOr("", "building2"));
   const isMine = branchId === branch.id;
   const zone = branchZone(branch);
   const subs = subBranchesOf(branch);
   return (
     <Card className={"branch-card" + (active ? " branch-card--active" : "")} pad={false}>
       <div className="branch-card__media">
-        <img src={branchSrc} alt="" loading="lazy" decoding="async" onError={(e) => { try { const el = e.currentTarget; if ((el as any).dataset.fb) return; (el as any).dataset.fb = "1"; el.src = photoOr("", "building2"); } catch {} }} />
+        <PhotoImg src={photoOr(branch.image, "building2")} fallback={photoOr("", "building2")} alt="" />
         <span className="branch-card__flag">{branchFlag(branch)} {branch.country}</span>
         {branch.isHq && <span className="hq-tag">{ct("auto.site.dfdd25368f930047")}</span>}
         {typeof distanceKm === "number" && <span className="distance-tag"><Icon name="pin" size={12} /> {fmtDistance(distanceKm)}</span>}
@@ -1844,12 +1840,10 @@ export function EventCard({ event, layout = "grid" }: { event: ChurchEvent; layo
   const day = zonedParts(date);
   const days = daysUntil(event);
   const branch = BRANCHES.find((b) => b.id === event.branchId);
-  const eventRaw = photoOr(event.image, "welcome");
-  const eventSrc = useResilientUploadUrl(eventRaw, photoOr("", "welcome"));
   return (
     <Card hover className={`event-card event-card--${layout}`} pad={false}>
       <div className="event-card__media">
-        <img src={eventSrc} alt="" loading="lazy" decoding="async" onError={(e) => { try { const el = e.currentTarget; if ((el as any).dataset.fb) return; (el as any).dataset.fb = "1"; el.src = photoOr("", "welcome"); } catch {} }} />
+        <PhotoImg src={photoOr(event.image, "welcome")} fallback={photoOr("", "welcome")} alt="" />
         <span className="event-card__date">
           <b>{day.day}</b>
           <em>{fmtMonthShort(day.month).toUpperCase()}</em>
@@ -1944,12 +1938,10 @@ export function categoryLabel(id: string) {
 /* ------------------------------------------------------------------ ministries & people */
 
 export function MinistryCard({ ministry, onJoin }: { ministry: { id: string; name: string; image: string; description: string; meets: string; leader: string; for: string }; onJoin: () => void }) {
-  const ministryRaw = photoOr(ministry.image, "youth");
-  const ministrySrc = useResilientUploadUrl(ministryRaw, photoOr("", "youth"));
   return (
     <Card hover pad={false} className="ministry-card">
       <div className="ministry-card__media">
-        <img src={ministrySrc} alt="" loading="lazy" decoding="async" onError={(e) => { try { const el = e.currentTarget; if ((el as any).dataset.fb) return; (el as any).dataset.fb = "1"; el.src = photoOr("", "youth"); } catch {} }} />
+        <PhotoImg src={photoOr(ministry.image, "youth")} fallback={photoOr("", "youth")} alt="" />
         <span className="ministry-card__for">{tx(ministry.for)}</span>
       </div>
       <div className="ministry-card__body">
@@ -1968,12 +1960,12 @@ export function MinistryCard({ ministry, onJoin }: { ministry: { id: string; nam
 
 export function PersonCard({ person }: { person: Person }) {
   const [open, setOpen] = useState(false);
-  const personRaw = person.image ? photoOr(person.image, "pastor-1") : "";
-  const personSrc = useResilientUploadUrl(personRaw, "");
+  /* A wiped office-server portrait falls back to the monogram instead of a blank frame. */
+  const photo = useResilientPhotoUrl(person.image || "", "");
   return (
     <Card className="person-card" pad={false}>
       <div className="person-card__photo">
-        {person.image ? <img src={personSrc || person.image} alt={person.name} loading="lazy" decoding="async" onError={(e) => { try { (e.currentTarget as any).style.display = "none"; } catch {} }} /> : <span className="person-card__mono"><Monogram name={person.name} size={92} /></span>}
+        {photo ? <img src={photo} alt={person.name} loading="lazy" /> : <span className="person-card__mono"><Monogram name={person.name} size={92} /></span>}
       </div>
       <div className="person-card__body">
         <h3>{person.name}</h3>

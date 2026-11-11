@@ -6,7 +6,7 @@ import { exitMaintenancePreview, useCmsVersion } from "../lib/cms";
 import { nextService, displayLive, countdownParts, to12h, DAY_SHORT, fmtDate, zoneYear, clockAt, churchTimezone, visitorPlace } from "../lib/store";
 import { SITE, SERVICES, NAV, FOOTER_LINKS, LOGO_MARK } from "../data/site";
 import { siteFile } from "../lib/livefeed";
-import { useResilientUploadUrl } from "../lib/uploadCache";
+import { useResilientPhotoUrl } from "../lib/uploadCache";
 import { BRANCHES, HQ } from "../data/branches";
 import { SERMONS, sermonDate, sermonThumb } from "../data/sermons";
 import { EVENTS, SEED_TESTIMONIES } from "../data/content";
@@ -584,17 +584,16 @@ export function PageHead({
   actions?: React.ReactNode;
   children?: React.ReactNode;
 }) {
-  /* Blank-free banner: while the server copy is wiped, paint this browser's
-     cached upload (or the repo copy) instead of a broken header. Healthy
-     uploads always win, so the banner is unchanged when nothing is missing. */
+  /* A wiped office-server banner paints the cached/repo copy (or the bundled
+     hero) instead of a blank header — the same chain slides use. */
   const heroFallback = siteFile("src/assets/img/hero.jpg");
-  const bannerSrc = useResilientUploadUrl(image || "", heroFallback);
+  const banner = useResilientPhotoUrl(image || "", heroFallback);
   return (
     <section className={"page-head" + (image ? " page-head--image" : "")}>
       {image && (
         <div className="page-head__bg" aria-hidden="true">
           <img
-            src={bannerSrc || image}
+            src={banner || heroFallback}
             alt=""
             onError={(e) => {
               /* A missing custom banner (deleted upload, moved file) falls

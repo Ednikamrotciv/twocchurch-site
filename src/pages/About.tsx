@@ -1,10 +1,9 @@
 import React, { useState } from "react";
 import { tx } from "../lib/i18n";
 import { SITE, VALUES, BELIEFS, TIMELINE, LEADERSHIP, FAQS, MINISTRIES, img } from "../data/site";
-import { photoOr } from "../data/photos";
-import { useResilientUploadUrl } from "../lib/uploadCache";
 import { BRANCHES, branchFlag } from "../data/branches";
 import { Badge, Btn, Card, Eyebrow, Icon, Reveal, Rich, Section, SectionHeading, Accordion, Tiles } from "../components/ui";
+import { useResilientPhotoUrl } from "../lib/uploadCache";
 import { ct } from "../data/copy";
 import { PageHead } from "../components/layout";
 import { StatStrip } from "../components/blocks";
@@ -154,13 +153,13 @@ export function About() {
 
 function PersonCardLite({ person }: { person: (typeof LEADERSHIP)[number] }) {
   const [open, setOpen] = useState(false);
-  const raw = person.image ? photoOr(person.image, "pastor-1") : "";
-  const src = useResilientUploadUrl(raw, "");
+  /* A wiped office-server portrait falls back to the monogram instead of a blank frame. */
+  const photo = useResilientPhotoUrl(person.image || "", "");
   return (
     <Card pad={false} className="person-card" hover>
       <div className="person-card__photo">
-        {person.image ? (
-          <img src={src || person.image} alt={person.name} loading="lazy" decoding="async" onError={(e) => { try { (e.currentTarget as any).style.display = "none"; } catch {} }} />
+        {photo ? (
+          <img src={photo} alt={person.name} loading="lazy" />
         ) : (
           <span className="person-card__mono">
             <span className="monogram monogram--gold" style={{ width: 96, height: 96, fontSize: 34 }}>

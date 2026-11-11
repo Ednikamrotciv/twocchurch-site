@@ -7,6 +7,7 @@ import { useClickOutside, useToasts, useReveal, useBodyLock } from "../lib/hooks
 import { copyText, shareContent, whatsappLink, mailto, siteLocale } from "../lib/store";
 import { absoluteLink } from "../lib/router";
 import { ct } from "../data/copy";
+import { useResilientPhotoUrl } from "../lib/uploadCache";
 
 /* ------------------------------------------------------------------ icons */
 
@@ -824,5 +825,44 @@ export function Accordion({
         );
       })}
     </div>
+  );
+}
+
+/* A page photo that never paints blank: office-server uploads can go missing
+   after a host wipe (the disk is the wipe's first casualty), so the address
+   resolves through this browser's cached copy, then the server copy, then the
+   public repo copy, then the bundled fallback — the same chain slides use. A
+   healthy address paints itself on the first render, so speed is unchanged. */
+export function PhotoImg({
+  src,
+  fallback,
+  alt = "",
+  className = "",
+  eager = false,
+}: {
+  src: string;
+  fallback: string;
+  alt?: string;
+  className?: string;
+  eager?: boolean;
+}) {
+  const best = useResilientPhotoUrl(src, fallback);
+  const [fb, setFb] = useState(false);
+  useEffect(() => {
+    setFb(false);
+  }, [best]);
+  if (!best) return null;
+  const shown = fb && fallback && fallback !== best ? fallback : best;
+  return (
+    <img
+      src={shown}
+      alt={alt}
+      className={className || undefined}
+      loading={eager ? "eager" : "lazy"}
+      draggable={false}
+      onError={() => {
+        if (!fb) setFb(true);
+      }}
+    />
   );
 }

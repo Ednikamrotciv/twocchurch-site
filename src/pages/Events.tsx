@@ -4,8 +4,7 @@ import { EVENTS, EVENT_FILTERS, type ChurchEvent } from "../data/content";
 import { BRANCHES, branchFlag } from "../data/branches";
 import { SITE, img } from "../data/site";
 import { photoOr } from "../data/photos";
-import { useResilientUploadUrl } from "../lib/uploadCache";
-import { Badge, Btn, Card, Chip, Empty, Icon, Notice, Reveal, Rich, Section, SectionHeading } from "../components/ui";
+import { Badge, Btn, Card, Chip, Empty, Icon, Notice, Reveal, Rich, Section, SectionHeading, PhotoImg } from "../components/ui";
 import { ct } from "../data/copy";
 import { PageHead } from "../components/layout";
 import { Countdown, EventCard, eventDate, daysUntil, NewsletterForm } from "../components/blocks";
@@ -21,8 +20,6 @@ export function Events() {
   const sorted = useMemo(() => [...EVENTS].sort((a, b) => daysUntil(a) - daysUntil(b)), []);
   const featured = sorted.find((e) => e.featured) || sorted[0];
   const filtered = sorted.filter((e) => (cat === "all" || e.category === cat) && (branch === "all" || e.branchId === branch));
-  const featuredRaw = featured ? photoOr(featured.image, "welcome") : "";
-  const featuredSrc = useResilientUploadUrl(featuredRaw, photoOr("", "welcome"));
 
   const grouped = useMemo(() => {
     const map = new Map<string, ChurchEvent[]>();
@@ -57,7 +54,7 @@ export function Events() {
         <Section className="event-feature">
           <div className="event-feature__grid">
             <div className="event-feature__media">
-              <img src={featuredSrc} alt="" loading="lazy" decoding="async" onError={(e) => { try { const el = e.currentTarget; if ((el as any).dataset.fb) return; (el as any).dataset.fb = "1"; el.src = photoOr("", "welcome"); } catch {} }} />
+              <PhotoImg src={photoOr(featured.image, "welcome")} fallback={photoOr("", "welcome")} alt="" eager />
               <span className="event-feature__tag">
                 <Badge accent="crimson" icon="star">{ct("auto.events.46ce311349431e52")}</Badge>
               </span>
