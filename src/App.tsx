@@ -52,8 +52,9 @@ const Admin = React.lazy(
     import("./pages/Admin").then((m) => ({ default: m.Admin })),
   ),
 );
-const ErrorBoundaryCompat =
-  ErrorBoundary as unknown as React.ComponentType<React.PropsWithChildren>;
+const ErrorBoundaryCompat = ErrorBoundary as unknown as React.ComponentType<
+  React.PropsWithChildren<{}>
+>;
 
 /* Explicit local preview only (?maintenance=1): the office's way to see the
    notice on demand. Visitors on a fresh deploy see it until Publish clears it. */
@@ -77,7 +78,7 @@ export function App() {
   const route = useRoute();
   const version = useCmsVersion();
   /* New code since the last publish: visitors wait, the office never does. */
-  const maintenance = useMaintenance() || forcedMaintenancePreview();
+  const maintenance = useMaintenance();
   /* Where the visitor is (their IP's time zone). Reading it here re-renders the
      whole site the moment the answer lands, so every time on the page moves
      onto the visitor's own clock in one pass (SPEC note 85). */
@@ -224,17 +225,20 @@ export function App() {
 
   // #/admin (and everything under it) is the very same site, with the office's
   // tools on top. See src/pages/Admin.tsx.
+  const adminShell = (
+    <ErrorBoundaryCompat>
+      <React.Suspense fallback={null}>
+        <Admin />
+      </React.Suspense>
+    </ErrorBoundaryCompat>
+  );
   if (route.editing)
     return (
       <>
         {/* Never a loader page: nothing flashes while the admin chunk arrives —
             the site shell stays on screen, and a crash inside it lands on the
             error card — not a white page. */}
-        <ErrorBoundaryCompat>
-          <React.Suspense fallback={null}>
-            <Admin />
-          </React.Suspense>
-        </ErrorBoundaryCompat>
+        {adminShell}
         <LangAsk />
       </>
     );

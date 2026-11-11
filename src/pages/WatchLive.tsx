@@ -142,6 +142,12 @@ export function WatchLive() {
      retires anything, so the published command stands exactly like the
      office copy — the stamped id underneath was itself verified live at
      stamp time, and a proven-dead stamp never plays. */
+  /* A stale command never replays or steals the screen (the office forgot
+     Stop): a check newer than the command that does not show THIS slot live
+     retires it — an off read, or a live read for the other address. A check
+     that could not speak (unknown, offline) or predates the command never
+     retires anything, so the published command stands exactly like the
+     office copy. */
   const checkNewerThanGuestCmd = guestCheckedAt > (Number((LIVE as any).guestCommandAt) || 0);
   const checkNewerThanMainCmd = guestCheckedAt > (Number((LIVE as any).liveCommandAt) || 0);
   const checkShowsGuestLive = !!guestUrl && air.state === "live" && isStatusForTarget(air, guestUrl);

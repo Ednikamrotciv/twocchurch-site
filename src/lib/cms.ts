@@ -2430,7 +2430,7 @@ async function applySeedOnce() {
   seedApplied = true;
   try {
     const seedCtrl = typeof AbortController !== "undefined" ? new AbortController() : null;
-    const seedTimer = seedCtrl ? window.setTimeout(() => seedCtrl.abort(), 3500) : 0;
+    const seedTimer = seedCtrl ? window.setTimeout(() => seedCtrl.abort(), 8000) : 0;
     let res: Response;
     try {
       res = await fetch(siteFile("seed.json"), {
@@ -2782,6 +2782,8 @@ async function liveBaseUrl(): Promise<string> {
         }
       } catch {
         /* joined backend silent — fall through to this origin's door */
+      } finally {
+        if (liveTimer) window.clearTimeout(liveTimer);
       }
     }
   } catch {
@@ -2802,6 +2804,8 @@ async function liveBaseUrl(): Promise<string> {
     }
   } catch {
     /* unreachable backend — fall through to the default below */
+  } finally {
+    if (liveTimer2) window.clearTimeout(liveTimer2);
   }
   const u = backend || DEFAULT_LIVE_ORIGIN;
   try {
