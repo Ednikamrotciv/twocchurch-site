@@ -857,8 +857,7 @@ export function LiveEndingPanel({ onOpen, children }: { onOpen: (id: string) => 
     published (see `gateLiveCommand` in src/lib/cms.ts) — an unclicked Publish
     leaves the site's on-air state alone, whatever the draft says. The buttons
     never gate a live end: when the broadcast ends the screen closes at once
-    onto the main channel's previous-service thumbnails, published or not — a
-    leaves the site's on-air state alone, whatever the draft says. When the
+    onto the main channel's previous-service thumbnails, published or not. When the
     broadcast ends by itself, nothing is written and nothing is filed: the
     office presses Stop, then Publish (the automatic stop was removed at the
     office's request — see src/lib/autostop.ts). */

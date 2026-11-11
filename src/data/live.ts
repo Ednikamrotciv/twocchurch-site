@@ -113,6 +113,6 @@ export const LIVE = {
     { label: "Live stream", value: "Plays here whenever our broadcast is active", icon: "live" },
     { label: "YouTube", value: "@twocorg", icon: "youtube", platform: "youtube" },
     { label: "Facebook", value: "/worldovercomers", icon: "facebook", platform: "facebook" },
-    { label: "Sermon archive", value: "Every message since 2026", icon: "archive" },
+    { label: "Sermon archive", value: "Every message in the archive", icon: "archive" },
   ] as WatchOption[],
 };

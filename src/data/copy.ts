@@ -169,7 +169,7 @@ const HAND_PAGES: CopyPage[] = [
         label: "Page — paragraph",
         locked: true,
         value:
-          "Every Sunday we go live from the Cathedral, and every branch streams its own gathering. If you cannot be in the room, be in the chat — our online hosts pray with hundreds of people each week.",
+          "We go live from one channel, @twocorg, with an optional Facebook simulcast and occasional guest broadcasts. If you cannot be in the room, join here — the player opens by itself with sound the moment we are live, and our online hosts pray with you in the chat.",
       },
       { id: "live.watch.button1", label: "Player buttons — button 1", value: "Watch on YouTube" },
       { id: "live.watch.button2", label: "Player buttons — button 2", value: "Watch on Facebook" },
@@ -195,15 +195,15 @@ const HAND_PAGES: CopyPage[] = [
         id: "live.platform.hint",
         locked: true,
         label: "Player — hint under the player",
-        value: "Both streams are the same service — pick whichever one loads best for you.",
+        value: "YouTube and Facebook carry the same service when both are on — pick whichever one loads best for you. A guest broadcast plays its own service.",
       },
-      { id: "live.fallback.title", label: "No stream set — headline", value: "The stream opens here on Sunday" },
+      { id: "live.fallback.title", label: "No stream set — headline", value: "No live broadcast right now" },
       {
         id: "live.fallback.text",
         locked: true,
         label: "No stream set — text",
         value:
-          "Nobody has published a stream link for this service yet. In the meantime, every recent message is in the archive below.",
+          "The channel is not live. The player opens by itself with sound the moment a broadcast starts — no link needed. In the meantime, every recent message is in the archive below.",
       },
       { id: "live.next.badge", label: "Next broadcast — badge", value: "Next broadcast" },
       { id: "live.live.prefix", label: "Live badge — text", value: "Live now" },
@@ -212,7 +212,7 @@ const HAND_PAGES: CopyPage[] = [
         id: "live.where.text",
         locked: true,
         label: "Streaming note under the player",
-        value: "We stream on {{platforms}} — the player opens here on Sunday.",
+        value: "We stream on {{platforms}} — the player opens here by itself whenever we are live.",
       },
       {
         id: "live.preview.note",
@@ -245,7 +245,7 @@ const HAND_PAGES: CopyPage[] = [
       { id: "live.replay.action", label: "Catch up — button", value: "Full archive" },
       { id: "live.recent.watch", label: "Recent services — card link", value: "Watch on YouTube" },
       { id: "live.past.eyebrow", label: "Previous sermons — eyebrow", value: "Previous sermons" },
-      { id: "live.past.title", label: "Previous sermons — headline", value: "Services we have broadcasted" },
+      { id: "live.past.title", label: "Previous sermons — headline", value: "Services we have broadcast" },
       {
         id: "live.past.lede",
         locked: true,
