@@ -1,7 +1,7 @@
 import React, { useMemo, useState } from "react";
 import { tx } from "../lib/i18n";
 import { Link } from "../lib/router";
-import { BRANCHES, DEFAULT_BRANCH_ID, branchFlag, branchZone } from "../data/branches";
+import { BRANCHES, DEFAULT_BRANCH_ID, HQ, branchFlag, branchZone } from "../data/branches";
 import { SITE, FAQS, img } from "../data/site";
 import { useLocalState, fireToast } from "../lib/hooks";
 import { KEYS, DAY_NAMES, to12h, nextOccurrence, fmtDate, mailto, copyText, downloadText, clockAt, clockHere, tidyCount } from "../lib/store";
@@ -21,7 +21,9 @@ export function Visit() {
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [done, setDone] = useState(false);
 
-  const branch = BRANCHES.find((b) => b.id === branchId) || BRANCHES[0];
+  /* HQ is a wipe-proof seed copy, so an emptied branch list still leaves a
+     branch to plan the visit around instead of blanking the page. */
+  const branch = BRANCHES.find((b) => b.id === branchId) || BRANCHES[0] || HQ;
   /* Accessibility options, labeled once and reused by the form and the pass. */
   const accessOpts = [
     { value: "none", label: ct("auto.visit.34bf9843bbbb81e2") },
@@ -305,7 +307,7 @@ export function Visit() {
               type="button"
               className="link-btn"
               onClick={() => {
-                const b = BRANCHES.find((x) => x.id === plan.branchId) || BRANCHES[0];
+                const b = BRANCHES.find((x) => x.id === plan.branchId) || BRANCHES[0] || HQ;
                 setBranchId(b.id);
                 setServiceIdx(plan.serviceIndex);
                 setParty({ adults: plan.adults, kids: plan.kids, accessibility: plan.accessibility, notes: plan.questions });

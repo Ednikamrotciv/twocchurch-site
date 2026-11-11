@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { tx } from "../lib/i18n";
 import { useRoute, Link } from "../lib/router";
-import { BRANCHES, COUNTRIES, DEFAULT_BRANCH_ID, groupByCountry, type Branch } from "../data/branches";
+import { BRANCHES, COUNTRIES, DEFAULT_BRANCH_ID, HQ, groupByCountry, type Branch } from "../data/branches";
 import { photoOr } from "../data/photos";
 import { useLocalState, fireToast, useNow } from "../lib/hooks";
 import { useCmsVersion } from "../lib/cms";
@@ -64,7 +64,9 @@ export function Locations() {
 
   const subBranches = BRANCHES.filter((b) => b.isSub).length;
 
-  const selected = BRANCHES.find((b) => b.id === selectedId) || BRANCHES[0];
+  /* HQ is a wipe-proof seed copy, so an emptied branch list still leaves a
+     branch to show instead of blanking the page. */
+  const selected = BRANCHES.find((b) => b.id === selectedId) || BRANCHES[0] || HQ;
 
   /* The rest of the family, for the panel beside the map. */
   const others = useMemo(() => {
@@ -119,7 +121,7 @@ export function Locations() {
         eyebrow={ct("locations.head.eyebrow")}
         title={<Rich text={ct("locations.head.title")} />}
         lede={ct("locations.head.lede")}
-        image={photoOr(BRANCHES[0].image, "locations")}
+        image={photoOr((BRANCHES[0] || HQ).image, "locations")}
         crumbs={[{ label: ct("auto.locations.27cb1cfd354ac87c"), to: "/" }, { label: ct("auto.locations.ea0222ac08b57d85") }]}
         actions={
           <>

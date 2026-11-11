@@ -21,7 +21,9 @@ import { useCmsVersion } from "../lib/cms";
 
 export function WatchLive() {
   const [branchId] = useLocalState<string>(KEYS.branch, DEFAULT_BRANCH_ID);
-  const branch = BRANCHES.find((b) => b.id === branchId) || BRANCHES[0];
+  /* HQ is a wipe-proof seed copy, so an emptied branch list still leaves a
+     branch for reminders instead of blanking the page. */
+  const branch = BRANCHES.find((b) => b.id === branchId) || BRANCHES[0] || HQ;
   const [reminders, setReminders] = useLocalState<Record<string, boolean>>("wom.reminders", {});
   /* Page-level clock, coarse on purpose (perf fix): the whole screen used to
      re-render every second off this clock — the full panel, lists and player

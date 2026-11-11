@@ -42,7 +42,10 @@ export function Contact() {
     .filter((s) => s.day === 0)
     .map((s) => to12h(clockHere(s.time, s.day, branchZone(HQ)).time))
     .join(" & ");
-  const activeTopic = CONTACT_TOPICS.find((t) => t.id === topic) || CONTACT_TOPICS[0];
+  /* The topic list is office-editable and may be empty (an emptied backup must
+     never blank the page): fall back to the general inbox so the form keeps
+     working until topics are added again. */
+  const activeTopic = CONTACT_TOPICS.find((t) => t.id === topic) || CONTACT_TOPICS[0] || { id: "general", label: "General enquiry", email: SITE.email };
   const set = (patch: Partial<typeof form>) => setForm((f) => ({ ...f, ...patch }));
 
   const body = () => `Hello ${SITE.short} team,\n\n${form.message}\n\n—\nName: ${form.name}\nEmail: ${form.email}\nPhone: ${form.phone || "—"}\nNearest branch: ${BRANCHES.find((b) => b.id === form.branch)?.city}\nTopic: ${activeTopic.label}\nSent from the website contact form.`;
@@ -168,11 +171,15 @@ export function Contact() {
                   <div className="form-grid__full">
                     <Field label={ct("auto.contact.082f178042038df9")}>
                       <div className="chips">
-                        {CONTACT_TOPICS.map((t) => (
-                          <button key={t.id} type="button" className={"chip" + (topic === t.id ? " chip--active" : "")} onClick={() => setTopic(t.id)}>
-                            {tx(t.label)}
-                          </button>
-                        ))}
+                        {CONTACT_TOPICS.length > 0 ? (
+                          CONTACT_TOPICS.map((t) => (
+                            <button key={t.id} type="button" className={"chip" + (topic === t.id ? " chip--active" : "")} onClick={() => setTopic(t.id)}>
+                              {tx(t.label)}
+                            </button>
+                          ))
+                        ) : (
+                          <span className="muted">{tx("General enquiry")}</span>
+                        )}
                       </div>
                     </Field>
                   </div>
