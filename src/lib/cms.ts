@@ -1012,6 +1012,19 @@ let staleNewerNotes = 0;
    only, never ordered. Stored whenever version.json is read; an absent word
    proves nothing and changes nothing. */
 let hostFileCode = "";
+/** Host-file attestation (one click clears every device): version.json names
+    the code the host serves — when it names this bundle's word, the host runs
+    this build, so a same-update server publish with real words releases this
+    deploy even if the backend never learned the word. Equality only, like the
+    server word itself; an absent word proves nothing. Module scope (not nested
+    in syncFromServer) so every check that names it compiles and runs. */
+function hostFileAttestsSameCode(): boolean {
+  try {
+    return !!hostFileCode && !!runningCode && hostFileCode === runningCode;
+  } catch {
+    return false;
+  }
+}
 /* Unnumbered code drift (no new number): version.json names its code without a
    number — a different code is a different build by definition (mixed-asset
    serve, hand-copied dist). While known, this copy waits like any stale one. */
@@ -4727,18 +4740,6 @@ async function syncFromServer() {
       markDeployPublished();
     }
   } catch {}
-/** Host-file attestation (one click clears every device): version.json names
-    the code the host serves — when it names this bundle's word, the host runs
-    this build, so a same-update server publish with real words releases this
-    deploy even if the backend never learned the word. Equality only, like the
-    server word itself; an absent word proves nothing. */
-function hostFileAttestsSameCode(): boolean {
-  try {
-    return !!hostFileCode && !!runningCode && hostFileCode === runningCode;
-  } catch {
-    return false;
-  }
-}
   /* Late-join lift (first publish after a new deploy must clear devices that
      opened it AFTER the click): the clock above only releases deploys that
      were already seen, and the same-ID witness only matches a publish stamped

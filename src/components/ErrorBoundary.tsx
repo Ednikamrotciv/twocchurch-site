@@ -16,7 +16,7 @@ export class ErrorBoundary extends React.Component<{ children: React.ReactNode }
   /* A crash report the office can actually use (note 408): the route that
      broke plus the component stack go to the console whole, and the route
      prints on the screen — so the next screenshot names the page. */
-  componentDidCatch(error: Error, info?: { componentStack?: string }) {
+  componentDidCatch(error: Error, info?: React.ErrorInfo) {
     let route = "";
     try {
       route = readBoundaryRoute();
@@ -190,7 +190,7 @@ export class SectionBoundary extends React.Component<{ children: React.ReactNode
   static getDerivedStateFromError(error: Error) {
     return { error };
   }
-  componentDidCatch(error: Error, info?: { componentStack?: string }) {
+  componentDidCatch(error: Error, info?: React.ErrorInfo) {
     try {
       console.error("World Overcomers section error (" + String(this.props.label || "section") + "):", { error, stack: String(info?.componentStack || "") });
     } catch {}

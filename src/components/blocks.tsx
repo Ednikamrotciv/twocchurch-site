@@ -187,7 +187,7 @@ export function AnnouncementBanner() {
                     {a.body && <span>{tx(a.body)}</span>}
                     {a.link && (
                       <Link to={a.link} className="notice-strip__link" onClick={(e) => e.stopPropagation()}>
-                        {tx(a.linkLabel) || ct("auto.site.6e73bbe0078b8869")} <Icon name="arrowRight" size={13} />
+                        {tx(a.linkLabel || "") || ct("auto.site.6e73bbe0078b8869")} <Icon name="arrowRight" size={13} />
                       </Link>
                     )}
                   </motion.div>

@@ -7,7 +7,7 @@ import { startCms, useCmsVersion, useCmsReady, useMaintenance, usePreviewingWhil
 import { mountShaderBackground } from "./lib/shaderbg";
 import { startVisitorClock, useVisitorClock, useVisitorClockRefresh } from "./lib/visitor";
 import { useI18nTick, ensureI18n, setProtectedValues, i18nAsk, chooseLang, dismissAsk } from "./lib/i18n";
-import { allCopySources } from "./data/copy";
+import { allCopySources, ct } from "./data/copy";
 import { startRates, useRates, useRatesRefresh } from "./lib/rates";
 import { useLiveStream } from "./lib/livestatus";
 import { nextService, onAir, churchTimezone } from "./lib/store";
@@ -15,7 +15,6 @@ import { useNow } from "./lib/hooks";
 import { SERVICES } from "./data/site";
 import { resolvePath, warmPageChunks } from "./lib/routes";
 import { ADMIN_RETURN_MS, readAdminReturn } from "./lib/adminReturn";
-import { ct } from "./data/copy";
 import { SITE } from "./data/site";
 import { BRANCHES, HQ } from "./data/branches";
 import { EVENTS } from "./data/content";
@@ -131,7 +130,12 @@ export function App() {
       const save = (navigator as any)?.connection?.saveData;
       if (!reduce && !save) {
         const start = () => { if (!cancelled) { try { unmountShader = mountShaderBackground(); } catch {} } };
-        if ("requestIdleCallback" in window) (window as any).requestIdleCallback(start, { timeout: 2500 });
+        /* typeof-check, not `"requestIdleCallback" in window`: the `in` form
+           narrows `window` to `never` in the else branch (the DOM lib declares
+           the method as required), so `window.setTimeout` below stops
+           compiling — while this form compiles and behaves identically. */
+        const ric = (window as any).requestIdleCallback;
+        if (typeof ric === "function") ric.call(window, start, { timeout: 2500 });
         else window.setTimeout(start, 800);
       }
     } catch { try { if (!cancelled) unmountShader = mountShaderBackground(); } catch {} }
@@ -159,6 +163,17 @@ export function App() {
 
   // #/admin (and everything under it) is the very same site, with the office's
   // tools on top. See src/pages/Admin.tsx.
+  /* Hooks below run on every render, admin or not: hooks after the editing
+     return below used to break the rules of hooks (more hooks rendered off
+     #/admin than on it), which threw "rendered more hooks" when moving
+     between the site and the console — the error card with a reload that
+     never held. */
+  const stale = useStaleBuild();
+  useCmsReady();
+  let publishedHere = false;
+  try {
+    publishedHere = isCurrentDeployPublishedSync();
+  } catch {}
   if (route.editing)
     return (
       <>
@@ -185,12 +200,6 @@ export function App() {
      once until Publish; published deploys show the website at once on every
      reload/loading with no flash. A newer deploy landing later still takes via
      the stale gate + reload. */
-  const stale = useStaleBuild();
-  useCmsReady();
-  let publishedHere = false;
-  try {
-    publishedHere = isCurrentDeployPublishedSync();
-  } catch {}
   if (publishedHere && !stale.waiting) return (
     <>
       <ErrorBoundary>

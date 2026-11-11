@@ -17,7 +17,7 @@ const SHAPE_TOLERANCE = 0.04;
 /** A picture that is bigger than this (in pixels) is re-cut even if its shape is right. */
 const SIZE_TOLERANCE = 1.02;
 
-type Picture = HTMLImageElement | ImageBitmap;
+type Picture = HTMLImageElement | ImageBitmap | HTMLCanvasElement;
 
 function size(pic: Picture): { w: number; h: number } {
   const w = (pic as HTMLImageElement).naturalWidth || pic.width || 0;
