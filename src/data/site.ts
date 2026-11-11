@@ -1,7 +1,7 @@
 import { DEFAULT_CURRENCY, DEFAULT_TIMEZONE, setBaseCurrency, setChurchTimezone, setVisitorCurrencyEnabled, setVisitorTimeEnabled, type ServiceSlot } from "../lib/store";
 import { photoSrc, registerPhotoCollection } from "./photos";
 
-const w = window as any;
+const w = (typeof window !== "undefined" ? (window as any) : ({} as any));
 const pick = (name: string, fallback: string) => {
   const v = w[name];
   if (typeof v === "string" && v.trim()) return v.trim();

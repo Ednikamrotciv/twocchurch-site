@@ -424,7 +424,10 @@ export type ServiceSlot = { day: number; time: string; name: string; minutes: nu
 /** When a gathering next happens; pass the branch's zone (note 84). */
 export function nextOccurrence(slot: ServiceSlot, now = new Date(), tz = churchTimezone()): Date {
   const zone = zoneOr(tz);
-  const [h, m] = slot.time.split(":").map(Number);
+  const parts = String((slot as any)?.time ?? "").split(":");
+  const h = Number(parts[0]);
+  const m = Number(parts[1]);
+  if (!Number.isFinite(h) || !Number.isFinite(m)) return new Date(NaN);
   const p = zonedParts(now, zone);
   const ahead = (slot.day - p.weekday + 7) % 7;
   let at = zonedTimeToUtc(p.year, p.month, p.day + ahead, h, m, zone);
@@ -445,14 +448,26 @@ export function nextService(schedule: ServiceSlot[], now = new Date(), tz = chur
   if (!schedule?.length) return null;
   const zone = zoneOr(tz);
   const p = zonedParts(now, zone);
-  const enriched = schedule.map((slot) => {
-    const at = nextOccurrence(slot, now, zone);
-    return { slot, at, msUntil: at.getTime() - now.getTime() };
-  });
+  const valid = (Array.isArray(schedule) ? schedule : []).filter(
+    (s) => s && Number.isFinite(Number((s as any).day)) && typeof (s as any).time === "string"
+  );
+  if (!valid.length) return null;
+  const enriched = valid
+    .map((slot) => {
+      try {
+        const at = nextOccurrence(slot as ServiceSlot, now, zone);
+        if (!(at instanceof Date) || Number.isNaN(at.getTime())) return null;
+        return { slot, at, msUntil: at.getTime() - now.getTime() };
+      } catch {
+        return null;
+      }
+    })
+    .filter((x): x is { slot: ServiceSlot; at: Date; msUntil: number } => !!x);
   enriched.sort((a, b) => a.msUntil - b.msUntil);
 
-  for (const slot of schedule) {
-    const [h, m] = slot.time.split(":").map(Number);
+  for (const slot of valid) {
+    const [h, m] = String((slot as any).time).split(":").map(Number);
+    if (!Number.isFinite(h) || !Number.isFinite(m)) continue;
     for (let back = 0; back <= 7; back++) {
       const start = zonedTimeToUtc(p.year, p.month, p.day - back, h, m, zone);
       if (zonedParts(start, zone).weekday !== slot.day) continue;
