@@ -203,4 +203,54 @@ export function useFeedUploadUrl(url: string): string {
   return feed;
 }
 
+/* One probe: true once this photo address proves unloadable (note 376). Films,
+   data:/blob: addresses and empties never count — they are not photos. Shared
+   so cards and banners use the same rule as the slide space. Never throws. */
+export function useDeadUploadUrl(url: string): boolean {
+  const [dead, setDead] = useState(false);
+  useEffect(() => {
+    setDead(false);
+    const u = String(url || "").trim();
+    if (!u || /\.mp4(\?|#|$)/i.test(u) || /\.(m4v|webm|ogv|ogg|mov)(\?|#|$)/i.test(u) || u.startsWith("data:") || u.startsWith("blob:")) return;
+    let alive = true;
+    const img = new Image();
+    img.onload = () => {
+      if (alive) setDead(false);
+    };
+    img.onerror = () => {
+      if (alive) setDead(true);
+    };
+    try {
+      img.src = u;
+    } catch {
+      if (alive) setDead(true);
+    }
+    return () => {
+      alive = false;
+      try {
+        img.removeAttribute("src");
+      } catch {}
+    };
+  }, [url]);
+  return dead;
+}
+
+/* Best paintable address for an office photo/banner (blank-free, fast):
+   the cached copy while the server copy is gone, else the repo copy, else the
+   raw address — with a bundled fallback when the raw address proves dead.
+   Pure paint choice: a healthy upload always wins, so visitors never depend
+   on the repo hosts; only a wiped disk paints another copy. Never throws. */
+export function useResilientUploadUrl(rawUrl: string, fallbackUrl = ""): string {
+  const raw = String(rawUrl || "").trim();
+  const fallback = String(fallbackUrl || "").trim();
+  const cached = useCachedUploadUrl(raw);
+  const feed = useFeedUploadUrl(raw);
+  const deadRaw = useDeadUploadUrl(raw);
+  const deadFeed = useDeadUploadUrl(feed);
+  if (cached) return cached;
+  if (raw && deadRaw && feed && !deadFeed) return feed;
+  if (raw && deadRaw && fallback && raw !== fallback) return fallback;
+  return raw || fallback;
+}
+
 export { dataUrlToBlob };

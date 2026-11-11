@@ -1,6 +1,8 @@
 import React, { useState } from "react";
 import { tx } from "../lib/i18n";
 import { SITE, VALUES, BELIEFS, TIMELINE, LEADERSHIP, FAQS, MINISTRIES, img } from "../data/site";
+import { photoOr } from "../data/photos";
+import { useResilientUploadUrl } from "../lib/uploadCache";
 import { BRANCHES, branchFlag } from "../data/branches";
 import { Badge, Btn, Card, Eyebrow, Icon, Reveal, Rich, Section, SectionHeading, Accordion, Tiles } from "../components/ui";
 import { ct } from "../data/copy";
@@ -152,11 +154,13 @@ export function About() {
 
 function PersonCardLite({ person }: { person: (typeof LEADERSHIP)[number] }) {
   const [open, setOpen] = useState(false);
+  const raw = person.image ? photoOr(person.image, "pastor-1") : "";
+  const src = useResilientUploadUrl(raw, "");
   return (
     <Card pad={false} className="person-card" hover>
       <div className="person-card__photo">
         {person.image ? (
-          <img src={person.image} alt={person.name} loading="lazy" />
+          <img src={src || person.image} alt={person.name} loading="lazy" decoding="async" onError={(e) => { try { (e.currentTarget as any).style.display = "none"; } catch {} }} />
         ) : (
           <span className="person-card__mono">
             <span className="monogram monogram--gold" style={{ width: 96, height: 96, fontSize: 34 }}>

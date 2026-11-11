@@ -63,10 +63,10 @@ export class ErrorBoundary extends React.Component<{ children: React.ReactNode }
     if (storageOk() && autoReloadDue(route)) {
       takeAutoReload(route);
       try {
-        localStorage.removeItem("wom.livestatus");
+        clearVolatileLiveCaches();
       } catch {}
       try {
-        sessionStorage.removeItem("wom.live.targetNote");
+        clearChunkRetryMarks();
       } catch {}
       try {
         window.setTimeout(() => {
@@ -123,13 +123,15 @@ export class ErrorBoundary extends React.Component<{ children: React.ReactNode }
   /* One tap = browser reload: the button does exactly what reloading the
      browser page does — fresh bundle, fresh state, same address. Before it,
      volatile live caches are dropped so a stale on-air/verdict answer can
-     never re-poison the fresh load. */
+     never re-poison the fresh load. Chunk-retry marks are dropped too, so a
+     crash that came from a stale chunk gets its one auto-retry again after
+     the manual reload instead of landing straight back on this card. */
   private retry = () => {
     try {
-      localStorage.removeItem("wom.livestatus");
+      clearVolatileLiveCaches();
     } catch {}
     try {
-      sessionStorage.removeItem("wom.live.targetNote");
+      clearChunkRetryMarks();
     } catch {}
     try {
       window.location.reload();
@@ -163,7 +165,7 @@ export class ErrorBoundary extends React.Component<{ children: React.ReactNode }
             <Btn onClick={this.retry} icon="refresh">
               Reload the page
             </Btn>
-            <Btn variant="ghost" to="/" icon="home" onClick={() => this.setState({ error: null })}>
+            <Btn variant="ghost" to="/" icon="home" onClick={() => { try { clearChunkRetryMarks(); } catch {} try { clearVolatileLiveCaches(); } catch {} this.setState({ error: null }); }}>
               Try the home page
             </Btn>
           </div>
@@ -256,6 +258,36 @@ function readBoundaryRoute(): string {
   } catch {
     return "";
   }
+}
+
+/* Volatile live answers that must never re-poison a fresh load: the last
+   on-air/verdict read plus the boot-retry flag, so a resource failure before
+   React boots also gets its one retry again. Never throws. */
+function clearVolatileLiveCaches(): void {
+  try {
+    localStorage.removeItem("wom.livestatus");
+  } catch {}
+  try {
+    sessionStorage.removeItem("wom.live.targetNote");
+  } catch {}
+  try {
+    sessionStorage.removeItem("wom.boot.retried");
+  } catch {}
+}
+
+/* Chunk-retry marks (see `lazyPage` in lib/router.tsx): one per lazy page per
+   tab. A manual reload drops them so the fresh load gets its one silent
+   chunk retry again — a stale-chunk crash then heals instead of landing
+   straight back on this card. Never throws. */
+function clearChunkRetryMarks(): void {
+  try {
+    const keys: string[] = [];
+    for (let i = 0; i < sessionStorage.length; i++) {
+      const k = sessionStorage.key(i) || "";
+      if (k.indexOf("wom.chunk.retried.") === 0) keys.push(k);
+    }
+    for (const k of keys) sessionStorage.removeItem(k);
+  } catch {}
 }
 
 /* Auto-reload budget (loop-proof): at most one silent reload per page per

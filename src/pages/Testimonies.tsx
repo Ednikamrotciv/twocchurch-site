@@ -189,7 +189,7 @@ export function Testimonies() {
         {readingItem && (
           <div className="testimony-full">
             <div className="testimony-full__who">
-              {readingItem.photo ? <img src={readingItem.photo} alt="" className="testimony-full__photo" /> : <Monogram name={readingItem.name} size={52} />}
+              {readingItem.photo ? <img src={readingItem.photo} alt="" className="testimony-full__photo" loading="lazy" decoding="async" onError={(e) => { try { (e.currentTarget as any).style.display = "none"; } catch {} }} /> : <Monogram name={readingItem.name} size={52} />}
               <div>
                 <b>{readingItem.name}</b>
                 <em>

@@ -15,9 +15,15 @@ import { useTestimonies } from "../lib/collections";
 import { fireToast } from "../lib/hooks";
 import { mailto } from "../lib/store";
 import { siteFile } from "../lib/livefeed";
+import { useResilientUploadUrl } from "../lib/uploadCache";
 
 export function Home() {
   const now = useNow(1000);
+  /* Blank-free hero: a wiped server copy paints the cached/repo copy first. */
+  const heroRaw = img("home");
+  const heroSrc = useResilientUploadUrl(heroRaw, siteFile("src/assets/img/hero.jpg"));
+  const faintRaw = img("hero-faint");
+  const faintSrc = useResilientUploadUrl(faintRaw, "");
   /* The office's Weekly services card, read on the church's own clock. */
   const info = nextService(SERVICES, now, churchTimezone());
   /* When that gathering happens, read on the visitor's own clock (note 85). */
@@ -32,9 +38,9 @@ export function Home() {
       {/* ---------------- hero ---------------- */}
       <section className="hero">
         <div className="hero__bg" aria-hidden="true">
-          <img className="hero__photo" src={img("home")} alt="" onError={(e) => { try { const el = e.currentTarget; if (el.dataset.fb) { el.style.display = "none"; return; } el.dataset.fb = "1"; el.src = siteFile("src/assets/img/hero.jpg"); } catch {} }} />
+          <img className="hero__photo" src={heroSrc || heroRaw} alt="" onError={(e) => { try { const el = e.currentTarget; if (el.dataset.fb) { el.style.display = "none"; return; } el.dataset.fb = "1"; el.src = siteFile("src/assets/img/hero.jpg"); } catch {} }} />
           <span className="hero__scrim" />
-          <img className="hero__faint" src={img("hero-faint")} alt="" onError={(e) => { try { e.currentTarget.style.display = "none"; } catch {} }} />
+          <img className="hero__faint" src={faintSrc || faintRaw} alt="" onError={(e) => { try { e.currentTarget.style.display = "none"; } catch {} }} />
           <span className="hero__glow" />
           <span className="hero__grain" />
         </div>
