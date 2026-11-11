@@ -1458,8 +1458,8 @@ export function platformWatchLinks(): Record<VideoPlatform, string> {
   const social = (icon: string) => SITE.socials.find((s) => s.icon === icon)?.url || "";
   return {
     youtube:
-      youtubeChannelUrl(LIVE.youtubeChannel) ||
       watchUrl({ platform: "youtube", youtubeId: LIVE.youtubeId }) ||
+      youtubeChannelUrl(LIVE.youtubeChannel) ||
       social("youtube"),
     facebook: LIVE.facebookUrl || social("facebook"),
     upload: "",

@@ -3740,6 +3740,14 @@ async function pollPublishHttp(): Promise<void> {
         try { markDeployPublished(); } catch {}
         lifted = true;
       }
+      /* Generic lift (no reload anywhere): the verdict/stamps above can
+         release this deploy through the shared proof alone (same update with
+         real words) without matching the carried-click or same-deploy
+         branches — re-evaluate the gate now that every witness landed, and
+         lift at once if it no longer holds. */
+      try {
+        if (!lifted && holding && !maintenanceShouldWait()) lifted = true;
+      } catch {}
       /* Swift: the proof is in — drop the notice now; the kicked pull above
          (or the rev branches below) lands the words right behind. */
       if (lifted) announce();
@@ -3811,6 +3819,11 @@ function startContentWatch() {
       try { pollPublishHttp().catch(() => {}); } catch {}
       if (contentWatchRunning) return;
       contentWatchRunning = true;
+      /* Latch the gate before this tick reads the stamp: a verdict-only lift
+         (bless-only publish, stamps standing still) syncs nothing below, so
+         the transition below re-renders at once instead of waiting reload. */
+      let tickWasWaiting = false;
+      try { tickWasWaiting = maintenanceShouldWait(); } catch {}
       try {
         const raw = await rpcTimeout(socket.rpc.contentRev(""), 4000);
         const r = typeof raw === "string" ? JSON.parse(raw) : raw;
@@ -3841,6 +3854,13 @@ function startContentWatch() {
            has not witnessed — pulls the same guarded sync the shout takes. */
         else if (r && r.ok && typeof r.at === "number" && r.at > 0 && deployFirstSeenAt > 0 && r.at > deployFirstSeenAt && typeof r.notes === "number" && Math.floor(r.notes) === BUILD_NOTES && publishedDeployId !== currentDeployId) await syncFromServer().catch(() => {});
         else if (r && r.ok && typeof r.notes === "number" && r.notes > publishedNotes) await syncFromServer().catch(() => {});
+        /* Generic lift (no reload): the verdict above can release this deploy
+           through the shared proof alone while rev/notes/deploy stamps stand
+           still (bless-only publish) — no branch above syncs, so re-evaluate
+           and re-render at once. */
+        try {
+          if (tickWasWaiting && !maintenanceShouldWait()) { version += 1; notify(); }
+        } catch {}
       } finally {
         contentWatchRunning = false;
       }

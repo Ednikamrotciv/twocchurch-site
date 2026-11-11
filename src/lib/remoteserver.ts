@@ -50,19 +50,12 @@ function serverMeta(): string {
 async function siteServer(): Promise<string> {
   const meta = serverMeta();
   if (meta) return meta;
-  const siteCtrl = typeof AbortController !== "undefined" ? new AbortController() : null;
-  const siteTimer = siteCtrl ? setTimeout(() => siteCtrl.abort(), 3500) : 0;
   try {
-    const res = await fetch(siteFile(SITE_FILE), {
-      cache: "no-store",
-      signal: siteCtrl ? siteCtrl.signal : undefined,
-    });
-    if (siteTimer) clearTimeout(siteTimer);
+    const res = await fetch(siteFile(SITE_FILE), { cache: "no-store" });
     if (!res.ok) return "";
     const data = await res.json().catch(() => null);
     return normalizeServerUrl(data && (data.url || data.server));
   } catch {
-    if (siteTimer) clearTimeout(siteTimer);
     return "";
   }
 }
@@ -234,7 +227,7 @@ export function createRemoteSocket(base: string, connId?: string): any {
         failTimer = window.setTimeout(() => {
           failTimer = 0;
           fire("close", { code: 1006 });
-        }, 8000);
+        }, 15000);
       }
     };
   }
