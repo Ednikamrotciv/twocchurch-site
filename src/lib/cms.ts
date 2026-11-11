@@ -40,6 +40,31 @@ const LAST_ADMIN_AT_KEY = "wom.cms.lastAdminAt";
 const SESSION_IDLE_MS = 15 * 60 * 1000;
 const REQUEST_TIMEOUT = 3500;
 
+/* Bound a stamp wait (swift cadence): a sleeping server must fail a poll in
+   seconds — never hold the watch's next tick hostage for a minute. The
+   underlying request still wakes the server; the next tick re-asks. */
+function rpcTimeout<T>(p: Promise<T>, ms: number): Promise<T> {
+  try {
+    let timer = 0;
+    const guard = new Promise<T>((_, rej) => {
+      timer = window.setTimeout(() => rej(new Error("rpc timeout")), ms);
+    });
+    const tracked = p.then(
+      (v) => {
+        try { window.clearTimeout(timer); } catch {}
+        return v;
+      },
+      (e) => {
+        try { window.clearTimeout(timer); } catch {}
+        throw e;
+      }
+    );
+    return Promise.race([tracked, guard]);
+  } catch {
+    return p;
+  }
+}
+
 const NOTES_KEY = "wom.cms.notes";
 /* Which code update the browser's saved store belongs to (note 253). */
 const CODEGEN_KEY = "wom.cms.codegen";
@@ -2391,7 +2416,17 @@ async function applySeedOnce() {
   if (seedApplied) return;
   seedApplied = true;
   try {
-    const res = await fetch(siteFile("seed.json"), { cache: "no-store" });
+    const seedCtrl = typeof AbortController !== "undefined" ? new AbortController() : null;
+    const seedTimer = seedCtrl ? window.setTimeout(() => seedCtrl.abort(), 3500) : 0;
+    let res: Response;
+    try {
+      res = await fetch(siteFile("seed.json"), {
+        cache: "no-store",
+        signal: seedCtrl ? seedCtrl.signal : undefined,
+      });
+    } finally {
+      if (seedTimer) window.clearTimeout(seedTimer);
+    }
     if (res.ok) {
       const seed = await res.json();
       /* The baked recent-services list paints even when the words are not
@@ -2671,8 +2706,13 @@ async function liveBaseUrl(): Promise<string> {
   try {
     const joined = await joinedBackendRoot();
     if (joined) {
+      const liveCtrl = typeof AbortController !== "undefined" ? new AbortController() : null;
+      const liveTimer = liveCtrl ? window.setTimeout(() => liveCtrl.abort(), 3500) : 0;
       try {
-        const res = await fetch(joined + "/__live-url", { cache: "no-store" });
+        const res = await fetch(joined + "/__live-url", {
+          cache: "no-store",
+          signal: liveCtrl ? liveCtrl.signal : undefined,
+        });
         if (res.ok) {
           const data = await res.json().catch(() => null);
           const u = String((data && data.url) || "").trim().replace(/\/+$/, "");
@@ -2689,8 +2729,13 @@ async function liveBaseUrl(): Promise<string> {
     /* standalone — the same-origin door below owns it */
   }
   let backend = "";
+  const liveCtrl2 = typeof AbortController !== "undefined" ? new AbortController() : null;
+  const liveTimer2 = liveCtrl2 ? window.setTimeout(() => liveCtrl2.abort(), 3500) : 0;
   try {
-    const res = await fetch("/__live-url", { cache: "no-store" });
+    const res = await fetch("/__live-url", {
+      cache: "no-store",
+      signal: liveCtrl2 ? liveCtrl2.signal : undefined,
+    });
     if (res.ok) {
       const data = await res.json().catch(() => null);
       const u = String((data && data.url) || "").trim().replace(/\/+$/, "");
@@ -3507,6 +3552,8 @@ async function foldLiveInto(target: Snapshot | null, onlyId?: string, boundedMs 
    the same half minute. No session needed — the stamp is a public read, and
    the pull below is the same guarded path the shout itself takes. */
 let contentWatchStarted = false;
+/* One stamp poll in flight: hurry lanes, loops and return events overlap. */
+let publishPollRunning = false;
 let contentWatchRunning = false;
 /* Last stamp tuple seen by the freshness watch (note 427): any movement on
    the shared backend while the notice shows pulls the full answer at once. */
@@ -3528,6 +3575,8 @@ function stampTupleOf(r: any): string {
 async function pollPublishHttp(): Promise<void> {
   try {
     if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
+    if (publishPollRunning) return;
+    publishPollRunning = true;
     const baseUrls: string[] = [];
     try {
       const remote = serverUrl();
@@ -3535,6 +3584,16 @@ async function pollPublishHttp(): Promise<void> {
     } catch {}
     baseUrls.push("/__cms/contentRev");
     let lifted = false;
+    /* Swift lift: the first door that proves the publish drops the notice at
+       once instead of waiting for the slowest door — the words follow through
+       the same pull, so every device paints within the same poll. */
+    let announced = false;
+    const announce = () => {
+      if (announced) return;
+      announced = true;
+      version += 1;
+      notify();
+    };
     /* Server-authoritative verdict (note 427): while the notice shows, the
        stamp poll names the shared backend's words too, and any stamp movement
        pulls the full answer at once — one admin Publish lifts every copy on
@@ -3579,15 +3638,16 @@ async function pollPublishHttp(): Promise<void> {
         noteServerVerdict((r as any).notes, (r as any).words, (r as any).at, (r as any).publishDeploy, (r as any).code);
       } catch {}
       /* Any stamp movement while waiting pulls the full answer at once
-         (note 427) — even a stamp-only publish the rev check cannot see. */
+         (note 427) — even a stamp-only publish the rev check cannot see.
+         The pull is kicked off without awaiting it: the proofs below lift
+         the notice the moment they land (swift), and the words fill in
+         behind through the same pull. */
+      let syncP: Promise<void> | null = null;
       try {
         const key = stampTupleOf(r);
         if (key && key !== lastStampTuple) {
           lastStampTuple = key;
-          if (holding) {
-            await syncOnce();
-            synced = true;
-          }
+          if (holding) syncP = syncOnce();
         }
       } catch {}
       const notes = Math.floor(Number((r as any).notes));
@@ -3615,6 +3675,12 @@ async function pollPublishHttp(): Promise<void> {
       if (postDeployPublishWitnessed()) {
         try { markDeployPublished(); } catch {}
         lifted = true;
+      }
+      /* Swift: the proof is in — drop the notice now; the kicked pull above
+         (or the rev branches below) lands the words right behind. */
+      if (lifted) announce();
+      if (syncP) {
+        try { await syncP; synced = true; } catch {}
       }
       if (r && typeof (r as any).rev === "number" && (r as any).rev !== rev) {
         if (!synced) await syncOnce();
@@ -3656,11 +3722,11 @@ async function pollPublishHttp(): Promise<void> {
     })();
     jobs.push(liveJob);
     await Promise.allSettled(jobs);
-    if (lifted) {
-      version += 1;
-      notify();
-    }
-  } catch {}
+    if (lifted) announce();
+    publishPollRunning = false;
+  } catch {
+    publishPollRunning = false;
+  }
 }
 function startContentWatch() {
   if (contentWatchStarted) return;
@@ -3677,7 +3743,7 @@ function startContentWatch() {
       if (contentWatchRunning) return;
       contentWatchRunning = true;
       try {
-        const raw = await socket.rpc.contentRev("");
+        const raw = await rpcTimeout(socket.rpc.contentRev(""), 4000);
         const r = typeof raw === "string" ? JSON.parse(raw) : raw;
         try {
           noteServerVerdict((r as any).notes, (r as any).words, (r as any).at, (r as any).publishDeploy, (r as any).code);
@@ -4539,7 +4605,20 @@ function scheduleReconnect() {
   }, delay);
 }
 
-async function syncFromServer() {
+/* One pull in flight (swift, no herd): shouts, ticks, hurry lanes, refocuses
+   and visibility/online/focus handlers all ask at once — they share the same
+   pull instead of stacking concurrent full-content reads on a waking server. */
+let serverSyncInflight: Promise<void> | null = null;
+async function syncFromServer(): Promise<void> {
+  if (serverSyncInflight) {
+    try { await serverSyncInflight; } catch {}
+    return;
+  }
+  const run = syncFromServerInner().catch(() => {});
+  serverSyncInflight = run;
+  try { await run; } finally { if (serverSyncInflight === run) serverSyncInflight = null; }
+}
+async function syncFromServerInner() {
   const raw = await socket.rpc.getContent("");
   const res = JSON.parse(raw);
   if (!res?.ok) return;

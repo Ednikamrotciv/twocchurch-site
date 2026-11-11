@@ -52,9 +52,8 @@ const Admin = React.lazy(
     import("./pages/Admin").then((m) => ({ default: m.Admin })),
   ),
 );
-const AppErrorBoundary = ErrorBoundary as unknown as React.ComponentType<{
-  children?: React.ReactNode;
-}>;
+const SafeErrorBoundary =
+  ErrorBoundary as unknown as React.ComponentType<React.PropsWithChildren>;
 
 /* Explicit local preview only (?maintenance=1): the office's way to see the
    notice on demand. Visitors on a fresh deploy see it until Publish clears it. */
@@ -77,8 +76,10 @@ function forcedMaintenancePreview(): boolean {
 export function App() {
   const route = useRoute();
   const version = useCmsVersion();
-  /* New code since the last publish: visitors wait, the office never does. */
-  const maintenance = useMaintenance();
+  /* New code since the last publish: visitors wait, the office never does.
+     Also honor the office's explicit local preview flag, which should show the
+     notice even if the deploy is otherwise published. */
+  const maintenance = useMaintenance() || forcedMaintenancePreview();
   /* Where the visitor is (their IP's time zone). Reading it here re-renders the
      whole site the moment the answer lands, so every time on the page moves
      onto the visitor's own clock in one pass (SPEC note 85). */
@@ -231,11 +232,11 @@ export function App() {
         {/* Never a loader page: nothing flashes while the admin chunk arrives —
             the site shell stays on screen, and a crash inside it lands on the
             error card — not a white page. */}
-        <AppErrorBoundary>
+        <SafeErrorBoundary>
           <React.Suspense fallback={null}>
             <Admin />
           </React.Suspense>
-        </AppErrorBoundary>
+        </SafeErrorBoundary>
         <LangAsk />
       </>
     );
@@ -354,9 +355,9 @@ function SiteApp() {
       {previewing && <PreviewBanner />}
       <Header />
       <main id="main" key={to}>
-        <AppErrorBoundary>
+        <ErrorBoundary>
           <React.Suspense fallback={null}>{page}</React.Suspense>
-        </AppErrorBoundary>
+        </ErrorBoundary>
       </main>
       <Footer />
       <ScrollTop />
