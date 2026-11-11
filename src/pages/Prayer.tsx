@@ -276,10 +276,7 @@ function PrayerForm({ onSubmit, onPosted }: { onSubmit: (r: any) => void; onPost
   const [sent, setSent] = useState<null | { text: string; category: string; name: string }>(null);
   const set = (patch: Partial<typeof form>) => setForm((f) => ({ ...f, ...patch }));
 
-  /* The category list is office-editable and may be empty: fall back to a
-     general category (empty verseTheme reads every scripture) so the page
-     never blanks. */
-  const cat = PRAYER_CATEGORIES.find((c) => c.id === form.category) || PRAYER_CATEGORIES[0] || { id: "general", label: "Prayer request", icon: "prayer", verseTheme: "" };
+  const cat = PRAYER_CATEGORIES.find((c) => c.id === form.category) || PRAYER_CATEGORIES[0];
   const verse = pickForDay(SCRIPTURES.filter((s) => s.theme === cat.verseTheme).length ? SCRIPTURES.filter((s) => s.theme === cat.verseTheme) : SCRIPTURES, form.category);
 
   const submit = (e: React.FormEvent) => {

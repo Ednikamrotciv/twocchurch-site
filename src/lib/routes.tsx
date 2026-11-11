@@ -49,8 +49,7 @@ export function warmPageChunks() {
     }
   };
   try {
-    type IdleWindow = Window & { requestIdleCallback?: (cb: () => void, opts?: { timeout: number }) => number };
-    const ric = (window as unknown as IdleWindow).requestIdleCallback;
+    const ric = (window as any).requestIdleCallback;
     if (typeof ric === "function") ric(() => run(), { timeout: 3000 });
     else window.setTimeout(run, 1500);
   } catch { try { window.setTimeout(run, 1500); } catch {} }

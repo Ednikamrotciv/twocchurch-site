@@ -118,7 +118,7 @@ const HAND_PAGES: CopyPage[] = [
         value:
           "Our mission is not to fill a building but to build people — every sermon, every ministry, every branch measured by one question: **are people becoming more like Jesus?**",
       },
-      { id: "about.values.eyebrow", label: "Values — eyebrow", value: "What we hold dear" },
+     { id: "about.values.eyebrow", label: "Values — eyebrow", value: "What we hold dear" },
       { id: "about.values.title", label: "Values — headline", value: "Four convictions that shape everything" },
       { id: "about.story.eyebrow", label: "Our story — eyebrow", value: "Our story" },
       { id: "about.story.title", label: "Our story — headline", value: "From twelve people to seven branches" },

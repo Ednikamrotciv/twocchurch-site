@@ -2863,7 +2863,9 @@ async function backfillUploadsFrom(fromBase: string, content: Snapshot = overrid
     let here = false;
     try {
       const res = await fetch("/data/uploads/" + name, { cache: "no-store" });
-      here = res.ok;
+      if (!res.ok) throw 0;
+      if (String(res.headers.get("content-type") || "").toLowerCase().includes("text/html")) throw 0;
+      here = true;
     } catch {
       here = false;
     }
@@ -2871,8 +2873,10 @@ async function backfillUploadsFrom(fromBase: string, content: Snapshot = overrid
     try {
       const res = await fetch(fromBase + "/data/uploads/" + name, { cache: "no-store" });
       if (!res.ok) throw 0;
+      if (String(res.headers.get("content-type") || "").toLowerCase().includes("text/html")) throw 0;
       const blob = await res.blob();
       if (!blob.size || blob.size > BACKUP_FILE_MAX_BYTES) throw 0;
+      if (String((blob as any).type || "").toLowerCase().includes("text/html")) throw 0;
       const put = await fetch("/__restore-file?conn=" + encodeURIComponent(officeFileConn()) + "&name=" + encodeURIComponent(name), {
         method: "POST",
         headers: { "content-type": blob.type || guessUploadType(name) },
@@ -5957,8 +5961,13 @@ export async function exportPublished(): Promise<string> {
     try {
       const res = await fetch((base ? base : "") + "/data/uploads/" + name, { cache: "no-store" });
       if (!res.ok) throw 0;
+      /* A wiped disk answers 200 html (the app fallback) — embedding that
+         page as a photo is what blanked restores. Html answers count as
+         missing, like a 404, so the office is told to re-upload instead. */
+      if (String(res.headers.get("content-type") || "").toLowerCase().includes("text/html")) throw 0;
       const blob = await res.blob();
       if (!blob.size) throw 0;
+      if (String((blob as any).type || "").toLowerCase().includes("text/html")) throw 0;
       if (blob.size > BACKUP_FILE_MAX_BYTES) {
         missingFiles.push(name + " (too large: " + Math.round(blob.size / 1048576) + " MB)");
         continue;
@@ -6017,6 +6026,20 @@ export async function importBackup(text: string): Promise<ImportResult> {
     if (known.has(key)) kept[key] = content[key];
     else skipped.push(key);
   }
+  /* An emptied topics list in the backup means "nothing saved", not "the office
+     deleted every desk" — keeping the defaults here is what keeps the contact
+     page working after the restore (it used to crash on the empty list). */
+  try {
+    if (Array.isArray((kept as any).contactTopics) && !(kept as any).contactTopics.length) delete (kept as any).contactTopics;
+  } catch {}
+  /* Device-proof uploads: absolute office addresses name the old host — point
+     them at this copy's own disk so the restored words paint the files the
+     restore writes here, on any device. Pasted links never match and ride on. */
+  try {
+    const flat = JSON.parse(JSON.stringify(kept).replace(/https?:\/\/[^/"'\s\\]+\/data\/uploads\//g, "/data/uploads/"));
+    for (const k of Object.keys(kept)) delete (kept as any)[k];
+    Object.assign(kept, flat);
+  } catch {}
   const restored = SECTION_DEFS.filter((d) => kept[d.id] !== undefined).map((d) => d.id);
   if (!restored.length) return { ok: false, error: "No recognised sections in that file." };
   draft = normalizeDraft({ ...clone(defaults), ...kept });
@@ -6097,6 +6120,15 @@ export async function importBackup(text: string): Promise<ImportResult> {
           const name = String(f?.name || "");
           if (!name || typeof f?.data !== "string" || !f.data) throw 0;
           const type = typeof f?.type === "string" && f.type ? f.type : guessUploadType(name);
+          /* A corrupt backup entry (an error page saved as a photo) must never
+             be written over a real photo: html rides as failed, not restored. */
+          if (/text\/html/i.test(String(type || ""))) throw 0;
+          try {
+            const head = atob(String(f.data).slice(0, 300)).slice(0, 300).toLowerCase();
+            if (head.indexOf("<!doctype") !== -1 || head.indexOf("<html") !== -1 || head.indexOf("<meta") !== -1 || head.indexOf("<script") !== -1) throw 0;
+          } catch (e) {
+            if (e === 0) throw 0;
+          }
           const blob = base64ToBlob(f.data, type);
           if (!blob.size) throw 0;
           const res = await fetch(`${base}/__restore-file?conn=${encodeURIComponent(officeFileConn())}&name=${encodeURIComponent(name)}`, {
@@ -6111,7 +6143,7 @@ export async function importBackup(text: string): Promise<ImportResult> {
           let verified = false;
           try {
             const check = await fetch(`${base}/data/uploads/${name}`, { cache: "no-store" });
-            verified = !!check.ok;
+            if (check.ok && !String(check.headers.get("content-type") || "").toLowerCase().includes("text/html")) verified = true;
           } catch {
             verified = false;
           }

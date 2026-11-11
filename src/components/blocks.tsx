@@ -62,8 +62,7 @@ import { LIVE, type WatchOption } from "../data/live";
 import type { RecentService } from "../lib/recentstreams";
 import { type Sermon, sermonDate, sermonThumb, ytWatch } from "../data/sermons";
 import { SCRIPTURES, TESTIMONY_CATEGORIES, type ChurchEvent } from "../data/content";
-import { Badge, Btn, Card, Icon, IconBtn, Modal, Notice, Reveal, Stat, TagList, Eyebrow, Field, Input, Monogram, ShareRow, PhotoImg } from "./ui";
-import { useResilientPhotoUrl } from "../lib/uploadCache";
+import { Badge, Btn, Card, Icon, IconBtn, Modal, Notice, Reveal, Stat, TagList, Eyebrow, Field, Input, Monogram, ShareRow } from "./ui";
 import type { Testimony } from "../lib/store";
 
 /* ------------------------------------------------------------------ dates for events */
@@ -1767,7 +1766,7 @@ export function BranchCard({
   return (
     <Card className={"branch-card" + (active ? " branch-card--active" : "")} pad={false}>
       <div className="branch-card__media">
-        <PhotoImg src={photoOr(branch.image, "building2")} fallback={photoOr("", "building2")} alt="" />
+        <img src={photoOr(branch.image, "building2")} alt="" loading="lazy" />
         <span className="branch-card__flag">{branchFlag(branch)} {branch.country}</span>
         {branch.isHq && <span className="hq-tag">{ct("auto.site.dfdd25368f930047")}</span>}
         {typeof distanceKm === "number" && <span className="distance-tag"><Icon name="pin" size={12} /> {fmtDistance(distanceKm)}</span>}
@@ -1843,7 +1842,7 @@ export function EventCard({ event, layout = "grid" }: { event: ChurchEvent; layo
   return (
     <Card hover className={`event-card event-card--${layout}`} pad={false}>
       <div className="event-card__media">
-        <PhotoImg src={photoOr(event.image, "welcome")} fallback={photoOr("", "welcome")} alt="" />
+        <img src={photoOr(event.image, "welcome")} alt="" loading="lazy" />
         <span className="event-card__date">
           <b>{day.day}</b>
           <em>{fmtMonthShort(day.month).toUpperCase()}</em>
@@ -1941,7 +1940,7 @@ export function MinistryCard({ ministry, onJoin }: { ministry: { id: string; nam
   return (
     <Card hover pad={false} className="ministry-card">
       <div className="ministry-card__media">
-        <PhotoImg src={photoOr(ministry.image, "youth")} fallback={photoOr("", "youth")} alt="" />
+        <img src={photoOr(ministry.image, "youth")} alt="" loading="lazy" />
         <span className="ministry-card__for">{tx(ministry.for)}</span>
       </div>
       <div className="ministry-card__body">
@@ -1960,12 +1959,10 @@ export function MinistryCard({ ministry, onJoin }: { ministry: { id: string; nam
 
 export function PersonCard({ person }: { person: Person }) {
   const [open, setOpen] = useState(false);
-  /* A wiped office-server portrait falls back to the monogram instead of a blank frame. */
-  const photo = useResilientPhotoUrl(person.image || "", "");
   return (
     <Card className="person-card" pad={false}>
       <div className="person-card__photo">
-        {photo ? <img src={photo} alt={person.name} loading="lazy" /> : <span className="person-card__mono"><Monogram name={person.name} size={92} /></span>}
+        {person.image ? <img src={person.image} alt={person.name} loading="lazy" /> : <span className="person-card__mono"><Monogram name={person.name} size={92} /></span>}
       </div>
       <div className="person-card__body">
         <h3>{person.name}</h3>

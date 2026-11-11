@@ -6,7 +6,6 @@ import { exitMaintenancePreview, useCmsVersion } from "../lib/cms";
 import { nextService, displayLive, countdownParts, to12h, DAY_SHORT, fmtDate, zoneYear, clockAt, churchTimezone, visitorPlace } from "../lib/store";
 import { SITE, SERVICES, NAV, FOOTER_LINKS, LOGO_MARK } from "../data/site";
 import { siteFile } from "../lib/livefeed";
-import { useResilientPhotoUrl } from "../lib/uploadCache";
 import { BRANCHES, HQ } from "../data/branches";
 import { SERMONS, sermonDate, sermonThumb } from "../data/sermons";
 import { EVENTS, SEED_TESTIMONIES } from "../data/content";
@@ -584,16 +583,12 @@ export function PageHead({
   actions?: React.ReactNode;
   children?: React.ReactNode;
 }) {
-  /* A wiped office-server banner paints the cached/repo copy (or the bundled
-     hero) instead of a blank header — the same chain slides use. */
-  const heroFallback = siteFile("src/assets/img/hero.jpg");
-  const banner = useResilientPhotoUrl(image || "", heroFallback);
   return (
     <section className={"page-head" + (image ? " page-head--image" : "")}>
       {image && (
         <div className="page-head__bg" aria-hidden="true">
           <img
-            src={banner || heroFallback}
+            src={image}
             alt=""
             onError={(e) => {
               /* A missing custom banner (deleted upload, moved file) falls
@@ -606,7 +601,7 @@ export function PageHead({
                   return;
                 }
                 el.dataset.fb = "1";
-                el.src = heroFallback;
+                el.src = siteFile("src/assets/img/hero.jpg");
               } catch {
                 try {
                   e.currentTarget.style.display = "none";

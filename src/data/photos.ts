@@ -204,6 +204,12 @@ export function photoSrc(key: string): string {
  */
 export function resolvePhoto(value: string): string {
   if (!value) return "";
+  /* Office uploads move between hosts (an old absolute address keeps working
+     after a restore elsewhere): any /data/uploads/ address paints from the
+     copy being read, so a new device shows its own restored file instead of
+     the old host's — blank-free on every device. Pasted links pass through. */
+  const m = /\/data\/uploads\/([A-Za-z0-9][A-Za-z0-9._-]*)/.exec(String(value || ""));
+  if (m) return "/data/uploads/" + m[1];
   const key = photoKeyOf(value);
   return key ? photoSrc(key) : value;
 }

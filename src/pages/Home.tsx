@@ -15,7 +15,6 @@ import { useTestimonies } from "../lib/collections";
 import { fireToast } from "../lib/hooks";
 import { mailto } from "../lib/store";
 import { siteFile } from "../lib/livefeed";
-import { useResilientPhotoUrl } from "../lib/uploadCache";
 
 export function Home() {
   const now = useNow(1000);
@@ -27,17 +26,13 @@ export function Home() {
   const featured = latest[0];
   const { all: testimonies, amen } = useTestimonies();
   const upcoming = [...EVENTS].sort((a, b) => daysUntil(a) - daysUntil(b)).slice(0, 3);
-  /* A wiped office-server banner paints the cached/repo copy (or the bundled
-     hero) instead of a blank hero — same chain slides use. */
-  const heroFallback = siteFile("src/assets/img/hero.jpg");
-  const heroPhoto = useResilientPhotoUrl(img("home"), heroFallback);
 
   return (
     <>
       {/* ---------------- hero ---------------- */}
       <section className="hero">
         <div className="hero__bg" aria-hidden="true">
-          <img className="hero__photo" src={heroPhoto || heroFallback} alt="" onError={(e) => { try { const el = e.currentTarget; if (el.dataset.fb) { el.style.display = "none"; return; } el.dataset.fb = "1"; el.src = heroFallback; } catch {} }} />
+          <img className="hero__photo" src={img("home")} alt="" onError={(e) => { try { const el = e.currentTarget; if (el.dataset.fb) { el.style.display = "none"; return; } el.dataset.fb = "1"; el.src = siteFile("src/assets/img/hero.jpg"); } catch {} }} />
           <span className="hero__scrim" />
           <img className="hero__faint" src={img("hero-faint")} alt="" onError={(e) => { try { e.currentTarget.style.display = "none"; } catch {} }} />
           <span className="hero__glow" />

@@ -65,6 +65,14 @@ export function uploadNameOf(url: string): string {
   return m ? m[1] : "";
 }
 
+/** This copy's own address for an office upload: old absolute addresses (the
+    previous host) become host-relative, so previews and players read the
+    restored file here instead of the old host. Pasted links pass through. */
+export function normalizeUploadUrl(url: string): string {
+  const m = /\/data\/uploads\/([A-Za-z0-9][A-Za-z0-9._-]*)/.exec(String(url || ""));
+  return m ? "/data/uploads/" + m[1] : String(url || "");
+}
+
 /** Keep the last upload for this name in this browser. Never throws. */
 export async function cacheUploadBlob(name: string, blob: Blob): Promise<void> {
   const clean = String(name || "").trim();
@@ -201,58 +209,6 @@ export function useFeedUploadUrl(url: string): string {
     return () => { alive = false; };
   }, [name]);
   return feed;
-}
-
-/** True while a photo address will never paint: probed once with a decoding
-    load. A wiped office-server upload answers with the app's own fallback page
-    (HTTP 200, text/html) — no error status, just an unloadable "picture" — so
-    the probe reads decode failure, exactly like slides do. Data/blob addresses
-    and empties are not photos and never count. The probe reads through the
-    browser cache, so it costs no second download. */
-export function useDeadUploadUrl(url: string): boolean {
-  const [dead, setDead] = useState(false);
-  useEffect(() => {
-    setDead(false);
-    if (!url || url.startsWith("data:") || url.startsWith("blob:")) return;
-    let alive = true;
-    const img = new Image();
-    img.onload = () => {
-      if (alive) setDead(false);
-    };
-    img.onerror = () => {
-      if (alive) setDead(true);
-    };
-    try {
-      img.src = url;
-    } catch {
-      if (alive) setDead(true);
-    }
-    return () => {
-      alive = false;
-      try {
-        img.removeAttribute("src");
-      } catch {}
-    };
-  }, [url]);
-  return dead;
-}
-
-/** The photo to paint for an office photo/banner address — never blank.
-    Order: this browser's cached upload first (instant, offline-proof), then the
-    server copy while it decodes, then the public repo copy while the disk copy
-    is wiped, then the bundled fallback. A healthy address resolves to itself
-    on the first render, so speed and markup are unchanged. */
-export function useResilientPhotoUrl(serverUrl: string, fallbackUrl: string): string {
-  const clean = String(serverUrl || "");
-  const fallback = String(fallbackUrl || "");
-  const cached = useCachedUploadUrl(clean);
-  const feed = useFeedUploadUrl(clean);
-  const deadServer = useDeadUploadUrl(clean);
-  const deadFeed = useDeadUploadUrl(feed && feed !== clean ? feed : "");
-  if (cached) return cached;
-  if (clean && !deadServer) return clean;
-  if (feed && feed !== clean && !deadFeed) return feed;
-  return fallback || clean;
 }
 
 export { dataUrlToBlob };

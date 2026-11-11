@@ -4,7 +4,7 @@ import { EVENTS, EVENT_FILTERS, type ChurchEvent } from "../data/content";
 import { BRANCHES, branchFlag } from "../data/branches";
 import { SITE, img } from "../data/site";
 import { photoOr } from "../data/photos";
-import { Badge, Btn, Card, Chip, Empty, Icon, Notice, Reveal, Rich, Section, SectionHeading, PhotoImg } from "../components/ui";
+import { Badge, Btn, Card, Chip, Empty, Icon, Notice, Reveal, Rich, Section, SectionHeading } from "../components/ui";
 import { ct } from "../data/copy";
 import { PageHead } from "../components/layout";
 import { Countdown, EventCard, eventDate, daysUntil, NewsletterForm } from "../components/blocks";
@@ -54,7 +54,7 @@ export function Events() {
         <Section className="event-feature">
           <div className="event-feature__grid">
             <div className="event-feature__media">
-              <PhotoImg src={photoOr(featured.image, "welcome")} fallback={photoOr("", "welcome")} alt="" eager />
+              <img src={photoOr(featured.image, "welcome")} alt="" />
               <span className="event-feature__tag">
                 <Badge accent="crimson" icon="star">{ct("auto.events.46ce311349431e52")}</Badge>
               </span>

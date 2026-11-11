@@ -42,10 +42,11 @@ export function Contact() {
     .filter((s) => s.day === 0)
     .map((s) => to12h(clockHere(s.time, s.day, branchZone(HQ)).time))
     .join(" & ");
-  /* The topic list is office-editable and may be empty (an emptied backup must
-     never blank the page): fall back to the general inbox so the form keeps
-     working until topics are added again. */
-  const activeTopic = CONTACT_TOPICS.find((t) => t.id === topic) || CONTACT_TOPICS[0] || { id: "general", label: "General enquiry", email: SITE.email };
+  /* An emptied topics list must never blank the page (a backup with no desks
+     saved used to crash here): fall back to the general desk so the form
+     always has somewhere to send to. */
+  const topics = CONTACT_TOPICS.length ? CONTACT_TOPICS : [{ id: "general", label: "General enquiry", email: SITE.email }];
+  const activeTopic = topics.find((t) => t.id === topic) || topics[0];
   const set = (patch: Partial<typeof form>) => setForm((f) => ({ ...f, ...patch }));
 
   const body = () => `Hello ${SITE.short} team,\n\n${form.message}\n\n—\nName: ${form.name}\nEmail: ${form.email}\nPhone: ${form.phone || "—"}\nNearest branch: ${BRANCHES.find((b) => b.id === form.branch)?.city}\nTopic: ${activeTopic.label}\nSent from the website contact form.`;
@@ -171,15 +172,11 @@ export function Contact() {
                   <div className="form-grid__full">
                     <Field label={ct("auto.contact.082f178042038df9")}>
                       <div className="chips">
-                        {CONTACT_TOPICS.length > 0 ? (
-                          CONTACT_TOPICS.map((t) => (
-                            <button key={t.id} type="button" className={"chip" + (topic === t.id ? " chip--active" : "")} onClick={() => setTopic(t.id)}>
-                              {tx(t.label)}
-                            </button>
-                          ))
-                        ) : (
-                          <span className="muted">{tx("General enquiry")}</span>
-                        )}
+                        {topics.map((t) => (
+                          <button key={t.id} type="button" className={"chip" + (topic === t.id ? " chip--active" : "")} onClick={() => setTopic(t.id)}>
+                            {tx(t.label)}
+                          </button>
+                        ))}
                       </div>
                     </Field>
                   </div>
@@ -257,8 +254,12 @@ export function Contact() {
               <span>{tx(d.desc)}</span>
               <span className="muted">{tx(d.hours)}</span>
               <span className="dept-table__actions">
-                <IconBtn name="mail" label={ct("auto.contact.fd6dac31fd551738", { "name": d.name })} href={`mailto:${d.email}`} />
-                <IconBtn name="copy" label={ct("auto.contact.0c5a63cf473333c6")} onClick={() => copyText(d.email, ct("auto.contact.78089400b46c9451"))} />
+                {d.email ? (
+                  <IconBtn name="mail" label={ct("auto.contact.fd6dac31fd551738", { "name": d.name })} href={`mailto:${d.email}`} />
+                ) : null}
+                {d.email ? (
+                  <IconBtn name="copy" label={ct("auto.contact.0c5a63cf473333c6")} onClick={() => copyText(d.email, ct("auto.contact.78089400b46c9451"))} />
+                ) : null}
               </span>
             </div>
           ))}
