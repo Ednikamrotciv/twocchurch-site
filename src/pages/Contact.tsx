@@ -98,6 +98,9 @@ export function Contact() {
             <Badge accent={hours.open ? "emerald" : "quiet"} icon={hours.open ? "check" : "clock"}>
               {hours.text}
             </Badge>
+            <Btn size="sm" variant="ghost" icon="phone" href={`tel:${SITE.phone.replace(/[^\d+]/g, "")}`}>
+              {ct("contact.card1.action")}
+            </Btn>
           </Card>
           <Card className="contact-card">
             <span className="contact-card__icon"><Icon name="mail" size={22} /></span>
@@ -123,6 +126,9 @@ export function Contact() {
             <h3>{ct("contact.card4.title")}</h3>
             <a href={`https://wa.me/${SITE.whatsapp.replace(/[^\d]/g, "")}`}>{ct("auto.contact.3b280b99e848a758")}</a>
             <p className="muted">{ct("contact.card4.note")}</p>
+            <Btn size="sm" variant="ghost" icon="whatsapp" href={`https://wa.me/${SITE.whatsapp.replace(/[^\d]/g, "")}`}>
+              {ct("contact.card4.action")}
+            </Btn>
           </Card>
         </div>
       </Section>

@@ -684,11 +684,13 @@ const HAND_PAGES: CopyPage[] = [
       { id: "contact.head.action2", label: "Page — button 2", value: "Prayer request" },
       { id: "contact.card1.title", label: "Call card — heading", value: "Call the office" },
       { id: "contact.card1.note", label: "Call card — note", value: "Monday to Friday, 9:00 AM – 5:00 PM, {{zone}} time" },
+      { id: "contact.card1.action", label: "Call card — button", value: "Call now" },
       { id: "contact.card2.title", label: "Email card — heading", value: "Email us" },
       { id: "contact.card2.note", locked: true, label: "Email card — note", value: "We reply to every email within one working day." },
       { id: "contact.card3.title", label: "Visit card — heading", value: "Visit the Cathedral" },
       { id: "contact.card4.title", label: "WhatsApp card — heading", value: "WhatsApp prayer line" },
       { id: "contact.card4.note", locked: true, label: "WhatsApp card — note", value: "Monitored daily, including Sundays until midnight." },
+      { id: "contact.card4.action", label: "WhatsApp card — button", value: "Chat on WhatsApp" },
       { id: "contact.form.eyebrow", label: "Form — eyebrow", value: "Send a message" },
       { id: "contact.form.title", label: "Form — headline", value: "Tell us how we can help" },
       {

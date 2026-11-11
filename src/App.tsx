@@ -196,7 +196,7 @@ export function App() {
   } catch {}
   if (publishedHere && !stale.waiting) return (
     <>
-      <SiteApp key={version} />
+      <SiteApp />
       <LangAsk />
     </>
   );
@@ -204,7 +204,7 @@ export function App() {
 
   return (
     <>
-      <SiteApp key={version} />
+      <SiteApp />
       <LangAsk />
     </>
   );
@@ -248,9 +248,23 @@ function SiteApp() {
     if (to !== path) navigate(to, undefined, { replace: true });
   }, [path, to]);
 
+  /* Scroll to the top only when the page itself changes. Content updates
+     (publish, translation, clock, rates) re-render in place and must never
+     yank a visitor — especially a phone visitor mid-scroll — back to top. */
+  const lastTo = React.useRef<string | null>(null);
   useEffect(() => {
-    window.scrollTo({ top: 0, left: 0, behavior: "auto" });
+    try {
+      if ("scrollRestoration" in window.history) window.history.scrollRestoration = "manual";
+    } catch {}
     document.documentElement.dataset.route = to.replace(/\//g, "-").replace(/^-/, "") || "home";
+    if (lastTo.current === null) {
+      lastTo.current = to;
+      return;
+    }
+    if (lastTo.current !== to) {
+      lastTo.current = to;
+      window.scrollTo({ top: 0, left: 0, behavior: "auto" });
+    }
   }, [to]);
 
   /* The office stepped out to check the live site (Admin wrote down where they

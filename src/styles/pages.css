@@ -3730,6 +3730,19 @@
   margin-top: auto;
 }
 
+.contact-card .badge {
+  white-space: normal;
+  text-align: left;
+  max-width: 100%;
+  line-height: 1.45;
+  align-self: flex-start;
+}
+
+.contact-card .btn-row {
+  margin-top: auto;
+  padding-top: 0.35rem;
+}
+
 .contact-layout {
   display: grid;
   gap: 2rem;

@@ -312,9 +312,9 @@ export const AUTO_ENTRIES: Record<string, CopyEntry[]> = {
     { id: "auto.prayer.740d5c672a9b52c6", label: "Post anonymously", value: "Post anonymously" },
   ],
   "contact": [
-    { id: "auto.contact.bcef068edf2debbf", label: "Closed today — we reopen Monday at 9:00 AM", value: "Closed today — we reopen Monday at 9:00 AM" },
+    { id: "auto.contact.bcef068edf2debbf", label: "Closed today — we reopen daily at 9:00 AM", value: "Closed today — we reopen daily at 9:00 AM" },
     { id: "auto.contact.6e852a9565b1a40c", label: "Opens today at … (we open at …)", value: "Opens today at {{open}} (we open at {{open}})" },
-    { id: "auto.contact.2bb4afeb7ff0bd32", label: "Closed for today — we reopen Monday at 9:00 AM", value: "Closed for today — we reopen Monday at 9:00 AM" },
+    { id: "auto.contact.2bb4afeb7ff0bd32", label: "Closed for today — we reopen daily at 9:00 AM", value: "Closed for today — we reopen daily at 9:00 AM" },
     { id: "auto.contact.a222e8b7a8549d5e", label: "Open now · closes in …h …m", value: "Open now · closes in {{v0}}h {{v1}}m" },
     { id: "auto.contact.7175fadb9bee75fa", label: "Please check the highlighted fields", value: "Please check the highlighted fields" },
     { id: "auto.contact.5024ff748e0fad85", label: "Message ready — opening your email app", value: "Message ready — opening your email app" },
