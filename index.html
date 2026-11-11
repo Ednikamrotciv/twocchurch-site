@@ -162,13 +162,15 @@ number is unchanged. build-static.mjs stamps it from hooks.ts CODE_ID. -->
         .catch(function () {});
     } catch (_) {}
     /* Publish clears the gate without a reload — and an hour after this
-       deploy's own publish the notice clears totally from code: the office
-       Publish on the deployed copy lifts every visitor via storage +
-       broadcast, so watch the same stamp the app watches and drop the early
-       paint when it lands. The 1s follow below also tracks React itself: once
-       React boots, the early overlay yields to it — React maint takes over,
-       React site (publish cleared or 1h total clear) drops the overlay — so
-       a fresh visitor after the hour never sticks on the early paint. */
+       deploy's own publish the notice clears totally from code: one Publish
+       lifts everywhere, including incognito, fresh profiles, new devices,
+       and late/returning offline devices. Same-browser tabs lift via storage
+       + broadcast below; every other browser lifts via the shared stamp poll
+       beside it (same proof the app watches), so no browser waits for a
+       reload. The 1s follow also tracks React itself: once React boots, the
+       early overlay yields to it — React maint takes over, React site
+       (publish cleared or 1h total clear) drops the overlay — so a fresh
+       visitor after the hour never sticks on the early paint. */
     try {
       window.addEventListener("storage", function (e) {
         try {
@@ -196,6 +198,43 @@ number is unchanged. build-static.mjs stamps it from hooks.ts CODE_ID. -->
           };
         } catch (_) {}
       }
+      /* Cross-browser lift (no reload): poll the shared stamp the app polls.
+         Storage + broadcast above only reach this browser — incognito, fresh
+         profiles, new devices and other browsers never hear them. The stamp
+         below is the same proof the app lifts on: this update (or newer) with
+         real words releases this deploy at once, whatever deploy id stamped
+         it. Same-origin only, best-effort, never throws. */
+      var __womLiftPolling = false;
+      function __womPollLift() {
+        if (__womLiftPolling) return;
+        if (document.getElementById("wom-maint-gate") === null) return;
+        if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
+        __womLiftPolling = true;
+        try {
+          fetch("/__cms/contentRev?t=" + Date.now(), { method: "POST", headers: { "content-type": "text/plain;charset=utf-8" }, body: "", cache: "no-store" })
+            .then(function (r) { return r && r.ok ? r.json() : null; })
+            .then(function (v) {
+              try {
+                if (!v || !v.ok) return;
+                var n = Math.floor(Number(v.notes)) || 0;
+                var words = Math.floor(Number(v.words)) || 0;
+                if (!(n >= notesNum && words > 0)) return;
+                /* Same proof the app lifts on: this update (or newer) with
+                   real words. Deploy/code matching only hurries; the numbers
+                   + words alone release, so a publish from any deploy id
+                   clears every copy without a second click. */
+                unpaint();
+              } catch (_) {}
+            })
+            .catch(function () {})
+            .then(function () { __womLiftPolling = false; });
+        } catch (_) { __womLiftPolling = false; }
+      }
+      try { window.setInterval(__womPollLift, 2000); } catch (_) {}
+      try { document.addEventListener("visibilitychange", function () { if (document.visibilityState === "visible") __womPollLift(); }); } catch (_) {}
+      try { window.addEventListener("online", __womPollLift); } catch (_) {}
+      try { window.addEventListener("focus", __womPollLift); } catch (_) {}
+      try { __womPollLift(); } catch (_) {}
       window.setInterval(function () {
         try {
           var pd3 = ls("wom.cms.deployPublished") || "";

@@ -2545,6 +2545,44 @@ async function syncFromFeed() {
     /* The baked services paint on every feed read — even when the words are
        not newer, the list may be (a Sunday uploads with no publish). */
     applyBakedRecent(seed);
+    /* Bless-only publish (no content change, same rev): the stamp below still
+       lifts waiting copies — never require a rev bump to release. Note the
+       verdict/stamps even when the words are not newer, so one click clears
+       every device without a second click or a reload. */
+    try {
+      let wasWaiting = false;
+      try { wasWaiting = maintenanceShouldWait(); } catch { wasWaiting = false; }
+      const candAny = seed as any;
+      const candSections = (candAny && candAny.sections && typeof candAny.sections === "object" ? candAny.sections : {}) as Snapshot;
+      const candWords = Object.keys(candSections).length;
+      if (typeof candAny?.notes === "number") setPublishedNotes(candAny.notes);
+      try { noteDeployWitness(candAny?.publishedDeploy); } catch {}
+      try { noteCodeWitness(candAny?.code, candAny?.notes); } catch {}
+      try { noteServerVerdict(candAny?.notes, candWords, candAny?.at, candAny?.publishedDeploy, candAny?.code); } catch {}
+      try {
+        const at = candAny?.at;
+        if (typeof candAny?.notes === "number" && Math.floor(candAny.notes) === BUILD_NOTES && typeof at === "number" && at > 0) notePublishAt(at);
+      } catch {}
+      try {
+        const seedCode = typeof candAny?.code === "string" ? candAny.code : "";
+        if (
+          deployFromMeta && currentDeployId &&
+          publishedDeployId !== currentDeployId &&
+          typeof candAny?.notes === "number" && Math.floor(candAny.notes) === BUILD_NOTES &&
+          !!seedCode && !!runningCode && seedCode === runningCode &&
+          candWords > 0
+        ) {
+          setPublishedNotes(BUILD_NOTES);
+          markDeployPublished();
+        }
+      } catch {}
+      try {
+        if (wasWaiting && !maintenanceShouldWait()) {
+          version += 1;
+          notify();
+        }
+      } catch {}
+    } catch {}
     if (!feedIsNewer(seed, rev)) return;
     const live = seed as FeedSeed;
     /* An empty feed must never clear published words either (note 289) — a
@@ -2603,6 +2641,14 @@ async function syncFromFeed() {
     } catch {}
     applyOverrides(liveSections);
     writeCache();
+    /* Adopted words must repaint at once (no reload): bump so the maintenance
+       notice re-evaluates instead of sticking with first paint. */
+    try {
+      version += 1;
+    } catch {}
+    try {
+      notify();
+    } catch {}
   } catch {
     /* the feed stays a best effort */
   } finally {
@@ -3740,6 +3786,11 @@ function startContentWatch() {
         await pollPublishHttp().catch(() => {});
         return;
       }
+      /* Socket up: still race the plain-HTTP doors beside the socket (same
+         origin + live). The office socket can lag live (its minute loop) or
+         stare at a napping box while the live box already holds the publish —
+         the HTTP doors carry the same proof and lift without a reload. */
+      try { pollPublishHttp().catch(() => {}); } catch {}
       if (contentWatchRunning) return;
       contentWatchRunning = true;
       try {
@@ -4216,6 +4267,12 @@ export async function startCms() {
   /* ...and every connected tab re-asks the rev stamp, so a missed shout
      still lands the publish within the half minute. */
   startContentWatch();
+  /* ...and the static mirror hurries the click on connected tabs too: the
+     office backend may trail live (minute loop) while the mirror has no cold
+     boot — same guards, so it can only hurry a publish, never release new
+     code. This is what lets incognito, fresh profiles and new devices lift
+     without a reload. */
+  try { startFeed(); } catch {}
   try {
     await Promise.race([
       initialSyncDone,
@@ -4899,13 +4956,16 @@ function hostFileAttestsSameCode(): boolean {
           }
         } catch {}
       }
-      writeCache();
-    }
-  } else if (notesLifted || deployLifted || codeWitnessed) {
-    /* Content identical but the publish stamp moved (note 278): bump so the
-       maintenance notice re-evaluates instead of sticking with first paint. */
-    version += 1;
+     writeCache();
+   }
   }
+  /* Stamp moved (same or new content): bump so the maintenance notice
+     re-evaluates at once instead of sticking with first paint — no reload.
+     The bump rides every path above (differs or not) whenever the stamp
+     moved, so other browsers lift in the same poll. */
+  try {
+    if (notesLifted || deployLifted || codeWitnessed) version += 1;
+  } catch {}
   notify();
 }
 
