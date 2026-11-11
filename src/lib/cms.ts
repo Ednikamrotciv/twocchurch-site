@@ -1222,12 +1222,25 @@ export function checkStaleBuild(): Promise<void> {
       try {
         const now = Date.now();
         const prev = readStaleAttempts();
-        if (prev && prev.notes === staleNewerNotes && now - prev.at < STALE_WINDOW_MS && prev.tries >= STALE_MAX_TRIES) return;
-        const tries = prev && prev.notes === staleNewerNotes && now - prev.at < STALE_WINDOW_MS ? prev.tries + 1 : 1;
-        const at = prev && prev.notes === staleNewerNotes && now - prev.at < STALE_WINDOW_MS ? prev.at : now;
-        try {
-          sessionStorage.setItem(STALE_RELOAD_KEY, JSON.stringify({ notes: staleNewerNotes, at, tries }));
-        } catch {}
+        const same = !!prev && prev.notes === staleNewerNotes && now - prev.at < STALE_WINDOW_MS;
+        const lastTry = prev && typeof (prev as any).last === "number" ? (prev as any).last : (prev ? prev.at : 0);
+        if (same && prev.tries >= STALE_MAX_TRIES) {
+          /* Capped — but a copy still showing maintenance keeps one retry per
+             minute, so a fixed host still heals by itself instead of stranding
+             visitors until they reload by hand. */
+          let waiting = false;
+          try { waiting = maintenanceShouldWait() || isStaleWaiting(); } catch { waiting = false; }
+          if (!waiting || now - lastTry < 60_000) return;
+          try {
+            sessionStorage.setItem(STALE_RELOAD_KEY, JSON.stringify({ notes: staleNewerNotes, at: prev.at, tries: prev.tries, last: now }));
+          } catch {}
+        } else {
+          const tries = same ? prev.tries + 1 : 1;
+          const at = same ? prev.at : now;
+          try {
+            sessionStorage.setItem(STALE_RELOAD_KEY, JSON.stringify({ notes: staleNewerNotes, at, tries, last: now }));
+          } catch {}
+        }
       } catch {}
       /* Warm the entry document past the HTTP cache, then reload onto it. */
       try {
@@ -3637,6 +3650,11 @@ async function pollPublishHttp(): Promise<void> {
     const announce = () => {
       if (announced) return;
       announced = true;
+      /* The lift re-renders exactly once, on the waiting→live flip. A copy
+         that is already live needs no bump for the stamp alone (word pulls
+         bump themselves when they actually adopt), so a settled site stops
+         re-rendering every poll. */
+      if (!holding) return;
       version += 1;
       notify();
     };
@@ -4679,6 +4697,10 @@ async function syncFromServerInner() {
   const raw = await socket.rpc.getContent("");
   const res = JSON.parse(raw);
   if (!res?.ok) return;
+  /* Captured before the verdict below flips the gate: a bless-only publish
+     moves no rev the chain can see, so the flip itself is the paint signal. */
+  let wasWaiting = false;
+  try { wasWaiting = maintenanceShouldWait(); } catch { wasWaiting = false; }
   /* A reload must not strand the live site: once per session, pick up any
      carry an earlier session still owes the live box (it syncs itself, then
      rebuilds from what this copy holds). */
@@ -4964,7 +4986,11 @@ function hostFileAttestsSameCode(): boolean {
      The bump rides every path above (differs or not) whenever the stamp
      moved, so other browsers lift in the same poll. */
   try {
-    if (notesLifted || deployLifted || codeWitnessed) version += 1;
+    /* One bump per real change: the waiting→live flip, adopted words, or a
+       moved stamp — never a steady-state re-render every sync. A settled
+       copy (already live, nothing new) skips the bump; its status text still
+       flows through the notify() below. */
+    if (wasWaiting || differs || notesLifted || deployLifted) version += 1;
   } catch {}
   notify();
 }

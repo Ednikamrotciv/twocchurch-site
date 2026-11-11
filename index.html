@@ -203,31 +203,46 @@ number is unchanged. build-static.mjs stamps it from hooks.ts CODE_ID. -->
          profiles, new devices and other browsers never hear them. The stamp
          below is the same proof the app lifts on: this update (or newer) with
          real words releases this deploy at once, whatever deploy id stamped
-         it. Same-origin only, best-effort, never throws. */
+         it. Same-origin plus the live door (a publish that landed on the live
+         box while this copy serves from another backend still releases).
+         Best-effort, never throws. */
       var __womLiftPolling = false;
+      function __womStampReleases(v) {
+        try {
+          if (!v || !v.ok) return false;
+          var n = Math.floor(Number(v.notes)) || 0;
+          var words = Math.floor(Number(v.words)) || 0;
+          return n >= notesNum && words > 0;
+        } catch (_) { return false; }
+      }
+      function __womAsk(url) {
+        try {
+          return fetch(url, { method: "POST", headers: { "content-type": "text/plain;charset=utf-8" }, body: "", cache: "no-store" })
+            .then(function (r) { return r && r.ok ? r.json() : null; })
+            .then(function (v) { if (__womStampReleases(v)) unpaint(); })
+            .catch(function () {});
+        } catch (_) { return Promise.resolve(); }
+      }
       function __womPollLift() {
         if (__womLiftPolling) return;
         if (document.getElementById("wom-maint-gate") === null) return;
         if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
         __womLiftPolling = true;
         try {
-          fetch("/__cms/contentRev?t=" + Date.now(), { method: "POST", headers: { "content-type": "text/plain;charset=utf-8" }, body: "", cache: "no-store" })
-            .then(function (r) { return r && r.ok ? r.json() : null; })
-            .then(function (v) {
-              try {
-                if (!v || !v.ok) return;
-                var n = Math.floor(Number(v.notes)) || 0;
-                var words = Math.floor(Number(v.words)) || 0;
-                if (!(n >= notesNum && words > 0)) return;
-                /* Same proof the app lifts on: this update (or newer) with
-                   real words. Deploy/code matching only hurries; the numbers
-                   + words alone release, so a publish from any deploy id
-                   clears every copy without a second click. */
-                unpaint();
-              } catch (_) {}
-            })
-            .catch(function () {})
-            .then(function () { __womLiftPolling = false; });
+          var jobs = [__womAsk("/__cms/contentRev?t=" + Date.now())];
+          try {
+            var liveP = fetch("/__live-url?t=" + Date.now(), { cache: "no-store" })
+              .then(function (r) { return r && r.ok ? r.json() : null; })
+              .then(function (d) {
+                var u = String((d && d.url) || "").trim().replace(/\/+$/, "");
+                if (!/^https?:\/\/[^/\s]+$/i.test(u)) return null;
+                try { if (u === window.location.origin) return null; } catch (_) {}
+                return __womAsk(u + "/__cms/contentRev?t=" + Date.now());
+              })
+              .catch(function () {});
+            jobs.push(liveP);
+          } catch (_) {}
+          Promise.all(jobs).then(function () { __womLiftPolling = false; });
         } catch (_) { __womLiftPolling = false; }
       }
       try { window.setInterval(__womPollLift, 2000); } catch (_) {}
