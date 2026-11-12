@@ -306,23 +306,6 @@ function sendSse(res, text) {
    photo uncompressed — that is the slowness vs the preview. `no-cache` still
    revalidates each load (an edit is picked up at once: the mtime in the tag
    changes), but an unchanged file answers 304 with no body. */
-/* Upload fix: first-bytes sniff. No real photo/video/audio starts with "<"
-   (after whitespace/BOM) — an HTML error page saved as .jpg always does. Both
-   file doors refuse such bytes, so a corrupt backup can never plant a fake
-   photo over a real one, whatever the claimed content-type. */
-function looksLikeHtmlBytes(buf) {
-  try {
-    const n = Math.min(buf.length, 512);
-    let i = 0;
-    while (i < n) {
-      const c = buf[i];
-      if (c === 0xef && buf[i + 1] === 0xbb && buf[i + 2] === 0xbf) { i += 3; continue; }
-      if (c === 0x20 || c === 0x09 || c === 0x0a || c === 0x0d) { i++; continue; }
-      break;
-    }
-    return buf[i] === 0x3c;
-  } catch { return false; }
-}
 const COMPRESSIBLE = /^(text\/|application\/(javascript|json)|image\/svg)/;
 function sendBody(req, res, body, mime, tag, extra) {
   const etag = '"' + tag + '"';
@@ -683,15 +666,8 @@ const server = http.createServer(async (req, res) => {
           }
           const dir = path.join(ROOT, "data", "uploads");
           await mkdir(dir, { recursive: true });
-          const payload = Buffer.concat(chunks);
-          /* Upload fix: refuse an error page wearing a photo's name. */
-          if (!payload.length || looksLikeHtmlBytes(payload)) {
-            res.writeHead(400, { "cache-control": "no-store" });
-            res.end("bad content");
-            return;
-          }
           const fname = Date.now().toString(36) + "-" + safe;
-          await writeFile(path.join(dir, fname), payload);
+          await writeFile(path.join(dir, fname), Buffer.concat(chunks));
           const body = JSON.stringify({ url: "/data/uploads/" + fname });
           res.writeHead(200, { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" });
           res.end(body);
@@ -763,15 +739,18 @@ const server = http.createServer(async (req, res) => {
         try {
           const dir = path.join(ROOT, "data", "uploads");
           await mkdir(dir, { recursive: true });
-          const payload = Buffer.concat(chunks);
-          /* Upload fix: a corrupt backup entry (HTML saved as a photo) must
-             never be written over a real photo. */
-          if (!payload.length || looksLikeHtmlBytes(payload)) {
-            res.writeHead(400, { "cache-control": "no-store" });
-            res.end("bad content");
-            return;
-          }
-          await writeFile(path.join(dir, asked), payload);
+          const bodyBuf = Buffer.concat(chunks);
+          /* Blank-page guard (note 440): never let the HTML fallback page land
+             as a photo — a poisoned backup entry used to blank good files. */
+          try {
+            const head = bodyBuf.slice(0, 2048).toString("latin1").toLowerCase();
+            if (head.includes("<!doctype") || head.includes("<html") || head.includes("<head") || head.includes("<meta") || head.includes("<script") || head.includes("wom-deploy") || head.trimStart().startsWith("<")) {
+              res.writeHead(400, { "cache-control": "no-store" });
+              res.end("bad filetype");
+              return;
+            }
+          } catch {}
+          await writeFile(path.join(dir, asked), bodyBuf);
           const body = JSON.stringify({ url: "/data/uploads/" + asked, restored: true });
           res.writeHead(200, { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" });
           res.end(body);
@@ -903,15 +882,6 @@ const server = http.createServer(async (req, res) => {
         file = alt;
         st = altSt;
       }
-    }
-    /* Missing office uploads are 404, never the app shell (upload fix):
-         serving index.html with HTTP 200 for a gone photo used to poison
-         backups (an HTML page embedded as a .jpg) and imageless <img> tags.
-         The router fallback below still serves every other unknown path. */
-    if (pathname.startsWith("/data/uploads/") && (!st || !st.isFile())) {
-      res.writeHead(404, { "cache-control": "no-store", "x-content-type-options": "nosniff" });
-      res.end("not found");
-      return;
     }
     if ((!st || !st.isFile()) && !pathname.startsWith("/__cms/")) {
       /* Standalone nicety: unknown paths (e.g. /admin) serve the app so the

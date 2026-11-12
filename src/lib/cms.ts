@@ -3058,11 +3058,6 @@ export async function healMissingUploads(): Promise<{ restored: number; checked:
               const b = await r.blob();
               if (!b || !(b as any).size) continue;
               if (String((b as any).type || "").toLowerCase().includes("text/html")) continue;
-              /* Upload fix: never re-plant a poisoned repo copy (HTML stored
-                 as .jpg) back onto the server. */
-              try {
-                if (!mediaBytesMatchExt(await blobHeadBytes(b), name)) continue;
-              } catch { continue; }
               blob = b;
               try { await cacheUploadBlob(name, b); } catch {}
               break;
@@ -6089,49 +6084,6 @@ function guessUploadType(name: string): string {
     risk running out of memory while encoding, so it is named, not embedded. */
 const BACKUP_FILE_MAX_BYTES = 200 * 1024 * 1024;
 
-/* Upload fix: first-bytes sniff for office media. No real photo/video/audio
-   starts with "<" (after whitespace/BOM) — an HTML error page saved as a
-   .jpg always does. mediaBytesMatchExt goes further and checks the magic
-   bytes fit the file's own extension; unknown kinds pass (never block a real
-   file for a table gap), mismatches fail. */
-function firstBytesHtml(bytes: Uint8Array): boolean {
-  try {
-    let i = 0;
-    while (i < bytes.length && i < 512) {
-      const c = bytes[i];
-      if (c === 0xef && bytes[i + 1] === 0xbb && bytes[i + 2] === 0xbf) { i += 3; continue; }
-      if (c === 0x20 || c === 0x09 || c === 0x0a || c === 0x0d) { i++; continue; }
-      break;
-    }
-    return bytes[i] === 0x3c;
-  } catch { return false; }
-}
-function mediaBytesMatchExt(bytes: Uint8Array, name: string): boolean {
-  try {
-    if (!bytes || bytes.length < 4) return false;
-    if (firstBytesHtml(bytes)) return false;
-    const ext = String(name.split(".").pop() || "").toLowerCase();
-    const b = bytes;
-    const ftyp = String.fromCharCode(b[4] || 0, b[5] || 0, b[6] || 0, b[7] || 0);
-    const brand = String.fromCharCode(b[8] || 0, b[9] || 0, b[10] || 0, b[11] || 0);
-    if (ext === "jpg" || ext === "jpeg") return b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff;
-    if (ext === "png") return b[0] === 0x89 && b[1] === 0x50 && b[2] === 0x4e && b[3] === 0x47;
-    if (ext === "gif") return b[0] === 0x47 && b[1] === 0x49 && b[2] === 0x46 && b[3] === 0x38;
-    if (ext === "webp") return b[0] === 0x52 && b[1] === 0x49 && b[2] === 0x46 && b[3] === 0x46 && brand === "WEBP";
-    if (ext === "avif") return ftyp === "ftyp" && (brand === "avif" || brand === "avis");
-    if (ext === "mp4" || ext === "m4v" || ext === "mov") return ftyp === "ftyp";
-    if (ext === "webm") return b[0] === 0x1a && b[1] === 0x45 && b[2] === 0xdf && b[3] === 0xa3;
-    if (ext === "ogv" || ext === "ogg" || ext === "oga" || ext === "opus") return b[0] === 0x4f && b[1] === 0x67 && b[2] === 0x67 && b[3] === 0x53;
-    if (ext === "mp3") return (b[0] === 0x49 && b[1] === 0x44 && b[2] === 0x33) || (b[0] === 0xff && (b[1] & 0xe0) === 0xe0);
-    if (ext === "wav") return b[0] === 0x52 && b[1] === 0x49 && b[2] === 0x46 && b[3] === 0x46 && brand === "WAVE";
-    return true;
-  } catch { return false; }
-}
-async function blobHeadBytes(blob: Blob, n = 16): Promise<Uint8Array> {
-  const buf = await blob.slice(0, n).arrayBuffer();
-  return new Uint8Array(buf);
-}
-
 function blobToBase64(blob: Blob): Promise<string> {
   return new Promise((resolve, reject) => {
     const r = new FileReader();
@@ -6149,6 +6101,87 @@ function base64ToBlob(b64: string, type: string): Blob {
   const bytes = new Uint8Array(bin.length);
   for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
   return new Blob([bytes], { type });
+}
+
+/* Backup media guard (blank-page fix, note 440): the app fallback is an HTML
+   page. A wiped disk answers 200 with that page, so a backup taken while
+   uploads were missing used to embed the page as if it were a photo — and the
+   restore then showed blank images. These helpers reject HTML bodies even when
+   the headers lie, and check magic bytes per extension so only real media
+   rides in backups and back onto disk. SVG is refused server-side, so it never
+   counts as valid backup media here either. */
+function backupBytesFromB64(b64: string): Uint8Array | null {
+  try {
+    const bin = atob(b64);
+    const out = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+    return out;
+  } catch {
+    return null;
+  }
+}
+function backupBytesLookLikeHtml(bytes: Uint8Array): boolean {
+  try {
+    const n = Math.min(bytes.length, 2048);
+    let s = "";
+    for (let i = 0; i < n; i++) s += String.fromCharCode(bytes[i]);
+    s = s.toLowerCase();
+    if (
+      s.indexOf("<!doctype") !== -1 ||
+      s.indexOf("<html") !== -1 ||
+      s.indexOf("<head") !== -1 ||
+      s.indexOf("<meta") !== -1 ||
+      s.indexOf("<script") !== -1 ||
+      s.indexOf("<link") !== -1 ||
+      s.indexOf("wom-deploy") !== -1 ||
+      s.indexOf("wom-notes") !== -1 ||
+      s.indexOf("__wom") !== -1
+    ) return true;
+    let i = 0;
+    while (i < s.length && (s[i] === " " || s[i] === "\n" || s[i] === "\r" || s[i] === "\t")) i++;
+    if (s[i] === "<") return true;
+    return false;
+  } catch {
+    return false;
+  }
+}
+function backupBytesMatchExtension(name: string, bytes: Uint8Array): boolean {
+  try {
+    if (!bytes || bytes.length < 4) return false;
+    const ext = (String(name).split(".").pop() || "").toLowerCase();
+    const b = bytes;
+    if (ext === "jpg" || ext === "jpeg") return b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff;
+    if (ext === "png") return b[0] === 0x89 && b[1] === 0x50 && b[2] === 0x4e && b[3] === 0x47;
+    if (ext === "gif") return b[0] === 0x47 && b[1] === 0x49 && b[2] === 0x46 && b[3] === 0x38;
+    if (ext === "webp")
+      return b.length >= 12 && b[0] === 0x52 && b[1] === 0x49 && b[2] === 0x46 && b[3] === 0x46 && b[8] === 0x57 && b[9] === 0x45 && b[10] === 0x42 && b[11] === 0x50;
+    if (ext === "avif") {
+      if (b.length < 12) return false;
+      const box = String.fromCharCode(b[4], b[5], b[6], b[7]);
+      const brand = String.fromCharCode(b[8], b[9], b[10], b[11]).toLowerCase();
+      return box === "ftyp" && (brand.indexOf("avif") !== -1 || brand.indexOf("heic") !== -1 || brand.indexOf("mif1") !== -1 || brand.indexOf("msf1") !== -1);
+    }
+    if (ext === "mp4" || ext === "mov" || ext === "m4v" || ext === "m4a") {
+      if (b.length < 8) return false;
+      return String.fromCharCode(b[4], b[5], b[6], b[7]) === "ftyp";
+    }
+    if (ext === "webm") return b[0] === 0x1a && b[1] === 0x45 && b[2] === 0xdf && b[3] === 0xa3;
+    if (ext === "ogv" || ext === "ogg" || ext === "oga" || ext === "opus")
+      return b[0] === 0x4f && b[1] === 0x67 && b[2] === 0x67 && b[3] === 0x53;
+    if (ext === "mp3") {
+      if (b[0] === 0x49 && b[1] === 0x44 && b[2] === 0x33) return true;
+      return b[0] === 0xff && (b[1] === 0xfb || b[1] === 0xf3 || b[1] === 0xf2 || (b[1] & 0xe0) === 0xe0);
+    }
+    if (ext === "wav")
+      return b.length >= 12 && b[0] === 0x52 && b[1] === 0x49 && b[2] === 0x46 && b[3] === 0x46 && b[8] === 0x57 && b[9] === 0x41 && b[10] === 0x56 && b[11] === 0x45;
+    if (ext === "flac") return b[0] === 0x66 && b[1] === 0x4c && b[2] === 0x61 && b[3] === 0x43;
+    if (ext === "aac") return b[0] === 0xff && (b[1] === 0xf1 || b[1] === 0xf9);
+    if (ext === "mid" || ext === "midi") return b[0] === 0x4d && b[1] === 0x54 && b[2] === 0x68 && b[3] === 0x64;
+    if (ext === "svg" || ext === "svgz") return false;
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 /** The latest PUBLISHED content as a downloadable backup — never draft edits.
@@ -6185,17 +6218,20 @@ export async function exportPublished(): Promise<string> {
       const blob = await res.blob();
       if (!blob.size) throw 0;
       if (String((blob as any).type || "").toLowerCase().includes("text/html")) throw 0;
-      /* Upload fix: a proxy may hand HTML with a photo's content-type — the
-         magic bytes are the last word. A mismatch exports as missing, so the
-         office is told to re-upload instead of backing up a fake photo. */
-      try {
-        if (!mediaBytesMatchExt(await blobHeadBytes(blob), name)) throw 0;
-      } catch { throw 0; }
       if (blob.size > BACKUP_FILE_MAX_BYTES) {
         missingFiles.push(name + " (too large: " + Math.round(blob.size / 1048576) + " MB)");
         continue;
       }
-      files.push({ name, type: blob.type || guessUploadType(name), data: await blobToBase64(blob) });
+      const data = await blobToBase64(blob);
+      /* Body guard: headers sometimes lie (cache, service worker, proxy).
+         Decode and check the bytes themselves — an HTML fallback page or a
+         mismatched magic means the upload is already gone on this copy, so
+         name it instead of embedding a blank. */
+      const bytes = backupBytesFromB64(data);
+      if (!bytes || !bytes.length) throw 0;
+      if (backupBytesLookLikeHtml(bytes)) throw 0;
+      if (!backupBytesMatchExtension(name, bytes)) throw 0;
+      files.push({ name, type: blob.type || guessUploadType(name), data });
     } catch {
       missingFiles.push(name);
     }
@@ -6215,6 +6251,7 @@ export type ImportResult = {
   filesRestored?: number;
   filesFailed?: string[];
   filesMissing?: string[];
+  filesPoisoned?: string[];
   channelMoved?: string;
   guestCleared?: string;
 };
@@ -6310,6 +6347,7 @@ export async function importBackup(text: string): Promise<ImportResult> {
     ? parsed.missingFiles.filter((n: any) => typeof n === "string")
     : [];
   const filesFailed: string[] = [];
+  const filesPoisoned: string[] = [];
   let filesRestored = 0;
   if (incoming.length) {
     const base = serverUrl();
@@ -6344,25 +6382,19 @@ export async function importBackup(text: string): Promise<ImportResult> {
           if (!name || typeof f?.data !== "string" || !f.data) throw 0;
           const type = typeof f?.type === "string" && f.type ? f.type : guessUploadType(name);
           /* A corrupt backup entry (an error page saved as a photo) must never
-             be written over a real photo: html rides as failed, not restored. */
-          if (/text\/html/i.test(String(type || ""))) throw 0;
-          try {
-            const head = atob(String(f.data).slice(0, 300)).slice(0, 300).toLowerCase();
-            if (head.indexOf("<!doctype") !== -1 || head.indexOf("<html") !== -1 || head.indexOf("<meta") !== -1 || head.indexOf("<script") !== -1) throw 0;
-          } catch (e) {
-            if (e === 0) throw 0;
+             be written over a real photo: html rides as poisoned, not restored.
+             Legacy poisoned backups (like 2026-10-30, where 14 files were the
+             fallback page) are detected by body, not just headers, so they can
+             be named for re-upload instead of blanking good files. */
+          const __bytes = backupBytesFromB64(String(f.data || ""));
+          if (!__bytes || !__bytes.length) throw 0;
+          if (/text\/html/i.test(String(type || "")) || backupBytesLookLikeHtml(__bytes)) {
+            try {
+              if (f && typeof f.name === "string") filesPoisoned.push(f.name);
+            } catch {}
+            throw 0;
           }
-          /* Upload fix: the embedded bytes must be the kind of media the
-             file's own extension claims — an HTML page embedded under a
-             photo's name (old backups) rides as failed, never restored. */
-          try {
-            const bin = atob(String(f.data).slice(0, 64));
-            const hb = new Uint8Array(bin.length);
-            for (let hi = 0; hi < bin.length; hi++) hb[hi] = bin.charCodeAt(hi);
-            if (!mediaBytesMatchExt(hb, String(f?.name || ""))) throw 0;
-          } catch (e) {
-            if (e === 0) throw 0;
-          }
+          if (!backupBytesMatchExtension(name, __bytes)) throw 0;
           const blob = base64ToBlob(f.data, type);
           if (!blob.size) throw 0;
           const res = await fetch(`${base}/__restore-file?conn=${encodeURIComponent(officeFileConn())}&name=${encodeURIComponent(name)}`, {
@@ -6377,7 +6409,19 @@ export async function importBackup(text: string): Promise<ImportResult> {
           let verified = false;
           try {
             const check = await fetch(`${base}/data/uploads/${name}`, { cache: "no-store" });
-            if (check.ok && !String(check.headers.get("content-type") || "").toLowerCase().includes("text/html")) verified = true;
+            /* Read it back (note 346): a 200 that never became a file used to
+               count as restored and left blank photos/videos. Only a file the
+               server actually serves counts. */
+            if (check.ok && !String(check.headers.get("content-type") || "").toLowerCase().includes("text/html")) {
+              const vBlob = await check.blob().catch(() => null);
+              if (vBlob && vBlob.size) {
+                const vText = await vBlob.slice(0, 2048).text().catch(() => "");
+                const vLow = String(vText || "").toLowerCase();
+                if (vLow.indexOf("<!doctype") === -1 && vLow.indexOf("<html") === -1 && vLow.indexOf("<meta") === -1 && vLow.indexOf("wom-deploy") === -1) verified = true;
+              } else if (vBlob) {
+                verified = true;
+              }
+            }
           } catch {
             verified = false;
           }
@@ -6396,7 +6440,7 @@ export async function importBackup(text: string): Promise<ImportResult> {
       }
     }
   }
-  return { ok: true, restored, skipped, filesRestored, filesFailed, filesMissing, channelMoved: channelMoved || undefined, guestCleared: guestCleared || undefined };
+  return { ok: true, restored, skipped, filesRestored, filesFailed, filesMissing, filesPoisoned, channelMoved: channelMoved || undefined, guestCleared: guestCleared || undefined };
 }
 
 /* ----------------------------------------------------------------- publish */

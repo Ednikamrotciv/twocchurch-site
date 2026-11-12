@@ -2630,10 +2630,14 @@ export function ToolsPage() {
         const n = res.restored?.length || 0;
         const left = res.skipped?.length || 0;
         const imgs = res.filesRestored || 0;
-        const missed = [...(res.filesMissing || []), ...(res.filesFailed || [])];
+        const poisonedList = (res as any).filesPoisoned as string[] | undefined;
+        const missed = [...(res.filesMissing || []), ...(res.filesFailed || [])].filter((x) => !(poisonedList || []).includes(x));
         const imgBit = imgs ? ` ${imgs} uploaded ${imgs === 1 ? "file" : "files"} brought back too.` : "";
         const missBit = missed.length
           ? ` ${missed.length} uploaded ${missed.length === 1 ? "file is" : "files are"} missing on the server (${missed.slice(0, 3).join(", ")}${missed.length > 3 ? "…" : ""}).`
+          : "";
+        const poisonBit = poisonedList && poisonedList.length
+          ? ` ${poisonedList.length} uploaded ${poisonedList.length === 1 ? "file was" : "files were"} blank pages inside the backup itself (taken while those uploads were missing), so they were skipped and your current photos were kept — re-upload them to fill the blanks (${poisonedList.slice(0, 3).join(", ")}${poisonedList.length > 3 ? "…" : ""}).`
           : "";
         const chanBit = res.channelMoved
           ? ` Channel in the backup was ${res.channelMoved} — set to @twocorg (change it back in the Live stream console if that was intentional).`
@@ -2643,8 +2647,8 @@ export function ToolsPage() {
           : "";
         fireToast(
           left
-            ? `Brought back ${n} ${n === 1 ? "section" : "sections"} — review, then Publish. ${left} ${left === 1 ? "section" : "sections"} from the backup no longer exist in this update and ${left === 1 ? "was" : "were"} left out.${imgBit}${missBit}${chanBit}${guestBit}`
-            : `Brought back ${n} ${n === 1 ? "section" : "sections"} — review, then Publish to put it live.${imgBit}${missBit}${chanBit}${guestBit}`,
+            ? `Brought back ${n} ${n === 1 ? "section" : "sections"} — review, then Publish. ${left} ${left === 1 ? "section" : "sections"} from the backup no longer exist in this update and ${left === 1 ? "was" : "were"} left out.${imgBit}${missBit}${poisonBit}${chanBit}${guestBit}`
+            : `Brought back ${n} ${n === 1 ? "section" : "sections"} — review, then Publish to put it live.${imgBit}${missBit}${poisonBit}${chanBit}${guestBit}`,
           "success"
         );
       }

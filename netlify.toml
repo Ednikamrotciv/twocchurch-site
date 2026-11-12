@@ -18,9 +18,6 @@
   [headers.values]
     Cache-Control = "no-store, must-revalidate"
 [[redirects]]
-  from = "/data/uploads/*"
-  status = 404
-[[redirects]]
   from = "/*"
   to = "/index.html"
   status = 200
