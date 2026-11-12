@@ -3058,6 +3058,11 @@ export async function healMissingUploads(): Promise<{ restored: number; checked:
               const b = await r.blob();
               if (!b || !(b as any).size) continue;
               if (String((b as any).type || "").toLowerCase().includes("text/html")) continue;
+              /* Upload fix: never re-plant a poisoned repo copy (HTML stored
+                 as .jpg) back onto the server. */
+              try {
+                if (!mediaBytesMatchExt(await blobHeadBytes(b), name)) continue;
+              } catch { continue; }
               blob = b;
               try { await cacheUploadBlob(name, b); } catch {}
               break;
@@ -6084,6 +6089,49 @@ function guessUploadType(name: string): string {
     risk running out of memory while encoding, so it is named, not embedded. */
 const BACKUP_FILE_MAX_BYTES = 200 * 1024 * 1024;
 
+/* Upload fix: first-bytes sniff for office media. No real photo/video/audio
+   starts with "<" (after whitespace/BOM) — an HTML error page saved as a
+   .jpg always does. mediaBytesMatchExt goes further and checks the magic
+   bytes fit the file's own extension; unknown kinds pass (never block a real
+   file for a table gap), mismatches fail. */
+function firstBytesHtml(bytes: Uint8Array): boolean {
+  try {
+    let i = 0;
+    while (i < bytes.length && i < 512) {
+      const c = bytes[i];
+      if (c === 0xef && bytes[i + 1] === 0xbb && bytes[i + 2] === 0xbf) { i += 3; continue; }
+      if (c === 0x20 || c === 0x09 || c === 0x0a || c === 0x0d) { i++; continue; }
+      break;
+    }
+    return bytes[i] === 0x3c;
+  } catch { return false; }
+}
+function mediaBytesMatchExt(bytes: Uint8Array, name: string): boolean {
+  try {
+    if (!bytes || bytes.length < 4) return false;
+    if (firstBytesHtml(bytes)) return false;
+    const ext = String(name.split(".").pop() || "").toLowerCase();
+    const b = bytes;
+    const ftyp = String.fromCharCode(b[4] || 0, b[5] || 0, b[6] || 0, b[7] || 0);
+    const brand = String.fromCharCode(b[8] || 0, b[9] || 0, b[10] || 0, b[11] || 0);
+    if (ext === "jpg" || ext === "jpeg") return b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff;
+    if (ext === "png") return b[0] === 0x89 && b[1] === 0x50 && b[2] === 0x4e && b[3] === 0x47;
+    if (ext === "gif") return b[0] === 0x47 && b[1] === 0x49 && b[2] === 0x46 && b[3] === 0x38;
+    if (ext === "webp") return b[0] === 0x52 && b[1] === 0x49 && b[2] === 0x46 && b[3] === 0x46 && brand === "WEBP";
+    if (ext === "avif") return ftyp === "ftyp" && (brand === "avif" || brand === "avis");
+    if (ext === "mp4" || ext === "m4v" || ext === "mov") return ftyp === "ftyp";
+    if (ext === "webm") return b[0] === 0x1a && b[1] === 0x45 && b[2] === 0xdf && b[3] === 0xa3;
+    if (ext === "ogv" || ext === "ogg" || ext === "oga" || ext === "opus") return b[0] === 0x4f && b[1] === 0x67 && b[2] === 0x67 && b[3] === 0x53;
+    if (ext === "mp3") return (b[0] === 0x49 && b[1] === 0x44 && b[2] === 0x33) || (b[0] === 0xff && (b[1] & 0xe0) === 0xe0);
+    if (ext === "wav") return b[0] === 0x52 && b[1] === 0x49 && b[2] === 0x46 && b[3] === 0x46 && brand === "WAVE";
+    return true;
+  } catch { return false; }
+}
+async function blobHeadBytes(blob: Blob, n = 16): Promise<Uint8Array> {
+  const buf = await blob.slice(0, n).arrayBuffer();
+  return new Uint8Array(buf);
+}
+
 function blobToBase64(blob: Blob): Promise<string> {
   return new Promise((resolve, reject) => {
     const r = new FileReader();
@@ -6137,6 +6185,12 @@ export async function exportPublished(): Promise<string> {
       const blob = await res.blob();
       if (!blob.size) throw 0;
       if (String((blob as any).type || "").toLowerCase().includes("text/html")) throw 0;
+      /* Upload fix: a proxy may hand HTML with a photo's content-type — the
+         magic bytes are the last word. A mismatch exports as missing, so the
+         office is told to re-upload instead of backing up a fake photo. */
+      try {
+        if (!mediaBytesMatchExt(await blobHeadBytes(blob), name)) throw 0;
+      } catch { throw 0; }
       if (blob.size > BACKUP_FILE_MAX_BYTES) {
         missingFiles.push(name + " (too large: " + Math.round(blob.size / 1048576) + " MB)");
         continue;
@@ -6295,6 +6349,17 @@ export async function importBackup(text: string): Promise<ImportResult> {
           try {
             const head = atob(String(f.data).slice(0, 300)).slice(0, 300).toLowerCase();
             if (head.indexOf("<!doctype") !== -1 || head.indexOf("<html") !== -1 || head.indexOf("<meta") !== -1 || head.indexOf("<script") !== -1) throw 0;
+          } catch (e) {
+            if (e === 0) throw 0;
+          }
+          /* Upload fix: the embedded bytes must be the kind of media the
+             file's own extension claims — an HTML page embedded under a
+             photo's name (old backups) rides as failed, never restored. */
+          try {
+            const bin = atob(String(f.data).slice(0, 64));
+            const hb = new Uint8Array(bin.length);
+            for (let hi = 0; hi < bin.length; hi++) hb[hi] = bin.charCodeAt(hi);
+            if (!mediaBytesMatchExt(hb, String(f?.name || ""))) throw 0;
           } catch (e) {
             if (e === 0) throw 0;
           }

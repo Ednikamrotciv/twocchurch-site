@@ -7273,3 +7273,24 @@ manual-start rule (MM screen gate, PP display matrix, AAA badge gate). Verified:
 edited files parse (esbuild transform), and the display matrix holds against the
 shipped sources — guest detection alone stays quiet, guest switch shows, main
 detection shows, Stop holds, pause does not read as stopped.
+
+## Upload integrity: missing uploads 404, HTML-as-photo refused everywhere, backup repaired
+The office's 2026-10-30 backup carried 14 corrupt "photos": the app shell (index.html)
+saved as .jpg. Cause chain: free-host sleep/redeploy wiped data/uploads/, and every
+missing upload answered HTTP 200 text/html — scripts/serve.mjs's SPA fallback and the
+netlify.toml /* catch-all both served the shell for gone files — so the old exporter
+embedded HTML as photos and restores re-planted fakes. Fixes: missing /data/uploads/*
+is now 404 on scripts/serve.mjs, scripts/vite-cms-backend.mjs (explicit 404 instead of
+Vite fallback) and netlify.toml (404 rule before the SPA catch-all); a first-bytes
+sniff (looksLikeHtmlBytes server-side, firstBytesHtml/mediaBytesMatchExt client-side)
+refuses HTML bytes on /__upload and /__restore-file (both backends) and in
+exportPublished (mismatch exports as missing, office told to re-upload),
+healMissingUploads (poisoned repo copies never re-planted) and the restore import
+(old corrupt entries ride as failed, never written). The backup itself is repaired
+alongside (world-overcomers-backup-20261030-1324_REPAIRED.json): 14 corrupt entries
+moved to missingFiles, 3 leadership-banner refs remapped to their good twin uploads
+of the same photos; 11 images are lost everywhere and must be re-uploaded after
+restore (branch photo, 2 ministry photos, 3 event photos, 4 banner photos, 1 prayer
+photo) — the site paints fallbacks until then, never fakes. Verified: both .mjs
+backends still parse, cms.ts braces balance, repaired JSON parses with 4/4 magic-ok
+images and zero corrupt bytes.

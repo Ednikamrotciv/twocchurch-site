@@ -11,6 +11,21 @@ import { answerWithSeedFallback } from "./seed-fallback.mjs";
 import { guardAtBoot } from "./backup-data.mjs";
 import { createGeoProxy } from "./geo-proxy.mjs";
 import { MIME } from "./mime.mjs";
+/* Upload fix: first-bytes sniff (same as scripts/serve.mjs) — no real
+   photo/video/audio starts with "<" after whitespace/BOM. */
+function looksLikeHtmlBytes(buf) {
+  try {
+    const n = Math.min(buf.length, 512);
+    let i = 0;
+    while (i < n) {
+      const c = buf[i];
+      if (c === 0xef && buf[i + 1] === 0xbb && buf[i + 2] === 0xbf) { i += 3; continue; }
+      if (c === 0x20 || c === 0x09 || c === 0x0a || c === 0x0d) { i++; continue; }
+      break;
+    }
+    return buf[i] === 0x3c;
+  } catch { return false; }
+}
 import { createSecurityLog } from "./security-log.mjs";
 import { createWaf, getClientIp, isSafePath, endpointCategory, ipClass, normalizeIp } from "./waf.mjs";
 import { createSessionAnomaly } from "./session-anomaly.mjs";
@@ -402,7 +417,13 @@ export function cmsBackend() {
               return;
             }
             const st = await stat(file).catch(() => null);
-            if (!st || !st.isFile()) return next();
+            /* Upload fix: a missing office upload is 404, never Vite's
+               index.html fallback (which reads as a photo on some paths). */
+            if (!st || !st.isFile()) {
+              res.writeHead(404, { "cache-control": "no-store" });
+              res.end("not found");
+              return;
+            }
             const body = await readFile(file);
             res.writeHead(200, {
               "content-type": MIME[path.extname(file).toLowerCase()] || "application/octet-stream",
@@ -615,8 +636,15 @@ export function cmsBackend() {
                 }
                 const dir = path.join(ROOT, "data", "uploads");
                 await mkdir(dir, { recursive: true });
+                const payload = Buffer.concat(chunks);
+                /* Upload fix: refuse an error page wearing a photo's name. */
+                if (!payload.length || looksLikeHtmlBytes(payload)) {
+                  res.writeHead(400, { "cache-control": "no-store" });
+                  res.end("bad content");
+                  return;
+                }
                 const fname = Date.now().toString(36) + "-" + safe;
-                await writeFile(path.join(dir, fname), Buffer.concat(chunks));
+                await writeFile(path.join(dir, fname), payload);
                 res.writeHead(200, { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" });
                 res.end(JSON.stringify({ url: "/data/uploads/" + fname }));
               } catch {
@@ -682,7 +710,14 @@ export function cmsBackend() {
               try {
                 const dir = path.join(ROOT, "data", "uploads");
                 await mkdir(dir, { recursive: true });
-                await writeFile(path.join(dir, asked), Buffer.concat(chunks));
+                const payload = Buffer.concat(chunks);
+                /* Upload fix: a corrupt backup entry must never land on disk. */
+                if (!payload.length || looksLikeHtmlBytes(payload)) {
+                  res.writeHead(400, { "cache-control": "no-store" });
+                  res.end("bad content");
+                  return;
+                }
+                await writeFile(path.join(dir, asked), payload);
                 const body = JSON.stringify({ url: "/data/uploads/" + asked, restored: true });
                 res.writeHead(200, { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" });
                 res.end(body);
