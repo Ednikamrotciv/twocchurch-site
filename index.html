@@ -178,17 +178,6 @@ number is unchanged. build-static.mjs stamps it from hooks.ts CODE_ID. -->
           if (e.key === "wom.cms.deployPublished" || e.key === "wom.cms.codeBlessed" || e.key === "wom.cms.notes") {
             var pd = ls("wom.cms.deployPublished") || "";
             if (deployId && pd === deployId) unpaint();
-            else {
-              /* Same-browser lift for number-gated copies (local dev has no
-                 deploy id): a witnessed publish recorded in notes releases
-                 this tab without a reload — mirrors the broadcast handler. */
-              try {
-                var nr2 = ls("wom.cms.notes");
-                var nn2 = 0;
-                try { nn2 = Math.floor(Number(JSON.parse(nr2))) || 0; } catch (_) {}
-                if (nn2 >= notesNum) unpaint();
-              } catch (_) {}
-            }
           }
         } catch (_) {}
       });

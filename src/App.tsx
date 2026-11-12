@@ -52,8 +52,7 @@ const Admin = React.lazy(
     import("./pages/Admin").then((m) => ({ default: m.Admin })),
   ),
 );
-const AppErrorBoundary =
-  ErrorBoundary as unknown as React.ComponentType<React.PropsWithChildren>;
+const ErrorBoundaryCompat = ErrorBoundary as any;
 
 /* Explicit local preview only (?maintenance=1): the office's way to see the
    notice on demand. Visitors on a fresh deploy see it until Publish clears it. */
@@ -161,7 +160,8 @@ export function App() {
     try {
       const ric = (window as any).requestIdleCallback;
       if (typeof ric === "function")
-        ric(
+        ric.call(
+          window,
           () => {
             import("./pages/Admin").catch(() => {});
           },
@@ -230,11 +230,11 @@ export function App() {
         {/* Never a loader page: nothing flashes while the admin chunk arrives —
             the site shell stays on screen, and a crash inside it lands on the
             error card — not a white page. */}
-        <AppErrorBoundary>
+        <ErrorBoundaryCompat>
           <React.Suspense fallback={null}>
             <Admin />
           </React.Suspense>
-        </AppErrorBoundary>
+        </ErrorBoundaryCompat>
         <LangAsk />
       </>
     );
@@ -368,9 +368,9 @@ function SiteApp() {
       {previewing && <PreviewBanner />}
       <Header />
       <main id="main" key={to}>
-        <AppErrorBoundary>
+        <ErrorBoundaryCompat key={to}>
           <React.Suspense fallback={null}>{page}</React.Suspense>
-        </AppErrorBoundary>
+        </ErrorBoundaryCompat>
       </main>
       <Footer />
       <ScrollTop />
