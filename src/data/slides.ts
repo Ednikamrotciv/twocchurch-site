@@ -58,12 +58,17 @@ export const SLIDES: AnnouncementSlide[] = [
   },
 ];
 
-/** A slide upload visitors can play: mp4/m4v/webm/ogv/ogg/mov (with ?/# trailers). */
-const SLIDE_VIDEO_FILE = /\.(mp4|m4v|webm|ogv|ogg|mov)(\?|#|$)/i;
+/** A slide upload visitors can play: mp4/m4v/webm/ogv/ogg/mov/m3u8 (with ?/# trailers),
+ *  or a cached data:video URL. Unified with embed.ts VIDEO_FILE so a format
+ *  that uploads as video also plays as a slide film. */
+const SLIDE_VIDEO_FILE = /\.(mp4|m4v|webm|ogv|ogg|mov|m3u8)(\?|#|$)/i;
 
 /** True when the slide's upload is a video file, not a picture. */
 export function isSlideVideoUrl(input: string): boolean {
-  return SLIDE_VIDEO_FILE.test(String(input || "").trim());
+  const value = String(input || "").trim();
+  if (!value) return false;
+  if (/^data:video\//i.test(value)) return true;
+  return SLIDE_VIDEO_FILE.test(value);
 }
 
 /** The slides the site shows: the ones the office has switched on, that carry something. */

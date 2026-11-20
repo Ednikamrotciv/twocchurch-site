@@ -294,7 +294,11 @@ export const DESIGNATED_CHANNEL_IDS: Record<string, string> = {
 export function designatedChannelId(channelInput?: string): string {
   const cleaned = cleanChannelInput(channelInput === undefined ? LIVE.youtubeChannel : channelInput);
   if (!cleaned) return "";
-  return DESIGNATED_CHANNEL_IDS[cleaned.toLowerCase()] || "";
+  const low = cleaned.toLowerCase();
+  // Fix: a bare handle ("twocorg") counts like "@twocorg" — the old lookup
+  // missed it and the main channel lost its designated gate (walled reads
+  // could never open the channel follow).
+  return DESIGNATED_CHANNEL_IDS[low] || (low.startsWith("@") ? "" : DESIGNATED_CHANNEL_IDS["@" + low] || "");
 }
 /** The designated id for a checked target URL (note 358): a UC id in the
     address is the designation itself; an @handle answers from the baked map

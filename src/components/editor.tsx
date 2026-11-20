@@ -1611,6 +1611,14 @@ export function PhotoUpload({ onDone, frame }: { onDone: (url: string) => void; 
     setError("");
     setBusy(true);
     try {
+      /* Fix: iPhone HEIC/HEIF photos decode in almost no browser — uploading
+         one used to store a file neither the preview nor visitors can paint.
+         Stop with a plain-English note instead of a broken image. */
+      const lowName = String((file as File).name || "").toLowerCase();
+      const lowType = String((file as File).type || "").toLowerCase();
+      if (lowType === "image/heic" || lowType === "image/heif" || lowName.endsWith(".heic") || lowName.endsWith(".heif")) {
+        throw new Error("That photo is HEIC (iPhone). In Photos choose Duplicate as JPEG first, then upload the JPEG.");
+      }
       /* Slides take pictures only: the re-cut sets the size, so the picture
          goes in at full size and comes out 1600×1200. */
       const blob = forSlide ? await frameImageBlob(file) : await compressImageBlob(file, 1600, 0.82);
@@ -1664,6 +1672,12 @@ export function VideoUpload({ onDone }: { onDone: (url: string) => void }) {
     setError("");
     setBusy(true);
     try {
+      /* Fix: a phone video can be hundreds of MB — uploading without a guard
+         used to hang the tab with no message. Name the limit up front. */
+      const size = Number((file as File).size || 0);
+      if (size > 250 * 1024 * 1024) {
+        throw new Error("That video is over 250 MB. Trim it or pick a smaller file, then upload again.");
+      }
       const url = await localHostFile(file, file.name || "video.mp4");
       try {
         const kept = uploadNameOf(url);
@@ -1851,7 +1865,7 @@ function ImageField({
   /* Slides take pictures only (video upload was removed): a pasted link that
      looks like a film is named, not previewed — films already live keep
      playing on the site until the office replaces them. */
-  const slideVideoLink = forSlide && /\.(mp4|m4v|webm|ogv|ogg|mov)(\?|#|$)/i.test(String(text || "").trim());
+  const slideVideoLink = forSlide && (/^data:video\//i.test(String(text || "").trim()) || /\.(mp4|m4v|webm|ogv|ogg|mov|m3u8)(\?|#|$)/i.test(String(text || "").trim()));
   const needsLandscape =
     forSlide && custom && !slideVideoLink && shape && shape.w > 0 && shape.h > 0 && shape.w < shape.h * 1.1 && agentOff !== preview;
   const squareish = !!shape && shape.w > 0 && shape.h > 0 && Math.abs(shape.w - shape.h) / Math.max(shape.w, shape.h) < 0.12;
