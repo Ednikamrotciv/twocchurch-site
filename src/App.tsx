@@ -52,7 +52,12 @@ const Admin = React.lazy(
     import("./pages/Admin").then((m) => ({ default: m.Admin })),
   ),
 );
-const AppErrorBoundary = ErrorBoundary as unknown as React.ComponentType<any>;
+
+// Keep the JSX type independent of the boundary implementation's legacy
+// componentDidCatch signature (which differs from React's ErrorInfo type).
+const AppErrorBoundary = ErrorBoundary as unknown as React.ComponentType<
+  React.PropsWithChildren<{}>
+>;
 
 /* Explicit local preview only (?maintenance=1): the office's way to see the
    notice on demand. Visitors on a fresh deploy see it until Publish clears it. */

@@ -1036,12 +1036,16 @@ const server = http.createServer(async (req, res) => {
       return;
     }
     /* Uploads are office files, not app code: sandbox them so even a stored
-       document type can never run script on this origin. */
+       document type can never run script on this origin. They are public
+       media, so they also answer cross-origin reads: the site's own pictures
+       load with crossOrigin="anonymous" (palette sampling, slide framing, 3D
+       faces), and an absolute office address answering without CORS headers
+       fails those loads with a blank/black face. */
     /* Hashed Vite assets (/assets/index-[hash].js/css, fonts, images) are
        content-addressed: a new build mints new names, so cache them hard. */
     const isHashedAsset = rel.startsWith("assets/") && /-[A-Za-z0-9_-]{6,}\.[A-Za-z0-9]+$/.test(rel);
     const uploadExtra = rel.startsWith("data/uploads/")
-      ? { "content-security-policy": "sandbox" }
+      ? { "content-security-policy": "sandbox", "access-control-allow-origin": "*" }
       : isHashedAsset
       ? { "cache-control": "public, max-age=31536000, immutable" }
       : undefined;
