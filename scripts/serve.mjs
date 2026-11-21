@@ -621,8 +621,9 @@ const server = http.createServer(async (req, res) => {
         return;
       }
       const ctype = String(req.headers["content-type"] || "").split(";")[0].trim().toLowerCase();
-      /* Uploads carry every kind the office uses (note 346): photos, videos
-         and audio — a refused kind used to come back blank. */
+      /* Fix: accept audio too — restores already carry audio (note 346), and the
+         office uploads voice notes/testimonies. Rejecting audio here while the
+         restore path allows it made fresh audio uploads fail with "bad filetype". */
       if (!ctype.startsWith("image/") && !ctype.startsWith("video/") && !ctype.startsWith("audio/")) {
         res.writeHead(400, { "cache-control": "no-store" });
         res.end("bad filetype");
@@ -652,20 +653,47 @@ const server = http.createServer(async (req, res) => {
       });
       req.on("end", async () => {
         if (tooBig) return;
+        /* An empty body (cancelled pick, failed encode) must never become a
+           stored "photo": it would paint blank everywhere and poison backups. */
+        if (!size) {
+          res.writeHead(400, { "cache-control": "no-store" });
+          res.end("empty file");
+          return;
+        }
         try {
           const asked = String(url.searchParams.get("name") || "file").split("/").pop() || "file";
           let safe = asked.replace(/[^a-zA-Z0-9._-]+/g, "_").slice(0, 80) || "file";
           if (!/\.[a-zA-Z0-9]{2,5}$/.test(safe)) {
-            const ext = { "image/jpeg": ".jpg", "image/png": ".png", "image/webp": ".webp", "image/gif": ".gif", "video/mp4": ".mp4", "video/webm": ".webm", "video/quicktime": ".mov", "audio/mpeg": ".mp3", "audio/wav": ".wav", "audio/ogg": ".ogg", "audio/mp4": ".m4a" }[ctype] || "";
+            /* Fix: cover every type the restore path and the office UI accept,
+               so extensionless phone uploads land with a playable extension. */
+            const ext = { "image/jpeg": ".jpg", "image/png": ".png", "image/webp": ".webp", "image/gif": ".gif", "image/avif": ".avif", "video/mp4": ".mp4", "video/webm": ".webm", "video/quicktime": ".mov", "video/x-m4v": ".m4v", "video/ogg": ".ogv", "audio/mpeg": ".mp3", "audio/wav": ".wav", "audio/ogg": ".ogg", "audio/opus": ".opus", "audio/mp4": ".m4a", "audio/aac": ".aac", "audio/flac": ".flac", "audio/midi": ".mid" }[ctype] || "";
             safe += ext;
           }
           /* Belt and braces: the stored name decides the served type, so only
-             real media extensions may land, whatever was claimed above. */
-          if (!/\.(jpg|jpeg|png|webp|gif|avif|mp4|webm|mov|m4v|ogv|mp3|wav|ogg|oga|opus|m4a|aac|flac|mid|midi)$/i.test(safe)) {
+             real media extensions may land, whatever was claimed above.
+             Fix: match the restore allowlist (audio included) — the old list
+             rejected .ogg/.oga/.mp3/.wav/etc fresh uploads while restores
+             allowed them. */
+          if (!/\.(jpg|jpeg|png|webp|gif|avif|mp4|webm|mov|m4v|ogv|ogg|oga|opus|mp3|wav|m4a|aac|flac|mid|midi)$/i.test(safe)) {
             res.writeHead(400, { "cache-control": "no-store" });
             res.end("bad filetype");
             return;
           }
+          /* The office re-encodes photos to JPEG but keeps the picked name —
+             JPEG bytes under a .png/.webp name would be served under that type
+             + nosniff (undeodable: blank slides, failed restores). Trust the
+             bytes' magic over the name for still images and correct it. */
+          try {
+            const head = Buffer.concat(chunks).subarray(0, 16);
+            const isJpeg = head.length >= 2 && head[0] === 0xff && head[1] === 0xd8;
+            const isPng = head.length >= 4 && head[0] === 0x89 && head[1] === 0x50 && head[2] === 0x4e && head[3] === 0x47;
+            const isGif = head.length >= 3 && head[0] === 0x47 && head[1] === 0x49 && head[2] === 0x46;
+            const isWebp = head.length >= 12 && head[0] === 0x52 && head[1] === 0x49 && head[2] === 0x46 && head[3] === 0x46 && head[8] === 0x57 && head[9] === 0x45 && head[10] === 0x42 && head[11] === 0x50;
+            const trueExt = isJpeg ? ".jpg" : isPng ? ".png" : isGif ? ".gif" : isWebp ? ".webp" : "";
+            if (trueExt && ctype.startsWith("image/") && !safe.toLowerCase().endsWith(trueExt) && !(trueExt === ".jpg" && /\.jpe?g$/i.test(safe))) {
+              safe = safe.replace(/\.[a-zA-Z0-9]{2,5}$/, "") + trueExt;
+            }
+          } catch { /* the name stands — the allowlist above already passed */ }
           const dir = path.join(ROOT, "data", "uploads");
           await mkdir(dir, { recursive: true });
           const fname = Date.now().toString(36) + "-" + safe;
@@ -886,6 +914,16 @@ const server = http.createServer(async (req, res) => {
       }
     }
     if ((!st || !st.isFile()) && !pathname.startsWith("/__cms/")) {
+      /* Missing office uploads must 404 — never the app shell. The shell is
+         HTML 200, which an <img> probe only reports as "dead" while every
+         fetch-based healer would read as success; a 404 keeps dead detection,
+         heal and feed fallback honest, so a wiped/moved upload falls back to
+         the welcome photo (or the repo copy) instead of a black slide. */
+      if (rel.startsWith("data/uploads/")) {
+        res.writeHead(404);
+        res.end("not found");
+        return;
+      }
       /* Standalone nicety: unknown paths (e.g. /admin) serve the app so the
          router can resolve them. */
       const shell = await readFile(path.join(DIST, "index.html"), "utf8");
