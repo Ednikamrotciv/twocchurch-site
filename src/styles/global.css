@@ -1496,6 +1496,15 @@ h2 em {
   }
 }
 
+/* Mobile: native instant scrolling. A global smooth scroll makes any
+   programmatic or focus-driven scroll fight the visitor's finger and read
+   as "scrolling down jumps back up" on phones. */
+@media (max-width: 640px) {
+  html {
+    scroll-behavior: auto;
+  }
+}
+
 /* --------------------------------------------------------------- forms */
 
 .field {

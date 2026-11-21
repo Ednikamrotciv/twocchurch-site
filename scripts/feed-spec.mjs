@@ -31,11 +31,15 @@ export function feedSeedUrls(spec) {
   }
 }
 
-/** The feed's seed, whatever its age — null when no mirror answers. */
+/** The feed's seed, whatever its age — null when no mirror answers.
+    Both mirrors race at once with short timeouts, so a sleeping box never
+    holds the fast door hostage. Never throws. */
 export async function peekFeedSeed(spec, fetchImpl, timeoutMs) {
   const doFetch = fetchImpl || fetch;
-  const timeout = typeof timeoutMs === "number" ? timeoutMs : 15000;
-  for (const url of feedSeedUrls(spec)) {
+  const timeout = typeof timeoutMs === "number" ? timeoutMs : 5000;
+  const urls = feedSeedUrls(spec);
+  if (!urls.length) return null;
+  const jobs = urls.map(async (url) => {
     const ctrl = typeof AbortController !== "undefined" ? new AbortController() : null;
     const timer = ctrl ? setTimeout(() => ctrl.abort(), timeout) : 0;
     try {
@@ -44,13 +48,37 @@ export async function peekFeedSeed(spec, fetchImpl, timeoutMs) {
         signal: ctrl ? ctrl.signal : undefined,
         headers: { accept: "application/json" },
       });
-      if (!res || !res.ok) continue;
+      if (!res || !res.ok) return null;
       return await res.json();
     } catch {
-      /* mirror failed — try the next one */
+      /* mirror failed — the other door still wins */
+      return null;
     } finally {
       if (timer) clearTimeout(timer);
     }
-  }
-  return null;
+  });
+  /* First valid seed wins; null only when every door fails. */
+  return await new Promise((resolve) => {
+    let pending = jobs.length;
+    let done = false;
+    if (!pending) {
+      resolve(null);
+      return;
+    }
+    for (const job of jobs) {
+      Promise.resolve(job).then((value) => {
+        if (done) return;
+        if (value !== null && value !== undefined) {
+          done = true;
+          resolve(value);
+          return;
+        }
+        pending -= 1;
+        if (pending <= 0) {
+          done = true;
+          resolve(null);
+        }
+      });
+    }
+  });
 }

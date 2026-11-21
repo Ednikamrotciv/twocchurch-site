@@ -152,6 +152,8 @@ export function About() {
 
 function PersonCardLite({ person }: { person: (typeof LEADERSHIP)[number] }) {
   const [open, setOpen] = useState(false);
+  /* A cleared bio must never blank the page: read it defensively. */
+  const bioText = String((person as any).bio || "");
   return (
     <Card pad={false} className="person-card" hover>
       <div className="person-card__photo">
@@ -168,7 +170,7 @@ function PersonCardLite({ person }: { person: (typeof LEADERSHIP)[number] }) {
       <div className="person-card__body">
         <h3>{person.name}</h3>
         <p className="person-card__role">{tx(person.role)}</p>
-        <p className="person-card__bio">{tx(open ? person.bio : person.bio.slice(0, 84) + "…")}</p>
+        <p className="person-card__bio">{tx(open ? bioText : bioText.slice(0, 84) + "…")}</p>
         {open && person.verse && <blockquote className="person-card__verse">{tx(person.verse)}</blockquote>}
         <button type="button" className="link-btn" onClick={() => setOpen((v) => !v)}>
           {open ? ct("auto.about.c45ab7af05f750ce") : ct("about.readBio")} <Icon name={open ? "chevronDown" : "arrowRight"} size={14} />

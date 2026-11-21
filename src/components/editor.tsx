@@ -21,7 +21,7 @@ import {
 import { PageHead } from "../components/layout";
 import { SearchBox, eventDate } from "../components/blocks";
 import { fireToast, useNow } from "../lib/hooks";
-import { readLiveStatus, recheckLiveNow, guestTarget, isGuestTargetUrl, useLiveStream, liveTarget, isStatusForTarget, clearGuestOnStop } from "../lib/livestatus";
+import { readLiveStatus, recheckLiveNow, guestTarget, isGuestTargetUrl, useLiveStream, liveTarget, isStatusForTarget, clearGuestOnStop, designatedChannelIdForTarget } from "../lib/livestatus";
 import { checkLiveStream, forgetVerified, forgetAllVerified } from "../lib/livestatus";
 import { SITE, SERVICES, img } from "../data/site";
 import { recentLimit } from "../data/live";
@@ -55,7 +55,7 @@ import {
   sectionIsHidden,
 } from "../lib/cmsSchema";
 import * as cms from "../lib/cms";
-import { cacheUploadBlob, feedUrlsForUpload, localUploadFallback, rememberUploadPreview, uploadNameOf, useCachedUploadUrl, useFeedUploadUrl, useFeedUploadUrls, useUploadPreviewUrl } from "../lib/uploadCache";
+import { cacheUploadBlob, feedUrlsForUpload, localUploadFallback, normalizeUploadUrl, rememberUploadPreview, uploadNameOf, useCachedUploadUrl, useFeedUploadUrl, useFeedUploadUrls, useUploadPreviewUrl } from "../lib/uploadCache";
 import { siteFile } from "../lib/livefeed";
 import { serverUrl } from "../lib/remoteserver";
 
@@ -857,8 +857,7 @@ export function LiveEndingPanel({ onOpen, children }: { onOpen: (id: string) => 
     published (see `gateLiveCommand` in src/lib/cms.ts) — an unclicked Publish
     leaves the site's on-air state alone, whatever the draft says. The buttons
     never gate a live end: when the broadcast ends the screen closes at once
-    onto the main channel's previous-service thumbnails, published or not — a
-    leaves the site's on-air state alone, whatever the draft says. When the
+    onto the main channel's previous-service thumbnails, published or not. When the
     broadcast ends by itself, nothing is written and nothing is filed: the
     office presses Stop, then Publish (the automatic stop was removed at the
     office's request — see src/lib/autostop.ts). */
@@ -910,7 +909,7 @@ export function LiveTransportButtons() {
         const mainUrl = liveTarget()?.url || "";
         if (s && s.state === "live" && s.videoId && mainUrl && isStatusForTarget(s, mainUrl)) {
           const latest = cms.getDraft().live || {};
-          cms.setSectionValue("live", { ...latest, liveVideoId: s.videoId, liveVideoTitle: s.title || (latest as any).liveTitle || "", liveVideoChannelId: s.channelId || (latest as any).liveVideoChannelId || "", liveVideoAt: Date.now() });
+          cms.setSectionValue("live", { ...latest, liveVideoId: s.videoId, liveVideoTitle: s.title || (latest as any).liveTitle || "", liveVideoChannelId: s.channelId || designatedChannelIdForTarget(mainUrl) || (latest as any).liveVideoChannelId || "", liveVideoAt: Date.now() });
         }
       } catch {}
     };
@@ -921,7 +920,7 @@ export function LiveTransportButtons() {
             const mainUrl = liveTarget()?.url || "";
             if (s && (s as any).state === "live" && (s as any).videoId && mainUrl && isStatusForTarget(s as any, mainUrl)) {
               const latest = cms.getDraft().live || {};
-              if ((latest as any).isLive) cms.setSectionValue("live", { ...latest, liveVideoId: (s as any).videoId, liveVideoTitle: (s as any).title || (latest as any).liveTitle || "", liveVideoChannelId: (s as any).channelId || "", liveVideoAt: Date.now() });
+              if ((latest as any).isLive) cms.setSectionValue("live", { ...latest, liveVideoId: (s as any).videoId, liveVideoTitle: (s as any).title || (latest as any).liveTitle || "", liveVideoChannelId: (s as any).channelId || designatedChannelIdForTarget(mainUrl) || "", liveVideoAt: Date.now() });
             }
           } catch {}
         }).catch(() => {});
@@ -998,7 +997,7 @@ export function LiveTransportButtons() {
           const mUrl = liveTarget()?.url || "";
           if (s && s.state === "live" && s.videoId && mUrl && isStatusForTarget(s, mUrl)) {
             const cur = cms.getDraft().live || {};
-            cms.setSectionValue("live", { ...cur, liveVideoId: s.videoId, liveVideoTitle: s.title || (cur as any).liveTitle || "", liveVideoChannelId: s.channelId || "", liveVideoAt: Date.now() });
+            cms.setSectionValue("live", { ...cur, liveVideoId: s.videoId, liveVideoTitle: s.title || (cur as any).liveTitle || "", liveVideoChannelId: s.channelId || designatedChannelIdForTarget(mUrl) || "", liveVideoAt: Date.now() });
           }
         } catch {}
         try {
@@ -1153,7 +1152,7 @@ export function GuestTransportButtons() {
           const mUrl = liveTarget()?.url || "";
           if (s && s.state === "live" && s.videoId && mUrl && isStatusForTarget(s, mUrl)) {
             const cur = cms.getDraft().live || {};
-            cms.setSectionValue("live", { ...cur, liveVideoId: s.videoId, liveVideoTitle: s.title || (cur as any).liveTitle || "", liveVideoChannelId: s.channelId || "", liveVideoAt: Date.now() });
+            cms.setSectionValue("live", { ...cur, liveVideoId: s.videoId, liveVideoTitle: s.title || (cur as any).liveTitle || "", liveVideoChannelId: s.channelId || designatedChannelIdForTarget(mUrl) || "", liveVideoAt: Date.now() });
           }
         } catch {}
         try {
@@ -1522,6 +1521,30 @@ function isLocalHost(): boolean {
   }
 }
 
+/* Re-encoded photo uploads (slide frame / compress) are always JPEG bytes —
+   the stored name must say so. JPEG bytes under a picked .png/.webp name are
+   served under that type + nosniff, which no browser decodes: the admin shows
+   the camera placeholder, visitors get a black slide, and the backup verifier
+   flags the mismatch so restores skip the file too. Videos pass through
+   untouched, so their names already match. */
+function matchNameToBlob(filename: string, blob: Blob): string {
+  try {
+    const t = String((blob as any)?.type || "").toLowerCase().split(";")[0].trim();
+    const ext =
+      t === "image/jpeg" ? ".jpg"
+      : t === "image/png" ? ".png"
+      : t === "image/webp" ? ".webp"
+      : t === "image/gif" ? ".gif"
+      : t === "image/avif" ? ".avif"
+      : "";
+    if (!ext) return filename;
+    const clean = String(filename || "photo.jpg");
+    return (clean.replace(/\.[a-z0-9]{1,10}$/i, "") || "photo") + ext;
+  } catch {
+    return filename;
+  }
+}
+
 async function localHostFile(blob: Blob, filename: string): Promise<string> {
   const base = serverUrl();
   if (!base && !isLocalHost())
@@ -1543,7 +1566,10 @@ async function localHostFile(blob: Blob, filename: string): Promise<string> {
   const data = await res.json().catch(() => null);
   if (!data || typeof data.url !== "string" || !data.url)
     throw new Error("The file could not be saved. Try again, or paste a link instead.");
-  return base ? base + data.url : data.url;
+  /* Store host-relative: the page and the console resolve /data/uploads/ on
+     the copy being read, so words restored on another device/host paint its
+     own file instead of the old host's (which blanks once that host sleeps). */
+  return data.url;
 }
 
 /* The stored name inside an office-server address, or "" for anything else
@@ -1609,19 +1635,29 @@ export function PhotoUpload({ onDone, frame }: { onDone: (url: string) => void; 
     setError("");
     setBusy(true);
     try {
+      /* Fix: iPhone HEIC/HEIF photos decode in almost no browser — uploading
+         one used to store a file neither the preview nor visitors can paint.
+         Stop with a plain-English note instead of a broken image. */
+      const lowName = String((file as File).name || "").toLowerCase();
+      const lowType = String((file as File).type || "").toLowerCase();
+      if (lowType === "image/heic" || lowType === "image/heif" || lowName.endsWith(".heic") || lowName.endsWith(".heif")) {
+        throw new Error("That photo is HEIC (iPhone). In Photos choose Duplicate as JPEG first, then upload the JPEG.");
+      }
       /* Slides take pictures only: the re-cut sets the size, so the picture
          goes in at full size and comes out 1600×1200. */
       const blob = forSlide ? await frameImageBlob(file) : await compressImageBlob(file, 1600, 0.82);
-      const url = await localHostFile(blob, file.name || "photo.jpg");
-      /* Instant paint (blank-upload fix): the session preview lands before the
-         value does, so the preview paints from this tab's own bytes at once —
-         never blank while the server copy warms up. The cache write is awaited
-         (it used to race the paint and lose), and it skips huge files inside. */
+      const url = await localHostFile(blob, matchNameToBlob(file.name || "photo.jpg", blob));
+      /* Sleep-free (note 413): keep the bytes in this browser so a host sleep never blanks the slide.
+         Awaited BEFORE onDone: the preview and the slide read the cache synchronously on the state
+         update below, so even when this copy reads uploads off another origin (office vs live host)
+         the just-uploaded picture paints instantly instead of the camera placeholder.
+         Session preview first (attached fix): the exact bytes as an object URL win instantly —
+         no server GET, no cache encode wait — then the durable cache for every later visit. */
       try {
         const kept = uploadNameOf(url);
         if (kept) {
           rememberUploadPreview(kept, blob);
-          await cacheUploadBlob(kept, blob);
+          await cacheUploadBlob(kept, blob).catch(() => {});
         }
       } catch {}
       onDone(url);
@@ -1668,15 +1704,24 @@ export function VideoUpload({ onDone }: { onDone: (url: string) => void }) {
     setError("");
     setBusy(true);
     try {
+      /* Fix: a phone video can be hundreds of MB — uploading without a guard
+         used to hang the tab with no message. Name the limit up front. */
+      const size = Number((file as File).size || 0);
+      if (size > 250 * 1024 * 1024) {
+        throw new Error("That video is over 250 MB. Trim it or pick a smaller file, then upload again.");
+      }
       const url = await localHostFile(file, file.name || "video.mp4");
-      /* Instant paint (blank-upload fix): session preview first, awaited cache
-         after (huge films skip the data-URL cache inside and keep the session
-         preview for this tab). */
+      /* Awaited before onDone (same race as photos): the preview reads the
+         cache synchronously on the state update, so the film poster paints
+         at once even cross-origin. Large videos skip the memory cache by
+         design (see cacheUploadBlob) and heal from the server/feed mirror.
+         Session preview first (attached fix): big films keep the object URL
+         for this tab even though they skip the data-URL cache. */
       try {
         const kept = uploadNameOf(url);
         if (kept) {
           rememberUploadPreview(kept, file);
-          await cacheUploadBlob(kept, file);
+          await cacheUploadBlob(kept, file).catch(() => {});
         }
       } catch {}
       onDone(url);
@@ -1723,20 +1768,23 @@ function VideoField({
   label?: string;
 }) {
   const url = value === undefined || value === null ? "" : String(value);
-  const address = url.trim();
+  /* Old absolute office addresses play from this copy (device-proof). */
+  const address = normalizeUploadUrl(url.trim());
+  /* Instant paint (attached fix): this tab's own just-uploaded bytes win,
+     then the browser cache, then the stored address, this copy's disk, then
+     the repo mirrors — first paintable wins, in order. */
   const sessionVideo = useUploadPreviewUrl(address);
   const cachedVideo = useCachedUploadUrl(address);
   const feedVideo = useFeedUploadUrl(address);
   const feedVideoList = useFeedUploadUrls(address);
   const feedVideoSecond = feedVideoList.length > 1 ? feedVideoList[1] : "";
-  /* Same-copy fallback for absolute office addresses (see uploadCache):
-     when the stored host is gone but this copy holds the same file, play it
-     from here instead of a dead address. */
+  /* Same-copy fallback for absolute office addresses: when the stored host
+     is gone but this copy holds the same file, play it from here instead
+     of a dead address. */
   const localVideo = localUploadFallback(address);
-  /* Ordered candidates, first paintable wins: this tab's own bytes, the
-     browser cache, the stored address, this copy's disk, then the repo
-     mirrors. The old chain stuck on the dead address whenever the mirrors
-     were empty (no feed) — a black player with no way forward. */
+  /* Ordered candidates, first paintable wins. The old chain stuck on the
+     dead address whenever the mirrors were empty (no feed) — a black player
+     with no way forward. */
   const videoCandidates = useMemo(() => {
     const list: string[] = [];
     for (const c of [sessionVideo, cachedVideo, address, localVideo, feedVideo, feedVideoSecond]) {
@@ -1861,7 +1909,7 @@ function ImageField({
      bundled photo a record falls back to, or nothing at all. */
   const original = slot ? siteFile(slotBundledPhoto(slot.key)) : def.fallbackPhoto ? siteFile(bundledPhoto(def.fallbackPhoto)) : "";
   const rawPreview = resolvePhoto(text) || original;
-  /* Instant paint (blank-upload fix): this tab's own just-uploaded bytes win,
+  /* Instant paint (attached fix): this tab's own just-uploaded bytes win,
      then the browser cache, then the stored address, this copy's disk, then
      the repo mirrors — first paintable wins, in order. */
   const sessionPreview = useUploadPreviewUrl(rawPreview);
@@ -1884,12 +1932,6 @@ function ImageField({
   }, [previewCandidates.join("\0")]);
   const preview = previewCandidates[Math.min(previewIdx, previewCandidates.length - 1)] || "";
   const previewFailed = previewCandidates.length === 0 || previewIdx >= previewCandidates.length;
-  const chosenLabel = key ? PHOTO_SLOTS.find((s) => s.key === key)?.label || key : "";
-  const forSlide = def.frame === "slide";
-  const [fitting, setFitting] = useState(false);
-  const [fitError, setFitError] = useState("");
-  /* A dead address (an upload that no longer resolves) shows the camera
-     placeholder instead of a torn preview — every upload, every size. */
   /* Gone-file diagnosis (same as the video field): every candidate failed and
      this browser never held the bytes — check this copy's disk (same-origin
      first: a cross-origin HEAD without CORS rejects even when the file
@@ -1928,6 +1970,10 @@ function ImageField({
     })();
     return () => { alive = false; };
   }, [rawPreview, cachedPreview, sessionPreview, localPreview, previewFailed]);
+  const chosenLabel = key ? PHOTO_SLOTS.find((s) => s.key === key)?.label || key : "";
+  const forSlide = def.frame === "slide";
+  const [fitting, setFitting] = useState(false);
+  const [fitError, setFitError] = useState("");
   /* The agent reads the picture's own shape, so it can prompt exactly when the
      picture is not landscape. */
   const [shape, setShape] = useState<{ w: number; h: number } | null>(null);
@@ -1960,11 +2006,15 @@ function ImageField({
       const framed = await framePastedSlide(text);
       if (!framed) throw new Error("That address could not be read as a picture. Check the link, or upload the picture instead.");
       const fittedUrl = await localHostFile(framed, "slide.jpg");
+      /* Awaited before onChange (same race as uploads above): the framed
+         bytes are in this browser's cache before the new address hits state,
+         so the preview and the slide paint at once. Session preview first
+         (attached fix): instant object URL, then the durable cache. */
       try {
         const kept = uploadNameOf(fittedUrl);
         if (kept) {
           rememberUploadPreview(kept, framed);
-          await cacheUploadBlob(kept, framed);
+          await cacheUploadBlob(kept, framed).catch(() => {});
         }
       } catch {}
       onChange(fittedUrl);
@@ -1981,7 +2031,7 @@ function ImageField({
   /* Slides take pictures only (video upload was removed): a pasted link that
      looks like a film is named, not previewed — films already live keep
      playing on the site until the office replaces them. */
-  const slideVideoLink = forSlide && /\.(mp4|m4v|webm|ogv|ogg|mov)(\?|#|$)/i.test(String(text || "").trim());
+  const slideVideoLink = forSlide && (/^data:video\//i.test(String(text || "").trim()) || /\.(mp4|m4v|webm|ogv|ogg|mov|m3u8)(\?|#|$)/i.test(String(text || "").trim()));
   const needsLandscape =
     forSlide && custom && !slideVideoLink && shape && shape.w > 0 && shape.h > 0 && shape.w < shape.h * 1.1 && agentOff !== preview;
   const squareish = !!shape && shape.w > 0 && shape.h > 0 && Math.abs(shape.w - shape.h) / Math.max(shape.w, shape.h) < 0.12;

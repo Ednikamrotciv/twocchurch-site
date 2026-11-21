@@ -1205,7 +1205,7 @@ function HelpModal({
           <div>
             <b className="ehelp__title">Put it live</b>
             <p>
-              Press <b>Publish</b>. Every visitor sees the change straight away. Before that, only you can see it.
+              Press <b>Publish</b>. Yes — one Publish lifts everywhere, including incognito, fresh profiles, new devices, and late/returning offline devices. Before that, only you can see it.
             </p>
           </div>
         </li>

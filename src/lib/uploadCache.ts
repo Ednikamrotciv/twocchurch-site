@@ -7,7 +7,7 @@
    or running local immediately shows the last uploads, blank-free. */
 
 import { useEffect, useState } from "react";
-import { bakedFeedSpec, bakedFeedUploadsDir, feedUploadUrls } from "./livefeed";
+import { bakedFeedSpec, bakedFeedUploadsDir, feedUploadUrls, siteFile } from "./livefeed";
 
 const IDB_NAME = "wom-uploads";
 const IDB_STORE = "files";
@@ -65,16 +65,29 @@ export function uploadNameOf(url: string): string {
   return m ? m[1] : "";
 }
 
-/** Keep the last upload for this name in this browser. Never throws. */
+/** This copy's own address for an office upload: old absolute addresses (the
+    previous host) become host-relative, so previews and players read the
+    restored file here instead of the old host. Pasted links pass through.
+    Fix: route through siteFile so subpath deploys (/church/) resolve uploads
+    under their own base instead of the domain root. Base "/" is unchanged. */
+export function normalizeUploadUrl(url: string): string {
+  const m = /\/data\/uploads\/([A-Za-z0-9][A-Za-z0-9._-]*)/.exec(String(url || ""));
+  if (!m) return String(url || "");
+  try {
+    return siteFile("/data/uploads/" + m[1]);
+  } catch {}
+  return "/data/uploads/" + m[1];
+}
+
+/** Keep the last upload for this name in this browser. Never throws.
+ *  Fix: videos can be hundreds of MB — encoding one as a data URL used to
+ *  blow up the tab's memory. Only small files ride the cache; large videos
+ *  heal from the server/feed mirror instead. */
 export async function cacheUploadBlob(name: string, blob: Blob): Promise<void> {
   const clean = String(name || "").trim();
   if (!clean || !blob || !(blob as any).size) return;
-  /* Big films must never ride the data-URL cache: base64-ing a 100 MB video
-     spikes the tab by ~270 MB and can kill it on a phone (a blank page that
-     looks exactly like a failed upload). Films paint from the session preview
-     and the server copy instead. */
-  if ((blob as any).size > 15_000_000) return;
   try {
+    if (Number((blob as any).size || 0) > 12 * 1024 * 1024) return;
     const dataUrl = await blobToDataUrl(blob);
     if (!dataUrl.startsWith("data:")) return;
     MEM.set(clean, dataUrl);
@@ -159,7 +172,12 @@ export function useCachedUploadUrl(url: string): string {
   const name = uploadNameOf(url);
   const [cached, setCached] = useState(() => getCachedDataUrlSync(url));
   useEffect(() => {
-    if (!name || cached) return;
+    /* The address can change while mounted (each upload mints a new name):
+       re-read the memory/local copy at once — otherwise a previous upload's
+       bytes (or a previous miss) stick to the new address and the preview
+       keeps the camera placeholder even though the bytes are cached. */
+    setCached(getCachedDataUrlSync(url));
+    if (!name) return;
     let alive = true;
     getCachedDataUrl(name).then((v) => {
       if (alive && v) setCached(v);
@@ -174,11 +192,13 @@ export function isOfficeUploadUrl(url: string): boolean {
   return !!uploadNameOf(url);
 }
 
-/* Session preview: the exact bytes just uploaded, as a same-tab object URL.
-   This is what makes an upload paint INSTANTLY — the preview never waits on
-   the server GET, so a slow/wiped/unreachable disk can never blank the admin
-   right after a successful upload. Keyed by upload name (server names are
-   unique per upload); the previous object URL for a name is revoked. */
+/* Session preview (blank-upload fix, from the office's attached fix): the
+   exact bytes just uploaded, as a same-tab object URL. This is what makes an
+   upload paint INSTANTLY — the preview never waits on the server GET or the
+   data-URL cache encode, so a slow/wiped/unreachable disk can never blank
+   the admin right after a successful upload. Keyed by upload name (server
+   names are unique per upload); the previous object URL for a name is
+   revoked. */
 const sessionPreviews = new Map<string, string>();
 export function rememberUploadPreview(name: string, blob: Blob): string {
   const clean = String(name || "").trim();
@@ -213,11 +233,12 @@ export function useUploadPreviewUrl(url: string): string {
   return preview;
 }
 
-/* Same-copy fallback for absolute office addresses: an upload stored as
-   https://old-host/data/uploads/x paints THIS copy's /data/uploads/x when the
-   absolute address fails (host moved, disk wiped here-not-there, relayed live
-   copy). Same file names are unique per upload, so the same name is the same
-   bytes on every copy that holds it. "" unless the URL is absolute. */
+/* Same-copy fallback for absolute office addresses (from the attached fix):
+   an upload stored as https://old-host/data/uploads/x paints THIS copy's
+   /data/uploads/x when the absolute address fails (host moved, disk wiped
+   here-not-there, relayed live copy). Same file names are unique per upload,
+   so the same name is the same bytes on every copy that holds it. "" unless
+   the URL is absolute. */
 export function localUploadFallback(url: string): string {
   const s = String(url || "").trim();
   if (!/^https?:\/\//i.test(s)) return "";
@@ -235,6 +256,9 @@ export async function feedUrlsForUpload(name: string): Promise<string[]> {
   const clean = String(name || "").trim();
   if (!clean) return [];
   try {
+    /* A null (no-feed) answer is re-checked every 30s: a feed baked after
+       this session started must still be found, instead of staying [] for
+       the whole visit. */
     if (feedSpecCache === undefined || (feedSpecCache === null && Date.now() - feedSpecCachedAt > 30_000)) {
       const [spec, dir] = await Promise.all([bakedFeedSpec(), bakedFeedUploadsDir()]);
       feedSpecCache = spec ? { spec, dir } : null;
@@ -252,6 +276,9 @@ export function useFeedUploadUrl(url: string): string {
   const name = uploadNameOf(url);
   const [feed, setFeed] = useState("");
   useEffect(() => {
+    /* New address, new lookup: never paint the previous upload's repo copy
+       while the new one resolves. */
+    setFeed("");
     if (!name) return;
     let alive = true;
     feedUrlsForUpload(name).then((urls) => {
@@ -268,6 +295,7 @@ export function useFeedUploadUrls(url: string): string[] {
   const name = uploadNameOf(url);
   const [feeds, setFeeds] = useState<string[]>([]);
   useEffect(() => {
+    setFeeds([]);
     if (!name) return;
     let alive = true;
     feedUrlsForUpload(name).then((urls) => {
