@@ -56,6 +56,7 @@ import {
   displayLive,
 } from "../lib/store";
 import { SITE, STATS, SERVICES, img, type Person } from "../data/site";
+import { localUploadFallback, useCachedUploadUrl, useFeedUploadUrls, useUploadPreviewUrl } from "../lib/uploadCache";
 import { photoOr } from "../data/photos";
 import { BRANCHES, DEFAULT_BRANCH_ID, HQ, branchFlag, branchZone, subBranchesOf, type Branch } from "../data/branches";
 import { LIVE, type WatchOption } from "../data/live";
@@ -497,6 +498,33 @@ export function VideoPlayer({
      its remount is already fresh. */
   const freshSrc = forceKey > 0 && src ? src + (src.indexOf("?") === -1 ? "?" : "&") + "womfresh=" + forceKey : src;
   const file = fileSrc(source);
+  /* Fresh-upload walk (blank-upload fix): the player tries every copy that
+     could hold the film — this tab's own bytes, the browser cache, the
+     stored address, this copy's disk, then the repo mirrors — before it
+     admits defeat. Only an exhausted walk lands on the dead view (grey
+     arrow over the latest thumbnail), never a black box. */
+  const sessionFile = useUploadPreviewUrl(file);
+  const cachedFile = useCachedUploadUrl(file);
+  const localFile = localUploadFallback(file);
+  const feedFiles = useFeedUploadUrls(file);
+  const fileAddrs = useMemo(() => {
+    const list: string[] = [];
+    for (const c of [sessionFile, cachedFile, file, localFile, ...feedFiles]) {
+      const s = String(c || "");
+      if (s && !list.includes(s)) list.push(s);
+    }
+    return list;
+  }, [sessionFile, cachedFile, file, localFile, feedFiles]);
+  const [fileIdx, setFileIdx] = useState(0);
+  useEffect(() => {
+    setFileIdx(0);
+  }, [fileAddrs.join("\0")]);
+  useEffect(() => {
+    /* Repair replays the whole walk from the first copy (a re-uploaded or
+       restored file heals without another page load). */
+    if (!dead) setFileIdx(0);
+  }, [dead]);
+  const playableFile = fileAddrs[Math.min(fileIdx, fileAddrs.length - 1)] || "";
   /* No blank screen: every branch below paints the latest previous thumbnail
      instead of black/blank — poster, then the source's own thumb, then the
      Watch screen's cover (latest previous service), never empty there. */
@@ -1150,15 +1178,23 @@ export function VideoPlayer({
     return (
       <div className={shell + " player--file"}>
         <video
-          key={iframeKey}
+          key={iframeKey + "|" + playableFile}
           className="player__video"
-          src={file}
+          src={playableFile}
           poster={source?.poster || fallbackThumb || undefined}
           controls
           playsInline
           preload="metadata"
           onPlay={() => onPlay?.()}
-          onError={() => setDead(true)}
+          onError={() => {
+            if (fileIdx + 1 >= fileAddrs.length) {
+              try {
+                setDead(true);
+              } catch {}
+            } else {
+              setFileIdx(fileIdx + 1);
+            }
+          }}
         />
         {live && (
           <span className="player__live">
