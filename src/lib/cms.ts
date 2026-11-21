@@ -6208,6 +6208,7 @@ export async function exportPublished(): Promise<string> {
   const files: BackupFile[] = [];
   const missingFiles: string[] = [];
   for (const name of allBackupNames(content)) {
+    let done = false;
     try {
       const res = await fetch((base ? base : "") + "/data/uploads/" + name, { cache: "no-store" });
       if (!res.ok) throw 0;
@@ -6227,6 +6228,47 @@ export async function exportPublished(): Promise<string> {
          Decode and check the bytes themselves — an HTML fallback page or a
          mismatched magic means the upload is already gone on this copy, so
          name it instead of embedding a blank. */
+      const bytes = backupBytesFromB64(data);
+      if (!bytes || !bytes.length) throw 0;
+      if (backupBytesLookLikeHtml(bytes)) throw 0;
+      if (!backupBytesMatchExtension(name, bytes)) throw 0;
+      files.push({ name, type: blob.type || guessUploadType(name), data });
+      done = true;
+    } catch {
+      /* fall through to cache/feed below — a wiped server must not sink the backup */
+    }
+    if (done) continue;
+    /* Server miss fallback (backup fix): this browser's own cache or the
+       public feed still holds the file after a sleep-wipe, so the backup
+       carries it instead of marking it missing and restoring blank. */
+    try {
+      let blob = null;
+      try {
+        const cached = await getCachedDataUrl(name);
+        const b = dataUrlToBlob(cached || "");
+        if (b && b.size) blob = b;
+      } catch {}
+      if (!blob || !blob.size) {
+        for (const u of await feedUrlsForUpload(name)) {
+          try {
+            const r = await fetch(u, { cache: "no-store" });
+            if (!r.ok) continue;
+            const b = await r.blob();
+            if (!b || !b.size) continue;
+            if (String(b.type || "").toLowerCase().includes("text/html")) continue;
+            blob = b;
+            try { await cacheUploadBlob(name, b); } catch {}
+            break;
+          } catch {}
+        }
+      }
+      if (!blob || !blob.size) throw 0;
+      if (String(blob.type || "").toLowerCase().includes("text/html")) throw 0;
+      if (blob.size > BACKUP_FILE_MAX_BYTES) {
+        missingFiles.push(name + " (too large: " + Math.round(blob.size / 1048576) + " MB)");
+        continue;
+      }
+      const data = await blobToBase64(blob);
       const bytes = backupBytesFromB64(data);
       if (!bytes || !bytes.length) throw 0;
       if (backupBytesLookLikeHtml(bytes)) throw 0;
@@ -6374,7 +6416,27 @@ export async function importBackup(text: string): Promise<ImportResult> {
       }
     }
     if (!reachable) {
-      for (const f of incoming) if (f && typeof f.name === "string") filesFailed.push(f.name);
+      /* No server to write to (static host, no backend): keep every embedded
+         file in this browser's cache so the restored draft paints here
+         instead of blank — Publish (or a server copy) still carries it to
+         other devices. Counted as failed server writes, not lost files. */
+      for (const f of incoming) {
+        if (!f || typeof f.name !== "string") continue;
+        try {
+          const type = typeof f?.type === "string" && f.type ? f.type : guessUploadType(f.name);
+          const __b = backupBytesFromB64(String(f.data || ""));
+          if (!__b || !__b.length) throw 0;
+          if (/text\/html/i.test(String(type || "")) || backupBytesLookLikeHtml(__b)) {
+            try { filesPoisoned.push(f.name); } catch {}
+            throw 0;
+          }
+          if (!backupBytesMatchExtension(f.name, __b)) throw 0;
+          const blob = base64ToBlob(String(f.data || ""), type);
+          if (!blob.size) throw 0;
+          try { await cacheUploadBlob(f.name, blob); } catch {}
+        } catch {}
+        filesFailed.push(f.name);
+      }
     } else {
       for (const f of incoming) {
         try {
@@ -6397,6 +6459,9 @@ export async function importBackup(text: string): Promise<ImportResult> {
           if (!backupBytesMatchExtension(name, __bytes)) throw 0;
           const blob = base64ToBlob(f.data, type);
           if (!blob.size) throw 0;
+          /* Cache first: even if the server write below fails, this browser
+             paints the restored photo instead of blank. */
+          try { await cacheUploadBlob(name, blob); } catch {}
           const res = await fetch(`${base}/__restore-file?conn=${encodeURIComponent(officeFileConn())}&name=${encodeURIComponent(name)}`, {
             method: "POST",
             headers: { "content-type": type },
