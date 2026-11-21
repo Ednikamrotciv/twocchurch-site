@@ -5915,14 +5915,6 @@
   object-fit: contain;
   background: transparent;
 }
-/* An exhausted film (no copy anywhere holds it) keeps a play mark over the
-   palette ground instead of a black box — the words caption still shows. */
-.aslide--video .aslide__media--empty {
-  display: grid;
-  place-items: center;
-  color: rgba(232, 189, 98, 0.92);
-  background: transparent;
-}
 .aslide--video .aslide__videotop {
   position: absolute;
   left: 0;

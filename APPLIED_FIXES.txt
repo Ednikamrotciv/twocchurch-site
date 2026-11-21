@@ -1,0 +1,48 @@
+UPLOAD + LIVESTREAM MAINCHANNEL FIX — applied to church-site_0 (2026-11-21)
+=====================================================================
+Base: church-site_0.zip
+Ported from: church-site-fixed_2_.zip — UPLOAD FIX ONLY (as requested)
+Plus: mainchannel livestream root-cause fix (same 3 hunks that fixed_2_ carries)
+
+1) UPLOAD FIX (from fixed_2_)
+- src/lib/uploadCache.ts: session preview (rememberUploadPreview/useUploadPreviewUrl),
+  same-copy fallback (localUploadFallback), dual repo mirrors (useFeedUploadUrls),
+  15MB data-URL guard (big films skip base64, keep session preview), feed retry.
+  Kept church-0's normalizeUploadUrl for compatibility.
+- src/components/editor.tsx: instant paint (session preview first, awaited cache),
+  ordered candidates [session, cache, stored, local, feed, feed2], gone-file diagnosis.
+- src/components/slides.tsx: same ordered candidates for slide images.
+- scripts/serve.mjs + scripts/vite-cms-backend.mjs: allow audio/* uploads
+  (ctype check + .mp3/.wav/.ogg/.m4a ext map + allowlist). Audio uploads no longer
+  return "bad filetype" blank.
+
+2) LIVESTREAM MAINCHANNEL FIX (root cause of "@twocorg live didn't work, other channel worked")
+- src/lib/livestatus.ts (3 hunks, surgical — zero's newer polling/cadence kept):
+  a) parseLivePage: order-independent externalVideoId (liveMarked fallback).
+     Old: /liveBroadcastDetails...{0,800}?externalVideoId/ missed when YouTube served
+     the id BEFORE the marker or >800 chars away → videoId "" → unknown.
+     New: if isLiveNow present, take first externalVideoId anywhere in page.
+  b) channelLiveVideoId: same order-independent fix for Live-tab vouch.
+  c) extractChannelId: designated shortcut for @twocorg (UCQ0KIUXUV7gTZmDDlvd3ZcQ).
+     Old: strict margin (≥5 mentions + 2x runner) → walled main page naming owner
+     once fell to "" → owner unnamed → candidate rejected → unknown.
+     New: if target is designated handle and its baked id appears even once, return it.
+     Other handles keep strict margin exactly as before.
+
+HOW TO APPLY
+- Back up first (Admin console -> Tools -> backup).
+- Extract this zip FULLY over your office copy (overwrites 6 files above), then:
+  npm run dev:fresh, restart backend (npm start), hard-refresh, sign in again,
+  Recover backup, Publish once, npm run bake-seed, commit + rebuild BOTH hosts
+  from same commit (see LIVESTREAM_REDEPLOY_FIX.txt steps 5-7).
+- Verify: /watch-live shows ENDED when nothing live; when @twocorg live, plays.
+  Test with other channel still works (guest path untouched).
+
+FILES CHANGED (6):
+- src/lib/uploadCache.ts
+- src/components/editor.tsx
+- src/components/slides.tsx
+- scripts/serve.mjs
+- scripts/vite-cms-backend.mjs
+- src/lib/livestatus.ts
+Everything else identical to church-site_0.zip.

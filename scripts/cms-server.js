@@ -55,7 +55,7 @@ var REC = 48;
 var HEADER = 34 + SLOTS * REC;
 var BASE_CHARS = HEADER / 2;
 var MAX_SECTION_CHARS = 200000;
-var MAX_LOG = 40;
+var MAX_LOG = 20;
 /* History generation: states stamped with an older generation drop their
    publish log the first time this code loads, then record again. */
 var LOG_GEN = 3;
@@ -411,182 +411,6 @@ function validCodeWord(v) { return typeof v === "string" && /^[A-Za-z0-9_-]{1,40
    host's word; a missing word still proves nothing, exactly as before. */
 function publishCodeWord() { return PUBLISH_CODE || (typeof self.__codeWord === "string" ? self.__codeWord : ""); }
 var LOG = [];
-/* Deleted-content rollback (72h): every publish/adoption/undo that replaces
-   words keeps the replaced sections' previous values here, and every trashed
-   upload, removed sub-admin or withdrawn invite keeps a pointer here — so the
-   History panel can put any deletion back within 72 hours. Entries prune by
-   age (72h), count and total size on every write; the button vanishes
-   client-side at the same age and the server refuses expired ids. Kept in the
-   meta blob (no state-layout change); growth is reserved in each writer's
-   free-space check, and an oversize entry is skipped rather than failing the
-   publish. Entry shapes:
-     {id, at, rev, by, kind:"publish"|"restore", note, sections:{id:prev|null}}
-     {id, at, rev, by, kind:"delete", note, files:[{name, trash}]}
-     {id, at, rev, by, kind:"delete-admin", note, sub:{name, hash}}
-     {id, at, rev, by, kind:"invite", note, invite:{name, codeHash}} */
-var ROLLBACKS = [];
-var ROLLBACK_MS = 72 * 3600 * 1000;
-var MAX_ROLLBACKS = 15;
-var MAX_ROLLBACK_CHARS = 600000;
-var MAX_RB_ENTRY_CHARS = 300000;
-var rbSeq = 0;
-/* In-progress multi-batch publish: the replaced values accumulate here across
-   batches (only the first batch marks `first`) and finalize on the last
-   batch. Abandoned when the store runs tight — the publish still lands. */
-var openRb = null;
-function stateFree() {
-  try {
-    return state.length - (HEADER + (SECTION_CHARS + META_CHARS) * 2);
-  } catch (e) {
-    return 0;
-  }
-}
-function rbSectionsChars(sections) {
-  var n = 0;
-  try {
-    for (var k in sections) {
-      if (Object.prototype.hasOwnProperty.call(sections, k)) {
-        var v = sections[k];
-        n += (v === null || v === undefined ? 8 : String(v).length + 40);
-      }
-    }
-  } catch (e) {}
-  return n;
-}
-function pruneRollbacks(now) {
-  try {
-    var kept = [];
-    var n = 0;
-    for (var i = 0; i < ROLLBACKS.length && kept.length < MAX_ROLLBACKS; i++) {
-      var e = ROLLBACKS[i];
-      if (!e || typeof e.at !== "number" || !(e.at > 0) || now - e.at > ROLLBACK_MS) continue;
-      n += rbSectionsChars(e.sections || {});
-      if (n > MAX_ROLLBACK_CHARS) break;
-      kept.push(e);
-    }
-    ROLLBACKS = kept;
-  } catch (e) {
-    ROLLBACKS = [];
-  }
-}
-function cleanRbSections(raw) {
-  var out = {};
-  var n = 0;
-  if (!raw || typeof raw !== "object") return null;
-  for (var id in raw) {
-    if (!Object.prototype.hasOwnProperty.call(raw, id)) continue;
-    if (!/^[a-zA-Z][a-zA-Z0-9-]{0,31}$/.test(id)) return null;
-    var v = raw[id];
-    if (v !== null && v !== undefined) {
-      if (typeof v !== "string" || v.length > MAX_SECTION_CHARS) return null;
-      try {
-        var parsed = JSON.parse(v);
-        if (parsed === null || typeof parsed !== "object") return null;
-      } catch (e) {
-        return null;
-      }
-      out[id] = v;
-    } else {
-      out[id] = null;
-    }
-    if (++n > SLOTS) return null;
-  }
-  if (!n) return null;
-  return out;
-}
-function cleanRbFiles(raw) {
-  var out = [];
-  if (!raw || !raw.length) return null;
-  for (var i = 0; i < raw.length && out.length < 30; i++) {
-    var f = raw[i];
-    if (!f || typeof f.name !== "string" || typeof f.trash !== "string") return null;
-    if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,99}$/.test(f.name)) return null;
-    if (!/^[0-9]{10,25}-[A-Za-z0-9][A-Za-z0-9._-]{0,99}$/.test(f.trash)) return null;
-    if (f.trash.slice(f.trash.indexOf("-") + 1) !== f.name) return null;
-    out.push({ name: f.name, trash: f.trash });
-  }
-  if (!out.length) return null;
-  return out;
-}
-function cleanRollbacks(raw) {
-  var out = [];
-  if (!raw || !raw.length) return out;
-  var now = Date.now();
-  for (var i = 0; i < raw.length && out.length < MAX_ROLLBACKS; i++) {
-    var e = raw[i];
-    if (!e || typeof e !== "object") continue;
-    if (typeof e.at !== "number" || !(e.at > 0) || now - e.at > ROLLBACK_MS) continue;
-    if (typeof e.id !== "string" || !/^[0-9]{10,25}:[0-9]{1,12}:[0-9]{1,12}$/.test(e.id)) continue;
-    var kind = e.kind;
-    if (kind !== "publish" && kind !== "restore" && kind !== "delete" && kind !== "delete-admin" && kind !== "invite") continue;
-    var item = {
-      id: e.id,
-      at: Math.floor(e.at),
-      rev: typeof e.rev === "number" ? Math.floor(e.rev) : 0,
-      by: typeof e.by === "string" ? e.by.slice(0, 60) : "",
-      kind: kind,
-      note: typeof e.note === "string" ? e.note.slice(0, 160) : "",
-    };
-    if (kind === "publish" || kind === "restore") {
-      var secs = cleanRbSections(e.sections);
-      if (!secs) continue;
-      item.sections = secs;
-    } else if (kind === "delete") {
-      var files = cleanRbFiles(e.files);
-      if (!files) continue;
-      item.files = files;
-    } else if (kind === "delete-admin") {
-      if (!e.sub || !validSubName(e.sub.name) || typeof e.sub.hash !== "string" || !/^[0-9a-f]{64}$/.test(e.sub.hash)) continue;
-      item.sub = { name: e.sub.name, hash: e.sub.hash };
-    } else {
-      if (!e.invite || !validSubName(e.invite.name) || typeof e.invite.codeHash !== "string" || !/^[0-9a-f]{64}$/.test(e.invite.codeHash)) continue;
-      item.invite = { name: e.invite.name, codeHash: e.invite.codeHash };
-    }
-    out.push(item);
-  }
-  return out;
-}
-/* Display name for a History row by a signed-in conn: sub-admins show their
-   roster name, the main admin shows the office ("Admin" in the panel). */
-function actorBy(conn) {
-  try {
-    var who = adminIds.get(conn.id);
-    if (who && who.role === "sub" && who.name) return String(who.name).slice(0, 60);
-  } catch (e) {}
-  return "";
-}
-function actorRole(conn) {
-  try {
-    var who = adminIds.get(conn.id);
-    if (who && who.role === "sub") return "sub";
-  } catch (e) {}
-  return "main";
-}
-/* Every admin state-change lands in the shared History: publishes, undos,
-   rollbacks, file deletes/restores, roster and security changes. kind:
-   publish | delete | admin | restore. rb/rbKind mark entries the panel can
-   put back within 72h (sections | files | roster | invite). byOverride names
-   the actor when the publish stamp (BY) is not theirs — roster and security
-   changes by the main admin show as the office ("Admin" in the panel). */
-function noteLog(kind, note, conn, rb, rbKind, byOverride) {
-  try {
-    var entry = {
-      rev: REV,
-      at: Date.now(),
-      by: byOverride !== undefined ? String(byOverride).slice(0, 60) : (actorBy(conn) || BY),
-      role: actorRole(conn),
-      note: String(note == null ? "" : note).slice(0, 160),
-      changed: [],
-      kind: kind,
-    };
-    if (rb) {
-      entry.rb = rb;
-      entry.rbKind = rbKind;
-    }
-    LOG.unshift(entry);
-    if (LOG.length > MAX_LOG) LOG.length = MAX_LOG;
-  } catch (e) {}
-}
 /* The office's latest on-air answer (note 318, memory-only): the deployed
    server cannot read YouTube itself (bot-walled datacenter IPs get a login
    wall with no live marker), but the office copy can — so a signed-in office
@@ -742,7 +566,7 @@ function undoLeftSec(now) {
 }
 
 function writeMeta() {
-  var meta = JSON.stringify({ by: BY, log: LOG, logGen: LOG_GEN, subs: SUBS, invites: INVITES, totp: TOTP, mainOff: MAIN_OFF, mainHash: MAIN_HASH, pwgen: PWGEN, notes: NOTES, prev: PREV, chReady: CH_READY, mediaClean: MEDIA_CLEAN, overrideClean: OVERRIDE_CLEAN, welcomeLock: WELCOME_LOCK, publishDeploy: PUBLISH_DEPLOY, publishCode: PUBLISH_CODE, rollbacks: ROLLBACKS });
+  var meta = JSON.stringify({ by: BY, log: LOG, logGen: LOG_GEN, subs: SUBS, invites: INVITES, totp: TOTP, mainOff: MAIN_OFF, mainHash: MAIN_HASH, pwgen: PWGEN, notes: NOTES, prev: PREV, chReady: CH_READY, mediaClean: MEDIA_CLEAN, overrideClean: OVERRIDE_CLEAN, welcomeLock: WELCOME_LOCK, publishDeploy: PUBLISH_DEPLOY, publishCode: PUBLISH_CODE });
   META_CHARS = meta.length;
   writeString(meta, BASE_CHARS + SECTION_CHARS);
   /* The header carries META_CHARS: without this, an admin-only change (an
@@ -873,8 +697,6 @@ function loadState() {
     if (parsed.logGen !== LOG_GEN) {
       LOG = [];
       BY = "";
-      ROLLBACKS = [];
-      openRb = null;
             NOTES = 0; // note 301: a new history generation is unreviewed — visitors wait until the office publishes
     PUBLISH_DEPLOY = "";
     PUBLISH_CODE = "";
@@ -894,8 +716,6 @@ function loadState() {
     PWGEN = typeof parsed.pwgen === "number" && parsed.pwgen >= 0 ? Math.floor(parsed.pwgen) : 0;
     NOTES = typeof parsed.notes === "number" && parsed.notes >= 0 ? Math.floor(parsed.notes) : 0;
     PREV = cleanPrev(parsed.prev);
-    ROLLBACKS = cleanRollbacks(parsed.rollbacks);
-    pruneRollbacks(Date.now());
     CH_READY = parsed.chReady === true;
     MEDIA_CLEAN = parsed.mediaClean === true;
     OVERRIDE_CLEAN = typeof parsed.overrideClean === "number" && parsed.overrideClean > 0 ? Math.floor(parsed.overrideClean) : 0;
@@ -906,8 +726,6 @@ function loadState() {
     NOTES = 0;
     BY = "";
     LOG = [];
-    ROLLBACKS = [];
-    openRb = null;
     SUBS = [];
     INVITES = [];
     TOTP = null;
@@ -1260,51 +1078,11 @@ function fail(err) {
   return JSON.stringify({ ok: false, err: err });
 }
 
-/* ------------------------------------------- shared draft (multi-admin) */
-/* One admin's unsaved work is every admin's: staged sections live here in memory
-   and ride data/.draft-share.json via the host (best-effort — a restart without
-   the file just means no shared draft until someone stages again). Published
-   words never read this; Publish still carries each tab's own draft. */
-var DRAFT_SHARE = { rev: 0, at: 0, by: "", sections: {}, writers: {} };
-try {
-  var __dseed = typeof self.__draftShareSeed === "string" ? self.__draftShareSeed : "";
-  if (__dseed) {
-    var __dsp = JSON.parse(__dseed);
-    if (__dsp && typeof __dsp === "object" && __dsp.sections && typeof __dsp.sections === "object") {
-      var __dsk = Object.keys(__dsp.sections);
-      if (__dsk.length <= SLOTS) {
-        var __dok = true, __dtot = 0, __dsid, __dsv, __dpi;
-        for (__dpi = 0; __dpi < __dsk.length; __dpi++) {
-          __dsid = __dsk[__dpi];
-          __dsv = __dsp.sections[__dsid];
-          if (!/^[a-zA-Z][a-zA-Z0-9-]{0,31}$/.test(__dsid) || typeof __dsv !== "string" || !__dsv.length || __dsv.length > MAX_SECTION_CHARS) { __dok = false; break; }
-          __dtot += __dsv.length;
-          if (__dtot > 2 * 1024 * 1024) { __dok = false; break; }
-          try { var __dpj = JSON.parse(__dsv); if (__dpj === null || typeof __dpj !== "object") { __dok = false; break; } } catch (e) { __dok = false; break; }
-        }
-        if (__dok) {
-          DRAFT_SHARE.rev = Math.floor(Number(__dsp.rev) || 0);
-          DRAFT_SHARE.at = Math.floor(Number(__dsp.at) || 0);
-          DRAFT_SHARE.by = String(__dsp.by || "").slice(0, 60);
-          DRAFT_SHARE.sections = __dsp.sections;
-          DRAFT_SHARE.writers = (__dsp.writers && typeof __dsp.writers === "object") ? __dsp.writers : {};
-        }
-      }
-    }
-  }
-} catch (e) { /* corrupt seed — start empty */ }
-function persistDraftShare() {
-  try {
-    if (typeof self.__persistDraftShare === "function") self.__persistDraftShare(JSON.stringify(DRAFT_SHARE));
-  } catch (e) { /* best-effort only */ }
-}
-
 /* ------------------------------------------------------------------- events */
 
 self.onopen = function (info) {
   try {
     info.conn.subscribe("content");
-    try { info.conn.subscribe("draft"); } catch (e) {}
   } catch (e) {
     /* best-effort nudge channel */
   }
@@ -1384,90 +1162,6 @@ self.rpc = {
      Only strict, recent answers are kept — anything else is refused, never
      stored — so a stale tab, a wrong channel or a forged video id can never
      put words on the visitors' screen. */
-  /* Shared draft staging (multi-admin): any signed-in admin's unsaved sections
-     stage here; every other admin on this backend adopts them (last writer wins
-     per section; a tab's own unsaved edits are never overwritten client-side).
-     Same shape validation as publish (ids, parse-to-object, per-section and
-     total caps) — bodies ride the publish-family WAF lane. */
-  stageDraft: function (info, raw) {
-    var denySess = sessionDeny(info.conn);
-    if (denySess) return fail(denySess);
-    var payload;
-    try {
-      payload = JSON.parse(raw);
-    } catch (e) {
-      return fail("bad-payload");
-    }
-    if (!payload || typeof payload.sections !== "object" || payload.sections === null) return fail("bad-payload");
-    var ids = [];
-    var id;
-    for (id in payload.sections) {
-      if (Object.prototype.hasOwnProperty.call(payload.sections, id)) ids.push(id);
-    }
-    if (!ids.length) return fail("empty");
-    if (ids.length > 24) return fail("too-many");
-    var i, value, total = 0;
-    for (i = 0; i < ids.length; i++) {
-      id = ids[i];
-      if (!/^[a-zA-Z][a-zA-Z0-9-]{0,31}$/.test(id)) return fail("bad-id");
-      value = payload.sections[id];
-      if (typeof value !== "string" || !value.length || value.length > MAX_SECTION_CHARS) return fail("bad-value");
-      total += value.length;
-      if (total > 2 * 1024 * 1024) return fail("too-large");
-      try {
-        var sparsed = JSON.parse(value);
-        if (sparsed === null || typeof sparsed !== "object") return fail("bad-value");
-      } catch (e) {
-        return fail("bad-value");
-      }
-    }
-    var now = Date.now();
-    var who = "";
-    try {
-      var sident = adminIds.get(info.conn.id);
-      who = (sident && sident.name) || "";
-    } catch (e) {}
-    if (!who) who = typeof payload.by === "string" ? payload.by.slice(0, 60) : "";
-    for (i = 0; i < ids.length; i++) {
-      DRAFT_SHARE.sections[ids[i]] = payload.sections[ids[i]];
-      DRAFT_SHARE.writers[ids[i]] = { by: who, at: now };
-    }
-    /* Bound the scratchpad: oldest-staged sections drop first. */
-    try {
-      var allk = Object.keys(DRAFT_SHARE.sections);
-      if (allk.length > SLOTS) {
-        allk.sort(function (a, b) {
-          var ta = 0, tb = 0;
-          try { ta = DRAFT_SHARE.writers[a] ? DRAFT_SHARE.writers[a].at : 0; } catch (e) {}
-          try { tb = DRAFT_SHARE.writers[b] ? DRAFT_SHARE.writers[b].at : 0; } catch (e) {}
-          return ta - tb;
-        });
-        while (allk.length > SLOTS) {
-          var sdrop = allk.shift();
-          delete DRAFT_SHARE.sections[sdrop];
-          delete DRAFT_SHARE.writers[sdrop];
-        }
-      }
-    } catch (e) { /* bounding never breaks a stage */ }
-    DRAFT_SHARE.rev += 1;
-    DRAFT_SHARE.at = now;
-    DRAFT_SHARE.by = who;
-    persistDraftShare();
-    try {
-      pubsub.publish("draft", JSON.stringify({ drev: DRAFT_SHARE.rev, at: now, by: who }));
-    } catch (e) { /* a missed nudge is harmless: clients poll */ }
-    return ok({ drev: DRAFT_SHARE.rev, at: now });
-  },
-  /* Read the shared draft (multi-admin): admin-only, read-only (never stamps,
-     so background polls cannot extend idleness). */
-  getSharedDraft: function (info) {
-    try {
-      if (!sessionLive(info.conn)) return fail("denied");
-    } catch (e) {
-      return fail("denied");
-    }
-    return ok({ drev: DRAFT_SHARE.rev, at: DRAFT_SHARE.at, by: DRAFT_SHARE.by, sections: DRAFT_SHARE.sections, writers: DRAFT_SHARE.writers });
-  },
   liveReport: function (info, raw) {
     if (!raw) return ok({ report: gatedReport() });
     var liveDeny = sessionDeny(info.conn);
@@ -1567,51 +1261,15 @@ self.rpc = {
     if (notesAdvanceAdopt && acode && (ids.length || notes)) PUBLISH_CODE = acode;
     var changed = [];
     for (i = 0; i < ids.length && i < 24; i++) changed.push(ids[i]);
-    /* 72h rollback for adopted words too: the live site's publish may have
-       deleted something the office wants back. Skip-if-tight like publish. */
-    var rbIdLive = "";
-    try {
-      var rbSecs = {};
-      var rbCostLive = 0;
-      for (i = 0; i < ids.length; i++) {
-        var rbid = ids[i];
-        var rbprev = Object.prototype.hasOwnProperty.call(SECTIONS, rbid) ? SECTIONS[rbid] : null;
-        var rbc = rbprev === null ? 8 : (String(rbprev).length + 40);
-        if (rbCostLive + rbc > MAX_RB_ENTRY_CHARS) break;
-        rbSecs[rbid] = rbprev;
-        rbCostLive += rbc;
-      }
-      if (Object.keys(rbSecs).length && stateFree() - (rbCostLive * 2 + 1024) >= 8192) {
-        rbSeq += 1;
-        var rbEntryLive = {
-          id: String(AT) + ":" + String(REV) + ":" + String(rbSeq),
-          at: AT,
-          rev: REV,
-          by: BY,
-          kind: "publish",
-          note: "from the live site",
-          sections: rbSecs,
-        };
-        ROLLBACKS.unshift(rbEntryLive);
-        pruneRollbacks(Date.now());
-        rbIdLive = rbEntryLive.id;
-      }
-    } catch (e) {}
     var who = adminIds.get(info.conn.id);
-    var adoptEntry = {
+    LOG.unshift({
       rev: REV,
       at: AT,
       by: BY,
       role: who && who.role === "sub" ? "sub" : "main",
       note: "from the live site",
       changed: changed,
-      kind: "publish",
-    };
-    if (rbIdLive) {
-      adoptEntry.rb = rbIdLive;
-      adoptEntry.rbKind = "sections";
-    }
-    LOG.unshift(adoptEntry);
+    });
     if (LOG.length > MAX_LOG) LOG.length = MAX_LOG;
     for (i = 0; i < ids.length; i++) {
       var err = setSection(ids[i], payload.sections[ids[i]]);
@@ -1691,55 +1349,6 @@ self.rpc = {
     if (notesAdvanceFeed && typeof deploy === "string" && deploy && (ids.length || notes)) PUBLISH_DEPLOY = deploy;
     var fcode = validCodeWord(payload.code);
     if (notesAdvanceFeed && fcode && (ids.length || notes)) PUBLISH_CODE = fcode;
-    /* The mirror adoption is admin-visible history too — with the same 72h
-       rollback as any publish. Never bumps the revision or the clock (see
-       above); the id carries the wall clock for the 72h expiry. */
-    var rbIdFeed = "";
-    try {
-      var rbSecsFeed = {};
-      var rbCostFeed = 0;
-      for (i = 0; i < ids.length; i++) {
-        var rbidF = ids[i];
-        var rbprevF = Object.prototype.hasOwnProperty.call(SECTIONS, rbidF) ? SECTIONS[rbidF] : null;
-        var rbcF = rbprevF === null ? 8 : (String(rbprevF).length + 40);
-        if (rbCostFeed + rbcF > MAX_RB_ENTRY_CHARS) break;
-        rbSecsFeed[rbidF] = rbprevF;
-        rbCostFeed += rbcF;
-      }
-      if (Object.keys(rbSecsFeed).length && stateFree() - (rbCostFeed * 2 + 1024) >= 8192) {
-        rbSeq += 1;
-        var rbNowFeed = Date.now();
-        var rbEntryFeed = {
-          id: String(rbNowFeed) + ":" + String(REV) + ":" + String(rbSeq),
-          at: rbNowFeed,
-          rev: REV,
-          by: BY,
-          kind: "publish",
-          note: "from the public mirror",
-          sections: rbSecsFeed,
-        };
-        ROLLBACKS.unshift(rbEntryFeed);
-        pruneRollbacks(rbNowFeed);
-        rbIdFeed = rbEntryFeed.id;
-      }
-    } catch (e) {}
-    var whoFeed = null;
-    try { whoFeed = adminIds.get(info.conn.id); } catch (e) {}
-    var feedEntry = {
-      rev: REV,
-      at: typeof at === "number" && at > 0 ? at : Date.now(),
-      by: BY,
-      role: whoFeed && whoFeed.role === "sub" ? "sub" : "main",
-      note: "from the public mirror",
-      changed: ids.slice(0, 24),
-      kind: "publish",
-    };
-    if (rbIdFeed) {
-      feedEntry.rb = rbIdFeed;
-      feedEntry.rbKind = "sections";
-    }
-    LOG.unshift(feedEntry);
-    if (LOG.length > MAX_LOG) LOG.length = MAX_LOG;
     writeMeta();
     writeHeader();
     try {
@@ -1866,8 +1475,6 @@ self.rpc = {
     admins.add(info.conn.id);
     adminIds.set(info.conn.id, { role: "sub", name: name });
     touchAdmin(info.conn);
-    noteLog("admin", name + " joined as a sub-admin", info.conn);
-    writeMeta();
     return ok({ role: "sub", name: name, pwgen: PWGEN });
   },
 
@@ -1948,7 +1555,6 @@ self.rpc = {
       }
     }
     TOTP = { secret: payload.secret, backups: backups, q: payload.q.trim(), qhash: sha256Hex(norm) };
-    noteLog("admin", "Turned on two-factor authentication", info.conn, null, null, "");
     writeMeta();
     return ok({});
   },
@@ -1976,7 +1582,6 @@ self.rpc = {
     if (!norm || norm.length < 4 || String(payload.answer).length > 140) return fail("bad-answer");
     TOTP.q = payload.q.trim();
     TOTP.qhash = sha256Hex(norm);
-    noteLog("admin", "Updated the security question", info.conn, null, null, "");
     writeMeta();
     return ok({});
   },
@@ -1999,7 +1604,6 @@ self.rpc = {
     if (!TOTP.qhash) return fail("no-question");
     if (fallbackKind(typed) === "answer") {
       TOTP = null;
-      noteLog("admin", "Turned off two-factor authentication", info.conn, null, null, "");
       writeMeta();
       return ok({});
     }
@@ -2013,7 +1617,6 @@ self.rpc = {
     if (denySess || !isMain(info.conn)) return fail(denySess || "unauthorized");
     if (!TOTP) return fail("off");
     TOTP = null;
-    noteLog("admin", "Turned off two-factor authentication", info.conn, null, null, "");
     writeMeta();
     return ok({});
   },
@@ -2033,12 +1636,10 @@ self.rpc = {
     if (denySess || !isMain(info.conn)) return fail(denySess || "unauthorized");
       if (SUBS.length === 0) return fail("no-subs");
       MAIN_OFF = true;
-      noteLog("admin", "Retired the main password sign-in", info.conn, null, null, "");
     } else {
       var denySess = sessionDeny(info.conn);
       if (denySess || (!isMain(info.conn) && !isSub(info.conn))) return fail(denySess || "unauthorized");
       MAIN_OFF = false;
-      noteLog("admin", "Restored the main password sign-in", info.conn, null, null, "");
     }
     writeMeta();
     return ok({ off: MAIN_OFF });
@@ -2081,7 +1682,6 @@ self.rpc = {
     try {
       for (var ei = 0; ei < evicted.length; ei++) adminLast.delete(evicted[ei]);
     } catch (e) {}
-    noteLog("admin", "Changed the main password", info.conn, null, null, "");
     writeMeta();
     try {
       pubsub.publish("content", JSON.stringify({ rev: REV, at: AT, by: BY }));
@@ -2129,7 +1729,6 @@ self.rpc = {
     if (nameTaken(payload.name)) return fail("name-taken");
     if (INVITES.length >= MAX_INVITES) return fail("too-many");
     INVITES.push({ name: payload.name, codeHash: payload.codeHash, at: Date.now() });
-    noteLog("admin", "Invited " + payload.name + " as a sub-admin", info.conn, null, null, "");
     writeMeta();
     return ok({});
   },
@@ -2147,27 +1746,7 @@ self.rpc = {
     for (var i = 0; i < INVITES.length; i++) {
       if (INVITES[i].name === payload.name) {
         if (MAIN_OFF && SUBS.length === 0 && INVITES.length <= 1) return fail("last-way-in");
-        /* 72h rollback: re-offering restores the same code hash. */
-        var rbIdInv = "";
-        try {
-          var nowInv = Date.now();
-          pruneRollbacks(nowInv);
-          rbSeq += 1;
-          var rbInv = {
-            id: String(nowInv) + ":" + String(REV) + ":" + String(rbSeq),
-            at: nowInv,
-            rev: REV,
-            by: "",
-            kind: "invite",
-            note: "Withdrew the invite for " + payload.name,
-            invite: { name: INVITES[i].name, codeHash: INVITES[i].codeHash },
-          };
-          ROLLBACKS.unshift(rbInv);
-          pruneRollbacks(nowInv);
-          rbIdInv = rbInv.id;
-        } catch (e) {}
         INVITES.splice(i, 1);
-        noteLog("delete", "Withdrew the invite for " + payload.name, info.conn, rbIdInv || null, "invite", "");
         writeMeta();
         return ok({});
       }
@@ -2187,36 +1766,15 @@ self.rpc = {
     }
     if (!payload || typeof payload.name !== "string") return fail("bad-payload");
     var found = false;
-    var dropHash = "";
     for (var i = 0; i < SUBS.length; i++) {
       if (SUBS[i].name === payload.name) {
         if (MAIN_OFF && SUBS.length <= 1) return fail("last-way-in");
-        dropHash = SUBS[i].hash;
         SUBS.splice(i, 1);
         found = true;
         break;
       }
     }
     if (!found) return fail("unknown");
-    /* 72h rollback: the hash never leaves the server — rollback re-adds it. */
-    var rbIdSub = "";
-    try {
-      var nowSub = Date.now();
-      pruneRollbacks(nowSub);
-      rbSeq += 1;
-      var rbSub = {
-        id: String(nowSub) + ":" + String(REV) + ":" + String(rbSeq),
-        at: nowSub,
-        rev: REV,
-        by: "",
-        kind: "delete-admin",
-        note: "Removed sub-admin " + payload.name,
-        sub: { name: payload.name, hash: dropHash },
-      };
-      ROLLBACKS.unshift(rbSub);
-      pruneRollbacks(nowSub);
-      rbIdSub = rbSub.id;
-    } catch (e) {}
     var droppedSubs = [];
     adminIds.forEach(function (ident, id) {
       if (ident && ident.role === "sub" && ident.name === payload.name) {
@@ -2228,7 +1786,6 @@ self.rpc = {
     try {
       for (var di = 0; di < droppedSubs.length; di++) adminLast.delete(droppedSubs[di]);
     } catch (e) {}
-    noteLog("delete", "Removed sub-admin " + payload.name, info.conn, rbIdSub || null, "roster", "");
     writeMeta();
     return ok({});
   },
@@ -2294,31 +1851,6 @@ self.rpc = {
       if (Object.keys(keep).length) undoSnap = { at: 0, rev: REV, sections: keep };
     }
 
-    /* 72h rollback: keep this publish's replaced values. Accumulated across
-       batches (only the first batch marks `first`) and finalized with the
-       history entry on the last batch. Space-checked like the words — a tight
-       store keeps the publish and drops the net, never the other way round. */
-    if (ids.length) {
-      var rbNow = Date.now();
-      if (payload.first === true || !openRb) openRb = { at0: rbNow, sections: {}, cost: 0 };
-      if (openRb && rbNow - openRb.at0 > 10 * 60 * 1000) openRb = { at0: rbNow, sections: {}, cost: 0 };
-      if (openRb) {
-        for (var ri = 0; ri < ids.length; ri++) {
-          var rid = ids[ri];
-          if (!Object.prototype.hasOwnProperty.call(openRb.sections, rid)) {
-            var rprev = Object.prototype.hasOwnProperty.call(SECTIONS, rid) ? SECTIONS[rid] : null;
-            var rcost = rprev === null ? 8 : (String(rprev).length + 40);
-            if (openRb.cost + rcost > MAX_RB_ENTRY_CHARS) break;
-            openRb.sections[rid] = rprev;
-            openRb.cost += rcost;
-          }
-        }
-        /* Reserve the entry like the words: a tight store keeps the publish
-           and drops the safety net. */
-        if (stateFree() - (openRb.cost * 2 + 1024) < 8192) openRb = null;
-      }
-    }
-
     REV += 1;
     AT = Date.now();
     BY = typeof payload.by === "string" ? payload.by.slice(0, 60) : "";
@@ -2343,43 +1875,15 @@ self.rpc = {
     /* A publish sent in several batches (see sendPatch in cms.ts) records one
        history entry, on its last batch — `quiet` batches only store content. */
     if (!payload.quiet) {
-      /* Finalize the 72h rollback entry for this publish (every admin sees a
-         Roll back button on the history row for 72h). */
-      var rbId = "";
-      try {
-        if (openRb && openRb.sections && Object.keys(openRb.sections).length) {
-          rbSeq += 1;
-          var rbNote = typeof payload.note === "string" ? payload.note.slice(0, 160) : "";
-          var rbEntry = {
-            id: String(AT) + ":" + String(REV) + ":" + String(rbSeq),
-            at: AT,
-            rev: REV,
-            by: BY,
-            kind: "publish",
-            note: rbNote,
-            sections: openRb.sections,
-          };
-          ROLLBACKS.unshift(rbEntry);
-          pruneRollbacks(Date.now());
-          rbId = rbEntry.id;
-        }
-      } catch (e) {}
-      openRb = null;
       var who = adminIds.get(info.conn.id);
-      var logEntry = {
+      LOG.unshift({
         rev: REV,
         at: AT,
         by: BY,
         role: who && who.role === "sub" ? "sub" : "main",
         note: typeof payload.note === "string" ? payload.note.slice(0, 160) : "",
         changed: changed,
-        kind: "publish",
-      };
-      if (rbId) {
-        logEntry.rb = rbId;
-        logEntry.rbKind = "sections";
-      }
-      LOG.unshift(logEntry);
+      });
       if (LOG.length > MAX_LOG) LOG.length = MAX_LOG;
     }
 
@@ -2406,11 +1910,7 @@ self.rpc = {
   /* Put the previous publish back whole (note 291): one undo, inside about
      15 minutes of the publish it supersedes. It replaces the current publish
      outright — a publish always deletes the one before it — and the undo
-     itself consumes the window: afterwards nothing of either is kept. Peek
-     mode (`peek:true` in the payload) only READS: the superseded words come
-     back as {sections} with the window unconsumed, nothing applied or
-     logged — the browser stages them into the shared draft and Publish (the
-     final push for every edit, fix, rollback and undo) carries them. */
+     itself consumes the window: afterwards nothing of either is kept. */
   undoPublish: function (info, raw) {
     var denySess = sessionDeny(info.conn);
     if (denySess) return fail(denySess);
@@ -2424,62 +1924,11 @@ self.rpc = {
       }
       return fail("expired");
     }
-    /* Peek mode (staged undo): hand the superseded words back with the
-       window unconsumed — nothing applied, logged or consumed. */
-    var peekOnlyUndo = false;
-    try {
-      var askedPeek = typeof raw === "string" && raw ? JSON.parse(raw) : null;
-      peekOnlyUndo = !!(askedPeek && askedPeek.peek === true);
-    } catch (e) {}
-    if (peekOnlyUndo) {
-      var peekIds = [];
-      var pid;
-      for (pid in prev.sections) {
-        if (Object.prototype.hasOwnProperty.call(prev.sections, pid)) peekIds.push(pid);
-      }
-      return ok({ sections: prev.sections, ids: peekIds });
-    }
     var ids = [];
     var id;
     for (id in prev.sections) {
       if (Object.prototype.hasOwnProperty.call(prev.sections, id)) ids.push(id);
     }
-    /* 72h rollback of the undo itself: keep what the undo replaces, so an
-       undo can be taken back within 72h like any publish. Skip-if-tight. */
-    var rbIdUndo = "";
-    try {
-      var rbSecsUndo = {};
-      var rbCostUndo = 0;
-      var rbSeenUndo = {};
-      var rbu;
-      for (rbu = 0; rbu < ids.length; rbu++) rbSeenUndo[ids[rbu]] = true;
-      for (cur in SECTIONS) {
-        if (Object.prototype.hasOwnProperty.call(SECTIONS, cur)) rbSeenUndo[cur] = true;
-      }
-      for (var rbuId in rbSeenUndo) {
-        if (!Object.prototype.hasOwnProperty.call(rbSeenUndo, rbuId)) continue;
-        var rbprevU = Object.prototype.hasOwnProperty.call(SECTIONS, rbuId) ? SECTIONS[rbuId] : null;
-        var rbcU = rbprevU === null ? 8 : (String(rbprevU).length + 40);
-        if (rbCostUndo + rbcU > MAX_RB_ENTRY_CHARS) break;
-        rbSecsUndo[rbuId] = rbprevU;
-        rbCostUndo += rbcU;
-      }
-      if (Object.keys(rbSecsUndo).length && stateFree() - (rbCostUndo * 2 + 1024) >= 8192) {
-        rbSeq += 1;
-        var rbEntryUndo = {
-          id: String(now) + ":" + String(REV + 1) + ":" + String(rbSeq),
-          at: now,
-          rev: REV + 1,
-          by: typeof BY === "string" ? BY : "",
-          kind: "publish",
-          note: "Undid the last publish",
-          sections: rbSecsUndo,
-        };
-        ROLLBACKS.unshift(rbEntryUndo);
-        pruneRollbacks(now);
-        rbIdUndo = rbEntryUndo.id;
-      }
-    } catch (e) {}
     /* Sections the previous publish never held leave with the current one —
        the restore is exact, not a merge. */
     var cur;
@@ -2513,20 +1962,14 @@ self.rpc = {
     BY = by;
     if (undoDeploy) PUBLISH_DEPLOY = undoDeploy;
     var who = adminIds.get(info.conn.id);
-    var undoEntry = {
+    LOG.unshift({
       rev: REV,
       at: AT,
       by: BY,
       role: who && who.role === "sub" ? "sub" : "main",
       note: "Undid the last publish",
       changed: ids.slice(0, 24),
-      kind: "publish",
-    };
-    if (rbIdUndo) {
-      undoEntry.rb = rbIdUndo;
-      undoEntry.rbKind = "sections";
-    }
-    LOG.unshift(undoEntry);
+    });
     if (LOG.length > MAX_LOG) LOG.length = MAX_LOG;
     writeMeta();
     writeHeader();
@@ -2536,287 +1979,6 @@ self.rpc = {
       /* a missed nudge is harmless: clients refresh on next load */
     }
     return ok({ rev: REV, notes: NOTES, publishDeploy: PUBLISH_DEPLOY });
-  },
-  /* Put back a deletion within 72 hours (the History panel's Roll back
-     button): replaced words stage back into the shared draft (Publish is the
-     final push for every edit, fix, rollback and undo — nothing here touches
-     the live site); a removed sub-admin or a withdrawn invite is re-created
-     from the stored hash (which never leaves the server, and no draft holds
-     them, so those apply at once); trashed uploads hand their trash pointers
-     back for the browser to copy home through /__restore-trash. Expired or
-     unknown ids fail "expired" — the panel drops the button. Peek mode
-     (`peek:true`) only READS: words come back as {sections} and files as
-     {files} with nothing applied, logged or consumed; admin records (which
-     cannot stage) fail "immediate" so the panel applies them directly. */
-  rollback: function (info, raw) {
-    var denySess = sessionDeny(info.conn);
-    if (denySess) return fail(denySess);
-    var payload;
-    try {
-      payload = JSON.parse(raw);
-    } catch (e) {
-      return fail("bad-payload");
-    }
-    if (!payload || typeof payload.id !== "string") return fail("bad-payload");
-    if (!/^[0-9]{10,25}:[0-9]{1,12}:[0-9]{1,12}$/.test(payload.id)) return fail("bad-payload");
-    var now = Date.now();
-    pruneRollbacks(now);
-    var entry = null;
-    for (var ri = 0; ri < ROLLBACKS.length; ri++) {
-      if (ROLLBACKS[ri] && ROLLBACKS[ri].id === payload.id) {
-        entry = ROLLBACKS[ri];
-        break;
-      }
-    }
-    if (!entry || now - entry.at > ROLLBACK_MS) {
-      if (entry) {
-        var rest = [];
-        for (var rj = 0; rj < ROLLBACKS.length; rj++) {
-          if (ROLLBACKS[rj] !== entry) rest.push(ROLLBACKS[rj]);
-        }
-        ROLLBACKS = rest;
-        writeMeta();
-      }
-      return fail("expired");
-    }
-    var by = BY;
-    if (typeof payload.by === "string" && payload.by) by = payload.by.slice(0, 60);
-    var whoRb = null;
-    try {
-      whoRb = adminIds.get(info.conn.id);
-    } catch (e) {}
-    var roleRb = whoRb && whoRb.role === "sub" ? "sub" : "main";
-    /* Trashed uploads: the bytes live on the host disk — the browser copies
-       them home through /__restore-trash and logs the restore. Read-only:
-       the same answer serves peek mode and the direct call. */
-    if (entry.kind === "delete" && entry.files) {
-      return ok({ files: entry.files });
-    }
-    /* Peek mode (staged rollback): hand the stored words back without
-       applying, logging or consuming anything — the browser stages them into
-       the shared draft and Publish carries them. Admin records cannot stage
-       (no draft holds them) and fail "immediate" so the panel applies them
-       with the direct call below. */
-    var peekOnlyRb = false;
-    try {
-      peekOnlyRb = !!(payload && payload.peek === true);
-    } catch (e) {}
-    if (peekOnlyRb) {
-      if (entry.kind === "delete-admin" || entry.kind === "invite") return fail("immediate");
-      if (entry.sections && typeof entry.sections === "object") {
-        return ok({ sections: entry.sections });
-      }
-      return fail("empty");
-    }
-    /* Removed sub-admin: the hash never leaves the server — re-add it here. */
-    if (entry.kind === "delete-admin" && entry.sub) {
-      if (nameTaken(entry.sub.name)) return fail("name-taken");
-      if (SUBS.length >= MAX_SUBS) return fail("too-many");
-      SUBS.push({ name: entry.sub.name, hash: entry.sub.hash, at: now });
-      LOG.unshift({
-        rev: REV,
-        at: now,
-        by: by,
-        role: roleRb,
-        note: "Restored sub-admin " + entry.sub.name,
-        changed: [],
-        kind: "restore",
-      });
-      if (LOG.length > MAX_LOG) LOG.length = MAX_LOG;
-      writeMeta();
-      return ok({ rev: REV, restored: "sub" });
-    }
-    /* Withdrawn invite: re-offer it with a fresh clock — an explicit rollback
-       re-opens the door the office closed. */
-    if (entry.kind === "invite" && entry.invite) {
-      pruneInvites(now);
-      if (nameTaken(entry.invite.name)) return fail("name-taken");
-      if (INVITES.length >= MAX_INVITES) return fail("too-many");
-      INVITES.push({ name: entry.invite.name, codeHash: entry.invite.codeHash, at: now });
-      LOG.unshift({
-        rev: REV,
-        at: now,
-        by: by,
-        role: roleRb,
-        note: "Re-offered the invite for " + entry.invite.name,
-        changed: [],
-        kind: "restore",
-      });
-      if (LOG.length > MAX_LOG) LOG.length = MAX_LOG;
-      writeMeta();
-      return ok({ rev: REV, restored: "invite" });
-    }
-    /* Words: put the kept values back as a new publish. */
-    var secs = entry.sections || {};
-    var ids = [];
-    var sk;
-    for (sk in secs) {
-      if (!Object.prototype.hasOwnProperty.call(secs, sk)) continue;
-      if (!/^[a-zA-Z][a-zA-Z0-9-]{0,31}$/.test(sk)) return fail("bad-value");
-      var sv = secs[sk];
-      if (sv !== null && sv !== undefined) {
-        if (typeof sv !== "string" || sv.length > MAX_SECTION_CHARS) return fail("bad-value");
-        try {
-          var sparsed = JSON.parse(sv);
-          if (sparsed === null || typeof sparsed !== "object") return fail("bad-value");
-        } catch (e) {
-          return fail("bad-value");
-        }
-      }
-      ids.push(sk);
-    }
-    if (!ids.length) return fail("empty");
-    if (ids.length > SLOTS) return fail("too-many");
-    /* Reserve the rollback-of-rollback plus the growth: a tight store refuses
-       the rollback instead of writing it half. */
-    var preSecs = {};
-    var preCost = 0;
-    var pi;
-    for (pi = 0; pi < ids.length; pi++) {
-      var pk = ids[pi];
-      preSecs[pk] = Object.prototype.hasOwnProperty.call(SECTIONS, pk) ? SECTIONS[pk] : null;
-      preCost += preSecs[pk] === null ? 8 : String(preSecs[pk]).length + 40;
-    }
-    var growth = 0;
-    for (pi = 0; pi < ids.length; pi++) {
-      var nk = ids[pi];
-      var nvv = secs[nk];
-      var nll = nvv === null || nvv === undefined ? 0 : String(nvv).length;
-      var oll = Object.prototype.hasOwnProperty.call(SECTIONS, nk) ? String(SECTIONS[nk]).length : 0;
-      if (nll > oll) growth += nll - oll;
-    }
-    var needRb = growth * 2 + preCost * 2 + 2048;
-    if (!PREV) needRb += SECTION_CHARS * 2 + 1024;
-    if (stateFree() - needRb < 8192) return fail("no-space");
-    var keepRb = {};
-    for (var kk in SECTIONS) {
-      if (Object.prototype.hasOwnProperty.call(SECTIONS, kk)) keepRb[kk] = SECTIONS[kk];
-    }
-    for (pi = 0; pi < ids.length; pi++) {
-      var werr = setSection(ids[pi], secs[ids[pi]] === undefined ? null : secs[ids[pi]]);
-      if (werr) return fail(werr);
-    }
-    var undoSnapRb = null;
-    if (Object.keys(keepRb).length) undoSnapRb = { at: 0, rev: REV, sections: keepRb };
-    REV += 1;
-    AT = now;
-    BY = by;
-    if (undoSnapRb) {
-      undoSnapRb.at = AT;
-      PREV = undoSnapRb;
-    }
-    /* The safety net for the safety net: taking back a rollback is itself a
-       restore within 72h. Skipped when oversize — the restore still lands. */
-    var newRbId = "";
-    try {
-      if (preCost <= MAX_RB_ENTRY_CHARS) {
-        rbSeq += 1;
-        var rbNote = ("Rolled back " + (entry.note || "a publish")).slice(0, 160);
-        var newRb = {
-          id: String(AT) + ":" + String(REV) + ":" + String(rbSeq),
-          at: AT,
-          rev: REV,
-          by: BY,
-          kind: "restore",
-          note: rbNote,
-          sections: preSecs,
-        };
-        ROLLBACKS.unshift(newRb);
-        pruneRollbacks(now);
-        newRbId = newRb.id;
-      }
-    } catch (e) {}
-    var rbChanged = ids.slice(0, 24);
-    var rbLogEntry = {
-      rev: REV,
-      at: AT,
-      by: BY,
-      role: roleRb,
-      note: ("Rolled back " + (entry.note || "a publish")).slice(0, 160),
-      changed: rbChanged,
-      kind: "restore",
-    };
-    if (newRbId) {
-      rbLogEntry.rb = newRbId;
-      rbLogEntry.rbKind = "sections";
-    }
-    LOG.unshift(rbLogEntry);
-    if (LOG.length > MAX_LOG) LOG.length = MAX_LOG;
-    writeMeta();
-    writeHeader();
-    try {
-      pubsub.publish("content", JSON.stringify({ rev: REV, at: AT, by: BY }));
-    } catch (e) {
-      /* a missed nudge is harmless: clients refresh on next load */
-    }
-    return ok({ rev: REV, restored: "sections" });
-  },
-  /* A trashed upload's history row: the host moved the bytes to data/.trash/
-     and hands the trash name here. Any signed-in admin may record it. */
-  noteFileDelete: function (info, raw) {
-    var denySess = sessionDeny(info.conn);
-    if (denySess) return fail(denySess);
-    var payload;
-    try {
-      payload = JSON.parse(raw);
-    } catch (e) {
-      return fail("bad-payload");
-    }
-    if (!payload || typeof payload !== "object") return fail("bad-payload");
-    var name = String(payload.name || "");
-    var trash = String(payload.trash || "");
-    if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,99}$/.test(name) || name.indexOf("..") !== -1) return fail("bad-name");
-    if (!/^[0-9]{10,25}-[A-Za-z0-9][A-Za-z0-9._-]{0,99}$/.test(trash) || trash.indexOf("..") !== -1) return fail("bad-name");
-    if (trash.slice(trash.indexOf("-") + 1) !== name) return fail("bad-name");
-    var now = Date.now();
-    pruneRollbacks(now);
-    rbSeq += 1;
-    var entry = {
-      id: String(now) + ":" + String(REV) + ":" + String(rbSeq),
-      at: now,
-      rev: REV,
-      by: actorBy(info.conn) || BY,
-      kind: "delete",
-      note: "Deleted " + name + " from the office",
-      files: [{ name: name, trash: trash }],
-    };
-    ROLLBACKS.unshift(entry);
-    pruneRollbacks(now);
-    var who = null;
-    try {
-      who = adminIds.get(info.conn.id);
-    } catch (e) {}
-    LOG.unshift({
-      rev: REV,
-      at: now,
-      by: entry.by,
-      role: who && who.role === "sub" ? "sub" : "main",
-      note: entry.note,
-      changed: [],
-      kind: "delete",
-      rb: entry.id,
-      rbKind: "files",
-    });
-    if (LOG.length > MAX_LOG) LOG.length = MAX_LOG;
-    writeMeta();
-    return ok({});
-  },
-  /* A restored upload's history row (after /__restore-trash): kind restore,
-     no rollback of its own — the trash stays until it expires. */
-  noteActivity: function (info, raw) {
-    var denySess = sessionDeny(info.conn);
-    if (denySess) return fail(denySess);
-    var payload;
-    try {
-      payload = JSON.parse(raw);
-    } catch (e) {
-      return fail("bad-payload");
-    }
-    if (!payload || payload.kind !== "restore") return fail("bad-payload");
-    if (typeof payload.note !== "string" || !payload.note.length || payload.note.length > 120) return fail("bad-payload");
-    noteLog("restore", payload.note, info.conn, null, null, actorBy(info.conn) || "");
-    writeMeta();
-    return ok({});
   },
   /* Forget the publish history. Content is untouched — the next publish
      starts the record again from there. Main admin only. */
@@ -2828,9 +1990,6 @@ self.rpc = {
     REV = 0;
     AT = 0;
     PREV = null;
-    /* The rollback net goes with the record it annotates. */
-    ROLLBACKS = [];
-    openRb = null;
     writeMeta();
     writeHeader();
     return ok({});

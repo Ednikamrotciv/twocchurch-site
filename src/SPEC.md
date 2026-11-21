@@ -7273,20 +7273,3 @@ manual-start rule (MM screen gate, PP display matrix, AAA badge gate). Verified:
 edited files parse (esbuild transform), and the display matrix holds against the
 shipped sources — guest detection alone stays quiet, guest switch shows, main
 detection shows, Stop holds, pause does not read as stopped.
-
-Field-driven livestream gate (no hardcoded handle): the @twocorg-only strict
-layer is gone — the same ownership rule now follows whichever channel the
-office types in the field, main and guest alike. `resolveYoutube` in
-`src/lib/livestatus.ts` (which serves both slots) allows
-UC-from-address || baked-known-handle || the page's own owner: known-foreign
-suggestions are skipped, ownerless grab-bag mentions play only with the Live
-tab's vouch, chrome-only pages follow only their own named owner. The Watch
-screen (`src/pages/WatchLive.tsx`) holds the main field's id plus the
-office-stamped Play channel across channel-follow, playable/dead-id and
-typed-link ownership; the channel tap (`src/components/blocks.tsx`) uses the
-same field id. Kept: target stamps, `ownerAllowsCandidate`, videoless reports
-never steer, ended screens never inherit another channel. @twocorg behaves
-exactly as before; any other typed channel gets the same protection instead
-of the old always-permissive fallback; thin unreadable pages wait rather than
-guess. Verified: edited files parse (esbuild transform), 14-check harness on
-the shipped helpers ALL PASS.

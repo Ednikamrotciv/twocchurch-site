@@ -55,7 +55,7 @@ import {
   sectionIsHidden,
 } from "../lib/cmsSchema";
 import * as cms from "../lib/cms";
-import { cacheUploadBlob, localUploadFallback, rememberUploadPreview, uploadNameOf, useCachedUploadUrl, useFeedUploadUrl, useFeedUploadUrls, useUploadPreviewUrl } from "../lib/uploadCache";
+import { cacheUploadBlob, feedUrlsForUpload, localUploadFallback, rememberUploadPreview, uploadNameOf, useCachedUploadUrl, useFeedUploadUrl, useFeedUploadUrls, useUploadPreviewUrl } from "../lib/uploadCache";
 import { siteFile } from "../lib/livefeed";
 import { serverUrl } from "../lib/remoteserver";
 
@@ -743,13 +743,13 @@ export function Dashboard({
         title="Recent activity"
         lede={
           state.log.length
-            ? `The last ${state.log.length} activit${state.log.length === 1 ? "y" : "ies"} on the shared server.`
-            : "Nothing has happened from this console yet."
+            ? `The last ${state.log.length} publish${state.log.length === 1 ? "" : "es"} to the shared server.`
+            : "Nothing has been published from this console yet."
         }
       />
       <Card>
         {state.log.length === 0 ? (
-          <p className="muted">Publishes, deletions, and admin changes will appear here, with what changed and who changed it.</p>
+          <p className="muted">Your first publish will appear here, with what changed and who changed it.</p>
         ) : (
           <ul className="admin__log">
             {state.log.map((entry) => {
@@ -781,7 +781,6 @@ export function Dashboard({
                   ) : null}
                 </div>
                 <span className={"admin__log-by" + (isMain ? " admin__log-by--main" : "")}>{who}</span>
-                <RollbackButton entry={entry} />
             </li>
               );
             })}
@@ -819,60 +818,6 @@ function ClearLogButton() {
         {armed ? "Click again to confirm" : "Clear history"}
       </Btn>
     </div>
-  );
-}
-
-/* One history row's way back: every deletion carries a 72h Roll back button.
-   The button vanishes once the window passes (server enforces it too). */
-function RollbackButton({ entry }: { entry: cms.LogEntry }) {
-  const [armed, setArmed] = useState(false);
-  const [busy, setBusy] = useState(false);
-  const [expired, setExpired] = useState(false);
-  useEffect(() => {
-    if (!armed) return;
-    const t = window.setTimeout(() => setArmed(false), 4000);
-    return () => window.clearTimeout(t);
-  }, [armed]);
-  if (!entry?.rb || expired) return null;
-  const left = cms.rollbackHoursLeft(entry.at);
-  if (left <= 0) return null;
-  const hours = Math.max(1, Math.ceil(left));
-  const go = async () => {
-    setBusy(true);
-    const res = await cms.rollbackHistoryEntry(entry);
-    setBusy(false);
-    if (!res.ok && res.error === "expired") {
-      setExpired(true);
-      fireToast("That rollback expired — the 72-hour window has passed.", "error");
-      return;
-    }
-    if (!res.ok) {
-      fireToast(`Could not roll back (${res.error || "error"}).`, "error");
-      return;
-    }
-    setArmed(false);
-    /* Silent by office request: no success toast. Staged words show as
-       pending in Publish, restored files reappear in their previews, admin
-       restores land in History — errors still say. */
-  };
-  return (
-    <Btn
-      size="sm"
-      variant="quiet"
-      icon="refresh"
-      disabled={busy}
-      title={`Put back this deletion (${hours}h left of 72h)`}
-      onClick={() => {
-        if (!armed) {
-          setArmed(true);
-          return;
-        }
-        setArmed(false);
-        go();
-      }}
-    >
-      {busy ? "Rolling back…" : armed ? "Click again to confirm" : `Roll back (${hours}h left)`}
-    </Btn>
   );
 }
 
@@ -1608,11 +1553,10 @@ function hostedUploadName(url: string): string {
   return m ? m[1] : "";
 }
 
-/* Delete an office-server upload — it leaves data/uploads/ for data/.trash/
-   (72h rollback) and afterwards simply stops riding in backups. Two-tap
-   confirmed at the call site, because every page using it loses its picture
-   until republished. Returns the trash id for the history row. */
-async function deleteHostFile(name: string): Promise<string> {
+/* Delete an office-server upload for good — it leaves data/uploads/ and
+   afterwards simply stops riding in backups. Two-tap confirmed at the call
+   site, because every page using it loses its picture until republished. */
+async function deleteHostFile(name: string): Promise<void> {
   const base = serverUrl();
   if (!base && !isLocalHost()) throw new Error("The office server connection is needed to delete it — connect it in the admin console.");
   if (!cms.officeFileConn()) {
@@ -1624,12 +1568,6 @@ async function deleteHostFile(name: string): Promise<string> {
   if (res.status === 403) throw new Error("Sign in to the admin console first, then delete again.");
   if (res.status === 404) throw new Error("It is already gone from the office server.");
   if (!res.ok) throw new Error("It could not be deleted on the server.");
-  try {
-    const body = await res.json();
-    return String(body?.trash || "");
-  } catch {
-    return "";
-  }
 }
 
 /* The two-tap "delete it from the office" control behind a photo or video.
@@ -1641,12 +1579,7 @@ function DeleteUpload({ url, what, onGone }: { url: string; what: string; onGone
   const go = async () => {
     setBusy(true);
     try {
-      const trash = await deleteHostFile(name);
-      /* Every admin activity lands in History: the deletion row carries the
-         72h Roll back button (best-effort — the delete itself already won). */
-      try {
-        if (trash) await cms.noteFileDelete(name, trash);
-      } catch {}
+      await deleteHostFile(name);
       onGone();
       fireToast(`${what} deleted from the office — publish to take it off the site.`, "success");
     } catch (err) {
@@ -1818,6 +1751,48 @@ function VideoField({
   }, [videoCandidates.join("\0")]);
   const vSrc = videoCandidates[Math.min(videoIdx, videoCandidates.length - 1)] || "";
   const videoFailed = videoCandidates.length === 0 || videoIdx >= videoCandidates.length;
+  /* Gone-file diagnosis: the player errored, this browser never cached the
+     bytes, and neither feed mirror has them — check this copy's disk so the
+     office sees WHY instead of a silent blank (wiped host after a restart,
+     or uploaded on another device). Only for office uploads, settled before
+     showing (an 8s cap so a slow feed can't hang the note). */
+  const [videoGone, setVideoGone] = useState(false);
+  useEffect(() => {
+    setVideoGone(false);
+    const nm = uploadNameOf(address);
+    if (!nm || sessionVideo || cachedVideo || !videoFailed) return;
+    let alive = true;
+    (async () => {
+      const timeout = new Promise<null>((r) => setTimeout(() => r(null), 8000));
+      const probe = (async () => {
+        try {
+          /* This copy's disk first (same-origin HEAD always answers), then
+             the stored address — a cross-origin HEAD without CORS rejects
+             even when the file exists, so the stored address alone must
+             never condemn the file. */
+          const [feeds, diskOk] = await Promise.all([
+            feedUrlsForUpload(nm),
+            (async () => {
+              const targets = [localVideo || address, localVideo ? address : ""].filter(Boolean);
+              for (const t of targets) {
+                try {
+                  const h = await fetch(t, { method: "HEAD", cache: "no-store" });
+                  const ct = String(h.headers.get("content-type") || "").toLowerCase();
+                  if (h.ok && !ct.includes("text/html")) return true;
+                } catch {}
+              }
+              return false;
+            })(),
+          ]);
+          return { feeds, diskOk };
+        } catch { return null; }
+      })();
+      const r = await Promise.race([probe, timeout]);
+      if (!alive) return;
+      if (r && !r.diskOk && !(r.feeds && r.feeds.length)) setVideoGone(true);
+    })();
+    return () => { alive = false; };
+  }, [address, cachedVideo, sessionVideo, localVideo, videoFailed]);
 
   return (
     <div className="admin__wide">
@@ -1857,6 +1832,9 @@ function VideoField({
             )}
           </div>
         </div>
+        {videoGone ? (
+          <p className="admin__upload-error">This video isn’t on this copy — the host may have restarted (which wipes uploads), or it was uploaded on another device. Upload it here again, then Publish.</p>
+        ) : null}
       </Field>
     </div>
   );
@@ -1912,6 +1890,44 @@ function ImageField({
   const [fitError, setFitError] = useState("");
   /* A dead address (an upload that no longer resolves) shows the camera
      placeholder instead of a torn preview — every upload, every size. */
+  /* Gone-file diagnosis (same as the video field): every candidate failed and
+     this browser never held the bytes — check this copy's disk (same-origin
+     first: a cross-origin HEAD without CORS rejects even when the file
+     exists) so the office sees WHY instead of a silent blank. Only for
+     office uploads. */
+  const [imgGone, setImgGone] = useState(false);
+  useEffect(() => {
+    setImgGone(false);
+    const nm = uploadNameOf(rawPreview);
+    if (!nm || sessionPreview || cachedPreview || !previewFailed) return;
+    let alive = true;
+    (async () => {
+      const timeout = new Promise<null>((r) => setTimeout(() => r(null), 8000));
+      const probe = (async () => {
+        try {
+          const [feeds, diskOk] = await Promise.all([
+            feedUrlsForUpload(nm),
+            (async () => {
+              const targets = [localPreview || rawPreview, localPreview ? rawPreview : ""].filter(Boolean);
+              for (const t of targets) {
+                try {
+                  const h = await fetch(t, { method: "HEAD", cache: "no-store" });
+                  const ct = String(h.headers.get("content-type") || "").toLowerCase();
+                  if (h.ok && !ct.includes("text/html")) return true;
+                } catch {}
+              }
+              return false;
+            })(),
+          ]);
+          return { feeds, diskOk };
+        } catch { return null; }
+      })();
+      const r = await Promise.race([probe, timeout]);
+      if (!alive) return;
+      if (r && !r.diskOk && !(r.feeds && r.feeds.length)) setImgGone(true);
+    })();
+    return () => { alive = false; };
+  }, [rawPreview, cachedPreview, sessionPreview, localPreview, previewFailed]);
   /* The agent reads the picture's own shape, so it can prompt exactly when the
      picture is not landscape. */
   const [shape, setShape] = useState<{ w: number; h: number } | null>(null);
@@ -2028,6 +2044,9 @@ function ImageField({
             </div>
           ) : null}
           {fitError && <p className="admin__upload-error">{fitError}</p>}
+          {imgGone ? (
+            <p className="admin__upload-error">This photo isn’t on this copy — the host may have restarted (which wipes uploads), or it was uploaded on another device. Upload it here again, then Publish.</p>
+          ) : null}
           {text && (
             <div className="btn-row">
               <Btn size="sm" variant="quiet" icon="trash" onClick={() => onChange("")}>
@@ -2670,10 +2689,12 @@ export function ToolsPage() {
       return;
     }
     if (!res.ok) {
-      fireToast(`Could not undo (${res.error}).`, "error");
+      fireToast(`Could not roll back (${res.error}).`, "error");
+    } else if (res.live === false) {
+      fireToast("Rolled back here. The live site follows within a minute.", "info");
+    } else {
+      fireToast("Rolled back to the previous revision.", "success");
     }
-    /* Silent by office request: no success toast — the undone words show as
-       pending in Publish. */
   };
   /* The ~15-minute server undo window counts down live while it is open. */
   const [, setUndoTick] = useState(0);
