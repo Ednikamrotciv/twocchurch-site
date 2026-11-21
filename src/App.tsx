@@ -52,10 +52,6 @@ const Admin = React.lazy(
     import("./pages/Admin").then((m) => ({ default: m.Admin })),
   ),
 );
-
-// React's JSX type and the installed ErrorInfo definitions disagree about the
-// componentStack field. Adapt the boundary class to the normal component type
-// while preserving its runtime behavior.
 const AppErrorBoundary = ErrorBoundary as unknown as React.ComponentType<
   React.PropsWithChildren<object>
 >;

@@ -1,8 +1,10 @@
 node_modules/
 dist/
 data-backups/
+data/.trash/
 bin/
 data/.last-seen
+data/.draft-share.json
 deploy-hook.txt
 no-auto-share.txt
 # maintenance-hold.txt SHIPS (note 335): git deploys must hold fresh visitors

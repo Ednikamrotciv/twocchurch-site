@@ -3,7 +3,7 @@
    publishing, uploads, live updates, plus the local YouTube/geo proxies —
    so dev behaves exactly like production. */
 
-import { readFile, stat, mkdir, writeFile, cp, rm } from "node:fs/promises";
+import { readFile, stat, mkdir, writeFile, cp, rm, rename, readdir, copyFile } from "node:fs/promises";
 import path from "node:path";
 import { createCmsHost, hashText } from "./cms-local.mjs";
 import { isLoopbackAddr } from "./live-follow.mjs";
@@ -22,10 +22,60 @@ import { gzipSync } from "node:zlib";
 const ENTRY_TAG = '<script type="module" src="/src/main.tsx"></script>';
 const SHIM_TAG = '<script src="/scripts/local-shim.js"></script>';
 
+/* Trashed uploads (72h rollback — same as scripts/serve.mjs): /__delete-file
+   moves bytes to data/.trash/<ts>-<name> instead of unlinking, so the
+   History panel can put any deletion back within 72 hours. Never committed,
+   baked or mirrored. Pruned by age (72h) and total size (200MB, oldest
+   first); pruning never breaks serving. */
+const TRASH_MS = 72 * 3600 * 1000;
+const TRASH_MAX_BYTES = 200 * 1024 * 1024;
+function trashDirFor(rootDir) {
+  return path.join(rootDir, "data", ".trash");
+}
+async function pruneTrashDir(rootDir) {
+  try {
+    const dir = trashDirFor(rootDir);
+    const files = await readdir(dir).catch(() => []);
+    const now = Date.now();
+    let items = [];
+    let total = 0;
+    for (const f of files) {
+      if (f.includes("..") || f.includes("/") || f.includes("\\")) continue;
+      const m = /^([0-9]{10,25})-([A-Za-z0-9][A-Za-z0-9._-]{0,99})$/.exec(f);
+      if (!m) continue;
+      let size = 0;
+      try {
+        const st = await stat(path.join(dir, f));
+        if (!st.isFile()) continue;
+        size = st.size;
+      } catch {
+        continue;
+      }
+      items.push({ f, ts: Number(m[1]), size });
+      total += size;
+    }
+    items.sort((a, b) => a.ts - b.ts);
+    for (const it of items) {
+      if (!(now - it.ts > TRASH_MS) && total <= TRASH_MAX_BYTES) break;
+      try {
+        await rm(path.join(dir, it.f), { force: true });
+        total -= it.size;
+      } catch {}
+    }
+  } catch {
+    /* pruning never breaks serving */
+  }
+}
+
 /* The admin backend for `npm run dev`: the site's own publishing code running
    in Node — the same backend scripts/serve.mjs runs in production. */
 export function cmsBackend() {
   const ROOT = process.cwd();
+  try {
+    pruneTrashDir(ROOT);
+  } catch {
+    /* a missing trash dir on first boot is normal */
+  }
   /* Fresh-deploy ritual for local dev (office request: every `npm run dev`
      opens like a new deploy — the maintenance notice holds until Publish and
      the copy stages welcome-only until Recover + Publish, just like the
@@ -709,8 +759,8 @@ export function cmsBackend() {
             return;
           }
 
-          /* Delete an upload for good (note 307; ported to this line in note
-             346): same as scripts/serve.mjs. */
+          /* Delete an upload into the trash (72h rollback; ported to this line
+             in note 346 — same as scripts/serve.mjs). */
           if (pathname === "/__delete-file" && req.method === "POST") {
             /* HIGH fix: deletes take a signed-in admin connection. */
             if (!(await isAdminConn(String(url.searchParams.get("conn") || "")))) {
@@ -736,12 +786,65 @@ export function cmsBackend() {
                 res.end("not found");
                 return;
               }
-              await rm(target, { force: true });
+              await mkdir(trashDirFor(ROOT), { recursive: true });
+              const trash = Date.now().toString() + "-" + asked;
+              try {
+                await rename(target, path.join(trashDirFor(ROOT), trash));
+              } catch {
+                res.writeHead(500, { "cache-control": "no-store" });
+                res.end("delete failed");
+                return;
+              }
+              try {
+                pruneTrashDir(ROOT);
+              } catch {}
               res.writeHead(200, { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" });
-              res.end(JSON.stringify({ deleted: true }));
+              res.end(JSON.stringify({ deleted: true, trash }));
             } catch {
               res.writeHead(500, { "cache-control": "no-store" });
               res.end("delete failed");
+            }
+            return;
+          }
+
+          /* Restore a trashed upload (72h rollback — same as
+             scripts/serve.mjs): the trash entry stays until it expires. */
+          if (pathname === "/__restore-trash" && req.method === "POST") {
+            if (!(await isAdminConn(String(url.searchParams.get("conn") || "")))) {
+              try {
+                if (anomaly) anomaly.observeFileDeny({ connId, ip: client, route: pathname });
+                if (secLog) secLog.log({ level: "low", kind: "file-deny", ip: client, route: pathname, detail: "anonymous /__restore-trash attempt denied (403, dev) — likely an expired tab", hint: "restores need a signed-in admin; sustained hits escalate automatically.", category: "upload", status: 403, reqId: rid, source: "local" });
+              } catch {}
+              res.writeHead(403, { "cache-control": "no-store" });
+              res.end("denied");
+              return;
+            }
+            const trash = String(url.searchParams.get("trash") || "");
+            const asked = String(url.searchParams.get("name") || "");
+            if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,99}$/.test(asked) || asked.includes("..")) {
+              res.writeHead(400, { "cache-control": "no-store" });
+              res.end("bad name");
+              return;
+            }
+            if (!/^[0-9]{10,25}-[A-Za-z0-9][A-Za-z0-9._-]{0,99}$/.test(trash) || trash.includes("..") || trash.slice(trash.indexOf("-") + 1) !== asked) {
+              res.writeHead(400, { "cache-control": "no-store" });
+              res.end("bad name");
+              return;
+            }
+            try {
+              const st = await stat(path.join(trashDirFor(ROOT), trash)).catch(() => null);
+              if (!st || !st.isFile()) {
+                res.writeHead(404, { "cache-control": "no-store" });
+                res.end("trash gone");
+                return;
+              }
+              await mkdir(path.join(ROOT, "data", "uploads"), { recursive: true });
+              await copyFile(path.join(trashDirFor(ROOT), trash), path.join(ROOT, "data", "uploads", asked));
+              res.writeHead(200, { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" });
+              res.end(JSON.stringify({ restored: true }));
+            } catch {
+              res.writeHead(500, { "cache-control": "no-store" });
+              res.end("restore failed");
             }
             return;
           }

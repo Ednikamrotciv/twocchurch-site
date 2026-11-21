@@ -36,13 +36,17 @@ const RE_LFI = /(etc\/passwd|proc\/self| Lawson|\.ssh\/authorized_keys|c:\\windo
 const YT_HOSTS = new Set(["www.youtube.com", "youtube.com", "m.youtube.com", "youtu.be"]);
 
 // RPCs whose POST body legitimately contains full page HTML — never signature-scanned.
-const HTML_BODY_RPCS = new Set(["publish", "adoptLive", "adoptFeed", "getContent"]);
+const HTML_BODY_RPCS = new Set(["publish", "adoptLive", "adoptFeed", "getContent", "stageDraft"]);
 // Credential doors get their own strict context buckets (see RATE below).
 const AUTH_RPCS = new Set(["login", "login2fa", "setSubPassword"]);
 // Admin-only RPCs (privilege-escalation watch in session-anomaly.mjs).
 export const PRIVILEGED_RPCS = new Set([
   "publish",
+  "stageDraft",
   "undoPublish",
+  "rollback",
+  "noteFileDelete",
+  "noteActivity",
   "clearLog",
   "liveReport",
   "totpSetup",
@@ -198,7 +202,7 @@ const SAFE_EXT = /\.(js|mjs|cjs|css|map|png|jpg|jpeg|webp|gif|avif|svg|ico|woff2
 
 const AUTH_LOGIN_RPCS = new Set(["login", "login2fa"]);
 const RECOVERY_RPCS = new Set(["setSubPassword"]);
-const PUBLISH_RPCS = new Set(["publish", "undoPublish", "adoptLive", "adoptFeed"]);
+const PUBLISH_RPCS = new Set(["publish", "undoPublish", "rollback", "adoptLive", "adoptFeed"]);
 const STATUS_READ_RPCS = new Set(["contentRev", "getContent", "checkAdmin", "liveReport"]);
 
 // Category names are logged with every security event (endpoint categories).
@@ -209,7 +213,7 @@ export function endpointCategory(pathname, method = "GET") {
   if (p === "/__cms/events" && m === "GET") return "status-sse";
   if (STATUS_EXACT.has(p) && m === "GET") return "status";
   if (p === "/__security/events.json" || p === "/__security/report.pdf") return "security";
-  if ((p === "/__upload" || p === "/__restore-file" || p === "/__delete-file") && m === "POST") return "upload";
+  if ((p === "/__upload" || p === "/__restore-file" || p === "/__delete-file" || p === "/__restore-trash") && m === "POST") return "upload";
   if (p.startsWith("/__cms/") && m === "POST") {
     const rpc = p.slice("/__cms/".length);
     if (AUTH_LOGIN_RPCS.has(rpc)) return "api-auth";
