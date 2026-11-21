@@ -55,7 +55,7 @@ import {
   sectionIsHidden,
 } from "../lib/cmsSchema";
 import * as cms from "../lib/cms";
-import { cacheUploadBlob, normalizeUploadUrl, uploadNameOf, useCachedUploadUrl, useFeedUploadUrl } from "../lib/uploadCache";
+import { cacheUploadBlob, feedUrlsForUpload, normalizeUploadUrl, uploadNameOf, useCachedUploadUrl, useFeedUploadUrl, useFeedUploadUrls } from "../lib/uploadCache";
 import { siteFile } from "../lib/livefeed";
 import { serverUrl } from "../lib/remoteserver";
 
@@ -1717,12 +1717,50 @@ function VideoField({
   const address = normalizeUploadUrl(url.trim());
   const cachedVideo = useCachedUploadUrl(address);
   const feedVideo = useFeedUploadUrl(address);
+  const feedVideoList = useFeedUploadUrls(address);
+  const feedVideoSecond = feedVideoList.length > 1 ? feedVideoList[1] : "";
   const videoSrc = cachedVideo || address;
   const [videoUseFeed, setVideoUseFeed] = useState(false);
+  const [videoFeedSecond, setVideoFeedSecond] = useState(false);
   useEffect(() => {
     setVideoUseFeed(false);
+    setVideoFeedSecond(false);
   }, [address]);
-  const vSrc = videoUseFeed && feedVideo ? feedVideo : videoSrc;
+  const vSrc = videoFeedSecond && feedVideoSecond ? feedVideoSecond : videoUseFeed && feedVideo ? feedVideo : videoUseFeed && feedVideoSecond ? feedVideoSecond : videoSrc;
+  /* Gone-file diagnosis: the player errored, this browser never cached the
+     bytes, and neither feed mirror has them — check this copy's disk so the
+     office sees WHY instead of a silent blank (wiped host after a restart,
+     or uploaded on another device). Only for office uploads, settled before
+     showing (an 8s cap so a slow feed can't hang the note). */
+  const [videoGone, setVideoGone] = useState(false);
+  useEffect(() => {
+    setVideoGone(false);
+    const nm = uploadNameOf(address);
+    if (!nm || cachedVideo || !videoUseFeed) return;
+    let alive = true;
+    (async () => {
+      const timeout = new Promise<null>((r) => setTimeout(() => r(null), 8000));
+      const probe = (async () => {
+        try {
+          const [feeds, diskOk] = await Promise.all([
+            feedUrlsForUpload(nm),
+            (async () => {
+              try {
+                const h = await fetch(address, { method: "HEAD", cache: "no-store" });
+                const ct = String(h.headers.get("content-type") || "").toLowerCase();
+                return h.ok && !ct.includes("text/html");
+              } catch { return false; }
+            })(),
+          ]);
+          return { feeds, diskOk };
+        } catch { return null; }
+      })();
+      const r = await Promise.race([probe, timeout]);
+      if (!alive) return;
+      if (r && !r.diskOk && !(r.feeds && r.feeds.length)) setVideoGone(true);
+    })();
+    return () => { alive = false; };
+  }, [address, cachedVideo, videoUseFeed]);
 
   return (
     <div className="admin__wide">
@@ -1738,7 +1776,12 @@ function VideoField({
                 muted
                 disablePictureInPicture
                 onError={() => {
-                  if (feedVideo && feedVideo !== videoSrc) setVideoUseFeed(true);
+                  /* Set the flag even when the feed hasn't loaded yet — when
+                     it lands, vSrc flips to it and the blank heals. Waiting
+                     for the feed inside the handler stuck on the dead disk
+                     copy whenever the error fired first. */
+                  if (!videoUseFeed) setVideoUseFeed(true);
+                  else if (!videoFeedSecond) setVideoFeedSecond(true);
                 }}
               />
             ) : (
@@ -1758,6 +1801,9 @@ function VideoField({
             )}
           </div>
         </div>
+        {videoGone && !feedVideo && !feedVideoSecond ? (
+          <p className="admin__upload-error">This video isn’t on this copy — the host may have restarted (which wipes uploads), or it was uploaded on another device. Upload it here again, then Publish.</p>
+        ) : null}
       </Field>
     </div>
   );
@@ -1788,6 +1834,8 @@ function ImageField({
      from this browser instead of the camera placeholder — blank-free. */
   const cachedPreview = useCachedUploadUrl(rawPreview);
   const feedPreview = useFeedUploadUrl(rawPreview);
+  const feedPreviewList = useFeedUploadUrls(rawPreview);
+  const feedPreviewSecond = feedPreviewList.length > 1 ? feedPreviewList[1] : "";
   const preview = cachedPreview || rawPreview;
   const chosenLabel = key ? PHOTO_SLOTS.find((s) => s.key === key)?.label || key : "";
   const forSlide = def.frame === "slide";
@@ -1797,10 +1845,45 @@ function ImageField({
      placeholder instead of a torn preview — every upload, every size. */
   const [imgError, setImgError] = useState(false);
   const [feedFailed, setFeedFailed] = useState(false);
+  /* Gone-file diagnosis (same as the video field): errored, never cached,
+     neither mirror has it — check this copy's disk so the office sees WHY
+     instead of a silent blank. Only for office uploads. */
+  const [imgGone, setImgGone] = useState(false);
   useEffect(() => {
+    setImgGone(false);
+    const nm = uploadNameOf(rawPreview);
+    if (!nm || cachedPreview || !imgError) return;
+    let alive = true;
+    (async () => {
+      const timeout = new Promise<null>((r) => setTimeout(() => r(null), 8000));
+      const probe = (async () => {
+        try {
+          const [feeds, diskOk] = await Promise.all([
+            feedUrlsForUpload(nm),
+            (async () => {
+              try {
+                const h = await fetch(rawPreview, { method: "HEAD", cache: "no-store" });
+                const ct = String(h.headers.get("content-type") || "").toLowerCase();
+                return h.ok && !ct.includes("text/html");
+              } catch { return false; }
+            })(),
+          ]);
+          return { feeds, diskOk };
+        } catch { return null; }
+      })();
+      const r = await Promise.race([probe, timeout]);
+      if (!alive) return;
+      if (r && !r.diskOk && !(r.feeds && r.feeds.length)) setImgGone(true);
+    })();
+    return () => { alive = false; };
+  }, [rawPreview, cachedPreview, imgError]);
+  useEffect(() => {
+    /* Feeds resolve after the first paint — a preview that errored before
+       they landed must retry so the late mirror heals the blank. */
     setImgError(false);
     setFeedFailed(false);
-  }, [preview]);
+    setImgGone(false);
+  }, [preview, feedPreview, feedPreviewSecond]);
   /* The agent reads the picture's own shape, so it can prompt exactly when the
      picture is not landscape. */
   const [shape, setShape] = useState<{ w: number; h: number } | null>(null);
@@ -1876,6 +1959,8 @@ function ImageField({
             <img src={preview} alt="" draggable={false} onError={() => setImgError(true)} />
           ) : preview && !slideVideoLink && imgError && feedPreview && feedPreview !== preview && !feedFailed ? (
             <img src={feedPreview} alt="" draggable={false} onError={() => setFeedFailed(true)} />
+          ) : preview && !slideVideoLink && imgError && feedPreviewSecond && feedPreviewSecond !== preview && feedPreviewSecond !== feedPreview ? (
+            <img src={feedPreviewSecond} alt="" draggable={false} onError={() => {}} />
           ) : (
             <Icon name="camera" size={18} />
           )}
@@ -1916,6 +2001,9 @@ function ImageField({
             </div>
           ) : null}
           {fitError && <p className="admin__upload-error">{fitError}</p>}
+          {imgGone && !feedPreview && !feedPreviewSecond ? (
+            <p className="admin__upload-error">This photo isn’t on this copy — the host may have restarted (which wipes uploads), or it was uploaded on another device. Upload it here again, then Publish.</p>
+          ) : null}
           {text && (
             <div className="btn-row">
               <Btn size="sm" variant="quiet" icon="trash" onClick={() => onChange("")}>
@@ -2630,10 +2718,14 @@ export function ToolsPage() {
         const n = res.restored?.length || 0;
         const left = res.skipped?.length || 0;
         const imgs = res.filesRestored || 0;
-        const missed = [...(res.filesMissing || []), ...(res.filesFailed || [])];
+        const poisonedList = (res as any).filesPoisoned as string[] | undefined;
+        const missed = [...(res.filesMissing || []), ...(res.filesFailed || [])].filter((x) => !(poisonedList || []).includes(x));
         const imgBit = imgs ? ` ${imgs} uploaded ${imgs === 1 ? "file" : "files"} brought back too.` : "";
         const missBit = missed.length
           ? ` ${missed.length} uploaded ${missed.length === 1 ? "file is" : "files are"} missing on the server (${missed.slice(0, 3).join(", ")}${missed.length > 3 ? "…" : ""}).`
+          : "";
+        const poisonBit = poisonedList && poisonedList.length
+          ? ` ${poisonedList.length} uploaded ${poisonedList.length === 1 ? "file was" : "files were"} blank pages inside the backup itself (taken while those uploads were missing), so they were skipped and your current photos were kept — re-upload them to fill the blanks (${poisonedList.slice(0, 3).join(", ")}${poisonedList.length > 3 ? "…" : ""}).`
           : "";
         const chanBit = res.channelMoved
           ? ` Channel in the backup was ${res.channelMoved} — set to @twocorg (change it back in the Live stream console if that was intentional).`
@@ -2643,8 +2735,8 @@ export function ToolsPage() {
           : "";
         fireToast(
           left
-            ? `Brought back ${n} ${n === 1 ? "section" : "sections"} — review, then Publish. ${left} ${left === 1 ? "section" : "sections"} from the backup no longer exist in this update and ${left === 1 ? "was" : "were"} left out.${imgBit}${missBit}${chanBit}${guestBit}`
-            : `Brought back ${n} ${n === 1 ? "section" : "sections"} — review, then Publish to put it live.${imgBit}${missBit}${chanBit}${guestBit}`,
+            ? `Brought back ${n} ${n === 1 ? "section" : "sections"} — review, then Publish. ${left} ${left === 1 ? "section" : "sections"} from the backup no longer exist in this update and ${left === 1 ? "was" : "were"} left out.${imgBit}${missBit}${poisonBit}${chanBit}${guestBit}`
+            : `Brought back ${n} ${n === 1 ? "section" : "sections"} — review, then Publish to put it live.${imgBit}${missBit}${poisonBit}${chanBit}${guestBit}`,
           "success"
         );
       }

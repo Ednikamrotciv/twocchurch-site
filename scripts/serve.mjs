@@ -621,7 +621,9 @@ const server = http.createServer(async (req, res) => {
         return;
       }
       const ctype = String(req.headers["content-type"] || "").split(";")[0].trim().toLowerCase();
-      if (!ctype.startsWith("image/") && !ctype.startsWith("video/")) {
+      /* Uploads carry every kind the office uses (note 346): photos, videos
+         and audio — a refused kind used to come back blank. */
+      if (!ctype.startsWith("image/") && !ctype.startsWith("video/") && !ctype.startsWith("audio/")) {
         res.writeHead(400, { "cache-control": "no-store" });
         res.end("bad filetype");
         return;
@@ -654,12 +656,12 @@ const server = http.createServer(async (req, res) => {
           const asked = String(url.searchParams.get("name") || "file").split("/").pop() || "file";
           let safe = asked.replace(/[^a-zA-Z0-9._-]+/g, "_").slice(0, 80) || "file";
           if (!/\.[a-zA-Z0-9]{2,5}$/.test(safe)) {
-            const ext = { "image/jpeg": ".jpg", "image/png": ".png", "image/webp": ".webp", "image/gif": ".gif", "video/mp4": ".mp4", "video/webm": ".webm", "video/quicktime": ".mov" }[ctype] || "";
+            const ext = { "image/jpeg": ".jpg", "image/png": ".png", "image/webp": ".webp", "image/gif": ".gif", "video/mp4": ".mp4", "video/webm": ".webm", "video/quicktime": ".mov", "audio/mpeg": ".mp3", "audio/wav": ".wav", "audio/ogg": ".ogg", "audio/mp4": ".m4a" }[ctype] || "";
             safe += ext;
           }
           /* Belt and braces: the stored name decides the served type, so only
              real media extensions may land, whatever was claimed above. */
-          if (!/\.(jpg|jpeg|png|webp|gif|avif|mp4|webm|mov|m4v|ogv)$/i.test(safe)) {
+          if (!/\.(jpg|jpeg|png|webp|gif|avif|mp4|webm|mov|m4v|ogv|mp3|wav|ogg|oga|opus|m4a|aac|flac|mid|midi)$/i.test(safe)) {
             res.writeHead(400, { "cache-control": "no-store" });
             res.end("bad filetype");
             return;
@@ -739,7 +741,18 @@ const server = http.createServer(async (req, res) => {
         try {
           const dir = path.join(ROOT, "data", "uploads");
           await mkdir(dir, { recursive: true });
-          await writeFile(path.join(dir, asked), Buffer.concat(chunks));
+          const bodyBuf = Buffer.concat(chunks);
+          /* Blank-page guard (note 440): never let the HTML fallback page land
+             as a photo — a poisoned backup entry used to blank good files. */
+          try {
+            const head = bodyBuf.slice(0, 2048).toString("latin1").toLowerCase();
+            if (head.includes("<!doctype") || head.includes("<html") || head.includes("<head") || head.includes("<meta") || head.includes("<script") || head.includes("wom-deploy") || head.trimStart().startsWith("<")) {
+              res.writeHead(400, { "cache-control": "no-store" });
+              res.end("bad filetype");
+              return;
+            }
+          } catch {}
+          await writeFile(path.join(dir, asked), bodyBuf);
           const body = JSON.stringify({ url: "/data/uploads/" + asked, restored: true });
           res.writeHead(200, { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" });
           res.end(body);

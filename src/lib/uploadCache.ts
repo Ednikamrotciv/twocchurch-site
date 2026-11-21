@@ -179,15 +179,18 @@ export function isOfficeUploadUrl(url: string): boolean {
 
 /* Feed-backed durability (wipe survival): the baked feed address plus the
    baked uploads layout, resolved once per session. [] when no feed is baked
-   (rebuild-only copies behave exactly as before). Never throws. */
+   (rebuild-only copies behave exactly as before). Never throws. A cached null
+   retries after 30s so a slow feed.json still heals later copies. */
 let feedSpecCache: { spec: any; dir: string } | null | undefined = undefined;
+let feedSpecCachedAt = 0;
 export async function feedUrlsForUpload(name: string): Promise<string[]> {
   const clean = String(name || "").trim();
   if (!clean) return [];
   try {
-    if (feedSpecCache === undefined) {
+    if (feedSpecCache === undefined || (feedSpecCache === null && Date.now() - feedSpecCachedAt > 30_000)) {
       const [spec, dir] = await Promise.all([bakedFeedSpec(), bakedFeedUploadsDir()]);
       feedSpecCache = spec ? { spec, dir } : null;
+      feedSpecCachedAt = Date.now();
     }
     if (!feedSpecCache) return [];
     return feedUploadUrls(feedSpecCache.spec, clean, feedSpecCache.dir);
@@ -209,6 +212,22 @@ export function useFeedUploadUrl(url: string): string {
     return () => { alive = false; };
   }, [name]);
   return feed;
+}
+
+/** React hook: BOTH repo-copy URLs (raw + jsdelivr) so a missing raw still
+    paints from the mirror instead of blank. Never throws. */
+export function useFeedUploadUrls(url: string): string[] {
+  const name = uploadNameOf(url);
+  const [feeds, setFeeds] = useState<string[]>([]);
+  useEffect(() => {
+    if (!name) return;
+    let alive = true;
+    feedUrlsForUpload(name).then((urls) => {
+      if (alive) setFeeds(urls);
+    }).catch(() => {});
+    return () => { alive = false; };
+  }, [name]);
+  return feeds;
 }
 
 export { dataUrlToBlob };

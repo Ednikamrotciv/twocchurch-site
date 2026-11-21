@@ -7,6 +7,19 @@ services:
     startCommand: node scripts/serve.mjs
     healthCheckPath: /healthz
     autoDeploy: true
+    # Upload durability: WITHOUT a disk, every redeploy or host sleep WIPES
+    # data/uploads (photos/videos vanish site-wide) and all local backups.
+    # Option A (keeps this plan): a 1 GB persistent disk so data/ survives
+    # restarts and redeploys — uncomment the next 4 lines (costs ~$0.25/mo;
+    # path is <repo-root>/data — adjust if your layout differs):
+    #disk:
+    #  name: church-data
+    #  mountPath: /opt/render/project/src/data
+    #  sizeGB: 1
+    # Option B (free): the public feed mirror — put one line in
+    # publish-feed.txt (see the comments inside it). After the next Publish,
+    # uploads ride the public repo and every copy heals itself even if the
+    # disk is wiped. With NEITHER option, re-upload lost files and Publish.
     envVars:
       - key: NODE_VERSION
         value: 24

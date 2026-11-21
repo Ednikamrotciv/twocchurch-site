@@ -372,9 +372,9 @@ function SiteApp() {
       {previewing && <PreviewBanner />}
       <Header />
       <main id="main" key={to}>
-        <AppErrorBoundary>
+        <AdminErrorBoundary>
           <React.Suspense fallback={null}>{page}</React.Suspense>
-        </AppErrorBoundary>
+        </AdminErrorBoundary>
       </main>
       <Footer />
       <ScrollTop />
