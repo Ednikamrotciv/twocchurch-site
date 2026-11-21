@@ -306,15 +306,13 @@ function serverHoldsPublish(): boolean {
     /* Same code, same review: one Publish from any admin lifts every copy on
        this host together — the late joiner, the rebuilt copy and the
        publishing copy all read the same word and agree. A new word still
-       waits for its own publish even when the numbers moved. Returning
-       browsers on a fresh deploy skip the timeless lifts below (code, host,
-       shared-backend) and hold until post-deploy proof. */
+       waits for its own publish even when the numbers moved. */
     try {
-      if (!returningHoldsNewDeploy() && !!v.code && !!runningCode && v.code === runningCode) return true;
+      if (!!v.code && !!runningCode && v.code === runningCode) return true;
     } catch {}
     /* The host serves this build (version.json attestation, same rule). */
     try {
-      if (!returningHoldsNewDeploy() && hostFileAttestsSameCode()) return true;
+      if (hostFileAttestsSameCode()) return true;
     } catch {}
     /* This deploy's own stamp (also witnessed beside this; kept so the
        verdict alone suffices). */
@@ -328,13 +326,12 @@ function serverHoldsPublish(): boolean {
     } catch {}
     /* Shared-backend release (live-relay, one click clears all devices): this
        update (or newer) with real words on the backend this copy reads means
-       live, with no deploy/code/clock matching. Fresh profiles keep it so one
-       click clears incognito/fresh/new devices; returning browsers on a fresh
-       deploy skip it and hold until post-deploy proof.
+       live, with no deploy/code/clock matching. A late device, a rebuilt
+       device and the publishing device read the same answer and agree.
        Genuinely new code (server behind this update) and empty/unreviewed
        backends still wait via the checks above. */
     try {
-      if (!returningHoldsNewDeploy() && v.notes >= BUILD_NOTES && v.words > 0) return true;
+      if (v.notes >= BUILD_NOTES && v.words > 0) return true;
     } catch {}
     return false;
   } catch {
@@ -509,23 +506,6 @@ function codeChangedSinceBless(): boolean {
     if (!runningCode) return false;
     const blessed = localStorage.getItem(CODE_BLESS_KEY);
     return !!blessed && blessed !== runningCode;
-  } catch {
-    return false;
-  }
-}
-/* Returning browser facing a fresh deploy: this copy staged clean for a new
-   code arrival, or its blessing names older code. Fresh profiles (never
-   blessed, no clean stage) are NOT returning — they keep the timeless lifts
-   so one Publish clears incognito/fresh/new devices with no per-device
-   click. Returning copies hold until post-deploy proof: same-deploy ID,
-   publish clock newer than deploy first-seen, justPublished carry, or an
-   explicit publish. */
-function returningHoldsNewDeploy(): boolean {
-  try {
-    if (cleanStageForNewCode) return true;
-  } catch {}
-  try {
-    return codeChangedSinceBless();
   } catch {
     return false;
   }
@@ -2519,7 +2499,6 @@ async function applySeedOnce() {
              construction). */
           const seedCode = typeof (seed as any).code === "string" ? (seed as any).code : "";
           if (
-            !returningHoldsNewDeploy() &&
             typeof (seed as any).notes === "number" && Math.floor((seed as any).notes) >= BUILD_NOTES &&
             seedRev > 0 && seedWords > 0 && !!seedCode && !!runningCode && seedCode === runningCode
           ) {
@@ -2600,7 +2579,6 @@ async function syncFromFeed() {
       try {
         const seedCode = typeof candAny?.code === "string" ? candAny.code : "";
         if (
-          !returningHoldsNewDeploy() &&
           deployFromMeta && currentDeployId &&
           publishedDeployId !== currentDeployId &&
           typeof candAny?.notes === "number" && Math.floor(candAny.notes) === BUILD_NOTES &&
@@ -2664,7 +2642,6 @@ async function syncFromFeed() {
     try {
       const seedCode = typeof (live as any).code === "string" ? (live as any).code : "";
       if (
-        !returningHoldsNewDeploy() &&
         deployFromMeta && currentDeployId &&
         publishedDeployId !== currentDeployId &&
         typeof live.notes === "number" && Math.floor(live.notes) === BUILD_NOTES &&
@@ -3325,7 +3302,6 @@ export async function pullFromLive(): Promise<LivePullResult> {
        own unsaved work pending in a clean stage. */
     try {
       if (
-        !returningHoldsNewDeploy() &&
         (!cleanStageForNewCode || pendingSections().length === 0) &&
         deployFromMeta && currentDeployId &&
         publishedDeployId !== currentDeployId &&
@@ -3390,7 +3366,7 @@ export async function pullFromLive(): Promise<LivePullResult> {
          no per-device click), while an unattested answer still needs to be
          newer than this copy's first sighting — and never across updates.
          Nothing here stages, moves or loses words. */
-      if (pendingSections().length === 0 && sameUpdate && liveWords > 0 && ((!returningHoldsNewDeploy() && liveCodeWitnessed) || (read.at > 0 && deployFirstSeenAt > 0 && read.at > deployFirstSeenAt))) {
+      if (pendingSections().length === 0 && sameUpdate && liveWords > 0 && (liveCodeWitnessed || (read.at > 0 && deployFirstSeenAt > 0 && read.at > deployFirstSeenAt))) {
         setPublishedNotes(BUILD_NOTES);
         blessRunningCode();
         writeCache();
@@ -3438,7 +3414,7 @@ export async function pullFromLive(): Promise<LivePullResult> {
              otherwise an unstamped/signed-out copy paints live yet keeps
              waiting until its own click. Same guards, staging untouched. */
           try {
-            if (sameUpdate && liveWords > 0 && !returningHoldsNewDeploy() && liveCodeWitnessed && pendingSections().length === 0) {
+            if (sameUpdate && liveWords > 0 && liveCodeWitnessed && pendingSections().length === 0) {
               setPublishedNotes(BUILD_NOTES);
               blessRunningCode();
             }
@@ -3754,11 +3730,10 @@ async function pollPublishHttp(): Promise<void> {
         if (Number.isFinite(notes) && notes === BUILD_NOTES && deploy && currentDeployId && deployFromMeta && deploy === currentDeployId) markDeployPublished();
       } catch {}
       /* Late-join release: a same-update publish attested to this code IS
-         the office review — fresh profiles/incognito/new devices lift at
-         once (no second click). Returning browsers on a fresh deploy skip
-         this timeless lift and hold until post-deploy proof below. */
+         the office review — release even when this deploy first opened
+         after the click (no second click needed). */
       try {
-        if (!returningHoldsNewDeploy() && Number.isFinite(notes) && notes === BUILD_NOTES && code && code === runningCode) {
+        if (Number.isFinite(notes) && notes === BUILD_NOTES && code && code === runningCode) {
           setPublishedNotes(BUILD_NOTES);
           blessRunningCode();
           if (deployFromMeta && currentDeployId) markDeployPublished();
@@ -4889,7 +4864,6 @@ async function syncFromServerInner() {
      gate). A clean stage with queued office work still stages nothing
      inbound until Recover or an explicit Publish — only the notice lifts. */
   if (
-    !returningHoldsNewDeploy() &&
     (!cleanStageForNewCode || pendingSections().length === 0) &&
     deployFromMeta && currentDeployId &&
     publishedDeployId !== currentDeployId &&
@@ -4946,7 +4920,6 @@ function hostFileAttestsSameCode(): boolean {
      in this same sync and visitors see the published site, not an empty shell. */
   try {
     if (
-      !returningHoldsNewDeploy() &&
       deployFromMeta && currentDeployId &&
       publishedDeployId !== currentDeployId &&
       typeof res.notes === "number" && Math.floor(res.notes) === BUILD_NOTES &&
@@ -6235,6 +6208,7 @@ export async function exportPublished(): Promise<string> {
   const files: BackupFile[] = [];
   const missingFiles: string[] = [];
   for (const name of allBackupNames(content)) {
+    let done = false;
     try {
       const res = await fetch((base ? base : "") + "/data/uploads/" + name, { cache: "no-store" });
       if (!res.ok) throw 0;
@@ -6259,6 +6233,47 @@ export async function exportPublished(): Promise<string> {
       if (backupBytesLookLikeHtml(bytes)) throw 0;
       if (!backupBytesMatchExtension(name, bytes)) throw 0;
       files.push({ name, type: blob.type || guessUploadType(name), data });
+      done = true;
+    } catch {
+      /* fall through to cache/feed below — a wiped server must not sink the backup */
+    }
+    if (done) continue;
+    /* Server miss fallback (backup fix): this browser's own cache or the
+       public feed still holds the file after a sleep-wipe, so the backup
+       carries it instead of marking it missing and restoring blank. */
+    try {
+      let blob: Blob | null = null;
+      try {
+        const cached = await getCachedDataUrl(name);
+        const b = dataUrlToBlob(cached || "");
+        if (b && (b as any).size) blob = b;
+      } catch {}
+      if (!blob || !(blob as any).size) {
+        for (const u of await feedUrlsForUpload(name)) {
+          try {
+            const r = await fetch(u, { cache: "no-store" });
+            if (!r.ok) continue;
+            const b = await r.blob();
+            if (!b || !(b as any).size) continue;
+            if (String((b as any).type || "").toLowerCase().includes("text/html")) continue;
+            blob = b;
+            try { await cacheUploadBlob(name, b); } catch {}
+            break;
+          } catch {}
+        }
+      }
+      if (!blob || !(blob as any).size) throw 0;
+      if (String((blob as any).type || "").toLowerCase().includes("text/html")) throw 0;
+      if ((blob as any).size > BACKUP_FILE_MAX_BYTES) {
+        missingFiles.push(name + " (too large: " + Math.round((blob as any).size / 1048576) + " MB)");
+        continue;
+      }
+      const data = await blobToBase64(blob);
+      const bytes = backupBytesFromB64(data);
+      if (!bytes || !bytes.length) throw 0;
+      if (backupBytesLookLikeHtml(bytes)) throw 0;
+      if (!backupBytesMatchExtension(name, bytes)) throw 0;
+      files.push({ name, type: (blob as any).type || guessUploadType(name), data });
     } catch {
       missingFiles.push(name);
     }
@@ -6401,7 +6416,27 @@ export async function importBackup(text: string): Promise<ImportResult> {
       }
     }
     if (!reachable) {
-      for (const f of incoming) if (f && typeof f.name === "string") filesFailed.push(f.name);
+      /* No server to write to (static host, no backend): keep every embedded
+         file in this browser's cache so the restored draft paints here
+         instead of blank — Publish (or a server copy) still carries it to
+         other devices. Counted as failed server writes, not lost files. */
+      for (const f of incoming) {
+        if (!f || typeof f.name !== "string") continue;
+        try {
+          const type = typeof (f as any)?.type === "string" && (f as any).type ? (f as any).type : guessUploadType(f.name);
+          const __b = backupBytesFromB64(String((f as any).data || ""));
+          if (!__b || !__b.length) throw 0;
+          if (/text\/html/i.test(String(type || "")) || backupBytesLookLikeHtml(__b)) {
+            try { filesPoisoned.push(f.name); } catch {}
+            throw 0;
+          }
+          if (!backupBytesMatchExtension(f.name, __b)) throw 0;
+          const blob = base64ToBlob(String((f as any).data || ""), type);
+          if (!blob.size) throw 0;
+          try { await cacheUploadBlob(f.name, blob); } catch {}
+        } catch {}
+        filesFailed.push(f.name);
+      }
     } else {
       for (const f of incoming) {
         try {
@@ -6424,6 +6459,9 @@ export async function importBackup(text: string): Promise<ImportResult> {
           if (!backupBytesMatchExtension(name, __bytes)) throw 0;
           const blob = base64ToBlob(f.data, type);
           if (!blob.size) throw 0;
+          /* Cache first: even if the server write below fails, this browser
+             paints the restored photo instead of blank. */
+          try { await cacheUploadBlob(name, blob); } catch {}
           const res = await fetch(`${base}/__restore-file?conn=${encodeURIComponent(officeFileConn())}&name=${encodeURIComponent(name)}`, {
             method: "POST",
             headers: { "content-type": type },
@@ -6872,13 +6910,8 @@ function relayUploadsToLive(sections: Record<string, string | null>): void {
         try {
           const got = await fetch("/data/uploads/" + name, { cache: "no-store" });
           if (!got.ok) continue;
-          /* A wiped disk answers 200 html (the app fallback on old builds):
-             relaying that page as a "photo" would poison the live box, so
-             html answers are skipped like a 404 — the loops backstop. */
-          if (String(got.headers.get("content-type") || "").toLowerCase().includes("text/html")) continue;
           const blob = await got.blob();
           if (!blob || !blob.size || blob.size > 90 * 1024 * 1024) continue;
-          if (String((blob as any).type || "").toLowerCase().includes("text/html")) continue;
           await fetch(base + "/__restore-file?conn=" + encodeURIComponent(relayUploadConnId()) + "&name=" + encodeURIComponent(name), {
             method: "POST",
             headers: { "content-type": (blob as any).type || guessUploadType(name) },

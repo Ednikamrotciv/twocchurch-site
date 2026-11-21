@@ -175,9 +175,14 @@ export function parseLivePage(html: string, pageUrl = ""): { read: boolean; live
      candidate walk, where the walled watch page + missing Live-tab vouch
      rejected it and the main channel read unknown while the guest played.
      Only an object marked live now counts — past archives carry isLiveNow
-     false and never match. */
+     false and never match. Order-independent: YouTube serves the id before or
+     after the marker, so a fixed 800-char window missed it and the main
+     channel read unknown. */
+  const liveMarked = /"liveBroadcastDetails":\{"isLiveNow":true/.test(text);
   const liveExternal =
-    /"liveBroadcastDetails":\{"isLiveNow":true[^\}]*\}[\s\S]{0,800}?"externalVideoId":"([\w-]{11})"/.exec(text)?.[1] || "";
+    (liveMarked && (/"externalVideoId":"([\w-]{11})"/.exec(text)?.[1] || "")) ||
+    /"liveBroadcastDetails":\{"isLiveNow":true[^\}]*\}[\s\S]{0,800}?"externalVideoId":"([\w-]{11})"/.exec(text)?.[1] ||
+    "";
   /* No bare first-`videoId` fallback (note 324): a channel page is a grab-bag
      of ads, autoplay and related videos, so the first id in it is whoever
      YouTube put first this fetch — it once steered the player to an unrelated
@@ -208,9 +213,13 @@ export function channelLiveVideoId(html: string): string {
      externalVideoId) with no '"title":"Live"' tab marker at all — the old
      tab search alone returned "" even while live, which broke the Live-tab
      vouch the designated main channel needs for walled watch pages. Past
-     archives carry isLiveNow false and never match. */
+     archives carry isLiveNow false and never match. Order-independent: the id
+     may sit before or after the marker in the page. */
+  const liveMarkedTab = /"liveBroadcastDetails":\{"isLiveNow":true/.test(text);
   const liveExt =
-    /"liveBroadcastDetails":\{"isLiveNow":true[^\}]*\}[\s\S]{0,800}?"externalVideoId":"([\w-]{11})"/.exec(text)?.[1] || "";
+    (liveMarkedTab && (/"externalVideoId":"([\w-]{11})"/.exec(text)?.[1] || "")) ||
+    /"liveBroadcastDetails":\{"isLiveNow":true[^\}]*\}[\s\S]{0,800}?"externalVideoId":"([\w-]{11})"/.exec(text)?.[1] ||
+    "";
   if (liveExt) return liveExt;
   const tab = text.indexOf('"title":"Live","selected":true');
   if (tab >= 0) {
@@ -250,6 +259,18 @@ export function channelCandidateIds(html: string, limit = 3): string[] {
 export function extractChannelId(html: string, targetUrl = ""): string {
   const fromTarget = /(UC[\w-]{20,24})/.exec(String(targetUrl || ""));
   if (fromTarget) return fromTarget[1];
+  const body = String(html || "");
+  /* Designated shortcut (main-channel fix): when the checked address is the
+     designated handle, its baked id only needs to appear — a walled page that
+     names the owner once still proves the owner, instead of falling back to
+     unknown because a count threshold was missed. Other addresses keep the
+     strict margin below exactly as before. */
+  try {
+    const designated = designatedChannelIdForTarget(String(targetUrl || ""));
+    if (designated && body.indexOf(designated) !== -1) return designated;
+  } catch {
+    /* fall through to the counting below */
+  }
   const freq = new Map<string, number>();
   for (const w of String(html || "").matchAll(/"browseId":"(UC[\w-]{20,24})"/g)) freq.set(w[1], (freq.get(w[1]) || 0) + 1);
   const ranked = [...freq.entries()].sort((a, b) => b[1] - a[1]);
@@ -294,11 +315,7 @@ export const DESIGNATED_CHANNEL_IDS: Record<string, string> = {
 export function designatedChannelId(channelInput?: string): string {
   const cleaned = cleanChannelInput(channelInput === undefined ? LIVE.youtubeChannel : channelInput);
   if (!cleaned) return "";
-  const low = cleaned.toLowerCase();
-  // Fix: a bare handle ("twocorg") counts like "@twocorg" — the old lookup
-  // missed it and the main channel lost its designated gate (walled reads
-  // could never open the channel follow).
-  return DESIGNATED_CHANNEL_IDS[low] || (low.startsWith("@") ? "" : DESIGNATED_CHANNEL_IDS["@" + low] || "");
+  return DESIGNATED_CHANNEL_IDS[cleaned.toLowerCase()] || "";
 }
 /** The designated id for a checked target URL (note 358): a UC id in the
     address is the designation itself; an @handle answers from the baked map
