@@ -16,18 +16,11 @@ export const EMBED_REFERRER_POLICY = "strict-origin-when-cross-origin";
 /** The file extensions a browser will play straight from a URL. */
 const VIDEO_FILE = /\.(mp4|m4v|webm|ogv|ogg|mov|m3u8)(\?|#|$)/i;
 
-/** A video file the office uploaded (hosted by the upload service).
- *  Fix: the old version treated ANY http(s) URL and ANY src/ path as a video,
- *  so a pasted YouTube link or a bundled photo on the upload slot played as a
- *  <video> tag and failed. Only real video addresses count now: a video file
- *  extension (with ?/# trailers), a cached data:video URL, or an office
- *  /data/uploads/ video file. */
+/** A video file the office uploaded (hosted by the upload service). */
 export function isUploadVideoUrl(input: string): boolean {
   const value = String(input || "").trim();
   if (!value) return false;
-  if (/^data:video\//i.test(value)) return true;
-  if (/^blob:/i.test(value)) return true;
-  return VIDEO_FILE.test(value);
+  return VIDEO_FILE.test(value) || /^https?:\/\//.test(value) || /^src\//.test(value);
 }
 
 /** Page origin for YouTube's enablejsapi `origin` param (cross-origin fix).

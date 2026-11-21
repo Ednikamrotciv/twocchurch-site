@@ -47,14 +47,17 @@ import { SITE } from "./data/site";
 import { BRANCHES, HQ } from "./data/branches";
 import { EVENTS } from "./data/content";
 
+const AppErrorBoundary = ErrorBoundary as unknown as React.ComponentType<
+  React.PropsWithChildren<object>
+>;
+
+const AdminErrorBoundary = AppErrorBoundary;
+
 const Admin = React.lazy(
   lazyPage("Admin", () =>
     import("./pages/Admin").then((m) => ({ default: m.Admin })),
   ),
 );
-const AppErrorBoundary = ErrorBoundary as unknown as React.ComponentType<
-  React.PropsWithChildren<unknown>
->;
 
 /* Explicit local preview only (?maintenance=1): the office's way to see the
    notice on demand. Visitors on a fresh deploy see it until Publish clears it. */
@@ -231,11 +234,11 @@ export function App() {
         {/* Never a loader page: nothing flashes while the admin chunk arrives —
             the site shell stays on screen, and a crash inside it lands on the
             error card — not a white page. */}
-        <AppErrorBoundary>
+        <AdminErrorBoundary>
           <React.Suspense fallback={null}>
             <Admin />
           </React.Suspense>
-        </AppErrorBoundary>
+        </AdminErrorBoundary>
         <LangAsk />
       </>
     );
