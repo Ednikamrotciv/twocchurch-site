@@ -3163,6 +3163,109 @@ function scheduleUploadHeal(delayMs = 2500): void {
   } catch {}
 }
 
+/* Restore-time redownload (office request: no manual redownload/reupload —
+   the restore click itself fetches): every listed upload this copy's disk
+   cannot serve is pulled from this browser's cache, the live box or the
+   public mirrors and written back to the office server under its exact name,
+   so visitors and every admin frame paint it after the next Publish with
+   nothing further to do. `present` names already serve (nothing faulty);
+   `restored` were fetched and verified; `failed` are still faulty (the
+   publish click rides the same fetch and retries them). Never throws. */
+async function redownloadUploads(names: string[]): Promise<{ restored: string[]; failed: string[]; present: string[] }> {
+  const restored: string[] = [];
+  const failed: string[] = [];
+  const present: string[] = [];
+  try {
+    if (typeof navigator !== "undefined" && (navigator as any).onLine === false) return { restored, failed, present };
+  } catch {}
+  const seen = new Set<string>();
+  for (const raw of names || []) {
+    const name = String(raw || "");
+    if (!name || seen.has(name)) continue;
+    seen.add(name);
+    try {
+      let missing = false;
+      try {
+        missing = await uploadNameMissing(name);
+      } catch {
+        continue;
+      }
+      if (!missing) {
+        present.push(name);
+        continue;
+      }
+      let blob: any = null;
+      try {
+        const dataUrl = await getCachedDataUrl(name);
+        blob = dataUrlToBlob(dataUrl || "");
+      } catch {
+        blob = null;
+      }
+      if (!blob || !(blob as any).size) {
+        try {
+          const liveBase = await liveBaseUrl().catch(() => "");
+          if (liveBase) {
+            const r = await fetch(liveBase + "/data/uploads/" + encodeURIComponent(name), { cache: "no-store" });
+            if (r.ok && !String(r.headers.get("content-type") || "").toLowerCase().includes("text/html")) {
+              const b = await r.blob();
+              if (b && (b as any).size && !String((b as any).type || "").toLowerCase().includes("text/html") && (b as any).size <= BACKUP_FILE_MAX_BYTES) {
+                blob = b;
+                try { await cacheUploadBlob(name, b); } catch {}
+              }
+            }
+          }
+        } catch {}
+      }
+      if (!blob || !(blob as any).size) {
+        try {
+          for (const u of await feedUrlsForUpload(name)) {
+            try {
+              const r = await fetch(u, { cache: "no-store" });
+              if (!r.ok) continue;
+              const b = await r.blob();
+              if (!b || !(b as any).size) continue;
+              if (String((b as any).type || "").toLowerCase().includes("text/html")) continue;
+              if ((b as any).size > BACKUP_FILE_MAX_BYTES) continue;
+              blob = b;
+              try { await cacheUploadBlob(name, b); } catch {}
+              break;
+            } catch {}
+          }
+        } catch {}
+      }
+      if (!blob || !(blob as any).size) {
+        failed.push(name);
+        continue;
+      }
+      const put = await fetch("/__restore-file?conn=" + encodeURIComponent(officeFileConn()) + "&name=" + encodeURIComponent(name), {
+        method: "POST",
+        headers: { "content-type": (blob as any).type || guessUploadType(name) },
+        body: blob,
+      }).catch(() => null);
+      if (!put || !(put as any).ok) {
+        failed.push(name);
+        continue;
+      }
+      /* Read it back (note 346): only a file the server actually serves counts. */
+      let verified = false;
+      try {
+        const check = await fetch("/data/uploads/" + name, { cache: "no-store" });
+        verified = !!check.ok && !String(check.headers.get("content-type") || "").toLowerCase().includes("text/html");
+      } catch {
+        verified = false;
+      }
+      if (!verified) {
+        failed.push(name);
+        continue;
+      }
+      restored.push(name);
+    } catch {
+      failed.push(name);
+    }
+  }
+  return { restored, failed, present };
+}
+
 /* Publish-time upload fetch (office request: no manual retry button — the
    fetch rides the Publish click itself): restore missing server files from
    this browser's cache, the live box, or the mirror BEFORE the words go
@@ -6670,30 +6773,29 @@ export async function importBackup(text: string): Promise<ImportResult> {
   const filesFailed: string[] = [];
   const filesPoisoned: string[] = [];
   let filesRestored = 0;
+  /* Same-origin counts (restore+publish must reach every copy): on a
+     server-backed tab with no office address — live/admin talking to its
+     own backend — the files belong to THIS backend. Refusing them published
+     words that pointed at photos only the restoring tab could paint, so a
+     restore+publish "worked" on one tab and nowhere else. An office
+     address still wins when one is set; localhost keeps its old pass. */
+  let reachable = false;
+  try {
+    reachable = !!serverUrl();
+    if (!reachable) reachable = !!(socket && status === "online");
+  } catch {
+    reachable = false;
+  }
+  if (!reachable) {
+    try {
+      const host = window.location?.hostname || "";
+      reachable = host === "localhost" || host === "127.0.0.1" || host === "";
+    } catch {
+      reachable = false;
+    }
+  }
   if (incoming.length) {
     const base = serverUrl();
-    /* Same-origin counts (restore+publish must reach every copy): on a
-       server-backed tab with no office address — live/admin talking to its
-       own backend — the files belong to THIS backend. Refusing them published
-       words that pointed at photos only the restoring tab could paint, so a
-       restore+publish "worked" on one tab and nowhere else. An office
-       address still wins when one is set; localhost keeps its old pass. */
-    let reachable = !!base;
-    if (!reachable) {
-      try {
-        reachable = !!(socket && status === "online");
-      } catch {
-        reachable = false;
-      }
-    }
-    if (!reachable) {
-      try {
-        const host = window.location?.hostname || "";
-        reachable = host === "localhost" || host === "127.0.0.1" || host === "";
-      } catch {
-        reachable = false;
-      }
-    }
     if (!reachable) {
       /* No server to write to (static host, no backend): keep every embedded
          file in this browser's cache so the restored draft paints here
@@ -6783,6 +6885,35 @@ export async function importBackup(text: string): Promise<ImportResult> {
         }
       }
     }
+  }
+  /* Automatic redownload (office request): faulty uploads the backup names —
+     missing, failed or poisoned — come back by themselves at this click, so
+     visitors and every admin frame paint them after Publish with no manual
+     redownload and reupload. The publish click rides the same fetch and
+     retries whatever is still faulty then. Bounded, never throws; the counts
+     below stay truthful about what this click actually fixed. */
+  if (reachable) {
+    try {
+      let refs: string[] = [];
+      try { refs = localUploadNames(draft); } catch { refs = []; }
+      const cands: string[] = [];
+      for (const n of [...refs, ...filesMissing, ...filesFailed, ...filesPoisoned]) {
+        if (typeof n === "string" && n && cands.indexOf(n) < 0) cands.push(n);
+      }
+      if (cands.length) {
+        const pass = redownloadUploads(cands).catch((): { restored: string[]; failed: string[]; present: string[] } => ({ restored: [], failed: [], present: [] }));
+        const done = await Promise.race([pass, new Promise<null>((resT) => window.setTimeout(() => resT(null), 20000))]).catch(() => null);
+        if (done) {
+          const okSet = new Set<string>([...done.present, ...done.restored]);
+          for (const arr of [filesMissing, filesFailed, filesPoisoned]) {
+            for (let i = arr.length - 1; i >= 0; i--) {
+              if (okSet.has(arr[i])) arr.splice(i, 1);
+            }
+          }
+          filesRestored += done.restored.length;
+        }
+      }
+    } catch {}
   }
   return { ok: true, restored, skipped, filesRestored, filesFailed, filesMissing, filesPoisoned, channelMoved: channelMoved || undefined, guestCleared: guestCleared || undefined };
 }
