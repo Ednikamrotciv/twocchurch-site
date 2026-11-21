@@ -7273,3 +7273,17 @@ manual-start rule (MM screen gate, PP display matrix, AAA badge gate). Verified:
 edited files parse (esbuild transform), and the display matrix holds against the
 shipped sources — guest detection alone stays quiet, guest switch shows, main
 detection shows, Stop holds, pause does not read as stopped.
+
+Livestream fix replacement (port of v15+v16+v17): `src/lib/livestatus.ts`,
+`src/pages/WatchLive.tsx`, `src/components/blocks.tsx` replaced with the
+fixed line plus new `src/components/photoimg.tsx` (the player cards depend on
+it). (1) Typed-link wins: a typed stream link proven live on its own watch
+page outranks channel detection. (2) Stuck-shut screen fixed: the Watch latch
+keys on broadcast video id too, so back-to-back services on the same channel
+re-open by themselves. (3) Inline live-id fix: nearest-to-`isLiveNow:true`
+instead of first-in-page, order-independent. (4) Field-driven gate, no
+hardcoded handle: whatever channel the office types (main or guest field) is
+whose video counts — UC-from-address, baked known handle, page owner, or the
+office-stamped Play channel; known-foreign suggestions skipped, ownerless
+mentions need the Live tab's vouch. Verified: 67 files parse, all livestatus
+imports resolve, behavior checks pass.

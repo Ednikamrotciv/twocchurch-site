@@ -466,10 +466,7 @@ export function cmsBackend() {
           }
 
           /* Uploads the office saved on their own disk (see /__upload below) —
-             plain files Vite would otherwise 404. Public media like the
-             production host serves them: cross-origin reads allowed so an
-             absolute office address paints in canvas-backed banners instead
-             of failing blank. */
+             plain files Vite would otherwise 404. */
           if (pathname.startsWith("/data/uploads/") && req.method === "GET") {
             const file = path.normalize(path.join(ROOT, pathname.replace(/^\/+/, "")));
             if (!file.startsWith(ROOT)) {
@@ -486,7 +483,6 @@ export function cmsBackend() {
               "cache-control": "no-cache",
               "x-content-type-options": "nosniff",
               "content-security-policy": "sandbox",
-              "access-control-allow-origin": "*",
             });
             res.end(body);
             return;
