@@ -8,7 +8,8 @@ import { motion } from "framer-motion";
 import { Link, isPathMode, refreshRoute } from "../lib/router";
 import { Icon } from "./ui";
 import { photoOr } from "../data/photos";
-import { useCachedUploadUrl, useFeedUploadUrl, useFeedUploadUrls, localUploadFallback } from "../lib/uploadCache";
+import { useCachedUploadUrl, useFeedUploadUrl, useFeedUploadUrls } from "../lib/uploadCache";
+import { localUploadFallback } from "../lib/uploadCache";
 import { useCmsVersion } from "../lib/cms";
 import { ct } from "../data/copy";
 import { tx } from "../lib/i18n";
@@ -381,11 +382,10 @@ export function AnnouncementSlide({
   const feedNamedSecond = feedNamedList.length > 1 ? feedNamedList[1] : "";
   const deadFeed = useDeadPhoto(feedNamed);
   const deadFeedSecond = useDeadPhoto(feedNamedSecond);
-  /* Same-copy fallback for absolute office addresses (attached fix): an
-     absolute URL naming a host this visitor cannot reach still paints when
-     THIS copy holds the same file (relayed live disk, moved office). Same
-     names are the same bytes everywhere, so the local copy wins over the
-     dead address. */
+  /* Same-copy fallback for absolute office addresses: an absolute URL naming
+     a host this visitor cannot reach still paints when THIS copy holds the
+     same file (relayed live disk, moved office). Same names are the same
+     bytes everywhere, so the local copy wins over the dead address. */
   const localNamed = localUploadFallback(named);
   const deadLocal = useDeadPhoto(localNamed && localNamed !== named ? localNamed : "");
   /* The repo copy paints only while the disk copy is actually gone — a healthy

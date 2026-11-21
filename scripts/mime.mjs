@@ -21,10 +21,7 @@ export const MIME = {
   ".mov": "video/quicktime",
   ".m4v": "video/x-m4v",
   ".ogv": "video/ogg",
-  /* Fix: .ogg is a dual container (theora video / vorbis audio). Serve video
-     so <video> playback of .ogg slide/message uploads works; <audio> plays
-     video/ogg fine in every modern browser. */
-  ".ogg": "video/ogg",
+  ".ogg": "audio/ogg",
   ".oga": "audio/ogg",
   ".opus": "audio/opus",
   ".wav": "audio/wav",
@@ -34,8 +31,4 @@ export const MIME = {
   ".mid": "audio/midi",
   ".midi": "audio/midi",
   ".avif": "image/avif",
-  /* Fix: HLS playlists the slides/embed code recognises (.m3u8) need their
-     real MIME or some hosts download instead of playing. */
-  ".m3u8": "application/vnd.apple.mpegurl",
-  ".ts": "video/mp2t",
 };

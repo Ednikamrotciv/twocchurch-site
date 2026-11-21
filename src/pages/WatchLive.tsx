@@ -146,8 +146,8 @@ export function WatchLive() {
   const checkNewerThanMainCmd = guestCheckedAt > (Number((LIVE as any).liveCommandAt) || 0);
   const checkShowsGuestLive = !!guestUrl && air.state === "live" && isStatusForTarget(air, guestUrl);
   const checkShowsMainLive = !!targetUrl && air.state === "live" && isStatusForTarget(air, targetUrl);
-  const guestVetoed = !!guestSwitchOn && checkNewerThanGuestCmd && !checkShowsGuestLive && air.state === "off";
-  const mainVetoed = !!LIVE.isLive && checkNewerThanMainCmd && !checkShowsMainLive && air.state === "off";
+  const guestVetoed = !!guestSwitchOn && checkNewerThanGuestCmd && !checkShowsGuestLive && air.state !== "unknown";
+  const mainVetoed = !!LIVE.isLive && checkNewerThanMainCmd && !checkShowsMainLive && air.state !== "unknown";
   const guestPubActive = !!guestSwitchOn && (!!pubGuestVideo || !!pubGuestChannel) && !guestVetoed;
   const mainPubActive = !!LIVE.isLive && (!!pubMainVideo || !!pubMainChannel) && !mainVetoed && !guestLive && !guestPubActive;
   const effPubVideo = guestPubActive ? pubGuestVideo : mainPubActive ? pubMainVideo : "";

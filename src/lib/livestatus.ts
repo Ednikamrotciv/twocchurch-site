@@ -175,16 +175,14 @@ export function parseLivePage(html: string, pageUrl = ""): { read: boolean; live
      candidate walk, where the walled watch page + missing Live-tab vouch
      rejected it and the main channel read unknown while the guest played.
      Only an object marked live now counts — past archives carry isLiveNow
-     false and never match. */
+     false and never match. Order-independent: YouTube serves the id before or
+     after the marker, so a fixed 800-char window missed it and the main
+     channel read unknown. */
+  const liveMarked = /"liveBroadcastDetails":\{"isLiveNow":true/.test(text);
   const liveExternal =
-    /"liveBroadcastDetails":\{"isLiveNow":true[^\}]*\}[\s\S]{0,800}?"externalVideoId":"([\w-]{11})"/.exec(text)?.[1] || "";
-  /* Reverse order (same window): some page shapes inline the video id before
-     the live object — without this the live answer stayed unnamed and fell
-     into the candidate walk, where the walled watch page + missing Live-tab
-     vouch rejected it and the main channel read unknown while the guest
-     (no designation gate) played. */
-  const liveExternalRev =
-    /"externalVideoId":"([\w-]{11})"[\s\S]{0,800}?"liveBroadcastDetails":\{"isLiveNow":true/.exec(text)?.[1] || "";
+    (liveMarked && (/"externalVideoId":"([\w-]{11})"/.exec(text)?.[1] || "")) ||
+    /"liveBroadcastDetails":\{"isLiveNow":true[^\}]*\}[\s\S]{0,800}?"externalVideoId":"([\w-]{11})"/.exec(text)?.[1] ||
+    "";
   /* No bare first-`videoId` fallback (note 324): a channel page is a grab-bag
      of ads, autoplay and related videos, so the first id in it is whoever
      YouTube put first this fetch — it once steered the player to an unrelated
@@ -200,7 +198,7 @@ export function parseLivePage(html: string, pageUrl = ""): { read: boolean; live
   return {
     read,
     live: true,
-    videoId: fromUrl?.[1] || canonical?.[1] || details?.[1] || liveExternal || liveExternalRev || "",
+    videoId: fromUrl?.[1] || canonical?.[1] || details?.[1] || liveExternal || "",
     title: decodeEntities(headline),
   };
 }
@@ -215,14 +213,14 @@ export function channelLiveVideoId(html: string): string {
      externalVideoId) with no '"title":"Live"' tab marker at all — the old
      tab search alone returned "" even while live, which broke the Live-tab
      vouch the designated main channel needs for walled watch pages. Past
-     archives carry isLiveNow false and never match. */
+     archives carry isLiveNow false and never match. Order-independent: the id
+     may sit before or after the marker in the page. */
+  const liveMarkedTab = /"liveBroadcastDetails":\{"isLiveNow":true/.test(text);
   const liveExt =
-    /"liveBroadcastDetails":\{"isLiveNow":true[^\}]*\}[\s\S]{0,800}?"externalVideoId":"([\w-]{11})"/.exec(text)?.[1] || "";
+    (liveMarkedTab && (/"externalVideoId":"([\w-]{11})"/.exec(text)?.[1] || "")) ||
+    /"liveBroadcastDetails":\{"isLiveNow":true[^\}]*\}[\s\S]{0,800}?"externalVideoId":"([\w-]{11})"/.exec(text)?.[1] ||
+    "";
   if (liveExt) return liveExt;
-  /* Reverse order (same window): the id inlined before the live object. */
-  const liveExtRev =
-    /"externalVideoId":"([\w-]{11})"[\s\S]{0,800}?"liveBroadcastDetails":\{"isLiveNow":true/.exec(text)?.[1] || "";
-  if (liveExtRev) return liveExtRev;
   const tab = text.indexOf('"title":"Live","selected":true');
   if (tab >= 0) {
     const seg = text.slice(tab, tab + 30_000);
@@ -230,9 +228,8 @@ export function channelLiveVideoId(html: string): string {
     if (hit) return hit;
   }
   /* Markup-shift fallback: any Live-tab video on the page (the tab renderer
-     changed shape before and hid the selected marker). First Live-tab hit —
-     url form or navigation-endpoint videoId form, plus /live/ links. */
-  const anyTab = /"title":"Live"[^\{]{0,400}?"url":"\/watch\?v=([\w-]{11})"/.exec(text)?.[1] || /"title":"Live"[\s\S]{0,2000}?"videoId":"([\w-]{11})"/.exec(text)?.[1] || /"title":"Live"[\s\S]{0,2000}?\/live\/([\w-]{11})/.exec(text)?.[1] || "";
+     changed shape before and hid the selected marker). First Live-tab hit. */
+  const anyTab = /"title":"Live"[^\{]{0,400}?"url":"\/watch\?v=([\w-]{11})"/.exec(text)?.[1] || "";
   return anyTab;
 }
 
@@ -262,8 +259,18 @@ export function channelCandidateIds(html: string, limit = 3): string[] {
 export function extractChannelId(html: string, targetUrl = ""): string {
   const fromTarget = /(UC[\w-]{20,24})/.exec(String(targetUrl || ""));
   if (fromTarget) return fromTarget[1];
+  const body = String(html || "");
+  /* Designated shortcut (main-channel fix): when the checked address is the
+     designated handle, its baked id only needs to appear — a walled page that
+     names the owner once still proves the owner, instead of falling back to
+     unknown because a count threshold was missed. Other addresses keep the
+     strict margin below exactly as before. */
+  try {
+    const designated = designatedChannelIdForTarget(String(targetUrl || ""));
+    if (designated && body.indexOf(designated) !== -1) return designated;
+  } catch {}
   const freq = new Map<string, number>();
-  for (const w of String(html || "").matchAll(/"browseId":"(UC[\w-]{20,24})"/g)) freq.set(w[1], (freq.get(w[1]) || 0) + 1);
+  for (const w of body.matchAll(/"browseId":"(UC[\w-]{20,24})"/g)) freq.set(w[1], (freq.get(w[1]) || 0) + 1);
   const ranked = [...freq.entries()].sort((a, b) => b[1] - a[1]);
   if (!ranked.length) return "";
   const runner = ranked.length > 1 ? ranked[1][1] : 0;
@@ -306,11 +313,7 @@ export const DESIGNATED_CHANNEL_IDS: Record<string, string> = {
 export function designatedChannelId(channelInput?: string): string {
   const cleaned = cleanChannelInput(channelInput === undefined ? LIVE.youtubeChannel : channelInput);
   if (!cleaned) return "";
-  const low = cleaned.toLowerCase();
-  // Fix: a bare handle ("twocorg") counts like "@twocorg" — the old lookup
-  // missed it and the main channel lost its designated gate (walled reads
-  // could never open the channel follow).
-  return DESIGNATED_CHANNEL_IDS[low] || (low.startsWith("@") ? "" : DESIGNATED_CHANNEL_IDS["@" + low] || "");
+  return DESIGNATED_CHANNEL_IDS[cleaned.toLowerCase()] || "";
 }
 /** The designated id for a checked target URL (note 358): a UC id in the
     address is the designation itself; an @handle answers from the baked map
@@ -563,23 +566,18 @@ function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
 }
 
 /** Page HTML via a same-origin / office-server proxy, else public CORS proxy.
-    Fast path: trusted doors race first (same-origin, static, office) — every
-    one is a direct fetch with no proxy cache. The public doors are the
-    fallback only: they cache the popular @twocorg page, so a stale cached
-    "off" used to beat a fresh direct "live" and the main channel sat on the
-    waiting clock (or the ended screen) while another channel played. First
-    VALID answer wins within each stage; a miss degrades exactly as before. */
+    Fast path: same-origin + office race in parallel (was sequential timeouts).
+    First VALID answer wins — a fast door never waits out a slow one. */
 async function fetchPage(url: string): Promise<string | null> {
-  /* Fast live: trusted doors race at once — same-origin, static, office.
-     First valid wins; a miss falls through to the public doors below. */
+  /* Fast live: all doors race at once — same-origin, office, public proxy.
+     The old code waited out same+office before even trying the public door,
+     which held the Watch screen past the live start on static hosts. First
+     valid answer wins; a miss degrades exactly as before (unknown). */
   try {
-    const trusted = await firstValidHtml([
+    return await firstValidHtml([
       fetchPageSameOrigin(url),
       fetchPageStaticProxy(url),
       fetchPageOffice(url),
-    ]);
-    if (trusted) return trusted;
-    return await firstValidHtml([
       fetchPageRemote(url),
     ]);
   } catch {
