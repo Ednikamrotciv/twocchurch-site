@@ -172,7 +172,12 @@ export function useCachedUploadUrl(url: string): string {
   const name = uploadNameOf(url);
   const [cached, setCached] = useState(() => getCachedDataUrlSync(url));
   useEffect(() => {
-    if (!name || cached) return;
+    /* The address can change while mounted (each upload mints a new name):
+       re-read the memory/local copy at once — otherwise a previous upload's
+       bytes (or a previous miss) stick to the new address and the preview
+       keeps the camera placeholder even though the bytes are cached. */
+    setCached(getCachedDataUrlSync(url));
+    if (!name) return;
     let alive = true;
     getCachedDataUrl(name).then((v) => {
       if (alive && v) setCached(v);
@@ -211,6 +216,9 @@ export function useFeedUploadUrl(url: string): string {
   const name = uploadNameOf(url);
   const [feed, setFeed] = useState("");
   useEffect(() => {
+    /* New address, new lookup: never paint the previous upload's repo copy
+       while the new one resolves. */
+    setFeed("");
     if (!name) return;
     let alive = true;
     feedUrlsForUpload(name).then((urls) => {

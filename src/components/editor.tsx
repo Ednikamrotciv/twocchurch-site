@@ -1521,6 +1521,30 @@ function isLocalHost(): boolean {
   }
 }
 
+/* Re-encoded photo uploads (slide frame / compress) are always JPEG bytes —
+   the stored name must say so. JPEG bytes under a picked .png/.webp name are
+   served under that type + nosniff, which no browser decodes: the admin shows
+   the camera placeholder, visitors get a black slide, and the backup verifier
+   flags the mismatch so restores skip the file too. Videos pass through
+   untouched, so their names already match. */
+function matchNameToBlob(filename: string, blob: Blob): string {
+  try {
+    const t = String((blob as any)?.type || "").toLowerCase().split(";")[0].trim();
+    const ext =
+      t === "image/jpeg" ? ".jpg"
+      : t === "image/png" ? ".png"
+      : t === "image/webp" ? ".webp"
+      : t === "image/gif" ? ".gif"
+      : t === "image/avif" ? ".avif"
+      : "";
+    if (!ext) return filename;
+    const clean = String(filename || "photo.jpg");
+    return (clean.replace(/\.[a-z0-9]{1,10}$/i, "") || "photo") + ext;
+  } catch {
+    return filename;
+  }
+}
+
 async function localHostFile(blob: Blob, filename: string): Promise<string> {
   const base = serverUrl();
   if (!base && !isLocalHost())
@@ -1622,11 +1646,14 @@ export function PhotoUpload({ onDone, frame }: { onDone: (url: string) => void; 
       /* Slides take pictures only: the re-cut sets the size, so the picture
          goes in at full size and comes out 1600×1200. */
       const blob = forSlide ? await frameImageBlob(file) : await compressImageBlob(file, 1600, 0.82);
-      const url = await localHostFile(blob, file.name || "photo.jpg");
-      /* Sleep-free (note 413): keep the bytes in this browser so a host sleep never blanks the slide. */
+      const url = await localHostFile(blob, matchNameToBlob(file.name || "photo.jpg", blob));
+      /* Sleep-free (note 413): keep the bytes in this browser so a host sleep never blanks the slide.
+         Awaited BEFORE onDone: the preview and the slide read the cache synchronously on the state
+         update below, so even when this copy reads uploads off another origin (office vs live host)
+         the just-uploaded picture paints instantly instead of the camera placeholder. */
       try {
         const kept = uploadNameOf(url);
-        if (kept) cacheUploadBlob(kept, blob).catch(() => {});
+        if (kept) await cacheUploadBlob(kept, blob).catch(() => {});
       } catch {}
       onDone(url);
       fireToast(
@@ -1679,9 +1706,13 @@ export function VideoUpload({ onDone }: { onDone: (url: string) => void }) {
         throw new Error("That video is over 250 MB. Trim it or pick a smaller file, then upload again.");
       }
       const url = await localHostFile(file, file.name || "video.mp4");
+      /* Awaited before onDone (same race as photos): the preview reads the
+         cache synchronously on the state update, so the film poster paints
+         at once even cross-origin. Large videos skip the memory cache by
+         design (see cacheUploadBlob) and heal from the server/feed mirror. */
       try {
         const kept = uploadNameOf(url);
-        if (kept) cacheUploadBlob(kept, file).catch(() => {});
+        if (kept) await cacheUploadBlob(kept, file).catch(() => {});
       } catch {}
       onDone(url);
       fireToast("Video ready — publish to put it on the site.", "success");
@@ -1847,9 +1878,12 @@ function ImageField({
       const framed = await framePastedSlide(text);
       if (!framed) throw new Error("That address could not be read as a picture. Check the link, or upload the picture instead.");
       const fittedUrl = await localHostFile(framed, "slide.jpg");
+      /* Awaited before onChange (same race as uploads above): the framed
+         bytes are in this browser's cache before the new address hits state,
+         so the preview and the slide paint at once. */
       try {
         const kept = uploadNameOf(fittedUrl);
-        if (kept) cacheUploadBlob(kept, framed).catch(() => {});
+        if (kept) await cacheUploadBlob(kept, framed).catch(() => {});
       } catch {}
       onChange(fittedUrl);
       fireToast("Picture set into the slide — publish to put it on the site.", "success");

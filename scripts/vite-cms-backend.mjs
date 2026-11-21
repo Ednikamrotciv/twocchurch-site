@@ -601,6 +601,13 @@ export function cmsBackend() {
             });
             req.on("end", async () => {
               if (tooBig) return;
+              /* Empty bodies never become stored "photos" (same guard as
+                 scripts/serve.mjs): blank everywhere + poisoned backups. */
+              if (!size) {
+                res.writeHead(400, { "cache-control": "no-store" });
+                res.end("empty file");
+                return;
+              }
               try {
                 const asked = String(url.searchParams.get("name") || "file").split("/").pop() || "file";
                 let safe = asked.replace(/[^a-zA-Z0-9._-]+/g, "_").slice(0, 80) || "file";
@@ -615,6 +622,20 @@ export function cmsBackend() {
                   res.end("bad filetype");
                   return;
                 }
+                /* Trust the bytes' magic over the picked name (same fix as
+                   scripts/serve.mjs): re-encoded photos are JPEG bytes, and a
+                   .png name on JPEG bytes is undeodable under nosniff. */
+                try {
+                  const head = Buffer.concat(chunks).subarray(0, 16);
+                  const isJpeg = head.length >= 2 && head[0] === 0xff && head[1] === 0xd8;
+                  const isPng = head.length >= 4 && head[0] === 0x89 && head[1] === 0x50 && head[2] === 0x4e && head[3] === 0x47;
+                  const isGif = head.length >= 3 && head[0] === 0x47 && head[1] === 0x49 && head[2] === 0x46;
+                  const isWebp = head.length >= 12 && head[0] === 0x52 && head[1] === 0x49 && head[2] === 0x46 && head[3] === 0x46 && head[8] === 0x57 && head[9] === 0x45 && head[10] === 0x42 && head[11] === 0x50;
+                  const trueExt = isJpeg ? ".jpg" : isPng ? ".png" : isGif ? ".gif" : isWebp ? ".webp" : "";
+                  if (trueExt && ctype.startsWith("image/") && !safe.toLowerCase().endsWith(trueExt) && !(trueExt === ".jpg" && /\.jpe?g$/i.test(safe))) {
+                    safe = safe.replace(/\.[a-zA-Z0-9]{2,5}$/, "") + trueExt;
+                  }
+                } catch { /* the name stands — the allowlist above already passed */ }
                 const dir = path.join(ROOT, "data", "uploads");
                 await mkdir(dir, { recursive: true });
                 const fname = Date.now().toString(36) + "-" + safe;
