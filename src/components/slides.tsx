@@ -8,7 +8,8 @@ import { motion } from "framer-motion";
 import { Link, isPathMode, refreshRoute } from "../lib/router";
 import { Icon } from "./ui";
 import { photoOr } from "../data/photos";
-import { useCachedUploadUrl, useFeedUploadUrl } from "../lib/uploadCache";
+import { useCachedUploadUrl, useFeedUploadUrl, useFeedUploadUrls } from "../lib/uploadCache";
+import { localUploadFallback } from "../lib/uploadCache";
 import { useCmsVersion } from "../lib/cms";
 import { ct } from "../data/copy";
 import { tx } from "../lib/i18n";
@@ -377,18 +378,29 @@ export function AnnouncementSlide({
      repo too, so when the disk copy is gone AND this browser never cached it,
      the repo copy paints — any visitor, not just the uploader's browser. */
   const feedNamed = useFeedUploadUrl(named);
+  const feedNamedList = useFeedUploadUrls(named);
+  const feedNamedSecond = feedNamedList.length > 1 ? feedNamedList[1] : "";
   const deadFeed = useDeadPhoto(feedNamed);
+  const deadFeedSecond = useDeadPhoto(feedNamedSecond);
+  /* Same-copy fallback for absolute office addresses: an absolute URL naming
+     a host this visitor cannot reach still paints when THIS copy holds the
+     same file (relayed live disk, moved office). Same names are the same
+     bytes everywhere, so the local copy wins over the dead address. */
+  const localNamed = localUploadFallback(named);
+  const deadLocal = useDeadPhoto(localNamed && localNamed !== named ? localNamed : "");
   /* The repo copy paints only while the disk copy is actually gone — a healthy
-     local file always wins, so no visitor depends on the repo hosts. */
+     local file always wins, so no visitor depends on the repo hosts. Both
+     mirrors are tried: raw first (fresh after a push), jsdelivr second. */
   const localDead = !cachedNamed && deadNamed;
-  const paintableFeed = localDead && feedNamed && !deadFeed ? feedNamed : "";
-  const effectiveNamed = cachedNamed || paintableFeed || named;
-  const original = resolveSlidePhoto(effectiveNamed, welcome, !cachedNamed && !paintableFeed && deadNamed);
+  const paintableLocal = localDead && localNamed && localNamed !== named && !deadLocal ? localNamed : "";
+  const paintableFeed = localDead && feedNamed && !deadFeed ? feedNamed : localDead && feedNamedSecond && !deadFeedSecond ? feedNamedSecond : "";
+  const effectiveNamed = cachedNamed || paintableLocal || paintableFeed || named;
+  const original = resolveSlidePhoto(effectiveNamed, welcome, !cachedNamed && !paintableLocal && !paintableFeed && deadNamed);
   /* A face with no paintable photo paints no <img> at all (note 418): the face
      keeps its palette gradient and its words instead of a blank/broken frame —
      so the welcome slide is never a blank box, whatever the host lost. Cached
      uploads paint as before; only the truly imageless face stands down. */
-  const shownPhoto = cachedNamed || paintableFeed || !deadNamed ? original : deadWelcome ? "" : welcome;
+  const shownPhoto = cachedNamed || paintableLocal || paintableFeed || !deadNamed ? original : deadWelcome ? "" : welcome;
   /* A film upload plays as it is — visitors work it with the player's own
      volume and time-range controls, flat face only (the 3D stage plays it
      silently while it turns, see slides3d). */

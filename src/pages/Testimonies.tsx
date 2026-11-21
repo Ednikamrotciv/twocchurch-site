@@ -3,7 +3,6 @@ import { tx } from "../lib/i18n";
 import { useRoute, Link } from "../lib/router";
 import { TESTIMONY_CATEGORIES } from "../data/content";
 import { SITE, img } from "../data/site";
-import { resolvePhoto } from "../data/photos";
 import { useLocalState, fireToast } from "../lib/hooks";
 import { KEYS, compressImage, mailto, fmtDate, uid, siteLocale } from "../lib/store";
 import { useTestimonies } from "../lib/collections";
@@ -190,7 +189,7 @@ export function Testimonies() {
         {readingItem && (
           <div className="testimony-full">
             <div className="testimony-full__who">
-              {readingItem.photo ? <img src={resolvePhoto(readingItem.photo)} alt="" className="testimony-full__photo" /> : <Monogram name={readingItem.name} size={52} />}
+              {readingItem.photo ? <img src={readingItem.photo} alt="" className="testimony-full__photo" /> : <Monogram name={readingItem.name} size={52} />}
               <div>
                 <b>{readingItem.name}</b>
                 <em>
@@ -322,7 +321,7 @@ function ShareForm({ open, onClose, onSubmit }: { open: boolean; onClose: () => 
               <input ref={fileRef} type="file" accept="image/*" hidden onChange={(e) => handleFile(e.target.files?.[0])} />
               {draft.photo ? (
                 <div className="upload__preview">
-                  <img src={resolvePhoto(draft.photo)} alt="" />
+                  <img src={draft.photo} alt="" />
                   <Btn size="sm" variant="quiet" icon="trash" onClick={() => { set({ photo: undefined }); setFileNote(""); }}>
                     {ct("auto.testimonies.16ad4e9cc42702ed")}</Btn>
                 </div>

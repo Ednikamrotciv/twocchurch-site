@@ -131,10 +131,7 @@ export function App() {
       const save = (navigator as any)?.connection?.saveData;
       if (!reduce && !save) {
         const start = () => { if (!cancelled) { try { unmountShader = mountShaderBackground(); } catch {} } };
-        /* Same timing, warning-free shape: `typeof` on the looked-up value
-           instead of the `in` narrowing the editor flagged. */
-        const ric2 = (window as any).requestIdleCallback;
-        if (typeof ric2 === "function") ric2.call(window, start, { timeout: 2500 });
+        if ("requestIdleCallback" in window) (window as any).requestIdleCallback(start, { timeout: 2500 });
         else window.setTimeout(start, 800);
       }
     } catch { try { if (!cancelled) unmountShader = mountShaderBackground(); } catch {} }
@@ -196,7 +193,7 @@ export function App() {
   } catch {}
   if (publishedHere && !stale.waiting) return (
     <>
-      <SiteApp />
+      <SiteApp key={version} />
       <LangAsk />
     </>
   );
@@ -204,7 +201,7 @@ export function App() {
 
   return (
     <>
-      <SiteApp />
+      <SiteApp key={version} />
       <LangAsk />
     </>
   );
@@ -248,23 +245,9 @@ function SiteApp() {
     if (to !== path) navigate(to, undefined, { replace: true });
   }, [path, to]);
 
-  /* Scroll to the top only when the page itself changes. Content updates
-     (publish, translation, clock, rates) re-render in place and must never
-     yank a visitor — especially a phone visitor mid-scroll — back to top. */
-  const lastTo = React.useRef<string | null>(null);
   useEffect(() => {
-    try {
-      if ("scrollRestoration" in window.history) window.history.scrollRestoration = "manual";
-    } catch {}
+    window.scrollTo({ top: 0, left: 0, behavior: "auto" });
     document.documentElement.dataset.route = to.replace(/\//g, "-").replace(/^-/, "") || "home";
-    if (lastTo.current === null) {
-      lastTo.current = to;
-      return;
-    }
-    if (lastTo.current !== to) {
-      lastTo.current = to;
-      window.scrollTo({ top: 0, left: 0, behavior: "auto" });
-    }
   }, [to]);
 
   /* The office stepped out to check the live site (Admin wrote down where they

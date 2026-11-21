@@ -195,9 +195,7 @@ let overrides: Record<string, string> = {};
 export function photoSrc(key: string): string {
   /* Stored values stay host-relative ("src/assets/…") so content moves between
      hosts; the page URL is resolved here, so nested routes still load. */
-  const raw = overrides[key] || bundledPhoto(BUNDLED_FALLBACK[key] || key);
-  const m = /\/data\/uploads\/([A-Za-z0-9][A-Za-z0-9._-]*)/.exec(String(raw || ""));
-  return siteFile(m ? "/data/uploads/" + m[1] : raw);
+  return siteFile(overrides[key] || bundledPhoto(BUNDLED_FALLBACK[key] || key));
 }
 
 /**
@@ -206,12 +204,6 @@ export function photoSrc(key: string): string {
  */
 export function resolvePhoto(value: string): string {
   if (!value) return "";
-  /* Office uploads move between hosts (an old absolute address keeps working
-     after a restore elsewhere): any /data/uploads/ address paints from the
-     copy being read, so a new device shows its own restored file instead of
-     the old host's — blank-free on every device. Pasted links pass through. */
-  const m = /\/data\/uploads\/([A-Za-z0-9][A-Za-z0-9._-]*)/.exec(String(value || ""));
-  if (m) return "/data/uploads/" + m[1];
   const key = photoKeyOf(value);
   return key ? photoSrc(key) : value;
 }
@@ -241,10 +233,7 @@ export function applyPhotos(next: any) {
   const map: Record<string, string> = {};
   for (const key of PHOTO_KEYS) {
     const value = next && typeof next[key] === "string" ? next[key].trim() : "";
-    if (value) {
-      const m = /\/data\/uploads\/([A-Za-z0-9][A-Za-z0-9._-]*)/.exec(value);
-      map[key] = m ? "/data/uploads/" + m[1] : value;
-    }
+    if (value) map[key] = value;
   }
   overrides = map;
 

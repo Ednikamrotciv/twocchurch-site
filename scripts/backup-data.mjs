@@ -82,10 +82,13 @@ async function uploadsManifest(rootDir) {
   let uploads = [];
   try {
     const files = await readdir(path.join(rootDir, "data", "uploads"));
+    const { stat } = await import("node:fs/promises");
     for (const f of files) {
       try {
-        const bytes = (await readFile(path.join(rootDir, "data", "uploads", f))).length;
-        uploads.push({ name: f, bytes });
+        /* stat only: reading whole videos into memory OOM'd the backup. */
+        const st = await stat(path.join(rootDir, "data", "uploads", f));
+        if (!st.isFile()) continue;
+        uploads.push({ name: f, bytes: st.size });
       } catch { /* a directory, or vanished mid-listing */ }
     }
   } catch { /* no uploads yet */ }
@@ -140,8 +143,10 @@ export async function backup(rootDir, why, minHours) {
   return { saved: name, bytes: state.length };
 }
 
-/* Put a snapshot back. No name = the newest. Refuses to overwrite a differing
-   live store unless forced (a differing store means real publishing happened). */
+/* Put a snapshot back. No name = the newest. A differing live store is
+   stashed aside as suspect-<stamp>/ first (restorable, never deleted) and
+   the snapshot is put back — a restore that refuses leaves the office with
+   a backup that "doesn't work". `force` skips the stash and overwrites. */
 export async function restore(rootDir, name, force) {
   const { dir, names } = await listBackups(rootDir);
   if (!names.length) return { error: "no backups found in data-backups/" };
@@ -156,10 +161,25 @@ export async function restore(rootDir, name, force) {
   try {
     live = await readFile(path.join(dataDir, "cms-state.bin"));
   } catch { /* nothing live — always safe to restore */ }
+  let stashed = null;
   if (live && live.length && !force) {
-    const snap = await readFile(path.join(dir, pick, "cms-state.bin")).catch(() => null);
-    if (snap && hash(snap) === hash(live)) return { kept: pick, note: "live store already matches this backup" };
-    return { error: "live store exists and differs — publish history kept. Add the word force to overwrite it." };
+    const snapCheck = await readFile(path.join(dir, pick, "cms-state.bin")).catch(() => null);
+    if (snapCheck && hash(snapCheck) === hash(live)) return { kept: pick, note: "live store already matches this backup" };
+    /* Stash-then-restore: the differing live bytes are real publishing done
+       since the snapshot — keep them as a suspect- backup (restorable with
+       `npm run restore`, blessed with `npm run adopt`) and put the snapshot
+       back, instead of erroring and leaving the office stuck. */
+    const sname = "suspect-" + stamp(new Date());
+    try {
+      const dest = path.join(dir, sname);
+      await mkdir(dest, { recursive: true });
+      await writeFile(path.join(dest, "cms-state.bin"), live);
+      await writeFile(
+        path.join(dest, "meta.json"),
+        JSON.stringify({ at: new Date().toISOString(), why: "stashed live store at restore", sha: hash(live), bytes: live.length }, null, 1)
+      );
+      stashed = sname;
+    } catch { /* stashing failed — restore still proceeds below */ }
   }
   const snap = await readFile(path.join(dir, pick, "cms-state.bin")).catch(() => null);
   if (!snap) return { error: `backup ${pick} has no state file` };
@@ -171,12 +191,17 @@ export async function restore(rootDir, name, force) {
   await recordSeen(rootDir, hash(snap));
   let missingUploads = [];
   if (meta && meta.uploads) {
+    /* stat only: reading whole videos into memory OOM'd the check. A
+       zero-byte file paints blank, so it counts as missing too. */
+    const { stat } = await import("node:fs/promises");
     for (const u of meta.uploads) {
-      const st = await readFile(path.join(dataDir, "uploads", u.name)).catch(() => null);
-      if (!st) missingUploads.push(u.name);
+      try {
+        const st = await stat(path.join(dataDir, "uploads", u.name));
+        if (!st.isFile() || !st.size) missingUploads.push(u.name);
+      } catch { missingUploads.push(u.name); }
     }
   }
-  return { restored: pick, at: meta && meta.at, missingUploads };
+  return stashed ? { restored: pick, at: meta && meta.at, missingUploads, stashed } : { restored: pick, at: meta && meta.at, missingUploads };
 }
 
 /* Bless the live bytes as this folder's own (after deliberately placing a
@@ -299,6 +324,7 @@ if (CLI) {
       console.log(`kept: ${r.kept} — ${r.note}`);
     } else {
       console.log(`restored data-backups/${r.restored}/ from ${r.at || "unknown time"}`);
+      if (r.stashed) console.log(`previous live words kept as data-backups/${r.stashed}/ — nothing was deleted (restore that name to go back, or run: npm run adopt)`);
       reportMissingUploads(root, r);
       if ((r.missingUploads || []).length) console.log(`missing uploads: ${r.missingUploads.join(", ")}`);
     }

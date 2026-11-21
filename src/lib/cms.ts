@@ -40,31 +40,6 @@ const LAST_ADMIN_AT_KEY = "wom.cms.lastAdminAt";
 const SESSION_IDLE_MS = 15 * 60 * 1000;
 const REQUEST_TIMEOUT = 3500;
 
-/* Bound a stamp wait (swift cadence): a sleeping server must fail a poll in
-   seconds — never hold the watch's next tick hostage for a minute. The
-   underlying request still wakes the server; the next tick re-asks. */
-function rpcTimeout<T>(p: Promise<T>, ms: number): Promise<T> {
-  try {
-    let timer = 0;
-    const guard = new Promise<T>((_, rej) => {
-      timer = window.setTimeout(() => rej(new Error("rpc timeout")), ms);
-    });
-    const tracked = p.then(
-      (v) => {
-        try { window.clearTimeout(timer); } catch {}
-        return v;
-      },
-      (e) => {
-        try { window.clearTimeout(timer); } catch {}
-        throw e;
-      }
-    );
-    return Promise.race([tracked, guard]);
-  } catch {
-    return p;
-  }
-}
-
 const NOTES_KEY = "wom.cms.notes";
 /* Which code update the browser's saved store belongs to (note 253). */
 const CODEGEN_KEY = "wom.cms.codegen";
@@ -1222,25 +1197,12 @@ export function checkStaleBuild(): Promise<void> {
       try {
         const now = Date.now();
         const prev = readStaleAttempts();
-        const same = !!prev && prev.notes === staleNewerNotes && now - prev.at < STALE_WINDOW_MS;
-        const lastTry = prev && typeof (prev as any).last === "number" ? (prev as any).last : (prev ? prev.at : 0);
-        if (same && prev.tries >= STALE_MAX_TRIES) {
-          /* Capped — but a copy still showing maintenance keeps one retry per
-             minute, so a fixed host still heals by itself instead of stranding
-             visitors until they reload by hand. */
-          let waiting = false;
-          try { waiting = maintenanceShouldWait() || isStaleWaiting(); } catch { waiting = false; }
-          if (!waiting || now - lastTry < 60_000) return;
-          try {
-            sessionStorage.setItem(STALE_RELOAD_KEY, JSON.stringify({ notes: staleNewerNotes, at: prev.at, tries: prev.tries, last: now }));
-          } catch {}
-        } else {
-          const tries = same ? prev.tries + 1 : 1;
-          const at = same ? prev.at : now;
-          try {
-            sessionStorage.setItem(STALE_RELOAD_KEY, JSON.stringify({ notes: staleNewerNotes, at, tries, last: now }));
-          } catch {}
-        }
+        if (prev && prev.notes === staleNewerNotes && now - prev.at < STALE_WINDOW_MS && prev.tries >= STALE_MAX_TRIES) return;
+        const tries = prev && prev.notes === staleNewerNotes && now - prev.at < STALE_WINDOW_MS ? prev.tries + 1 : 1;
+        const at = prev && prev.notes === staleNewerNotes && now - prev.at < STALE_WINDOW_MS ? prev.at : now;
+        try {
+          sessionStorage.setItem(STALE_RELOAD_KEY, JSON.stringify({ notes: staleNewerNotes, at, tries }));
+        } catch {}
       } catch {}
       /* Warm the entry document past the HTTP cache, then reload onto it. */
       try {
@@ -2429,17 +2391,7 @@ async function applySeedOnce() {
   if (seedApplied) return;
   seedApplied = true;
   try {
-    const seedCtrl = typeof AbortController !== "undefined" ? new AbortController() : null;
-    const seedTimer = seedCtrl ? window.setTimeout(() => seedCtrl.abort(), 8000) : 0;
-    let res: Response;
-    try {
-      res = await fetch(siteFile("seed.json"), {
-        cache: "no-store",
-        signal: seedCtrl ? seedCtrl.signal : undefined,
-      });
-    } finally {
-      if (seedTimer) window.clearTimeout(seedTimer);
-    }
+    const res = await fetch(siteFile("seed.json"), { cache: "no-store" });
     if (res.ok) {
       const seed = await res.json();
       /* The baked recent-services list paints even when the words are not
@@ -2536,7 +2488,7 @@ async function syncFromFeed() {
   try {
     if (feedSpec === undefined) feedSpec = await bakedFeedSpec();
     if (!feedSpec) return;
-    const seed = await peekSeed(feedSpec, 5000);
+    const seed = await peekSeed(feedSpec, 15000);
     if (!seed) return;
     /* A clean deploy never resurfaces the last publish (office request): while
        this copy stages clean (fresh deploy, welcome-home only until Recover +
@@ -2558,44 +2510,6 @@ async function syncFromFeed() {
     /* The baked services paint on every feed read — even when the words are
        not newer, the list may be (a Sunday uploads with no publish). */
     applyBakedRecent(seed);
-    /* Bless-only publish (no content change, same rev): the stamp below still
-       lifts waiting copies — never require a rev bump to release. Note the
-       verdict/stamps even when the words are not newer, so one click clears
-       every device without a second click or a reload. */
-    try {
-      let wasWaiting = false;
-      try { wasWaiting = maintenanceShouldWait(); } catch { wasWaiting = false; }
-      const candAny = seed as any;
-      const candSections = (candAny && candAny.sections && typeof candAny.sections === "object" ? candAny.sections : {}) as Snapshot;
-      const candWords = Object.keys(candSections).length;
-      if (typeof candAny?.notes === "number") setPublishedNotes(candAny.notes);
-      try { noteDeployWitness(candAny?.publishedDeploy); } catch {}
-      try { noteCodeWitness(candAny?.code, candAny?.notes); } catch {}
-      try { noteServerVerdict(candAny?.notes, candWords, candAny?.at, candAny?.publishedDeploy, candAny?.code); } catch {}
-      try {
-        const at = candAny?.at;
-        if (typeof candAny?.notes === "number" && Math.floor(candAny.notes) === BUILD_NOTES && typeof at === "number" && at > 0) notePublishAt(at);
-      } catch {}
-      try {
-        const seedCode = typeof candAny?.code === "string" ? candAny.code : "";
-        if (
-          deployFromMeta && currentDeployId &&
-          publishedDeployId !== currentDeployId &&
-          typeof candAny?.notes === "number" && Math.floor(candAny.notes) === BUILD_NOTES &&
-          !!seedCode && !!runningCode && seedCode === runningCode &&
-          candWords > 0
-        ) {
-          setPublishedNotes(BUILD_NOTES);
-          markDeployPublished();
-        }
-      } catch {}
-      try {
-        if (wasWaiting && !maintenanceShouldWait()) {
-          version += 1;
-          notify();
-        }
-      } catch {}
-    } catch {}
     if (!feedIsNewer(seed, rev)) return;
     const live = seed as FeedSeed;
     /* An empty feed must never clear published words either (note 289) — a
@@ -2654,14 +2568,6 @@ async function syncFromFeed() {
     } catch {}
     applyOverrides(liveSections);
     writeCache();
-    /* Adopted words must repaint at once (no reload): bump so the maintenance
-       notice re-evaluates instead of sticking with first paint. */
-    try {
-      version += 1;
-    } catch {}
-    try {
-      notify();
-    } catch {}
   } catch {
     /* the feed stays a best effort */
   } finally {
@@ -2673,12 +2579,10 @@ function startFeed() {
   if (feedStarted) return;
   feedStarted = true;
   syncFromFeed().catch(() => {});
-  /* Publish-at-once: server-less copies read the mirror every few seconds, so a
+  /* Publish-at-once: server-less copies read the mirror every minute, so a
      publish rides out without a rebuild and without a tap. While visitors
-     wait on maintenance, re-read every 2s so one click lands in seconds. */
+     wait on maintenance, re-read every 10s so one click lands in seconds. */
   window.setInterval(() => syncFromFeed().catch(() => {}), 4 * 1000);
-  /* Slow lane (verifier pin): the minute mirror read stays as a backstop. */
-  window.setInterval(() => syncFromFeed().catch(() => {}), 60 * 1000);
   window.setInterval(() => {
     try {
       if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
@@ -2765,13 +2669,8 @@ async function liveBaseUrl(): Promise<string> {
   try {
     const joined = await joinedBackendRoot();
     if (joined) {
-      const liveCtrl = typeof AbortController !== "undefined" ? new AbortController() : null;
-      const liveTimer = liveCtrl ? window.setTimeout(() => liveCtrl.abort(), 8000) : 0;
       try {
-        const res = await fetch(joined + "/__live-url", {
-          cache: "no-store",
-          signal: liveCtrl ? liveCtrl.signal : undefined,
-        });
+        const res = await fetch(joined + "/__live-url", { cache: "no-store" });
         if (res.ok) {
           const data = await res.json().catch(() => null);
           const u = String((data && data.url) || "").trim().replace(/\/+$/, "");
@@ -2782,21 +2681,14 @@ async function liveBaseUrl(): Promise<string> {
         }
       } catch {
         /* joined backend silent — fall through to this origin's door */
-      } finally {
-        if (liveTimer) window.clearTimeout(liveTimer);
       }
     }
   } catch {
     /* standalone — the same-origin door below owns it */
   }
   let backend = "";
-  const liveCtrl2 = typeof AbortController !== "undefined" ? new AbortController() : null;
-  const liveTimer2 = liveCtrl2 ? window.setTimeout(() => liveCtrl2.abort(), 8000) : 0;
   try {
-    const res = await fetch("/__live-url", {
-      cache: "no-store",
-      signal: liveCtrl2 ? liveCtrl2.signal : undefined,
-    });
+    const res = await fetch("/__live-url", { cache: "no-store" });
     if (res.ok) {
       const data = await res.json().catch(() => null);
       const u = String((data && data.url) || "").trim().replace(/\/+$/, "");
@@ -2804,8 +2696,6 @@ async function liveBaseUrl(): Promise<string> {
     }
   } catch {
     /* unreachable backend — fall through to the default below */
-  } finally {
-    if (liveTimer2) window.clearTimeout(liveTimer2);
   }
   const u = backend || DEFAULT_LIVE_ORIGIN;
   try {
@@ -2985,7 +2875,6 @@ async function backfillUploadsFrom(fromBase: string, content: Snapshot = overrid
       const blob = await res.blob();
       if (!blob.size || blob.size > BACKUP_FILE_MAX_BYTES) throw 0;
       if (String((blob as any).type || "").toLowerCase().includes("text/html")) throw 0;
-      try { if (await uploadBlobLooksPoisoned(blob)) throw 0; } catch { throw 0; }
       const put = await fetch("/__restore-file?conn=" + encodeURIComponent(officeFileConn()) + "&name=" + encodeURIComponent(name), {
         method: "POST",
         headers: { "content-type": blob.type || guessUploadType(name) },
@@ -2994,7 +2883,24 @@ async function backfillUploadsFrom(fromBase: string, content: Snapshot = overrid
       if (!put.ok) throw 0;
       restored++;
     } catch {
-      failed.push(name);
+      /* The serving copy may lack it while this browser still holds it
+         (restored-from-backup onto a wiped disk paints from cache only):
+         write the cache home so this disk — and the next publish's photo
+         leg — has the bytes instead of the blank. */
+      try {
+        const dataUrl = await getCachedDataUrl(name);
+        const cached = dataUrlToBlob(dataUrl || "");
+        if (!cached || !(cached as any).size || (cached as any).size > BACKUP_FILE_MAX_BYTES) throw 0;
+        const put = await fetch("/__restore-file?conn=" + encodeURIComponent(officeFileConn()) + "&name=" + encodeURIComponent(name), {
+          method: "POST",
+          headers: { "content-type": (cached as any).type || guessUploadType(name) },
+          body: cached,
+        });
+        if (!put.ok) throw 0;
+        restored++;
+      } catch {
+        failed.push(name);
+      }
     }
   }
   return { restored, failed };
@@ -3059,7 +2965,6 @@ export async function healMissingUploads(): Promise<{ restored: number; checked:
               const b = await r.blob();
               if (!b || !(b as any).size) continue;
               if (String((b as any).type || "").toLowerCase().includes("text/html")) continue;
-              try { if (await uploadBlobLooksPoisoned(b)) continue; } catch { continue; }
               blob = b;
               try { await cacheUploadBlob(name, b); } catch {}
               break;
@@ -3067,7 +2972,6 @@ export async function healMissingUploads(): Promise<{ restored: number; checked:
           }
         }
         if (!blob || !(blob as any).size) continue;
-        try { if (await uploadBlobLooksPoisoned(blob as Blob)) continue; } catch { continue; }
         const put = await fetch("/__restore-file?conn=" + encodeURIComponent(officeFileConn()) + "&name=" + encodeURIComponent(name), {
           method: "POST",
           headers: { "content-type": (blob as any).type || guessUploadType(name) },
@@ -3103,7 +3007,7 @@ async function readLiveViaFeed(): Promise<{ base: string; sections: Snapshot; no
   try {
     if (feedSpec === undefined) feedSpec = await bakedFeedSpec();
     if (!feedSpec) return null;
-    const seed = (await peekSeed(feedSpec, 5000)) as any;
+    const seed = (await peekSeed(feedSpec, 15000)) as any;
     if (!seed || typeof seed !== "object") return null;
     const secs = (seed as any).sections;
     if (!secs || typeof secs !== "object" || !Object.keys(secs).length) return null;
@@ -3618,8 +3522,6 @@ async function foldLiveInto(target: Snapshot | null, onlyId?: string, boundedMs 
    the same half minute. No session needed — the stamp is a public read, and
    the pull below is the same guarded path the shout itself takes. */
 let contentWatchStarted = false;
-/* One stamp poll in flight: hurry lanes, loops and return events overlap. */
-let publishPollRunning = false;
 let contentWatchRunning = false;
 /* Last stamp tuple seen by the freshness watch (note 427): any movement on
    the shared backend while the notice shows pulls the full answer at once. */
@@ -3641,30 +3543,17 @@ function stampTupleOf(r: any): string {
 async function pollPublishHttp(): Promise<void> {
   try {
     if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
-    if (publishPollRunning) return;
-    publishPollRunning = true;
-    const baseUrls: string[] = [];
+    const urls: string[] = [];
     try {
       const remote = serverUrl();
-      if (remote) baseUrls.push(remote + "/__cms/contentRev");
+      if (remote) urls.push(remote + "/__cms/contentRev");
     } catch {}
-    baseUrls.push("/__cms/contentRev");
+    urls.push("/__cms/contentRev");
+    try {
+      const live = await liveBaseUrl().catch(() => "");
+      if (live) urls.push(live + "/__cms/contentRev");
+    } catch {}
     let lifted = false;
-    /* Swift lift: the first door that proves the publish drops the notice at
-       once instead of waiting for the slowest door — the words follow through
-       the same pull, so every device paints within the same poll. */
-    let announced = false;
-    const announce = () => {
-      if (announced) return;
-      announced = true;
-      /* The lift re-renders exactly once, on the waiting→live flip. A copy
-         that is already live needs no bump for the stamp alone (word pulls
-         bump themselves when they actually adopt), so a settled site stops
-         re-rendering every poll. */
-      if (!holding) return;
-      version += 1;
-      notify();
-    };
     /* Server-authoritative verdict (note 427): while the notice shows, the
        stamp poll names the shared backend's words too, and any stamp movement
        pulls the full answer at once — one admin Publish lifts every copy on
@@ -3673,131 +3562,81 @@ async function pollPublishHttp(): Promise<void> {
     try {
       holding = maintenanceShouldWait();
     } catch {}
-    /* Stamp doors race in parallel (one Publish lifts everywhere fast): every
-       door is asked at once with a short timeout, and each answer is applied
-       the moment it lands — a sleeping box never holds the fast doors hostage,
-       so incognito, fresh profiles and new devices lift in the same poll.
-       Shared sync guards keep the stamp leading to the same guarded sync the
-       shout takes, exactly once. */
-    let sharedSynced = false;
-    let syncInflight: Promise<void> | null = null;
-    let feedInflight: Promise<void> | null = null;
-    const syncOnce = async (): Promise<void> => {
-      if (sharedSynced) return;
-      if (syncInflight) {
-        await syncInflight.catch(() => {});
-        return;
-      }
-      syncInflight = syncFromServer().catch(() => {});
-      await syncInflight;
-      syncInflight = null;
-      sharedSynced = true;
-    };
-    const feedOnce = async (): Promise<void> => {
-      if (feedInflight) {
-        await feedInflight.catch(() => {});
-        return;
-      }
-      feedInflight = syncFromFeed().catch(() => {});
-      await feedInflight;
-      feedInflight = null;
-    };
-    const handleStamp = async (r: any): Promise<void> => {
-      if (!r || (r as any).ok !== true) return;
-      let synced = false;
+    for (const u of urls) {
       try {
-        noteServerVerdict((r as any).notes, (r as any).words, (r as any).at, (r as any).publishDeploy, (r as any).code);
-      } catch {}
-      /* Any stamp movement while waiting pulls the full answer at once
-         (note 427) — even a stamp-only publish the rev check cannot see.
-         The pull is kicked off without awaiting it: the proofs below lift
-         the notice the moment they land (swift), and the words fill in
-         behind through the same pull. */
-      let syncP: Promise<void> | null = null;
-      try {
-        const key = stampTupleOf(r);
-        if (key && key !== lastStampTuple) {
-          lastStampTuple = key;
-          if (holding) syncP = syncOnce();
+        const ctrl = typeof AbortController !== "undefined" ? new AbortController() : null;
+        const timer = ctrl ? window.setTimeout(() => ctrl.abort(), 3500) : 0;
+        try {
+          const res = await fetch(u + "?conn=http-poll-" + Math.random().toString(36).slice(2), {
+            method: "POST",
+            headers: { "content-type": "text/plain;charset=utf-8" },
+            body: "",
+            cache: "no-store",
+            signal: ctrl ? ctrl.signal : undefined,
+          });
+          if (!res.ok) continue;
+          const r = await res.json().catch(() => null);
+          if (!r || (r as any).ok !== true) continue;
+          let synced = false;
+          try {
+            noteServerVerdict((r as any).notes, (r as any).words, (r as any).at, (r as any).publishDeploy, (r as any).code);
+          } catch {}
+          /* Any stamp movement while waiting pulls the full answer at once
+             (note 427) — even a stamp-only publish the rev check cannot see. */
+          try {
+            const key = stampTupleOf(r);
+            if (key && key !== lastStampTuple) {
+              lastStampTuple = key;
+              if (holding) {
+                await syncFromServer().catch(() => {});
+                synced = true;
+              }
+            }
+          } catch {}
+          const notes = Math.floor(Number((r as any).notes));
+          const at = Number((r as any).at);
+          const deploy = typeof (r as any).publishDeploy === "string" ? (r as any).publishDeploy : "";
+          const code = typeof (r as any).code === "string" ? (r as any).code : "";
+          if (Number.isFinite(notes) && notes > 0) setPublishedNotes(notes);
+          try { if (Number.isFinite(at) && at > 0) notePublishAt(at); } catch {}
+          try { noteDeployWitness(deploy); } catch {}
+          try { if (Number.isFinite(notes)) noteCodeWitness(code, notes); } catch {}
+          try {
+            if (Number.isFinite(notes) && notes === BUILD_NOTES && deploy && currentDeployId && deployFromMeta && deploy === currentDeployId) markDeployPublished();
+          } catch {}
+          /* Late-join release: a same-update publish attested to this code IS
+             the office review — release even when this deploy first opened
+             after the click (no second click needed). */
+          try {
+            if (Number.isFinite(notes) && notes === BUILD_NOTES && code && code === runningCode) {
+              setPublishedNotes(BUILD_NOTES);
+              blessRunningCode();
+              if (deployFromMeta && currentDeployId) markDeployPublished();
+              lifted = true;
+            }
+          } catch {}
+          if (postDeployPublishWitnessed()) {
+            try { markDeployPublished(); } catch {}
+            lifted = true;
+          }
+          if (r && typeof (r as any).rev === "number" && (r as any).rev !== rev) {
+            if (!synced) await syncFromServer().catch(() => {});
+          } else if (r && typeof (r as any).notes === "number" && (r as any).notes > publishedNotes) {
+            if (!synced) await syncFromServer().catch(() => {});
+          } else if (!socket || status !== "online") {
+            /* Socketless copies still need the words, not just the stamp. */
+            await syncFromFeed().catch(() => {});
+          }
+        } finally {
+          if (timer) window.clearTimeout(timer as ReturnType<typeof setTimeout>);
         }
-      } catch {}
-      const notes = Math.floor(Number((r as any).notes));
-      const at = Number((r as any).at);
-      const deploy = typeof (r as any).publishDeploy === "string" ? (r as any).publishDeploy : "";
-      const code = typeof (r as any).code === "string" ? (r as any).code : "";
-      if (Number.isFinite(notes) && notes > 0) setPublishedNotes(notes);
-      try { if (Number.isFinite(at) && at > 0) notePublishAt(at); } catch {}
-      try { noteDeployWitness(deploy); } catch {}
-      try { if (Number.isFinite(notes)) noteCodeWitness(code, notes); } catch {}
-      try {
-        if (Number.isFinite(notes) && notes === BUILD_NOTES && deploy && currentDeployId && deployFromMeta && deploy === currentDeployId) markDeployPublished();
-      } catch {}
-      /* Late-join release: a same-update publish attested to this code IS
-         the office review — release even when this deploy first opened
-         after the click (no second click needed). */
-      try {
-        if (Number.isFinite(notes) && notes === BUILD_NOTES && code && code === runningCode) {
-          setPublishedNotes(BUILD_NOTES);
-          blessRunningCode();
-          if (deployFromMeta && currentDeployId) markDeployPublished();
-          lifted = true;
-        }
-      } catch {}
-      if (postDeployPublishWitnessed()) {
-        try { markDeployPublished(); } catch {}
-        lifted = true;
-      }
-      /* Swift: the proof is in — drop the notice now; the kicked pull above
-         (or the rev branches below) lands the words right behind. */
-      if (lifted) announce();
-      if (syncP) {
-        try { await syncP; synced = true; } catch {}
-      }
-      if (r && typeof (r as any).rev === "number" && (r as any).rev !== rev) {
-        if (!synced) await syncOnce();
-      } else if (r && typeof (r as any).notes === "number" && (r as any).notes > publishedNotes) {
-        if (!synced) await syncOnce();
-      } else if (!socket || status !== "online") {
-        /* Socketless copies still need the words, not just the stamp. */
-        await feedOnce().catch(() => {});
-      }
-    };
-    const fetchDoor = async (u: string): Promise<void> => {
-      const ctrl = typeof AbortController !== "undefined" ? new AbortController() : null;
-      const timer = ctrl ? window.setTimeout(() => ctrl.abort(), 3500) : 0;
-      try {
-        const res = await fetch(u + "?conn=http-poll-" + Math.random().toString(36).slice(2), {
-          method: "POST",
-          headers: { "content-type": "text/plain;charset=utf-8" },
-          body: "",
-          cache: "no-store",
-          signal: ctrl ? ctrl.signal : undefined,
-        });
-        if (!res.ok) return;
-        const r = await res.json().catch(() => null);
-        await handleStamp(r);
-      } catch { /* this door missed — the fast doors still lift */ }
-      finally {
-        if (timer) window.clearTimeout(timer as ReturnType<typeof setTimeout>);
-      }
-    };
-    const jobs: Promise<void>[] = baseUrls.map((u) => fetchDoor(u));
-    /* The live door resolves beside the fast doors, never ahead of them: the
-       address lookup runs concurrently, so a slow lookup never delays the
-       answers that are already in. */
-    const liveJob = (async (): Promise<void> => {
-      try {
-        const live = await liveBaseUrl().catch(() => "");
-        if (live) await fetchDoor(live + "/__cms/contentRev");
-      } catch { /* fast doors already applied above */ }
-    })();
-    jobs.push(liveJob);
-    await Promise.allSettled(jobs);
-    if (lifted) announce();
-    publishPollRunning = false;
-  } catch {
-    publishPollRunning = false;
-  }
+      } catch { /* next door */ }
+    }
+    if (lifted) {
+      version += 1;
+      notify();
+    }
+  } catch {}
 }
 function startContentWatch() {
   if (contentWatchStarted) return;
@@ -3811,15 +3650,10 @@ function startContentWatch() {
         await pollPublishHttp().catch(() => {});
         return;
       }
-      /* Socket up: still race the plain-HTTP doors beside the socket (same
-         origin + live). The office socket can lag live (its minute loop) or
-         stare at a napping box while the live box already holds the publish —
-         the HTTP doors carry the same proof and lift without a reload. */
-      try { pollPublishHttp().catch(() => {}); } catch {}
       if (contentWatchRunning) return;
       contentWatchRunning = true;
       try {
-        const raw = await rpcTimeout(socket.rpc.contentRev(""), 4000);
+        const raw = await socket.rpc.contentRev("");
         const r = typeof raw === "string" ? JSON.parse(raw) : raw;
         try {
           noteServerVerdict((r as any).notes, (r as any).words, (r as any).at, (r as any).publishDeploy, (r as any).code);
@@ -3859,10 +3693,9 @@ function startContentWatch() {
     tick().catch(() => {});
   }, 3000);
   /* Waiting copies hurry (publish reaches everywhere): while this copy holds
-     on maintenance, re-ask the stamp every 2s instead of only on the loop
+     on maintenance, re-ask the stamp every 10s instead of only on the loop
      above — the moment the server learns the publish, the notice lifts with
-     no tap. Hidden tabs still skip; the 30s loop stays for every copy.
-     (Legacy 10_000ms hurry lane is now 2s: same gate, faster poll.) */
+     no tap. Hidden tabs still skip; the 30s loop stays for every copy. */
   window.setInterval(() => {
     try {
       if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
@@ -3873,12 +3706,7 @@ function startContentWatch() {
       try { checkStaleBuild().catch(() => {}); } catch {}
       try { syncFromFeed().catch(() => {}); } catch {}
     } catch {}
-  }, 2_000);
-  /* Boot asks at once: a copy that opens onto a fresh publish lifts without
-     waiting out the first interval — incognito, fresh profiles and new
-     devices land it in the same first poll. (Standing 30_000ms loop stays
-     for every copy.) */
-  try { tick().catch(() => {}); } catch {}
+  }, 5_000);
   document.addEventListener("visibilitychange", () => {
     if (document.visibilityState === "visible") {
       tick().catch(() => {});
@@ -3889,9 +3717,6 @@ function startContentWatch() {
   window.addEventListener("online", () => {
     tick().catch(() => {});
     try { checkStaleBuild().catch(() => {}); } catch {}
-  });
-  window.addEventListener("focus", () => {
-    try { tick().catch(() => {}); } catch {}
   });
 }
 
@@ -3913,21 +3738,21 @@ function startLivePull() {
   };
   try {
     initialSyncDone.then(() => {
-      /* Boot asks at once: a copy that opens onto a fresh publish follows
-         live in the same first poll — incognito, fresh profiles and new
-         devices included. */
+      /* A copy that opens onto waiting visitors follows live at once instead
+         of after the first minute. */
       try {
-        tick();
+        if (maintenanceShouldWait()) tick();
+        else window.setTimeout(() => tick(), 1200);
       } catch {
-        window.setTimeout(() => tick(), 200);
+        window.setTimeout(() => tick(), 1200);
       }
     }).catch(() => {});
   } catch {
-    window.setTimeout(() => tick(), 200);
+    window.setTimeout(() => tick(), 1200);
   }
   window.setInterval(() => tick(), 5 * 1000);
   /* Waiting copies hurry (publish reaches everywhere): while the notice
-     shows, re-read live every 2s instead of only on the loop above — a
+     shows, re-read live every 10s instead of only on the loop above — a
      Publish clicked on live/admin lands on local/admin within seconds, with
      no tap here. Hidden tabs still skip; the 60s loop stays for every copy. */
   window.setInterval(() => {
@@ -3941,9 +3766,6 @@ function startLivePull() {
     if (document.visibilityState === "visible") tick();
   });
   window.addEventListener("online", () => tick());
-  window.addEventListener("focus", () => {
-    try { tick(); } catch {}
-  });
 }
 
 export async function startCms() {
@@ -4241,6 +4063,7 @@ export async function startCms() {
     window.addEventListener("offline", () => scheduleUploadHeal(800));
     window.setInterval(() => {
       healMissingUploads().catch(() => {});
+      healLiveUploads().catch(() => {});
     }, 30 * 1000);
   } catch {}
 
@@ -4292,12 +4115,6 @@ export async function startCms() {
   /* ...and every connected tab re-asks the rev stamp, so a missed shout
      still lands the publish within the half minute. */
   startContentWatch();
-  /* ...and the static mirror hurries the click on connected tabs too: the
-     office backend may trail live (minute loop) while the mirror has no cold
-     boot — same guards, so it can only hurry a publish, never release new
-     code. This is what lets incognito, fresh profiles and new devices lift
-     without a reload. */
-  try { startFeed(); } catch {}
   try {
     await Promise.race([
       initialSyncDone,
@@ -4484,12 +4301,6 @@ function startReturnJoin() {
     if (document.visibilityState === "visible") join(false);
   });
   window.addEventListener("focus", () => join(false));
-  /* Late devices find the server within seconds: a 15s loop re-tries the
-     join even when no return event fired (sleep-wake with the tab already
-     visible). Connected and standalone copies no-op inside join(). */
-  window.setInterval(() => {
-    try { join(false); } catch {}
-  }, 15_000);
 }
 
 /* A standalone copy joins a server that appears after boot, quietly. */
@@ -4617,16 +4428,11 @@ function watchForServer() {
       checking = false;
     }
   };
-  /* Late/returning offline devices find the server within seconds: a 15s
-     loop plus an instant join on return (online, foreground, focus) — a
-     Publish never waits out a minute timer. */
-  window.setInterval(() => check().catch(() => {}), 15_000);
-  try { check().catch(() => {}); } catch {}
+  window.setInterval(() => check().catch(() => {}), 60_000);
   document.addEventListener("visibilitychange", () => {
     if (document.visibilityState === "visible") check().catch(() => {});
   });
   window.addEventListener("online", () => check().catch(() => {}));
-  window.addEventListener("focus", () => check().catch(() => {}));
 }
 
 function waitForOpen(sock: any) {
@@ -4687,27 +4493,10 @@ function scheduleReconnect() {
   }, delay);
 }
 
-/* One pull in flight (swift, no herd): shouts, ticks, hurry lanes, refocuses
-   and visibility/online/focus handlers all ask at once — they share the same
-   pull instead of stacking concurrent full-content reads on a waking server. */
-let serverSyncInflight: Promise<void> | null = null;
-async function syncFromServer(): Promise<void> {
-  if (serverSyncInflight) {
-    try { await serverSyncInflight; } catch {}
-    return;
-  }
-  const run = syncFromServerInner().catch(() => {});
-  serverSyncInflight = run;
-  try { await run; } finally { if (serverSyncInflight === run) serverSyncInflight = null; }
-}
-async function syncFromServerInner() {
+async function syncFromServer() {
   const raw = await socket.rpc.getContent("");
   const res = JSON.parse(raw);
   if (!res?.ok) return;
-  /* Captured before the verdict below flips the gate: a bless-only publish
-     moves no rev the chain can see, so the flip itself is the paint signal. */
-  let wasWaiting = false;
-  try { wasWaiting = maintenanceShouldWait(); } catch { wasWaiting = false; }
   /* A reload must not strand the live site: once per session, pick up any
      carry an earlier session still owes the live box (it syncs itself, then
      rebuilds from what this copy holds). */
@@ -4985,20 +4774,13 @@ function hostFileAttestsSameCode(): boolean {
           }
         } catch {}
       }
-     writeCache();
-   }
+      writeCache();
+    }
+  } else if (notesLifted || deployLifted || codeWitnessed) {
+    /* Content identical but the publish stamp moved (note 278): bump so the
+       maintenance notice re-evaluates instead of sticking with first paint. */
+    version += 1;
   }
-  /* Stamp moved (same or new content): bump so the maintenance notice
-     re-evaluates at once instead of sticking with first paint — no reload.
-     The bump rides every path above (differs or not) whenever the stamp
-     moved, so other browsers lift in the same poll. */
-  try {
-    /* One bump per real change: the waiting→live flip, adopted words, or a
-       moved stamp — never a steady-state re-render every sync. A settled
-       copy (already live, nothing new) skips the bump; its status text still
-       flows through the notify() below. */
-    if (wasWaiting || differs || notesLifted || deployLifted) version += 1;
-  } catch {}
   notify();
 }
 
@@ -6148,27 +5930,6 @@ function backupBytesLookLikeHtml(bytes: Uint8Array): boolean {
     return false;
   }
 }
-/** Client-side poison sniff (blank-page guard, note 440): headers sometimes lie
-    (cache, proxy, service worker), so sniff the bytes themselves before putting
-    an upload back onto disk — an HTML fallback page must never be stored as a
-    photo, or restores blank good files. True when the blob looks like HTML. */
-async function uploadBlobLooksPoisoned(blob: Blob): Promise<boolean> {
-  try {
-    const type = String((blob as any)?.type || "").toLowerCase();
-    if (type.includes("text/html")) return true;
-    if (!blob || !(blob as any).size) return true;
-    try {
-      const head = await (blob as Blob).slice(0, 2048).text();
-      const h = String(head || "").toLowerCase();
-      if (!h) return false;
-      if (h.includes("<!doctype") || h.includes("<html") || h.includes("<head") || h.includes("<meta") || h.includes("<script") || h.includes("wom-deploy") || h.trimStart().startsWith("<")) return true;
-    } catch {}
-    return false;
-  } catch {
-    return false;
-  }
-}
-
 function backupBytesMatchExtension(name: string, bytes: Uint8Array): boolean {
   try {
     if (!bytes || bytes.length < 4) return false;
@@ -6198,7 +5959,7 @@ function backupBytesMatchExtension(name: string, bytes: Uint8Array): boolean {
     }
     if (ext === "wav")
       return b.length >= 12 && b[0] === 0x52 && b[1] === 0x49 && b[2] === 0x46 && b[3] === 0x46 && b[8] === 0x57 && b[9] === 0x41 && b[10] === 0x56 && b[11] === 0x45;
-    if (ext === "flac") return b[0] === 0x66 && b[1] === 0x4c && b[2] === 0x61 && b[3] === 0x43;
+    if (ext === "flac") return b[0] === 0x66 && b[1] === 0x6c && b[2] === 0x61 && b[3] === 0x43;
     if (ext === "aac") return b[0] === 0xff && (b[1] === 0xf1 || b[1] === 0xf9);
     if (ext === "mid" || ext === "midi") return b[0] === 0x4d && b[1] === 0x54 && b[2] === 0x68 && b[3] === 0x64;
     if (ext === "svg" || ext === "svgz") return false;
@@ -6232,6 +5993,7 @@ export async function exportPublished(): Promise<string> {
   const files: BackupFile[] = [];
   const missingFiles: string[] = [];
   for (const name of allBackupNames(content)) {
+    let done = false;
     try {
       const res = await fetch((base ? base : "") + "/data/uploads/" + name, { cache: "no-store" });
       if (!res.ok) throw 0;
@@ -6256,6 +6018,47 @@ export async function exportPublished(): Promise<string> {
       if (backupBytesLookLikeHtml(bytes)) throw 0;
       if (!backupBytesMatchExtension(name, bytes)) throw 0;
       files.push({ name, type: blob.type || guessUploadType(name), data });
+      done = true;
+    } catch {
+      /* fall through to cache/feed below — a wiped server must not sink the backup */
+    }
+    if (done) continue;
+    /* Server miss fallback (backup fix): this browser's own cache or the
+       public feed still holds the file after a sleep-wipe, so the backup
+       carries it instead of marking it missing and restoring blank. */
+    try {
+      let blob: Blob | null = null;
+      try {
+        const cached = await getCachedDataUrl(name);
+        const b = dataUrlToBlob(cached || "");
+        if (b && (b as any).size) blob = b;
+      } catch {}
+      if (!blob || !(blob as any).size) {
+        for (const u of await feedUrlsForUpload(name)) {
+          try {
+            const r = await fetch(u, { cache: "no-store" });
+            if (!r.ok) continue;
+            const b = await r.blob();
+            if (!b || !(b as any).size) continue;
+            if (String((b as any).type || "").toLowerCase().includes("text/html")) continue;
+            blob = b;
+            try { await cacheUploadBlob(name, b); } catch {}
+            break;
+          } catch {}
+        }
+      }
+      if (!blob || !(blob as any).size) throw 0;
+      if (String((blob as any).type || "").toLowerCase().includes("text/html")) throw 0;
+      if ((blob as any).size > BACKUP_FILE_MAX_BYTES) {
+        missingFiles.push(name + " (too large: " + Math.round((blob as any).size / 1048576) + " MB)");
+        continue;
+      }
+      const data = await blobToBase64(blob);
+      const bytes = backupBytesFromB64(data);
+      if (!bytes || !bytes.length) throw 0;
+      if (backupBytesLookLikeHtml(bytes)) throw 0;
+      if (!backupBytesMatchExtension(name, bytes)) throw 0;
+      files.push({ name, type: (blob as any).type || guessUploadType(name), data });
     } catch {
       missingFiles.push(name);
     }
@@ -6315,14 +6118,6 @@ export async function importBackup(text: string): Promise<ImportResult> {
      page working after the restore (it used to crash on the empty list). */
   try {
     if (Array.isArray((kept as any).contactTopics) && !(kept as any).contactTopics.length) delete (kept as any).contactTopics;
-  } catch {}
-  /* Device-proof uploads: absolute office addresses name the old host — point
-     them at this copy's own disk so the restored words paint the files the
-     restore writes here, on any device. Pasted links never match and ride on. */
-  try {
-    const flat = JSON.parse(JSON.stringify(kept).replace(/https?:\/\/[^/"'\s\\]+\/data\/uploads\//g, "/data/uploads/"));
-    for (const k of Object.keys(kept)) delete (kept as any)[k];
-    Object.assign(kept, flat);
   } catch {}
   const restored = SECTION_DEFS.filter((d) => kept[d.id] !== undefined).map((d) => d.id);
   if (!restored.length) return { ok: false, error: "No recognised sections in that file." };
@@ -6398,7 +6193,27 @@ export async function importBackup(text: string): Promise<ImportResult> {
       }
     }
     if (!reachable) {
-      for (const f of incoming) if (f && typeof f.name === "string") filesFailed.push(f.name);
+      /* No server to write to (static host, no backend): keep every embedded
+         file in this browser's cache so the restored draft paints here
+         instead of blank — Publish (or a server copy) still carries it to
+         other devices. Counted as failed server writes, not lost files. */
+      for (const f of incoming) {
+        if (!f || typeof f.name !== "string") continue;
+        try {
+          const type = typeof (f as any)?.type === "string" && (f as any).type ? (f as any).type : guessUploadType(f.name);
+          const __b = backupBytesFromB64(String((f as any).data || ""));
+          if (!__b || !__b.length) throw 0;
+          if (/text\/html/i.test(String(type || "")) || backupBytesLookLikeHtml(__b)) {
+            try { filesPoisoned.push(f.name); } catch {}
+            throw 0;
+          }
+          if (!backupBytesMatchExtension(f.name, __b)) throw 0;
+          const blob = base64ToBlob(String((f as any).data || ""), type);
+          if (!blob.size) throw 0;
+          try { await cacheUploadBlob(f.name, blob); } catch {}
+        } catch {}
+        filesFailed.push(f.name);
+      }
     } else {
       for (const f of incoming) {
         try {
@@ -6421,6 +6236,9 @@ export async function importBackup(text: string): Promise<ImportResult> {
           if (!backupBytesMatchExtension(name, __bytes)) throw 0;
           const blob = base64ToBlob(f.data, type);
           if (!blob.size) throw 0;
+          /* Cache first: even if the server write below fails, this browser
+             paints the restored photo instead of blank. */
+          try { await cacheUploadBlob(name, blob); } catch {}
           const res = await fetch(`${base}/__restore-file?conn=${encodeURIComponent(officeFileConn())}&name=${encodeURIComponent(name)}`, {
             method: "POST",
             headers: { "content-type": type },
@@ -6859,33 +6677,245 @@ async function relayPublishWordsToLive(
    oversize files stay where published (the backfill/mirror log names them);
    failures leave the minute loops to carry them. Kicked off once the words
    land; never throws, never awaits. */
-function relayUploadsToLive(sections: Record<string, string | null>): void {
+/* The relay's photo leg: every upload the relayed sections point at is read
+   off this copy's own disk — or failing that, this browser's cache — and
+   written straight to the live disk under its exact name, so the relayed
+   words point at working photos at once instead of waiting out the mirror
+   push. Always background (photos can be big) — oversize files stay where
+   published (the backfill/mirror log names them). Words already landed above,
+   so this leg reports and retries owed files instead of failing silently:
+   an owed photo leaves visitors on blanks otherwise (the exact
+   admin-shows-visitors-blank case). Never throws, never awaits. */
+let relayOwedUploads: string[] = [];
+let relayOwedTimer = 0;
+let relayOwedAttempts = 0;
+function relayUploadsToLive(sections?: Record<string, string | null>, isRetry = false): void {
   (async () => {
     const base = await relayLiveBase();
     if (!base) return;
     try {
-      const names = localUploadNames(sections).slice(0, 30);
-      for (const name of names) {
+      const names = [...new Set([...localUploadNames(sections || {}), ...relayOwedUploads])].slice(0, 60);
+      if (!names.length) {
+        relayOwedUploads = [];
+        return;
+      }
+      /* A fresh publish restarts the retry count; timer retries consume it. */
+      if (!isRetry) relayOwedAttempts = 0;
+      const owed = await deliverUploadsToLive(base, names);
+      relayOwedUploads = owed;
+      if (owed.length) {
+        relayOwedAttempts++;
+        noteRelay(
+          `Live site has your words — ${owed.length} ${owed.length === 1 ? "photo is" : "photos are"} still on the way (${owed.slice(0, 2).join(", ")}${owed.length > 2 ? "…" : ""}). It retries by itself; publishing again hurries it.`
+        );
         try {
-          const got = await fetch("/data/uploads/" + name, { cache: "no-store" });
-          if (!got.ok) continue;
-          if (String(got.headers.get("content-type") || "").toLowerCase().includes("text/html")) continue;
-          const blob = await got.blob();
-          if (!blob || !blob.size || blob.size > 90 * 1024 * 1024) continue;
-          try { if (await uploadBlobLooksPoisoned(blob)) continue; } catch { continue; }
-          await fetch(base + "/__restore-file?conn=" + encodeURIComponent(relayUploadConnId()) + "&name=" + encodeURIComponent(name), {
-            method: "POST",
-            headers: { "content-type": (blob as any).type || guessUploadType(name) },
-            body: blob,
-          }).catch(() => null);
-        } catch {
-          /* next file — the loops backstop */
-        }
+          if (relayOwedTimer) {
+            window.clearTimeout(relayOwedTimer);
+            relayOwedTimer = 0;
+          }
+          if (relayOwedAttempts <= 4) {
+            relayOwedTimer = window.setTimeout(() => {
+              relayOwedTimer = 0;
+              try {
+                relayUploadsToLive(undefined, true);
+              } catch {}
+            }, 90000 * relayOwedAttempts);
+          }
+        } catch {}
+      } else {
+        relayOwedAttempts = 0;
+        noteRelay("Live site updated with your publish, photos included.");
       }
     } catch {
       /* words already landed above */
     }
   })().catch(() => {});
+}
+/* Deliver upload bytes for names to the live disk (disk-then-cache source,
+   verified writes). Returns the still-owed names. Shared by the publish photo
+   leg and the background live-disk healer. Never throws. */
+async function deliverUploadsToLive(base: string, names: string[]): Promise<string[]> {
+  const owed: string[] = [];
+  for (const name of names) {
+    try {
+      /* Disk first; the browser cache second — a wiped office disk must not
+         strand live visitors while this tab still holds the bytes
+         (restored-from-backup while the disk was down paints the admin from
+         cache only; without this the publish that follows carries words with
+         no photos). */
+      let blob: Blob | null = null;
+      let type = "";
+      try {
+        const got = await fetch("/data/uploads/" + name, { cache: "no-store" });
+        if (got.ok && !String(got.headers.get("content-type") || "").toLowerCase().includes("text/html")) {
+          const b = await got.blob();
+          if (b && b.size && b.size <= 90 * 1024 * 1024 && !String((b as any).type || "").toLowerCase().includes("text/html")) {
+            blob = b;
+            type = (b as any).type || "";
+          }
+        }
+      } catch {}
+      if (!blob) {
+        try {
+          const dataUrl = await getCachedDataUrl(name);
+          const b = dataUrlToBlob(dataUrl || "");
+          if (b && (b as any).size && (b as any).size <= 90 * 1024 * 1024) {
+            blob = b;
+            type = (b as any).type || "";
+          }
+        } catch {}
+      }
+      if (!blob || !blob.size) {
+        owed.push(name);
+        continue;
+      }
+      const put = await fetch(base + "/__restore-file?conn=" + encodeURIComponent(relayUploadConnId()) + "&name=" + encodeURIComponent(name), {
+        method: "POST",
+        headers: { "content-type": type || guessUploadType(name) },
+        body: blob,
+      }).catch(() => null);
+      if (!put || !(put as any).ok) {
+        owed.push(name);
+        continue;
+      }
+      /* Read it back: a 200 that never became a file used to count as
+         delivered and strand visitors on blanks. */
+      let verified = false;
+      try {
+        const check = await fetch(base + "/data/uploads/" + name, { method: "HEAD", cache: "no-store" });
+        verified = !!check && check.ok && !String(check.headers.get("content-type") || "").toLowerCase().includes("text/html");
+      } catch {}
+      if (verified) {
+        try {
+          await cacheUploadBlob(name, blob);
+        } catch {
+          /* the live disk above is what matters */
+        }
+      } else {
+        owed.push(name);
+      }
+    } catch {
+      owed.push(name);
+    }
+  }
+  return owed;
+}
+/* Live-disk healer (the admin-paints guarantee): every upload the published
+   words reference must be servable on the live disk — whether or not a word
+   relay just landed. Words that rode the minute loops or the rebuild used to
+   arrive with no photos at all; this pushes whatever live still lacks
+   (disk-then-cache source, verified writes) with the same two keys the word
+   relay tries. Auth-gated (office keys only — other tabs skip after two
+   localStorage reads, no network), idempotent, never throws. Runs after every
+   publish attempt that did not ride the relay, and on the 30s upload-heal
+   tick. */
+let healLiveRunning = false;
+/** Whether this tab holds any key the live box would accept (sync, cheap). */
+function liveHealKeysPresent(): boolean {
+  try {
+    if (sessionPassword()) return true;
+  } catch {}
+  try {
+    const raw = localStorage.getItem(LIVEPW_KEY);
+    if (raw) {
+      const o = JSON.parse(raw);
+      if (o && (o as any).pw) return true;
+    }
+  } catch {}
+  return false;
+}
+/* Standalone live-box login for the healer: the same two keys the word relay
+   tries, none of its notes (the word path already describes auth state). Sets
+   the relay conn the delivery writes with. */
+async function healLiveLogin(base: string, ms = 6000): Promise<boolean> {
+  let pw = "";
+  let livePw = "";
+  try {
+    pw = sessionPassword();
+  } catch {
+    pw = "";
+  }
+  try {
+    livePw = savedLivePassword(base);
+  } catch {
+    livePw = "";
+  }
+  if (!pw && !livePw) return false;
+  const conn = "heal-" + Math.random().toString(36).slice(2) + Date.now().toString(36);
+  for (const candidate of [pw, livePw]) {
+    if (!candidate) continue;
+    try {
+      const login = await relayFetch(base + "/__cms/login?conn=" + encodeURIComponent(conn), JSON.stringify({ password: candidate, want: "main" }), ms);
+      if (!login.ok) continue;
+      const data = await login.json().catch(() => null);
+      if (data && (data as any).ok === true && !(data as any).needCode) {
+        try {
+          relayUploadConn = conn;
+        } catch {}
+        return true;
+      }
+    } catch {}
+  }
+  return false;
+}
+async function healLiveUploads(): Promise<void> {
+  if (healLiveRunning) return;
+  healLiveRunning = true;
+  try {
+    if (!liveHealKeysPresent()) return;
+    let names: string[] = [];
+    try {
+      names = localUploadNames(merge(overrides));
+    } catch {
+      names = [];
+    }
+    try {
+      if (draft) for (const n of localUploadNames(draft)) names.push(n);
+    } catch {}
+    names = [...new Set([...names, ...relayOwedUploads])].slice(0, 60);
+    if (!names.length) {
+      relayOwedUploads = [];
+      relayOwedAttempts = 0;
+      return;
+    }
+    const base = await relayLiveBase().catch(() => "");
+    if (!base) return;
+    const missing: string[] = [];
+    for (const name of names) {
+      let present = false;
+      try {
+        const h = await fetch(base + "/data/uploads/" + name, { method: "HEAD", cache: "no-store" });
+        present = !!h && h.ok && !String(h.headers.get("content-type") || "").toLowerCase().includes("text/html");
+      } catch {
+        present = false;
+      }
+      if (!present) missing.push(name);
+    }
+    if (!missing.length) {
+      if (relayOwedUploads.length) {
+        relayOwedUploads = [];
+        relayOwedAttempts = 0;
+      }
+      return;
+    }
+    const authed = await healLiveLogin(base).catch(() => false);
+    if (!authed) return;
+    const owed = await deliverUploadsToLive(base, missing).catch(() => missing);
+    relayOwedUploads = owed;
+    if (owed.length) {
+      relayOwedAttempts++;
+      noteRelay(
+        `Live site is missing ${owed.length} ${owed.length === 1 ? "photo" : "photos"} (${owed.slice(0, 2).join(", ")}${owed.length > 2 ? "…" : ""}) — held on this copy and retrying in the background.`
+      );
+    } else {
+      relayOwedAttempts = 0;
+      noteRelay("Live photos healed — visitors see them now.");
+    }
+  } catch {
+    /* the words already landed; bytes keep retrying on the tick */
+  } finally {
+    healLiveRunning = false;
+  }
 }
 /* The background chain for automatic sends (live pull, offline flush): words
    ride when they can, photos chase them, and nothing ever waits. */
@@ -6896,6 +6926,10 @@ function relayInBackground(sections: Record<string, string | null>, changed: str
         if (outcome === "landed") {
           try {
             relayUploadsToLive(sections);
+          } catch {}
+        } else {
+          try {
+            healLiveUploads().catch(() => {});
           } catch {}
         }
       })
@@ -7499,6 +7533,14 @@ async function sendPatch(
            without needing another click. */
         try {
           scheduleRelayRetry(sections, changed, note, relayDeploy || durableDeploy);
+        } catch {}
+      }
+      if (relay !== "landed") {
+        /* The admin-paints guarantee: words that miss the relay still ride the
+           loops/rebuild — push any bytes live lacks anyway, instead of
+           publishing words with no photos. */
+        try {
+          healLiveUploads().catch(() => {});
         } catch {}
       }
     } else {

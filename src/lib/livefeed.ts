@@ -69,51 +69,20 @@ async function fetchJson(url: string, timeoutMs: number): Promise<unknown> {
   }
 }
 
-/** The feed's seed, whatever its age — null when no mirror answers. Never throws.
-    Fastest mirror wins: both doors race at once with short timeouts, so a dead
-    mirror costs nothing — boot, fresh profiles and late returns never wait out
-    a slow door. */
-export async function peekSeed(spec: FeedSpec, timeoutMs = 5000): Promise<unknown> {
-  const urls = feedSeedUrls(spec);
-  if (!urls.length) return null;
-  if (urls.length === 1) {
+/** The feed's seed, whatever its age — null when no mirror answers. Never throws. */
+export async function peekSeed(spec: FeedSpec, timeoutMs = 15000): Promise<unknown> {
+  for (const url of feedSeedUrls(spec)) {
     try {
-      return await fetchJson(urls[0], timeoutMs);
+      return await fetchJson(url, timeoutMs);
     } catch {
-      return null;
+      /* mirror failed — try the next one */
     }
   }
-  return await new Promise<unknown>((resolve) => {
-    let done = false;
-    let pending = urls.length;
-    const finish = (value: unknown) => {
-      if (done) return;
-      done = true;
-      resolve(value);
-    };
-    const settle = (value: unknown) => {
-      if (done) return;
-      if (value !== null && value !== undefined) {
-        finish(value);
-        return;
-      }
-      pending -= 1;
-      if (pending <= 0) finish(null);
-    };
-    /* Both mirrors race at once with short timeouts: a sleeping box never
-       holds the fast door hostage — the first valid seed wins in the same
-       poll, on every copy. */
-    for (const u of urls) {
-      fetchJson(u, timeoutMs).then(
-        (value) => settle(value),
-        () => settle(null)
-      );
-    }
-  });
+  return null;
 }
 
 /** The feed's seed when it is newer than currentRev, else null. Never throws. */
-export async function fetchLiveSeed(spec: FeedSpec, currentRev: number, timeoutMs = 5000): Promise<FeedSeed | null> {
+export async function fetchLiveSeed(spec: FeedSpec, currentRev: number, timeoutMs = 15000): Promise<FeedSeed | null> {
   const seed = await peekSeed(spec, timeoutMs);
   if (feedIsNewer(seed, currentRev)) return seed as FeedSeed;
   return null;

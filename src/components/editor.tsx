@@ -55,7 +55,7 @@ import {
   sectionIsHidden,
 } from "../lib/cmsSchema";
 import * as cms from "../lib/cms";
-import { cacheUploadBlob, normalizeUploadUrl, uploadNameOf, useCachedUploadUrl, useFeedUploadUrl } from "../lib/uploadCache";
+import { cacheUploadBlob, feedUrlsForUpload, localUploadFallback, rememberUploadPreview, uploadNameOf, useCachedUploadUrl, useFeedUploadUrl, useFeedUploadUrls, useUploadPreviewUrl } from "../lib/uploadCache";
 import { siteFile } from "../lib/livefeed";
 import { serverUrl } from "../lib/remoteserver";
 
@@ -857,7 +857,8 @@ export function LiveEndingPanel({ onOpen, children }: { onOpen: (id: string) => 
     published (see `gateLiveCommand` in src/lib/cms.ts) — an unclicked Publish
     leaves the site's on-air state alone, whatever the draft says. The buttons
     never gate a live end: when the broadcast ends the screen closes at once
-    onto the main channel's previous-service thumbnails, published or not. When the
+    onto the main channel's previous-service thumbnails, published or not — a
+    leaves the site's on-air state alone, whatever the draft says. When the
     broadcast ends by itself, nothing is written and nothing is filed: the
     office presses Stop, then Publish (the automatic stop was removed at the
     office's request — see src/lib/autostop.ts). */
@@ -1542,10 +1543,7 @@ async function localHostFile(blob: Blob, filename: string): Promise<string> {
   const data = await res.json().catch(() => null);
   if (!data || typeof data.url !== "string" || !data.url)
     throw new Error("The file could not be saved. Try again, or paste a link instead.");
-  /* Store host-relative: the page and the console resolve /data/uploads/ on
-     the copy being read, so words restored on another device/host paint its
-     own file instead of the old host's (which blanks once that host sleeps). */
-  return data.url;
+  return base ? base + data.url : data.url;
 }
 
 /* The stored name inside an office-server address, or "" for anything else
@@ -1615,10 +1613,16 @@ export function PhotoUpload({ onDone, frame }: { onDone: (url: string) => void; 
          goes in at full size and comes out 1600×1200. */
       const blob = forSlide ? await frameImageBlob(file) : await compressImageBlob(file, 1600, 0.82);
       const url = await localHostFile(blob, file.name || "photo.jpg");
-      /* Sleep-free (note 413): keep the bytes in this browser so a host sleep never blanks the slide. */
+      /* Instant paint (blank-upload fix): the session preview lands before the
+         value does, so the preview paints from this tab's own bytes at once —
+         never blank while the server copy warms up. The cache write is awaited
+         (it used to race the paint and lose), and it skips huge files inside. */
       try {
         const kept = uploadNameOf(url);
-        if (kept) cacheUploadBlob(kept, blob).catch(() => {});
+        if (kept) {
+          rememberUploadPreview(kept, blob);
+          await cacheUploadBlob(kept, blob);
+        }
       } catch {}
       onDone(url);
       fireToast(
@@ -1665,9 +1669,15 @@ export function VideoUpload({ onDone }: { onDone: (url: string) => void }) {
     setBusy(true);
     try {
       const url = await localHostFile(file, file.name || "video.mp4");
+      /* Instant paint (blank-upload fix): session preview first, awaited cache
+         after (huge films skip the data-URL cache inside and keep the session
+         preview for this tab). */
       try {
         const kept = uploadNameOf(url);
-        if (kept) cacheUploadBlob(kept, file).catch(() => {});
+        if (kept) {
+          rememberUploadPreview(kept, file);
+          await cacheUploadBlob(kept, file);
+        }
       } catch {}
       onDone(url);
       fireToast("Video ready — publish to put it on the site.", "success");
@@ -1713,23 +1723,83 @@ function VideoField({
   label?: string;
 }) {
   const url = value === undefined || value === null ? "" : String(value);
-  /* Old absolute office addresses play from this copy (device-proof). */
-  const address = normalizeUploadUrl(url.trim());
+  const address = url.trim();
+  const sessionVideo = useUploadPreviewUrl(address);
   const cachedVideo = useCachedUploadUrl(address);
   const feedVideo = useFeedUploadUrl(address);
-  const videoSrc = cachedVideo || address;
-  const [videoUseFeed, setVideoUseFeed] = useState(false);
+  const feedVideoList = useFeedUploadUrls(address);
+  const feedVideoSecond = feedVideoList.length > 1 ? feedVideoList[1] : "";
+  /* Same-copy fallback for absolute office addresses (see uploadCache):
+     when the stored host is gone but this copy holds the same file, play it
+     from here instead of a dead address. */
+  const localVideo = localUploadFallback(address);
+  /* Ordered candidates, first paintable wins: this tab's own bytes, the
+     browser cache, the stored address, this copy's disk, then the repo
+     mirrors. The old chain stuck on the dead address whenever the mirrors
+     were empty (no feed) — a black player with no way forward. */
+  const videoCandidates = useMemo(() => {
+    const list: string[] = [];
+    for (const c of [sessionVideo, cachedVideo, address, localVideo, feedVideo, feedVideoSecond]) {
+      const s = String(c || "");
+      if (s && !list.includes(s)) list.push(s);
+    }
+    return list;
+  }, [sessionVideo, cachedVideo, address, localVideo, feedVideo, feedVideoSecond]);
+  const [videoIdx, setVideoIdx] = useState(0);
   useEffect(() => {
-    setVideoUseFeed(false);
-  }, [address]);
-  const vSrc = videoUseFeed && feedVideo ? feedVideo : videoSrc;
+    setVideoIdx(0);
+  }, [videoCandidates.join("\0")]);
+  const vSrc = videoCandidates[Math.min(videoIdx, videoCandidates.length - 1)] || "";
+  const videoFailed = videoCandidates.length === 0 || videoIdx >= videoCandidates.length;
+  /* Gone-file diagnosis: the player errored, this browser never cached the
+     bytes, and neither feed mirror has them — check this copy's disk so the
+     office sees WHY instead of a silent blank (wiped host after a restart,
+     or uploaded on another device). Only for office uploads, settled before
+     showing (an 8s cap so a slow feed can't hang the note). */
+  const [videoGone, setVideoGone] = useState(false);
+  useEffect(() => {
+    setVideoGone(false);
+    const nm = uploadNameOf(address);
+    if (!nm || sessionVideo || cachedVideo || !videoFailed) return;
+    let alive = true;
+    (async () => {
+      const timeout = new Promise<null>((r) => setTimeout(() => r(null), 8000));
+      const probe = (async () => {
+        try {
+          /* This copy's disk first (same-origin HEAD always answers), then
+             the stored address — a cross-origin HEAD without CORS rejects
+             even when the file exists, so the stored address alone must
+             never condemn the file. */
+          const [feeds, diskOk] = await Promise.all([
+            feedUrlsForUpload(nm),
+            (async () => {
+              const targets = [localVideo || address, localVideo ? address : ""].filter(Boolean);
+              for (const t of targets) {
+                try {
+                  const h = await fetch(t, { method: "HEAD", cache: "no-store" });
+                  const ct = String(h.headers.get("content-type") || "").toLowerCase();
+                  if (h.ok && !ct.includes("text/html")) return true;
+                } catch {}
+              }
+              return false;
+            })(),
+          ]);
+          return { feeds, diskOk };
+        } catch { return null; }
+      })();
+      const r = await Promise.race([probe, timeout]);
+      if (!alive) return;
+      if (r && !r.diskOk && !(r.feeds && r.feeds.length)) setVideoGone(true);
+    })();
+    return () => { alive = false; };
+  }, [address, cachedVideo, sessionVideo, localVideo, videoFailed]);
 
   return (
     <div className="admin__wide">
       <Field label={label} hint={def.hint}>
         <div className="admin__videofield">
           <span className="admin__videopreview">
-            {address ? (
+            {address && !videoFailed ? (
               <video
                 key={vSrc}
                 src={vSrc}
@@ -1738,7 +1808,11 @@ function VideoField({
                 muted
                 disablePictureInPicture
                 onError={() => {
-                  if (feedVideo && feedVideo !== videoSrc) setVideoUseFeed(true);
+                  /* Walk the candidates in order — this tab's bytes, the
+                     cache, the stored address, this copy's disk, the repo
+                     mirrors — until one plays. Exhausted means genuinely
+                     gone, not a stuck black frame. */
+                  setVideoIdx((i) => i + 1);
                 }}
               />
             ) : (
@@ -1758,6 +1832,9 @@ function VideoField({
             )}
           </div>
         </div>
+        {videoGone ? (
+          <p className="admin__upload-error">This video isn’t on this copy — the host may have restarted (which wipes uploads), or it was uploaded on another device. Upload it here again, then Publish.</p>
+        ) : null}
       </Field>
     </div>
   );
@@ -1784,23 +1861,73 @@ function ImageField({
      bundled photo a record falls back to, or nothing at all. */
   const original = slot ? siteFile(slotBundledPhoto(slot.key)) : def.fallbackPhoto ? siteFile(bundledPhoto(def.fallbackPhoto)) : "";
   const rawPreview = resolvePhoto(text) || original;
-  /* Sleep-free (note 413): a wiped server copy previews the cached upload
-     from this browser instead of the camera placeholder — blank-free. */
+  /* Instant paint (blank-upload fix): this tab's own just-uploaded bytes win,
+     then the browser cache, then the stored address, this copy's disk, then
+     the repo mirrors — first paintable wins, in order. */
+  const sessionPreview = useUploadPreviewUrl(rawPreview);
   const cachedPreview = useCachedUploadUrl(rawPreview);
   const feedPreview = useFeedUploadUrl(rawPreview);
-  const preview = cachedPreview || rawPreview;
+  const feedPreviewList = useFeedUploadUrls(rawPreview);
+  const feedPreviewSecond = feedPreviewList.length > 1 ? feedPreviewList[1] : "";
+  const localPreview = localUploadFallback(rawPreview);
+  const previewCandidates = useMemo(() => {
+    const list: string[] = [];
+    for (const c of [sessionPreview, cachedPreview, rawPreview, localPreview, feedPreview, feedPreviewSecond]) {
+      const s = String(c || "");
+      if (s && !list.includes(s)) list.push(s);
+    }
+    return list;
+  }, [sessionPreview, cachedPreview, rawPreview, localPreview, feedPreview, feedPreviewSecond]);
+  const [previewIdx, setPreviewIdx] = useState(0);
+  useEffect(() => {
+    setPreviewIdx(0);
+  }, [previewCandidates.join("\0")]);
+  const preview = previewCandidates[Math.min(previewIdx, previewCandidates.length - 1)] || "";
+  const previewFailed = previewCandidates.length === 0 || previewIdx >= previewCandidates.length;
   const chosenLabel = key ? PHOTO_SLOTS.find((s) => s.key === key)?.label || key : "";
   const forSlide = def.frame === "slide";
   const [fitting, setFitting] = useState(false);
   const [fitError, setFitError] = useState("");
   /* A dead address (an upload that no longer resolves) shows the camera
      placeholder instead of a torn preview — every upload, every size. */
-  const [imgError, setImgError] = useState(false);
-  const [feedFailed, setFeedFailed] = useState(false);
+  /* Gone-file diagnosis (same as the video field): every candidate failed and
+     this browser never held the bytes — check this copy's disk (same-origin
+     first: a cross-origin HEAD without CORS rejects even when the file
+     exists) so the office sees WHY instead of a silent blank. Only for
+     office uploads. */
+  const [imgGone, setImgGone] = useState(false);
   useEffect(() => {
-    setImgError(false);
-    setFeedFailed(false);
-  }, [preview]);
+    setImgGone(false);
+    const nm = uploadNameOf(rawPreview);
+    if (!nm || sessionPreview || cachedPreview || !previewFailed) return;
+    let alive = true;
+    (async () => {
+      const timeout = new Promise<null>((r) => setTimeout(() => r(null), 8000));
+      const probe = (async () => {
+        try {
+          const [feeds, diskOk] = await Promise.all([
+            feedUrlsForUpload(nm),
+            (async () => {
+              const targets = [localPreview || rawPreview, localPreview ? rawPreview : ""].filter(Boolean);
+              for (const t of targets) {
+                try {
+                  const h = await fetch(t, { method: "HEAD", cache: "no-store" });
+                  const ct = String(h.headers.get("content-type") || "").toLowerCase();
+                  if (h.ok && !ct.includes("text/html")) return true;
+                } catch {}
+              }
+              return false;
+            })(),
+          ]);
+          return { feeds, diskOk };
+        } catch { return null; }
+      })();
+      const r = await Promise.race([probe, timeout]);
+      if (!alive) return;
+      if (r && !r.diskOk && !(r.feeds && r.feeds.length)) setImgGone(true);
+    })();
+    return () => { alive = false; };
+  }, [rawPreview, cachedPreview, sessionPreview, localPreview, previewFailed]);
   /* The agent reads the picture's own shape, so it can prompt exactly when the
      picture is not landscape. */
   const [shape, setShape] = useState<{ w: number; h: number } | null>(null);
@@ -1835,7 +1962,10 @@ function ImageField({
       const fittedUrl = await localHostFile(framed, "slide.jpg");
       try {
         const kept = uploadNameOf(fittedUrl);
-        if (kept) cacheUploadBlob(kept, framed).catch(() => {});
+        if (kept) {
+          rememberUploadPreview(kept, framed);
+          await cacheUploadBlob(kept, framed);
+        }
       } catch {}
       onChange(fittedUrl);
       fireToast("Picture set into the slide — publish to put it on the site.", "success");
@@ -1872,10 +2002,8 @@ function ImageField({
     <Field label={label} hint={def.hint || (forSlide ? "Upload a picture from your phone or computer, or paste the address of one." : "Upload a photo from your phone or computer, or paste the address of one.")}>
       <div className="admin__imagefield">
         <span className={"admin__imagepreview" + (forSlide ? " admin__imagepreview--slide" : "")}>
-          {preview && !slideVideoLink && !imgError ? (
-            <img src={preview} alt="" draggable={false} onError={() => setImgError(true)} />
-          ) : preview && !slideVideoLink && imgError && feedPreview && feedPreview !== preview && !feedFailed ? (
-            <img src={feedPreview} alt="" draggable={false} onError={() => setFeedFailed(true)} />
+          {preview && !slideVideoLink && !previewFailed ? (
+            <img src={preview} alt="" draggable={false} onError={() => setPreviewIdx((i) => i + 1)} />
           ) : (
             <Icon name="camera" size={18} />
           )}
@@ -1916,6 +2044,9 @@ function ImageField({
             </div>
           ) : null}
           {fitError && <p className="admin__upload-error">{fitError}</p>}
+          {imgGone ? (
+            <p className="admin__upload-error">This photo isn’t on this copy — the host may have restarted (which wipes uploads), or it was uploaded on another device. Upload it here again, then Publish.</p>
+          ) : null}
           {text && (
             <div className="btn-row">
               <Btn size="sm" variant="quiet" icon="trash" onClick={() => onChange("")}>

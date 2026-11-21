@@ -1,7 +1,6 @@
 import React, { useState } from "react";
 import { tx } from "../lib/i18n";
 import { SITE, VALUES, BELIEFS, TIMELINE, LEADERSHIP, FAQS, MINISTRIES, img } from "../data/site";
-import { resolvePhoto } from "../data/photos";
 import { BRANCHES, branchFlag } from "../data/branches";
 import { Badge, Btn, Card, Eyebrow, Icon, Reveal, Rich, Section, SectionHeading, Accordion, Tiles } from "../components/ui";
 import { ct } from "../data/copy";
@@ -153,13 +152,11 @@ export function About() {
 
 function PersonCardLite({ person }: { person: (typeof LEADERSHIP)[number] }) {
   const [open, setOpen] = useState(false);
-  /* A cleared bio must never blank the page: read it defensively. */
-  const bioText = String((person as any).bio || "");
   return (
     <Card pad={false} className="person-card" hover>
       <div className="person-card__photo">
         {person.image ? (
-          <img src={resolvePhoto(person.image)} alt={person.name} loading="lazy" />
+          <img src={person.image} alt={person.name} loading="lazy" />
         ) : (
           <span className="person-card__mono">
             <span className="monogram monogram--gold" style={{ width: 96, height: 96, fontSize: 34 }}>
@@ -171,7 +168,7 @@ function PersonCardLite({ person }: { person: (typeof LEADERSHIP)[number] }) {
       <div className="person-card__body">
         <h3>{person.name}</h3>
         <p className="person-card__role">{tx(person.role)}</p>
-        <p className="person-card__bio">{tx(open ? bioText : bioText.slice(0, 84) + "…")}</p>
+        <p className="person-card__bio">{tx(open ? person.bio : person.bio.slice(0, 84) + "…")}</p>
         {open && person.verse && <blockquote className="person-card__verse">{tx(person.verse)}</blockquote>}
         <button type="button" className="link-btn" onClick={() => setOpen((v) => !v)}>
           {open ? ct("auto.about.c45ab7af05f750ce") : ct("about.readBio")} <Icon name={open ? "chevronDown" : "arrowRight"} size={14} />

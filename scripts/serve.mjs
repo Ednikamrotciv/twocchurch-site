@@ -621,7 +621,9 @@ const server = http.createServer(async (req, res) => {
         return;
       }
       const ctype = String(req.headers["content-type"] || "").split(";")[0].trim().toLowerCase();
-      if (!ctype.startsWith("image/") && !ctype.startsWith("video/")) {
+      /* Uploads carry every kind the office uses (note 346): photos, videos
+         and audio — a refused kind used to come back blank. */
+      if (!ctype.startsWith("image/") && !ctype.startsWith("video/") && !ctype.startsWith("audio/")) {
         res.writeHead(400, { "cache-control": "no-store" });
         res.end("bad filetype");
         return;
@@ -654,12 +656,12 @@ const server = http.createServer(async (req, res) => {
           const asked = String(url.searchParams.get("name") || "file").split("/").pop() || "file";
           let safe = asked.replace(/[^a-zA-Z0-9._-]+/g, "_").slice(0, 80) || "file";
           if (!/\.[a-zA-Z0-9]{2,5}$/.test(safe)) {
-            const ext = { "image/jpeg": ".jpg", "image/png": ".png", "image/webp": ".webp", "image/gif": ".gif", "video/mp4": ".mp4", "video/webm": ".webm", "video/quicktime": ".mov" }[ctype] || "";
+            const ext = { "image/jpeg": ".jpg", "image/png": ".png", "image/webp": ".webp", "image/gif": ".gif", "video/mp4": ".mp4", "video/webm": ".webm", "video/quicktime": ".mov", "audio/mpeg": ".mp3", "audio/wav": ".wav", "audio/ogg": ".ogg", "audio/mp4": ".m4a" }[ctype] || "";
             safe += ext;
           }
           /* Belt and braces: the stored name decides the served type, so only
              real media extensions may land, whatever was claimed above. */
-          if (!/\.(jpg|jpeg|png|webp|gif|avif|mp4|webm|mov|m4v|ogv)$/i.test(safe)) {
+          if (!/\.(jpg|jpeg|png|webp|gif|avif|mp4|webm|mov|m4v|ogv|mp3|wav|ogg|oga|opus|m4a|aac|flac|mid|midi)$/i.test(safe)) {
             res.writeHead(400, { "cache-control": "no-store" });
             res.end("bad filetype");
             return;
@@ -667,16 +669,7 @@ const server = http.createServer(async (req, res) => {
           const dir = path.join(ROOT, "data", "uploads");
           await mkdir(dir, { recursive: true });
           const fname = Date.now().toString(36) + "-" + safe;
-          const _b = Buffer.concat(chunks);
-          try {
-            const _h = _b.slice(0, 2048).toString("latin1").toLowerCase();
-            if (_h.includes("<!doctype") || _h.includes("<html") || _h.includes("<head") || _h.includes("<meta") || _h.includes("<script") || _h.includes("wom-deploy") || _h.trimStart().startsWith("<")) {
-              res.writeHead(400, { "cache-control": "no-store" });
-              res.end("bad filetype");
-              return;
-            }
-          } catch {}
-          await writeFile(path.join(dir, fname), _b);
+          await writeFile(path.join(dir, fname), Buffer.concat(chunks));
           const body = JSON.stringify({ url: "/data/uploads/" + fname });
           res.writeHead(200, { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" });
           res.end(body);
@@ -942,16 +935,21 @@ const server = http.createServer(async (req, res) => {
       return;
     }
     /* Uploads are office files, not app code: sandbox them so even a stored
-       document type can never run script on this origin. */
+       document type can never run script on this origin. They are public
+       media, so they also answer cross-origin reads: the site's own pictures
+       load with crossOrigin="anonymous" (palette sampling, slide framing, 3D
+       faces), and an absolute office address answering without CORS headers
+       fails those loads with a blank/black face. */
+    const uploadExtra = rel.startsWith("data/uploads/")
+      ? { "content-security-policy": "sandbox", "access-control-allow-origin": "*" }
+      : undefined;
     /* Hashed Vite assets (/assets/index-[hash].js/css, fonts, images) are
        content-addressed: a new build mints new names, so cache them hard. */
     const isHashedAsset = rel.startsWith("assets/") && /-[A-Za-z0-9_-]{6,}\.[A-Za-z0-9]+$/.test(rel);
-    const uploadExtra = rel.startsWith("data/uploads/")
-      ? { "content-security-policy": "sandbox" }
-      : isHashedAsset
+    const assetExtra = isHashedAsset
       ? { "cache-control": "public, max-age=31536000, immutable" }
       : undefined;
-    sendBody(req, res, body, mime, st.size + "-" + Math.round(st.mtimeMs), uploadExtra);
+    sendBody(req, res, body, mime, st.size + "-" + Math.round(st.mtimeMs), uploadExtra || assetExtra);
   } catch {
     res.writeHead(500);
     res.end("server error");

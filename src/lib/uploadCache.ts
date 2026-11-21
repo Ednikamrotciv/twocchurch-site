@@ -65,18 +65,15 @@ export function uploadNameOf(url: string): string {
   return m ? m[1] : "";
 }
 
-/** This copy's own address for an office upload: old absolute addresses (the
-    previous host) become host-relative, so previews and players read the
-    restored file here instead of the old host. Pasted links pass through. */
-export function normalizeUploadUrl(url: string): string {
-  const m = /\/data\/uploads\/([A-Za-z0-9][A-Za-z0-9._-]*)/.exec(String(url || ""));
-  return m ? "/data/uploads/" + m[1] : String(url || "");
-}
-
 /** Keep the last upload for this name in this browser. Never throws. */
 export async function cacheUploadBlob(name: string, blob: Blob): Promise<void> {
   const clean = String(name || "").trim();
   if (!clean || !blob || !(blob as any).size) return;
+  /* Big films must never ride the data-URL cache: base64-ing a 100 MB video
+     spikes the tab by ~270 MB and can kill it on a phone (a blank page that
+     looks exactly like a failed upload). Films paint from the session preview
+     and the server copy instead. */
+  if ((blob as any).size > 15_000_000) return;
   try {
     const dataUrl = await blobToDataUrl(blob);
     if (!dataUrl.startsWith("data:")) return;
@@ -177,17 +174,71 @@ export function isOfficeUploadUrl(url: string): boolean {
   return !!uploadNameOf(url);
 }
 
+/* Session preview: the exact bytes just uploaded, as a same-tab object URL.
+   This is what makes an upload paint INSTANTLY — the preview never waits on
+   the server GET, so a slow/wiped/unreachable disk can never blank the admin
+   right after a successful upload. Keyed by upload name (server names are
+   unique per upload); the previous object URL for a name is revoked. */
+const sessionPreviews = new Map<string, string>();
+export function rememberUploadPreview(name: string, blob: Blob): string {
+  const clean = String(name || "").trim();
+  if (!clean || !blob || !(blob as any).size) return "";
+  try {
+    const prev = sessionPreviews.get(clean);
+    if (prev) {
+      try { URL.revokeObjectURL(prev); } catch {}
+    }
+    const url = URL.createObjectURL(blob);
+    sessionPreviews.set(clean, url);
+    return url;
+  } catch {
+    return "";
+  }
+}
+
+/** Sync read of the session preview for a full upload URL ("" when none). */
+export function sessionPreviewForUrl(url: string): string {
+  const name = uploadNameOf(url);
+  if (!name) return "";
+  return sessionPreviews.get(name) || "";
+}
+
+/** React hook: the session preview for an upload URL, if this tab uploaded it. */
+export function useUploadPreviewUrl(url: string): string {
+  const name = uploadNameOf(url);
+  const [preview, setPreview] = useState(() => sessionPreviewForUrl(url));
+  useEffect(() => {
+    setPreview(sessionPreviewForUrl(url));
+  }, [name, url]);
+  return preview;
+}
+
+/* Same-copy fallback for absolute office addresses: an upload stored as
+   https://old-host/data/uploads/x paints THIS copy's /data/uploads/x when the
+   absolute address fails (host moved, disk wiped here-not-there, relayed live
+   copy). Same file names are unique per upload, so the same name is the same
+   bytes on every copy that holds it. "" unless the URL is absolute. */
+export function localUploadFallback(url: string): string {
+  const s = String(url || "").trim();
+  if (!/^https?:\/\//i.test(s)) return "";
+  const m = /\/(data\/uploads\/[A-Za-z0-9][A-Za-z0-9._-]*)/.exec(s);
+  if (!m) return "";
+  return "/" + m[1];
+}
+
 /* Feed-backed durability (wipe survival): the baked feed address plus the
    baked uploads layout, resolved once per session. [] when no feed is baked
    (rebuild-only copies behave exactly as before). Never throws. */
 let feedSpecCache: { spec: any; dir: string } | null | undefined = undefined;
+let feedSpecCachedAt = 0;
 export async function feedUrlsForUpload(name: string): Promise<string[]> {
   const clean = String(name || "").trim();
   if (!clean) return [];
   try {
-    if (feedSpecCache === undefined) {
+    if (feedSpecCache === undefined || (feedSpecCache === null && Date.now() - feedSpecCachedAt > 30_000)) {
       const [spec, dir] = await Promise.all([bakedFeedSpec(), bakedFeedUploadsDir()]);
       feedSpecCache = spec ? { spec, dir } : null;
+      feedSpecCachedAt = Date.now();
     }
     if (!feedSpecCache) return [];
     return feedUploadUrls(feedSpecCache.spec, clean, feedSpecCache.dir);
@@ -209,6 +260,22 @@ export function useFeedUploadUrl(url: string): string {
     return () => { alive = false; };
   }, [name]);
   return feed;
+}
+
+/** React hook: BOTH repo-copy URLs (raw + jsdelivr) so a missing raw still
+    paints from the mirror instead of blank. Never throws. */
+export function useFeedUploadUrls(url: string): string[] {
+  const name = uploadNameOf(url);
+  const [feeds, setFeeds] = useState<string[]>([]);
+  useEffect(() => {
+    if (!name) return;
+    let alive = true;
+    feedUrlsForUpload(name).then((urls) => {
+      if (alive) setFeeds(urls);
+    }).catch(() => {});
+    return () => { alive = false; };
+  }, [name]);
+  return feeds;
 }
 
 export { dataUrlToBlob };

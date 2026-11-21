@@ -381,7 +381,7 @@ export function relativeTime(input: string | Date | number) {
   return fmtDate(d, "medium");
 }
 
-export function parseDuration(text: string): number {  const parts = String(text ?? "").split(":").map(Number);
+export function parseDuration(text: string): number {  const parts = text.split(":").map(Number);
   if (parts.length === 3) return parts[0] * 60 + parts[1];
   if (parts.length === 2) return parts[0];
   return 0;
@@ -424,15 +424,9 @@ export type ServiceSlot = { day: number; time: string; name: string; minutes: nu
 /** When a gathering next happens; pass the branch's zone (note 84). */
 export function nextOccurrence(slot: ServiceSlot, now = new Date(), tz = churchTimezone()): Date {
   const zone = zoneOr(tz);
-  const parts = String((slot as any)?.time ?? "").split(":");
-  let h = Number(parts[0]);
-  let m = Number(parts[1]);
-  if (!Number.isFinite(h) || h < 0 || h > 23) h = 9;
-  if (!Number.isFinite(m) || m < 0 || m > 59) m = 0;
-  const day = Number((slot as any)?.day);
-  const slotDay = Number.isFinite(day) ? ((Math.floor(day) % 7) + 7) % 7 : 0;
+  const [h, m] = slot.time.split(":").map(Number);
   const p = zonedParts(now, zone);
-  const ahead = (slotDay - p.weekday + 7) % 7;
+  const ahead = (slot.day - p.weekday + 7) % 7;
   let at = zonedTimeToUtc(p.year, p.month, p.day + ahead, h, m, zone);
   if (at.getTime() <= now.getTime()) at = zonedTimeToUtc(p.year, p.month, p.day + ahead + 7, h, m, zone);
   return at;
@@ -458,13 +452,10 @@ export function nextService(schedule: ServiceSlot[], now = new Date(), tz = chur
   enriched.sort((a, b) => a.msUntil - b.msUntil);
 
   for (const slot of schedule) {
-    const tp = String((slot as any)?.time ?? "").split(":");
-    const h = Number.isFinite(Number(tp[0])) ? Number(tp[0]) : 9;
-    const m = Number.isFinite(Number(tp[1])) ? Number(tp[1]) : 0;
-    const sDay = Number.isFinite(Number((slot as any)?.day)) ? ((Math.floor(Number((slot as any).day)) % 7) + 7) % 7 : 0;
+    const [h, m] = slot.time.split(":").map(Number);
     for (let back = 0; back <= 7; back++) {
       const start = zonedTimeToUtc(p.year, p.month, p.day - back, h, m, zone);
-      if (zonedParts(start, zone).weekday !== sDay) continue;
+      if (zonedParts(start, zone).weekday !== slot.day) continue;
       const end = new Date(start.getTime() + (slot.minutes || 120) * 60000);
       if (now >= start && now <= end) {
         /* Ended by hand — or by the stream itself? Then it is not this

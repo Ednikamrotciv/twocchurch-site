@@ -56,7 +56,7 @@ import {
   displayLive,
 } from "../lib/store";
 import { SITE, STATS, SERVICES, img, type Person } from "../data/site";
-import { photoOr, resolvePhoto } from "../data/photos";
+import { photoOr } from "../data/photos";
 import { BRANCHES, DEFAULT_BRANCH_ID, HQ, branchFlag, branchZone, subBranchesOf, type Branch } from "../data/branches";
 import { LIVE, type WatchOption } from "../data/live";
 import type { RecentService } from "../lib/recentstreams";
@@ -73,9 +73,7 @@ export function eventZone(e: ChurchEvent): string {
 }
 
 export function eventDate(e: ChurchEvent, now = new Date()): Date {
-  const tp = String((e as any)?.time ?? "").split(":");
-  const h = Number.isFinite(Number(tp[0])) ? Number(tp[0]) : 9;
-  const m = Number.isFinite(Number(tp[1])) ? Number(tp[1]) : 0;
+  const [h, m] = e.time.split(":").map(Number);
   const today = zonedParts(now, churchTimezone());
   return zonedTimeToUtc(today.year, today.month, today.day + (e.offsetDays || 0), h, m, eventZone(e));
 }
@@ -1894,7 +1892,7 @@ export function TestimonyCard({ testimony, onOpen, onAmen }: { testimony: Testim
       <p className="testimony-card__body">{tx(testimony.body.length > 210 && !onOpen ? testimony.body.slice(0, 205) + "…" : testimony.body)}</p>
       <div className="testimony-card__foot">
         <div className="testimony-card__who">
-          {testimony.photo ? <img src={resolvePhoto(testimony.photo)} alt="" className="testimony-card__photo" /> : <Monogram name={testimony.name} letters={testimony.monogram} size={38} />}
+          {testimony.photo ? <img src={testimony.photo} alt="" className="testimony-card__photo" /> : <Monogram name={testimony.name} letters={testimony.monogram} size={38} />}
           <span>
             <b>{testimony.name === "Anonymous" ? ct("auto.testimonies.7baab97d05cbcf14") : testimony.name}</b>
             <em>
@@ -1964,7 +1962,7 @@ export function PersonCard({ person }: { person: Person }) {
   return (
     <Card className="person-card" pad={false}>
       <div className="person-card__photo">
-        {person.image ? <img src={resolvePhoto(person.image)} alt={person.name} loading="lazy" /> : <span className="person-card__mono"><Monogram name={person.name} size={92} /></span>}
+        {person.image ? <img src={person.image} alt={person.name} loading="lazy" /> : <span className="person-card__mono"><Monogram name={person.name} size={92} /></span>}
       </div>
       <div className="person-card__body">
         <h3>{person.name}</h3>
