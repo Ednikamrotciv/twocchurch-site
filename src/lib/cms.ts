@@ -19,7 +19,20 @@ import { setLiveReportSink } from "./livestatus";
 
 export type Snapshot = Record<string, any>;
 export type CmsStatus = "connecting" | "online" | "offline" | "local";
-export type LogEntry = { rev: number; at: number; by: string; role?: string; note: string; changed: string[] };
+export type LogEntry = { rev: number; at: number; by: string; role?: string; note: string; changed: string[]; kind?: string; rb?: string; rbKind?: string };
+
+/* How long a deletion can be put back from the History panel: 72h, same
+   clock the server enforces (entries older than this lose their button). */
+export const ROLLBACK_WINDOW_MS = 72 * 3600 * 1000;
+/** Whole hours left to roll an entry back (0 when the window has closed). */
+export function rollbackHoursLeft(at: number): number {
+  try {
+    const left = ROLLBACK_WINDOW_MS - (Date.now() - Math.floor(Number(at)));
+    return left > 0 ? Math.ceil(left / 3600000) : 0;
+  } catch {
+    return 0;
+  }
+}
 
 const CACHE_KEY = "wom.cms.cache";
 const DRAFT_KEY = "wom.cms.draft";
@@ -2124,6 +2137,10 @@ export async function publishSection(sectionId: string, note: string): Promise<P
   dropLapsedSlides(true);
   migrateTestimonies();
   if (sectionId === "sermons" && Array.isArray(draft[sectionId])) stampSermonPublishTimes(draft[sectionId]);
+  /* Same upload fetch as a full Publish (no manual retry button): missing
+     server files come home before this section's words go out. Runs
+     alongside the fold/join waits; awaited before the send, bounded. */
+  const sectionHealP: Promise<void> = healUploadsBeforePublish();
   /* Publish folds live's newer words in first (note 309) — an office edit to
      this section still wins over live. */
   /* Durable deploy stamp (sleep-wake survival): unstamped copies name the live
@@ -2134,6 +2151,9 @@ export async function publishSection(sectionId: string, note: string): Promise<P
   const sectionFoldP = foldLiveInto(draft, sectionId, 300);
   const sectionJoinP: Promise<boolean> = joinBeforePublish().catch(() => false);
   await sectionFoldP;
+  try {
+    await sectionHealP;
+  } catch {}
   let value = clone(draft[sectionId]);
   /* The transport arms the send (notes 390, 392, 394): without a clicked play,
      pause or stop newer than what is published, the on-air state stays out of
@@ -2978,6 +2998,10 @@ async function backfillUploadsFrom(fromBase: string, content: Snapshot = overrid
       here = false;
     }
     if (here) continue;
+    let fetched = false;
+    /* A "feed" base names the mirror, not a backend — the mirror loop below
+       owns it; no direct fetch. */
+    if (fromBase && fromBase !== "feed") {
     try {
       const res = await fetch(fromBase + "/data/uploads/" + name, { cache: "no-store" });
       if (!res.ok) throw 0;
@@ -2992,9 +3016,38 @@ async function backfillUploadsFrom(fromBase: string, content: Snapshot = overrid
       });
       if (!put.ok) throw 0;
       restored++;
+      fetched = true;
     } catch {
-      failed.push(name);
+      fetched = false;
     }
+    } /* end direct counterpart fetch (feed bases use the mirror loop) */
+    if (fetched) continue;
+    /* Counterpart silent (asleep, or this adoption came off the feed mirror):
+       try the public repo mirrors before giving up — the same bytes the heal
+       loop uses. Counted the same way. */
+    try {
+      for (const u of await feedUrlsForUpload(name)) {
+        try {
+          const res = await fetch(u, { cache: "no-store" });
+          if (!res.ok) continue;
+          if (String(res.headers.get("content-type") || "").toLowerCase().includes("text/html")) continue;
+          const blob = await res.blob();
+          if (!blob || !blob.size || blob.size > BACKUP_FILE_MAX_BYTES) continue;
+          if (String((blob as any).type || "").toLowerCase().includes("text/html")) continue;
+          try { await cacheUploadBlob(name, blob); } catch {}
+          const put = await fetch("/__restore-file?conn=" + encodeURIComponent(officeFileConn()) + "&name=" + encodeURIComponent(name), {
+            method: "POST",
+            headers: { "content-type": blob.type || guessUploadType(name) },
+            body: blob,
+          });
+          if (!put.ok) continue;
+          restored++;
+          fetched = true;
+          break;
+        } catch {}
+      }
+    } catch {}
+    if (!fetched) failed.push(name);
   }
   return { restored, failed };
 }
@@ -3049,7 +3102,30 @@ export async function healMissingUploads(): Promise<{ restored: number; checked:
         /* Wipe durability (feed): when this browser never cached the file,
            anything the office pushed is fetchable off the public repo — so
            ANY open copy heals the server, not just the uploader's browser.
+           The counterpart box is tried FIRST (a publish relay often landed
+           the bytes on live even when git/the mirror hasn't caught up yet —
+           e.g. laptop office with no push remote, or the 60s push delay).
            The fetched bytes are kept in this browser's cache too. */
+        if (!blob || !(blob as any).size) {
+          try {
+            const liveBase = await liveBaseUrl().catch(() => "");
+            if (liveBase) {
+              const r = await fetch(liveBase + "/data/uploads/" + encodeURIComponent(name), { cache: "no-store" });
+              if (r.ok) {
+                const ct = String(r.headers.get("content-type") || "").toLowerCase();
+                if (!ct.includes("text/html")) {
+                  const b = await r.blob();
+                  if (b && (b as any).size && !String((b as any).type || "").toLowerCase().includes("text/html")) {
+                    if ((b as any).size <= BACKUP_FILE_MAX_BYTES) {
+                      blob = b;
+                      try { await cacheUploadBlob(name, b); } catch {}
+                    }
+                  }
+                }
+              }
+            }
+          } catch {}
+        }
         if (!blob || !(blob as any).size) {
           for (const u of await feedUrlsForUpload(name)) {
             try {
@@ -3058,6 +3134,7 @@ export async function healMissingUploads(): Promise<{ restored: number; checked:
               const b = await r.blob();
               if (!b || !(b as any).size) continue;
               if (String((b as any).type || "").toLowerCase().includes("text/html")) continue;
+              if ((b as any).size > BACKUP_FILE_MAX_BYTES) continue;
               blob = b;
               try { await cacheUploadBlob(name, b); } catch {}
               break;
@@ -3084,6 +3161,25 @@ function scheduleUploadHeal(delayMs = 2500): void {
       healMissingUploads().catch(() => {});
     }, delayMs);
   } catch {}
+}
+
+/* Publish-time upload fetch (office request: no manual retry button — the
+   fetch rides the Publish click itself): restore missing server files from
+   this browser's cache, the live box, or the mirror BEFORE the words go
+   out, so the bake, the git push and the live relay all carry real files
+   instead of addresses that paint blank on every other copy. Started
+   alongside the fold/join waits and awaited before the send, bounded so a
+   sleeping counterpart can never hold the click hostage past a few seconds;
+   the 30s loop and the relay backstop anything past the bound. Never throws. */
+function healUploadsBeforePublish(): Promise<void> {
+  try {
+    return Promise.race([
+      healMissingUploads().catch(() => {}).then(() => {}),
+      new Promise<void>((res) => window.setTimeout(() => res(), 8000)),
+    ]);
+  } catch {
+    return Promise.resolve();
+  }
 }
 
 /* Read live's publish without adopting anything: the shared front door for the
@@ -3491,7 +3587,7 @@ export async function pullFromLive(): Promise<LivePullResult> {
         localStorage.removeItem(DRAFT_KEY);
       } catch {}
     }
-    const files = read.base && read.base !== "feed" ? await backfillUploadsFrom(read.base) : { restored: 0, failed: [] as string[] };
+    const files = read.base ? await backfillUploadsFrom(read.base) : { restored: 0, failed: [] as string[] };
     lastLivePullAt = Date.now();
     const imgBit = files.restored ? ` and ${files.restored} uploaded ${files.restored === 1 ? "file" : "files"} came home` : "";
     const missBit = files.failed.length ? ` (${files.failed.length} uploaded ${files.failed.length === 1 ? "file is" : "files are"} missing on live: ${files.failed.slice(0, 3).join(", ")}${files.failed.length > 3 ? "…" : ""})` : "";
@@ -4644,10 +4740,20 @@ function waitForOpen(sock: any) {
   });
 }
 
-/** Another editor published: pull the new revision straight away. */
+/** Another editor published or staged: staged drafts pull straight away. */
 function onMessage(event: any) {
   const data = event?.data;
-  if (typeof data !== "string" || data.indexOf("rev") === -1) return;
+  if (typeof data !== "string") return;
+  if (data.indexOf('"drev"') !== -1) {
+    try {
+      const msg = JSON.parse(data);
+      if (msg && typeof msg.drev === "number") {
+        fetchSharedDraft().catch(() => {});
+        return;
+      }
+    } catch {}
+  }
+  if (data.indexOf("rev") === -1) return;
   syncFromServer().catch(() => {});
 }
 
@@ -5033,6 +5139,157 @@ function rebaseDraft() {
   persistDraft();
 }
 
+/* ------------------------------------------- shared draft (multi-admin) */
+/* One admin's unsaved work is every admin's: staged sections are shared through
+   this backend (same backend only — cross-site sharing is still Publish), and
+   adopted here only where this tab holds no unsaved edits of its own. Sections
+   this tab did touch keep this tab's words; the office coordinates the rest. */
+const DRAFT_SHARE_CHANNEL = "wom.cms.draft";
+let sharedDrevSeen = 0;
+let sharedStageTimer = 0;
+let lastStagedSig = "";
+let sharedFetching = false;
+let sharedWatchStarted = false;
+/** Ping same-browser admin tabs that a new shared draft revision staged. */
+function sharedDraftChannelPing(): void {
+  try {
+    if (typeof BroadcastChannel !== "undefined") {
+      const ch = new BroadcastChannel(DRAFT_SHARE_CHANNEL);
+      try {
+        ch.postMessage({ t: Date.now() });
+      } finally {
+        try {
+          ch.close();
+        } catch {}
+      }
+    }
+  } catch {}
+}
+/** Stage this tab's dirty sections for every admin, debounced (typing bursts
+    stage once). Never throws; silently skips while signed out or offline. */
+function stageSharedDraftSoon(): void {
+  try {
+    if (!draft || !draftLoaded || !authed || !socket || status !== "online") return;
+    if (sharedStageTimer) return;
+    sharedStageTimer = window.setTimeout(() => {
+      sharedStageTimer = 0;
+      void stageSharedDraftNow().catch(() => {});
+    }, 1500);
+  } catch {}
+}
+async function stageSharedDraftNow(): Promise<void> {
+  try {
+    if (!draft || !draftLoaded || !authed || !socket || status !== "online") return;
+    const ids = Object.keys(dirty).filter((id) => !!sectionById(id)).slice(0, 24);
+    if (!ids.length) return;
+    const sections: Record<string, string> = {};
+    let total = 0;
+    for (const id of ids) {
+      let s = "";
+      try {
+        s = JSON.stringify((draft as Snapshot)[id]);
+      } catch {
+        continue;
+      }
+      if (typeof s !== "string" || !s.length || s.length > 200000) continue;
+      total += s.length;
+      if (total > 1500000) break;
+      sections[id] = s;
+    }
+    const keys = Object.keys(sections);
+    if (!keys.length) return;
+    /* Change signature (ids + sizes + head/tail): identical drafts never re-post. */
+    const sig = keys
+      .sort()
+      .map((k) => k + ":" + sections[k].length + ":" + sections[k].slice(0, 32) + ":" + sections[k].slice(-32))
+      .join("|");
+    if (sig === lastStagedSig) return;
+    const res = JSON.parse(await (socket as any).rpc.stageDraft(JSON.stringify({ sections, by: editorName() })));
+    if (res && res.ok && typeof res.drev === "number") {
+      lastStagedSig = sig;
+      if (res.drev > sharedDrevSeen) sharedDrevSeen = res.drev;
+      sharedDraftChannelPing();
+    }
+  } catch {}
+}
+/** Fetch the shared draft and adopt what this tab did not touch itself. */
+async function fetchSharedDraft(): Promise<void> {
+  if (sharedFetching) return;
+  try {
+    if (!draftLoaded || !authed || !socket || status !== "online") return;
+    sharedFetching = true;
+    const res = JSON.parse(await (socket as any).rpc.getSharedDraft(""));
+    if (!res || !res.ok || typeof res.drev !== "number") return;
+    if (res.drev <= sharedDrevSeen) return;
+    sharedDrevSeen = res.drev;
+    const incoming = res.sections && typeof res.sections === "object" ? res.sections : {};
+    const d = getDraft();
+    let touched = false;
+    for (const id of Object.keys(incoming)) {
+      const def = sectionById(id);
+      if (!def) continue;
+      const raw = incoming[id];
+      if (typeof raw !== "string" || !raw.length || raw.length > 200000) continue;
+      let parsed: any;
+      try {
+        parsed = JSON.parse(raw);
+      } catch {
+        continue;
+      }
+      if (!parsed || typeof parsed !== "object") continue;
+      if (sameJSON((d as Snapshot)[id], parsed)) continue;
+      /* Silent last-writer-wins: a section this tab already touched keeps
+         this tab's own words — no toast either way, the preview simply
+         shows what stands. */
+      if ((dirty as any)[id]) continue;
+      (d as Snapshot)[id] = parsed;
+      (dirty as any)[id] = true;
+      touched = true;
+    }
+    if (touched) {
+      persistDraft();
+      notify();
+      applyDraftLiveSoon();
+      try {
+        scheduleUploadHeal(800);
+      } catch {}
+    }
+  } catch {
+  } finally {
+    sharedFetching = false;
+  }
+}
+/** Poll the shared draft (same-backend admins) + instant same-browser pings. */
+function startSharedDraftWatch(): void {
+  if (sharedWatchStarted) return;
+  sharedWatchStarted = true;
+  try {
+    if (typeof BroadcastChannel !== "undefined") {
+      const ch = new BroadcastChannel(DRAFT_SHARE_CHANNEL);
+      ch.onmessage = () => {
+        fetchSharedDraft().catch(() => {});
+      };
+    }
+  } catch {}
+  try {
+    window.setInterval(() => {
+      try {
+        if (document.visibilityState === "hidden") return;
+        if (!authed || !socket || status !== "online") return;
+        fetchSharedDraft().catch(() => {});
+      } catch {}
+    }, 15000);
+  } catch {}
+  try {
+    window.addEventListener("online", () => {
+      fetchSharedDraft().catch(() => {});
+    });
+    document.addEventListener("visibilitychange", () => {
+      if (document.visibilityState === "visible") fetchSharedDraft().catch(() => {});
+    });
+  } catch {}
+}
+
 function sessionPassword(): string {
   try {
     return sessionStorage.getItem(SESSION_KEY) || "";
@@ -5228,6 +5485,15 @@ export async function login(
       try {
         resumeRelayRetry();
       } catch {}
+      /* Multi-admin: pick up anything staged while signed out, share anything
+         drafted while offline, then keep watching. */
+      try {
+        startSharedDraftWatch();
+      } catch {}
+      try {
+        fetchSharedDraft().catch(() => {});
+      } catch {}
+      stageSharedDraftSoon();
       return { ok: true, role: myRole, name: myName };
     }
     if (!silent) notify();
@@ -5265,6 +5531,13 @@ export async function login2fa(code: string, password: string): Promise<{ ok: bo
       try {
         resumeRelayRetry();
       } catch {}
+      try {
+        startSharedDraftWatch();
+      } catch {}
+      try {
+        fetchSharedDraft().catch(() => {});
+      } catch {}
+      stageSharedDraftSoon();
       return { ok: true };
     }
     return { ok: false, error: res?.err || "denied" };
@@ -5938,6 +6211,8 @@ export function setSectionValue(sectionId: string, value: any) {
      behind it is re-drawn on the paced preview (see applyDraftLiveSoon). */
   notify();
   applyDraftLiveSoon();
+  /* Every admin shares this edit (same backend): stage it for the others. */
+  stageSharedDraftSoon();
 }
 
 export function resetSection(sectionId: string) {
@@ -5950,6 +6225,7 @@ export function resetSection(sectionId: string) {
   persistDraft();
   notify();
   applyDraftLiveSoon();
+  stageSharedDraftSoon();
 }
 
 /* --------------------------------------------------------------- undo edits */
@@ -5985,6 +6261,7 @@ export function undoEdit(): { ok: boolean; label?: string } {
     dropLivePreview();
     applyDraftLive();
   } else notify();
+  stageSharedDraftSoon();
   const def = sectionById(entry.sectionId);
   return { ok: true, label: def ? def.label : entry.sectionId };
 }
@@ -6381,6 +6658,8 @@ export async function importBackup(text: string): Promise<ImportResult> {
   }
   persistDraft();
   notify();
+  /* Restored words belong to every admin too: stage them for the others. */
+  stageSharedDraftSoon();
   /* The photos ride home: each embedded upload is written back under its
      exact stored name. Old backups without embedded files still import —
      their words simply point at whatever the server still holds. */
@@ -6510,7 +6789,7 @@ export async function importBackup(text: string): Promise<ImportResult> {
 
 /* ----------------------------------------------------------------- publish */
 
-export type PublishResult = { ok: boolean; error?: string; local?: boolean; live?: boolean; relayMsg?: string };
+export type PublishResult = { ok: boolean; error?: string; local?: boolean; live?: boolean; relayMsg?: string; staged?: boolean };
 
 /** Only the sections that differ from what is live are sent. */
 function buildPatch(target: Snapshot): { sections: Record<string, string | null>; changed: string[] } {
@@ -6907,14 +7186,56 @@ function relayUploadsToLive(sections: Record<string, string | null>): void {
     try {
       const names = localUploadNames(sections).slice(0, 30);
       for (const name of names) {
+        let blob: Blob | null = null;
+        let blobType = "";
         try {
           const got = await fetch("/data/uploads/" + name, { cache: "no-store" });
-          if (!got.ok) continue;
-          const blob = await got.blob();
-          if (!blob || !blob.size || blob.size > 90 * 1024 * 1024) continue;
+          if (got.ok) {
+            const ct = String(got.headers.get("content-type") || "").toLowerCase();
+            if (!ct.includes("text/html")) {
+              const b = await got.blob();
+              if (b && b.size && b.size <= 90 * 1024 * 1024 && !String((b as any).type || "").toLowerCase().includes("text/html")) {
+                blob = b;
+                blobType = (b as any).type || "";
+              }
+            }
+          }
+        } catch {}
+        /* Wiped office disk (sleep/reset between upload and publish): the
+           words still reference the file, so carry this browser's own cached
+           bytes — or the public mirror's — instead of skipping the photo leg
+           and leaving live visitors blank until the next rebuild. */
+        if (!blob) {
+          try {
+            const dataUrl = await getCachedDataUrl(name);
+            const b = dataUrlToBlob(dataUrl || "");
+            if (b && (b as any).size && (b as any).size <= 90 * 1024 * 1024) {
+              blob = b;
+              blobType = (b as any).type || "";
+            }
+          } catch {}
+        }
+        if (!blob) {
+          try {
+            for (const u of await feedUrlsForUpload(name)) {
+              try {
+                const r = await fetch(u, { cache: "no-store" });
+                if (!r.ok) continue;
+                const b = await r.blob();
+                if (!b || !(b as any).size || (b as any).size > 90 * 1024 * 1024) continue;
+                if (String((b as any).type || "").toLowerCase().includes("text/html")) continue;
+                blob = b;
+                blobType = (b as any).type || "";
+                break;
+              } catch {}
+            }
+          } catch {}
+        }
+        if (!blob) continue;
+        try {
           await fetch(base + "/__restore-file?conn=" + encodeURIComponent(relayUploadConnId()) + "&name=" + encodeURIComponent(name), {
             method: "POST",
-            headers: { "content-type": (blob as any).type || guessUploadType(name) },
+            headers: { "content-type": blobType || guessUploadType(name) },
             body: blob,
           }).catch(() => null);
         } catch {
@@ -7573,6 +7894,11 @@ export async function publish(note: string, content?: Snapshot): Promise<Publish
     dropLapsedSlides(true);
     migrateTestimonies();
   }
+  /* The upload fetch rides this click (no manual retry button): missing
+     server files come home from this browser's cache, the live box or the
+     mirror before the words go out. Runs alongside the fold/join waits below
+     and is awaited before the send — bounded, so it never holds the click. */
+  const healP: Promise<void> = healUploadsBeforePublish();
   if (content && Array.isArray(content.slides)) content.slides = purgeExpiredSlides(content.slides);
   if (content && Array.isArray(content.announcements)) content.announcements = purgeExpiredAnnouncements(content.announcements);
   if (draft && Array.isArray(draft.sermons)) stampSermonPublishTimes(draft.sermons);
@@ -7591,6 +7917,12 @@ export async function publish(note: string, content?: Snapshot): Promise<Publish
   const foldP = foldLiveInto(content || draft, undefined, 300);
   const joinP: Promise<boolean> = joinBeforePublish().catch(() => false);
   const fold = await foldP;
+  /* Disk whole before words move: the fetch above ran alongside the fold and
+     lands here, so the send below — and the bake, push and relay behind it —
+     carries real files. Bounded above; the loops backstop the rest. */
+  try {
+    await healP;
+  } catch {}
   /* The transport arms the send (notes 390, 392, 394): without a clicked play,
      pause or stop newer than what is published, the on-air state stays out of
      the patch — a natural end stamps nothing and needs no publish. */
@@ -7924,49 +8256,28 @@ export async function flushPending(): Promise<boolean> {
 export async function undoLastPublish(): Promise<PublishResult> {
   /* Never stamp from a stale bundle: reload onto the new build instead. */
   if (await stopIfStale()) return { ok: false, error: "stale-reload" };
-  /* Sign-in first (office request): an undo publishes the other way. */
+  /* Sign-in first (office request): an undo stages the other way. */
   if (!(await requireSignedIn())) return { ok: false, error: authDenyReason() };
   pruneHistory();
   if ((!socket || status !== "online") && !(await ensureOnline())) return { ok: false, error: "offline" };
 
-  /* Server window first: exact, any device, and it consumes the window. */
+  /* Server window first: exact, any device. Peek only — Publish is the final
+     push for every edit, fix, rollback and undo, so the superseded words
+     stage into the shared draft here and ride the next Publish; the window
+     stays unconsumed and nothing is logged yet. */
   if (socket && status === "online" && authed && undoCountdownSec() > 0) {
     try {
-      const res = JSON.parse(await socket.rpc.undoPublish(JSON.stringify({ by: editorName(), deploy: currentDeployId || "" })));
+      const res = JSON.parse(await socket.rpc.undoPublish(JSON.stringify({ by: editorName(), deploy: currentDeployId || "", peek: true })));
       /* A changed/retired password ends the session here too (note 297) —
          the held words stay; only an explicit office delete may clear
          last-published (note 300). A 15-minute-idle session ends the same
          way (note 433). */
       if (res?.err === "unauthorized") clearSession();
       else if (res?.err === "idle-expired") clearSession("idle");
-      if (res?.ok) {
-        if (history.length) {
-          history = history.slice(1);
-          writeJSON(HISTORY_KEY, history);
-        }
-        rev = typeof res.rev === "number" ? res.rev : rev;
-        undoUntilAt = 0;
-        await syncFromServer().catch(() => {});
-        /* An undo is a publish the other way: live learns it at once through
-           the same relay, so its visitors and its notice follow right away
-           instead of waiting out the loops. */
-        let live = true;
-        try {
-          const snap = getOverrides();
-          const secs: Record<string, string | null> = {};
-          const ids = Object.keys(snap);
-          ids.forEach((id) => (secs[id] = JSON.stringify((snap as Snapshot)[id])));
-          const outcome = await relayPublishWordsToLive(secs, ids, "Undid the last publish");
-          if (outcome === "landed") {
-            try {
-              relayUploadsToLive(secs);
-            } catch {}
-          }
-          live = outcome !== "missed";
-        } catch {
-          live = false;
-        }
-        return { ok: true, live };
+      if (res?.ok && res.sections && typeof res.sections === "object") {
+        const staged = stageWordsIntoDraft(res.sections);
+        if (!staged.length) return { ok: false, error: "empty" };
+        return { ok: true, staged: true };
       }
       if (res?.err !== "expired") return { ok: false, error: res?.err || "failed" };
       undoUntilAt = 0;
@@ -7976,46 +8287,144 @@ export async function undoLastPublish(): Promise<PublishResult> {
   }
 
   /* Fallback: this browser's own memory of the previous publish — only while
-     that memory is still inside the same ~15-minute window. */
+     that memory is still inside the same ~15-minute window. Stages into the
+     shared draft like the server path; Publish carries it. */
   const entry = history[0];
   if (!entry || Date.now() - entry.at > UNDO_MS) {
     if (entry) pruneHistory();
     return { ok: false, error: "nothing-to-undo" };
   }
-
-  const ids: string[] = [];
-  const seen: Record<string, true> = {};
-  for (const id of Object.keys(overrides)) {
-    if (!seen[id]) {
-      seen[id] = true;
-      ids.push(id);
-    }
-  }
-  for (const id of Object.keys(entry.overrides || {})) {
-    if (!seen[id]) {
-      seen[id] = true;
-      ids.push(id);
-    }
-  }
-  const sections: Record<string, string | null> = {};
-  for (const id of ids) {
-    const prev = entry.overrides ? entry.overrides[id] : undefined;
-    sections[id] = prev === undefined ? null : JSON.stringify(prev);
-  }
-  if (!ids.length) return { ok: false, error: "nothing-to-undo" };
-
-  const result = await sendPatch(sections, ids, "Rolled back to the previous revision", true, true);
-  if (!result.ok) return { ok: false, error: result.error };
-
+  const stagedIds = stageWordsIntoDraft(entry.overrides || {});
+  if (!stagedIds.length) return { ok: false, error: "empty" };
   history = history.slice(1);
   writeJSON(HISTORY_KEY, history);
-  rev = result.rev ?? rev + 1;
-  setPublishedNotes(BUILD_NOTES);
-  overrides = clone(entry.overrides || {});
-  applyOverrides(overrides, false);
-  writeCache();
+  return { ok: true, staged: true };
+}
+
+/* Record a trashed upload in the shared history (after /__delete-file moved
+   it to data/.trash/). The history row carries the 72h Roll back button. */
+export async function noteFileDelete(name: string, trash: string): Promise<{ ok: boolean; error?: string }> {
+  try {
+    if (!socket || status !== "online") return { ok: false, error: "offline" };
+    if (!authed) return { ok: false, error: authDenyReason() };
+    const res = JSON.parse(await socket.rpc.noteFileDelete(JSON.stringify({ name, trash })));
+    if (!res?.ok) return { ok: false, error: res?.err || "failed" };
+    try {
+      await syncFromServer();
+    } catch {}
+    return { ok: true };
+  } catch (err: any) {
+    return { ok: false, error: err?.message || "error" };
+  }
+}
+
+export type RollbackResult = { ok: boolean; error?: string; live?: boolean; relayMsg?: string; restored?: string; staged?: boolean };
+/** Stage server-kept words into the shared draft (History rollback / undo).
+    Publish stays the final push for every edit, fix, rollback and undo —
+    nothing here touches the live site. Accepts raw stored section JSON
+    (strings, as the server keeps them) or parsed values (local memory);
+    unknown sections and unparsable values are skipped, never forced. */
+function stageWordsIntoDraft(sections: Record<string, any>): string[] {
+  const staged: string[] = [];
+  const known: Record<string, boolean> = {};
+  try {
+    for (const def of SECTION_DEFS) known[def.id] = true;
+  } catch {}
+  for (const id of Object.keys(sections || {})) {
+    if (!known[id]) continue;
+    let value = (sections as any)[id];
+    if (typeof value === "string") {
+      try {
+        value = JSON.parse(value);
+      } catch {
+        continue;
+      }
+    }
+    if (value !== null && (value === undefined || typeof value !== "object")) continue;
+    try {
+      setSectionValue(id, clone(value));
+      staged.push(id);
+    } catch {}
+  }
+  return staged;
+}
+/** Copy trashed bytes home from the host and log the restore (History file
+    rows). The bytes ride the next Publish — same final push as the words. */
+async function restoreTrashedFiles(files: { name: string; trash: string }[]): Promise<RollbackResult> {
+  const base = serverUrl();
+  for (const f of files) {
+    const nm = String(f?.name || "");
+    const tr = String(f?.trash || "");
+    if (!nm || !tr) return { ok: false, error: "failed" };
+    const put = await fetch(`${base}/__restore-trash?conn=${encodeURIComponent(officeFileConn())}&trash=${encodeURIComponent(tr)}&name=${encodeURIComponent(nm)}`, { method: "POST" });
+    if (put.status === 403) {
+      clearSession();
+      return { ok: false, error: "unauthorized" };
+    }
+    if (!put.ok) return { ok: false, error: put.status === 404 ? "expired" : "failed" };
+    try {
+      const back = await fetch(`${base}/data/uploads/${nm}`, { cache: "no-store" });
+      if (back.ok) await cacheUploadBlob(nm, await back.blob());
+    } catch {}
+  }
+  try {
+    const names = files.map((f) => String(f.name)).slice(0, 3).join(", ") + (files.length > 3 ? "…" : "");
+    await socket.rpc.noteActivity(JSON.stringify({ kind: "restore", note: `Restored ${names} to the office`.slice(0, 120) }));
+  } catch {}
   await syncFromServer().catch(() => {});
-  return { ok: true, live: result.relay !== "missed", relayMsg: relayStatus().msg };
+  try {
+    healMissingUploads().catch(() => {});
+  } catch {}
+  return { ok: true, restored: "files" };
+}
+/** Put back a deletion from the History panel (72h window, server-enforced).
+    Replaced words stage into the shared draft — Publish is the final push
+    for every edit, fix, rollback and undo; trashed files copy home from
+    data/.trash/ and ride the next Publish too. Only admin records (no draft
+    holds them) apply at once. */
+export async function rollbackHistoryEntry(entry: LogEntry): Promise<RollbackResult> {
+  if (!entry?.rb) return { ok: false, error: "unknown" };
+  if (Date.now() - Math.floor(Number(entry.at)) > ROLLBACK_WINDOW_MS) return { ok: false, error: "expired" };
+  if (await stopIfStale()) return { ok: false, error: "stale-reload" };
+  if (!(await requireSignedIn())) return { ok: false, error: authDenyReason() };
+  if ((!socket || status !== "online") && !(await ensureOnline())) return { ok: false, error: "offline" };
+  try {
+    /* Peek first: words stage as draft edits, files hand back their trash
+       pointers. "immediate" means an admin record (sub-admin, invite) that
+       no draft can hold — the direct call below applies it at once. */
+    const peeked = JSON.parse(await socket.rpc.rollback(JSON.stringify({ id: entry.rb, by: editorName(), peek: true })));
+    if (peeked?.ok && peeked.sections && typeof peeked.sections === "object") {
+      const staged = stageWordsIntoDraft(peeked.sections);
+      if (!staged.length) return { ok: false, error: "empty" };
+      return { ok: true, staged: true };
+    }
+    if (peeked?.ok && peeked.files && Array.isArray(peeked.files) && peeked.files.length) {
+      return restoreTrashedFiles(peeked.files);
+    }
+    if (peeked && !peeked.ok && peeked.err !== "immediate") {
+      if (peeked.err === "unauthorized") clearSession();
+      else if (peeked.err === "idle-expired") clearSession("idle");
+      return { ok: false, error: peeked.err || "failed" };
+    }
+    const res = JSON.parse(await socket.rpc.rollback(JSON.stringify({ id: entry.rb, by: editorName() })));
+    if (!res?.ok) {
+      if (res?.err === "unauthorized") clearSession();
+      else if (res?.err === "idle-expired") clearSession("idle");
+      return { ok: false, error: res?.err || "failed" };
+    }
+    if (res.files && Array.isArray(res.files) && res.files.length) {
+      return restoreTrashedFiles(res.files);
+    }
+    /* Admin records: the server already applied and logged them. */
+    rev = typeof res.rev === "number" ? res.rev : rev;
+    await syncFromServer().catch(() => {});
+    try {
+      healMissingUploads().catch(() => {});
+    } catch {}
+    return { ok: true, restored: typeof res.restored === "string" ? res.restored : "sections" };
+  } catch (err: any) {
+    return { ok: false, error: err?.message || "error" };
+  }
 }
 
 /** Drop every stored override, so the site shows exactly the shipped content. */

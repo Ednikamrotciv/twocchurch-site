@@ -222,6 +222,31 @@ export async function createCmsHost(rootDir, opts) {
 
   const selfObj = {};
   const sandbox = { state, pubsub, self: selfObj, console };
+  /* Shared draft across admins (one admin's unsaved work is every admin's):
+     staged sections persist beside the store, never inside it — drafts must
+     never ride publishes, backups or deploys. Best-effort file, memory-first. */
+  let draftShareTimer = null;
+  let draftShareQueued = "";
+  selfObj.__persistDraftShare = (json) => {
+    try {
+      const s = String(json || "");
+      if (!s || s.length > 3 * 1024 * 1024) return;
+      draftShareQueued = s;
+      if (draftShareTimer) return;
+      draftShareTimer = setTimeout(async () => {
+        draftShareTimer = null;
+        const out = draftShareQueued;
+        draftShareQueued = "";
+        try {
+          await writeFile(path.join(dataDir, ".draft-share.json"), out);
+        } catch { /* best-effort — memory still shares */ }
+      }, 400);
+    } catch { /* never breaks a stage */ }
+  };
+  try {
+    const rawShareSeed = await readFile(path.join(dataDir, ".draft-share.json"), "utf8");
+    if (rawShareSeed && rawShareSeed.length < 3 * 1024 * 1024) selfObj.__draftShareSeed = rawShareSeed;
+  } catch { /* first stage creates it */ }
   vm.createContext(sandbox);
   // Admin-hash override from a protected environment variable (Render dashboard
   // > Environment, never committed): when set to a 64-hex SHA-256, it becomes
@@ -326,14 +351,22 @@ export async function createCmsHost(rootDir, opts) {
       emitRpc(res.status, res.body);
       return res;
     }
-    saveSoon();
+    /* Shared-draft staging never touches `state` (separate best-effort file
+       above) — saving here would rewrite the store and re-fingerprint on
+       every keystroke-batched stage. */
+    if (method !== "stageDraft" && method !== "getSharedDraft") saveSoon();
     /* A publish moves the words — the recents follow the channel on the same
        cycle (note 346): without this the new channel's services took up to
        the 20-minute loop plus a deploy to appear. Only real publishes
        (never reads) schedule it, debounced well past the auto-push delay so
-       words and recents ride one commit. */
+       words and recents ride one commit. Peek calls (`peek:true`: staged
+       rollback/undo reads) move nothing and schedule nothing. */
+    var isPeekCall = false;
     try {
-      if (method === "publish" || method === "adoptLive" || method === "undoPublish") noteRecentsDirty(rootDir);
+      isPeekCall = !!JSON.parse(String(raw || "")).peek;
+    } catch (e) {}
+    try {
+      if ((method === "publish" || method === "adoptLive" || method === "undoPublish" || method === "rollback") && !isPeekCall) noteRecentsDirty(rootDir);
     } catch {
       /* the publish itself already landed */
     }
@@ -342,7 +375,7 @@ export async function createCmsHost(rootDir, opts) {
        and late returns — on their next mirror read. The batching minute
        above still covers saves. */
     try {
-      if (method === "publish" || method === "adoptLive" || method === "undoPublish") notePublishFast(rootDir);
+      if ((method === "publish" || method === "adoptLive" || method === "undoPublish" || method === "rollback") && !isPeekCall) notePublishFast(rootDir);
     } catch {
       /* the publish itself already landed */
     }

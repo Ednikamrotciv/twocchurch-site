@@ -1,5 +1,5 @@
 import http from "node:http";
-import { readFile, stat, mkdir, writeFile, rm } from "node:fs/promises";
+import { readFile, stat, mkdir, writeFile, rm, rename, readdir, copyFile } from "node:fs/promises";
 import { gzipSync } from "node:zlib";
 import path from "node:path";
 import { createCmsHost, hashText } from "./cms-local.mjs";
@@ -18,6 +18,53 @@ const ROOT = process.cwd();
 const PORT = Number(process.env.PORT || 5173);
 const DIST = path.join(ROOT, "dist");
 const SHIM_TAG = '<script src="/scripts/local-shim.js"></script>';
+
+/* Trashed uploads (72h rollback): /__delete-file moves bytes here instead of
+   unlinking, so the History panel can put any deletion back within 72 hours.
+   Never committed (see .gitignore), never baked or mirrored — bytes ride git
+   only while referenced. Pruned by age (72h) and total size (200MB, oldest
+   first). Best-effort everywhere: pruning never breaks serving. */
+const TRASH_DIR = path.join(ROOT, "data", ".trash");
+const TRASH_MS = 72 * 3600 * 1000;
+const TRASH_MAX_BYTES = 200 * 1024 * 1024;
+async function pruneTrash() {
+  try {
+    const files = await readdir(TRASH_DIR).catch(() => []);
+    const now = Date.now();
+    let items = [];
+    let total = 0;
+    for (const f of files) {
+      if (f.includes("..") || f.includes("/") || f.includes("\\")) continue;
+      const m = /^([0-9]{10,25})-([A-Za-z0-9][A-Za-z0-9._-]{0,99})$/.exec(f);
+      if (!m) continue;
+      let size = 0;
+      try {
+        const st = await stat(path.join(TRASH_DIR, f));
+        if (!st.isFile()) continue;
+        size = st.size;
+      } catch {
+        continue;
+      }
+      items.push({ f, ts: Number(m[1]), size });
+      total += size;
+    }
+    items.sort((a, b) => a.ts - b.ts);
+    for (const it of items) {
+      if (!(now - it.ts > TRASH_MS) && total <= TRASH_MAX_BYTES) break;
+      try {
+        await rm(path.join(TRASH_DIR, it.f), { force: true });
+        total -= it.size;
+      } catch {}
+    }
+  } catch {
+    /* pruning never breaks serving */
+  }
+}
+try {
+  pruneTrash();
+} catch {
+  /* a missing trash dir on first boot is normal */
+}
 
 /* Served pages are the production build (`npm run build`). The shim connects
    the local browser to this backend (sign-in, publish, uploads) — deployed
@@ -766,8 +813,10 @@ const server = http.createServer(async (req, res) => {
       return;
     }
 
-    /* Delete an upload for good: it leaves data/uploads/ and stops riding in
-       backups afterwards. Same naming guard as the other file endpoints. */
+    /* Delete an upload into the trash (72h rollback): it leaves
+       data/uploads/ for data/.trash/ and stops riding in backups afterwards.
+       The History panel puts it back within 72h. Same naming guard as the
+       other file endpoints. */
     if (pathname === "/__delete-file" && req.method === "POST") {
       /* HIGH fix: deletes take a signed-in admin connection — see isAdminConn. */
       if (!(await isAdminConn(String(url.searchParams.get("conn") || "")))) {
@@ -793,12 +842,66 @@ const server = http.createServer(async (req, res) => {
           res.end("not found");
           return;
         }
-        await rm(target, { force: true });
+        await mkdir(TRASH_DIR, { recursive: true });
+        const trash = Date.now().toString() + "-" + asked;
+        try {
+          await rename(target, path.join(TRASH_DIR, trash));
+        } catch {
+          res.writeHead(500, { "cache-control": "no-store" });
+          res.end("delete failed");
+          return;
+        }
+        try {
+          pruneTrash();
+        } catch {}
         res.writeHead(200, { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" });
-        res.end(JSON.stringify({ deleted: true }));
+        res.end(JSON.stringify({ deleted: true, trash }));
       } catch {
         res.writeHead(500, { "cache-control": "no-store" });
         res.end("delete failed");
+      }
+      return;
+    }
+
+    /* Restore a trashed upload (72h rollback): copies data/.trash/<trash>
+       back to data/uploads/<name>. Same admin + naming guards as delete; the
+       trash entry stays until it expires, so a file can come back twice. */
+    if (pathname === "/__restore-trash" && req.method === "POST") {
+      if (!(await isAdminConn(String(url.searchParams.get("conn") || "")))) {
+        try {
+          anomaly.observeFileDeny({ connId, ip: client, route: pathname });
+        } catch {}
+        secLog.log({ level: "low", kind: "file-deny", ip: client, route: pathname, detail: "anonymous /__restore-trash attempt denied (403) — likely an expired tab", hint: "restores need a signed-in admin; sustained hits escalate automatically.", category: "upload", status: 403, reqId: rid, source: "local" });
+        res.writeHead(403, { "cache-control": "no-store" });
+        res.end("denied");
+        return;
+      }
+      const trash = String(url.searchParams.get("trash") || "");
+      const asked = String(url.searchParams.get("name") || "");
+      if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,99}$/.test(asked) || asked.includes("..")) {
+        res.writeHead(400, { "cache-control": "no-store" });
+        res.end("bad name");
+        return;
+      }
+      if (!/^[0-9]{10,25}-[A-Za-z0-9][A-Za-z0-9._-]{0,99}$/.test(trash) || trash.includes("..") || trash.slice(trash.indexOf("-") + 1) !== asked) {
+        res.writeHead(400, { "cache-control": "no-store" });
+        res.end("bad name");
+        return;
+      }
+      try {
+        const st = await stat(path.join(TRASH_DIR, trash)).catch(() => null);
+        if (!st || !st.isFile()) {
+          res.writeHead(404, { "cache-control": "no-store" });
+          res.end("trash gone");
+          return;
+        }
+        await mkdir(path.join(ROOT, "data", "uploads"), { recursive: true });
+        await copyFile(path.join(TRASH_DIR, trash), path.join(ROOT, "data", "uploads", asked));
+        res.writeHead(200, { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" });
+        res.end(JSON.stringify({ restored: true }));
+      } catch {
+        res.writeHead(500, { "cache-control": "no-store" });
+        res.end("restore failed");
       }
       return;
     }
