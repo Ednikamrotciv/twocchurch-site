@@ -713,8 +713,31 @@ const server = http.createServer(async (req, res) => {
           }
           const dir = path.join(ROOT, "data", "uploads");
           await mkdir(dir, { recursive: true });
+          const upBuf = Buffer.concat(chunks);
+          /* Fresh-upload image guard (blank-upload fix): refuse html pages
+             and corrupt images at upload time too, so a broken upload never
+             lands to be healed later. */
+          try {
+            const head = upBuf.slice(0, 2048).toString("latin1").toLowerCase();
+            if (head.includes("<!doctype") || head.includes("<html") || head.includes("<head") || head.includes("<meta") || head.includes("<script") || head.includes("wom-deploy") || head.includes("__wom") || head.trimStart().startsWith("<")) {
+              res.writeHead(400, { "cache-control": "no-store" });
+              res.end("bad filetype");
+              return;
+            }
+            const ext = String(safe).split(".").pop().toLowerCase();
+            const b = upBuf;
+            if (ext === "jpg" || ext === "jpeg") {
+              if (!(b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff)) { res.writeHead(400, { "cache-control": "no-store" }); res.end("bad filetype"); return; }
+            } else if (ext === "png") {
+              if (!(b[0] === 0x89 && b[1] === 0x50 && b[2] === 0x4e && b[3] === 0x47)) { res.writeHead(400, { "cache-control": "no-store" }); res.end("bad filetype"); return; }
+            } else if (ext === "gif") {
+              if (!(b[0] === 0x47 && b[1] === 0x49 && b[2] === 0x46 && b[3] === 0x38)) { res.writeHead(400, { "cache-control": "no-store" }); res.end("bad filetype"); return; }
+            } else if (ext === "webp") {
+              if (!(b.length >= 12 && b[0] === 0x52 && b[1] === 0x49 && b[2] === 0x46 && b[3] === 0x46 && b[8] === 0x57 && b[9] === 0x45 && b[10] === 0x42 && b[11] === 0x50)) { res.writeHead(400, { "cache-control": "no-store" }); res.end("bad filetype"); return; }
+            }
+          } catch {}
           const fname = Date.now().toString(36) + "-" + safe;
-          await writeFile(path.join(dir, fname), Buffer.concat(chunks));
+          await writeFile(path.join(dir, fname), upBuf);
           const body = JSON.stringify({ url: "/data/uploads/" + fname });
           res.writeHead(200, { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" });
           res.end(body);
@@ -787,14 +810,35 @@ const server = http.createServer(async (req, res) => {
           const dir = path.join(ROOT, "data", "uploads");
           await mkdir(dir, { recursive: true });
           const bodyBuf = Buffer.concat(chunks);
-          /* Blank-page guard (note 440): never let the HTML fallback page land
-             as a photo — a poisoned backup entry used to blank good files. */
+          /* Blank-page guard (note 440 + restore auto-repair, image fix):
+             never let the HTML fallback page — or a truncated/corrupt image
+             with the wrong magic — land as a photo. A poisoned backup entry
+             used to blank good files; the client silently retries the next
+             source instead of writing bad bytes. */
           try {
             const head = bodyBuf.slice(0, 2048).toString("latin1").toLowerCase();
-            if (head.includes("<!doctype") || head.includes("<html") || head.includes("<head") || head.includes("<meta") || head.includes("<script") || head.includes("wom-deploy") || head.trimStart().startsWith("<")) {
+            if (head.includes("<!doctype") || head.includes("<html") || head.includes("<head") || head.includes("<meta") || head.includes("<script") || head.includes("wom-deploy") || head.includes("wom-notes") || head.includes("__wom") || head.trimStart().startsWith("<")) {
               res.writeHead(400, { "cache-control": "no-store" });
               res.end("bad filetype");
               return;
+            }
+          } catch {}
+          try {
+            const ext = String(asked).split(".").pop().toLowerCase();
+            const b = bodyBuf;
+            if (ext === "jpg" || ext === "jpeg") {
+              if (!(b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff)) { res.writeHead(400, { "cache-control": "no-store" }); res.end("bad filetype"); return; }
+            } else if (ext === "png") {
+              if (!(b[0] === 0x89 && b[1] === 0x50 && b[2] === 0x4e && b[3] === 0x47)) { res.writeHead(400, { "cache-control": "no-store" }); res.end("bad filetype"); return; }
+            } else if (ext === "gif") {
+              if (!(b[0] === 0x47 && b[1] === 0x49 && b[2] === 0x46 && b[3] === 0x38)) { res.writeHead(400, { "cache-control": "no-store" }); res.end("bad filetype"); return; }
+            } else if (ext === "webp") {
+              if (!(b.length >= 12 && b[0] === 0x52 && b[1] === 0x49 && b[2] === 0x46 && b[3] === 0x46 && b[8] === 0x57 && b[9] === 0x45 && b[10] === 0x42 && b[11] === 0x50)) { res.writeHead(400, { "cache-control": "no-store" }); res.end("bad filetype"); return; }
+            } else if (ext === "avif") {
+              if (b.length < 12) { res.writeHead(400, { "cache-control": "no-store" }); res.end("bad filetype"); return; }
+              const box = String.fromCharCode(b[4], b[5], b[6], b[7]);
+              const brand = String.fromCharCode(b[8], b[9], b[10], b[11]).toLowerCase();
+              if (!(box === "ftyp" && (brand.includes("avif") || brand.includes("heic") || brand.includes("mif1") || brand.includes("msf1")))) { res.writeHead(400, { "cache-control": "no-store" }); res.end("bad filetype"); return; }
             }
           } catch {}
           await writeFile(path.join(dir, asked), bodyBuf);
@@ -1036,12 +1080,16 @@ const server = http.createServer(async (req, res) => {
       return;
     }
     /* Uploads are office files, not app code: sandbox them so even a stored
-       document type can never run script on this origin. */
+       document type can never run script on this origin. They are public
+       media, so they also answer cross-origin reads: the site's own pictures
+       load with crossOrigin="anonymous" (palette sampling, slide framing, 3D
+       faces), and an absolute office address answering without CORS headers
+       fails those loads with a blank/black face. */
     /* Hashed Vite assets (/assets/index-[hash].js/css, fonts, images) are
        content-addressed: a new build mints new names, so cache them hard. */
     const isHashedAsset = rel.startsWith("assets/") && /-[A-Za-z0-9_-]{6,}\.[A-Za-z0-9]+$/.test(rel);
     const uploadExtra = rel.startsWith("data/uploads/")
-      ? { "content-security-policy": "sandbox" }
+      ? { "content-security-policy": "sandbox", "access-control-allow-origin": "*" }
       : isHashedAsset
       ? { "cache-control": "public, max-age=31536000, immutable" }
       : undefined;

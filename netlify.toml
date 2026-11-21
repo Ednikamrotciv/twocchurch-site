@@ -17,6 +17,10 @@
   for = "/seed.json"
   [headers.values]
     Cache-Control = "no-store, must-revalidate"
+[[headers]]
+  for = "/data/uploads/*"
+  [headers.values]
+    Access-Control-Allow-Origin = "*"
 [[redirects]]
   from = "/*"
   to = "/index.html"

@@ -7,6 +7,7 @@ import { photoOr } from "../data/photos";
 import { Badge, Btn, Card, Chip, Empty, Icon, Notice, Reveal, Rich, Section, SectionHeading } from "../components/ui";
 import { ct } from "../data/copy";
 import { PageHead } from "../components/layout";
+import { PhotoImg } from "../components/photoimg";
 import { Countdown, EventCard, eventDate, daysUntil, NewsletterForm } from "../components/blocks";
 import { fmtDate, addToCalendar, mailto, moneyText, tidyCount, to12h, zonedParts, DAY_SHORT, clockAt } from "../lib/store";
 import { useNow } from "../lib/hooks";
@@ -54,7 +55,7 @@ export function Events() {
         <Section className="event-feature">
           <div className="event-feature__grid">
             <div className="event-feature__media">
-              <img src={photoOr(featured.image, "welcome")} alt="" />
+              <PhotoImg src={photoOr(featured.image, "welcome")} fallback={photoOr("", "welcome")} alt="" />
               <span className="event-feature__tag">
                 <Badge accent="crimson" icon="star">{ct("auto.events.46ce311349431e52")}</Badge>
               </span>

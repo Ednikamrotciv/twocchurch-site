@@ -47,9 +47,12 @@ import { SITE } from "./data/site";
 import { BRANCHES, HQ } from "./data/branches";
 import { EVENTS } from "./data/content";
 
-const SafeErrorBoundary =
-  ErrorBoundary as unknown as React.ComponentType<React.PropsWithChildren>;
-const AdminErrorBoundary = SafeErrorBoundary;
+// The boundary is implemented in the app's own error style, but older declarations
+// can describe componentDidCatch too narrowly for the JSX type checker.
+const SafeErrorBoundary = ErrorBoundary as unknown as React.ComponentType<{
+  children?: React.ReactNode;
+}>;
+
 const Admin = React.lazy(
   lazyPage("Admin", () =>
     import("./pages/Admin").then((m) => ({ default: m.Admin })),
@@ -231,11 +234,11 @@ export function App() {
         {/* Never a loader page: nothing flashes while the admin chunk arrives —
             the site shell stays on screen, and a crash inside it lands on the
             error card — not a white page. */}
-        <AdminErrorBoundary>
+        <SafeErrorBoundary>
           <React.Suspense fallback={null}>
             <Admin />
           </React.Suspense>
-        </AdminErrorBoundary>
+        </SafeErrorBoundary>
         <LangAsk />
       </>
     );

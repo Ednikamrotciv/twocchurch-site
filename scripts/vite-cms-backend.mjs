@@ -466,7 +466,10 @@ export function cmsBackend() {
           }
 
           /* Uploads the office saved on their own disk (see /__upload below) —
-             plain files Vite would otherwise 404. */
+             plain files Vite would otherwise 404. Public media like the
+             production host serves them: cross-origin reads allowed so an
+             absolute office address paints in canvas-backed banners instead
+             of failing blank. */
           if (pathname.startsWith("/data/uploads/") && req.method === "GET") {
             const file = path.normalize(path.join(ROOT, pathname.replace(/^\/+/, "")));
             if (!file.startsWith(ROOT)) {
@@ -483,6 +486,7 @@ export function cmsBackend() {
               "cache-control": "no-cache",
               "x-content-type-options": "nosniff",
               "content-security-policy": "sandbox",
+              "access-control-allow-origin": "*",
             });
             res.end(body);
             return;
@@ -733,14 +737,33 @@ export function cmsBackend() {
                 const dir = path.join(ROOT, "data", "uploads");
                 await mkdir(dir, { recursive: true });
                 const bodyBuf = Buffer.concat(chunks);
-                /* Blank-page guard (note 440): never let the HTML fallback page land
-                   as a photo — a poisoned backup entry used to blank good files. */
+                /* Blank-page guard (note 440 + restore auto-repair, image fix):
+                   never let the HTML fallback page — or a truncated/corrupt
+                   image with the wrong magic — land as a photo. */
                 try {
                   const head = bodyBuf.slice(0, 2048).toString("latin1").toLowerCase();
-                  if (head.includes("<!doctype") || head.includes("<html") || head.includes("<head") || head.includes("<meta") || head.includes("<script") || head.includes("wom-deploy") || head.trimStart().startsWith("<")) {
+                  if (head.includes("<!doctype") || head.includes("<html") || head.includes("<head") || head.includes("<meta") || head.includes("<script") || head.includes("wom-deploy") || head.includes("wom-notes") || head.includes("__wom") || head.trimStart().startsWith("<")) {
                     res.writeHead(400, { "cache-control": "no-store" });
                     res.end("bad filetype");
                     return;
+                  }
+                } catch {}
+                try {
+                  const ext = String(asked).split(".").pop().toLowerCase();
+                  const b = bodyBuf;
+                  if (ext === "jpg" || ext === "jpeg") {
+                    if (!(b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff)) { res.writeHead(400, { "cache-control": "no-store" }); res.end("bad filetype"); return; }
+                  } else if (ext === "png") {
+                    if (!(b[0] === 0x89 && b[1] === 0x50 && b[2] === 0x4e && b[3] === 0x47)) { res.writeHead(400, { "cache-control": "no-store" }); res.end("bad filetype"); return; }
+                  } else if (ext === "gif") {
+                    if (!(b[0] === 0x47 && b[1] === 0x49 && b[2] === 0x46 && b[3] === 0x38)) { res.writeHead(400, { "cache-control": "no-store" }); res.end("bad filetype"); return; }
+                  } else if (ext === "webp") {
+                    if (!(b.length >= 12 && b[0] === 0x52 && b[1] === 0x49 && b[2] === 0x46 && b[3] === 0x46 && b[8] === 0x57 && b[9] === 0x45 && b[10] === 0x42 && b[11] === 0x50)) { res.writeHead(400, { "cache-control": "no-store" }); res.end("bad filetype"); return; }
+                  } else if (ext === "avif") {
+                    if (b.length < 12) { res.writeHead(400, { "cache-control": "no-store" }); res.end("bad filetype"); return; }
+                    const box = String.fromCharCode(b[4], b[5], b[6], b[7]);
+                    const brand = String.fromCharCode(b[8], b[9], b[10], b[11]).toLowerCase();
+                    if (!(box === "ftyp" && (brand.includes("avif") || brand.includes("heic") || brand.includes("mif1") || brand.includes("msf1")))) { res.writeHead(400, { "cache-control": "no-store" }); res.end("bad filetype"); return; }
                   }
                 } catch {}
                 await writeFile(path.join(dir, asked), bodyBuf);

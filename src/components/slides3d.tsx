@@ -11,6 +11,7 @@ import { Sparkles } from "@react-three/drei/core/Sparkles";
 import { SLIDE_FRAME } from "../lib/slideFrame";
 import { isSlideVideoUrl } from "../data/slides";
 import { LOGO_MARK } from "../data/site";
+import { feedUrlsForUpload, getCachedDataUrlSync, localUploadFallback, sessionPreviewForUrl } from "../lib/uploadCache";
 import { siteFile } from "../lib/livefeed";
 import type { AnnouncementSlide as SlideT } from "../data/slides";
 
@@ -435,9 +436,29 @@ function useFaceTextures(
        the resting paint below reads the still off it, and the live loop after
        the swap keeps the picture moving under the same words. */
     const filmEls: { slot: FaceSlot; video: HTMLVideoElement }[] = [];
-    const load = (slot: FaceSlot): Promise<HTMLImageElement | HTMLVideoElement | null> =>
+    /* Every copy that could hold the file, same-tab bytes first: a fresh
+       upload paints instantly, an absolute address moved between hosts still
+       resolves off this copy's disk, and the repo mirrors cover a wiped
+       disk. First paintable wins; genuinely gone resolves null (logo for a
+       picture, play mark for a film), never a black face. */
+    const orderedCopies = async (url: string): Promise<string[]> => {
+      const list: string[] = [];
+      const push = (u: string) => {
+        const s = String(u || "");
+        if (s && !list.includes(s)) list.push(s);
+      };
+      push(sessionPreviewForUrl(url));
+      push(getCachedDataUrlSync(url));
+      push(url);
+      push(localUploadFallback(url));
+      try {
+        for (const f of await feedUrlsForUpload(url)) push(f);
+      } catch {}
+      return list;
+    };
+    const loadOne = (slot: FaceSlot, url: string): Promise<HTMLImageElement | HTMLVideoElement | null> =>
       new Promise((resolve) => {
-        if (!slot.url) {
+        if (!url) {
           resolve(null);
           return;
         }
@@ -468,7 +489,7 @@ function useFaceTextures(
               window.clearTimeout(timer);
               resolve(null);
             }
-          }, 8000);
+          }, 5000);
           const finish = (el: HTMLVideoElement | null) => {
             if (done) return;
             done = true;
@@ -505,7 +526,7 @@ function useFaceTextures(
           };
           video.onseeked = () => finish(video.readyState >= 2 ? video : null);
           try {
-            video.src = slot.url;
+            video.src = url;
           } catch {
             finish(null);
           }
@@ -515,8 +536,22 @@ function useFaceTextures(
         img.crossOrigin = "anonymous";
         img.onload = () => resolve(img);
         img.onerror = () => resolve(null);
-        img.src = slot.url;
+        img.src = url;
       });
+    const load = async (slot: FaceSlot): Promise<HTMLImageElement | HTMLVideoElement | null> => {
+      if (!slot.url) return null;
+      /* The kind never changes across copies (a film stays a film whatever
+         copy holds it), so the stored address decides the loader while each
+         copy in turn gets its chance to paint. */
+      const copies = await orderedCopies(slot.url);
+      for (const u of copies) {
+        try {
+          const got = await loadOne(slot, u);
+          if (got) return got;
+        } catch {}
+      }
+      return null;
+    };
     (async () => {
       const photos = await Promise.all(slots.map(load));
       if (!alive) return;
