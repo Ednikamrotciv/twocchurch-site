@@ -52,8 +52,8 @@ const Admin = React.lazy(
     import("./pages/Admin").then((m) => ({ default: m.Admin })),
   ),
 );
-const AppErrorBoundary = ErrorBoundary as unknown as React.ComponentType<
-  React.PropsWithChildren<object>
+const CompatibleErrorBoundary = ErrorBoundary as unknown as React.ComponentType<
+  React.PropsWithChildren<{}>
 >;
 
 /* Explicit local preview only (?maintenance=1): the office's way to see the
@@ -231,11 +231,11 @@ export function App() {
         {/* Never a loader page: nothing flashes while the admin chunk arrives —
             the site shell stays on screen, and a crash inside it lands on the
             error card — not a white page. */}
-        <AppErrorBoundary>
+        <CompatibleErrorBoundary>
           <React.Suspense fallback={null}>
             <Admin />
           </React.Suspense>
-        </AppErrorBoundary>
+        </CompatibleErrorBoundary>
         <LangAsk />
       </>
     );
@@ -369,9 +369,9 @@ function SiteApp() {
       {previewing && <PreviewBanner />}
       <Header />
       <main id="main" key={to}>
-        <AppErrorBoundary>
+        <CompatibleErrorBoundary>
           <React.Suspense fallback={null}>{page}</React.Suspense>
-        </AppErrorBoundary>
+        </CompatibleErrorBoundary>
       </main>
       <Footer />
       <ScrollTop />
