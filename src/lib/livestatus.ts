@@ -141,6 +141,40 @@ function decodeEntities(value: string): string {
     .replace(/&gt;/g, ">");
 }
 
+/** The live video inlined in a channel/watch page (note 322 fix): the id
+    nearest an `"isLiveNow":true` marker, not the first id in the page. The
+    old first-match read the archive's id when an old upload preceded the live
+    object and named the wrong broadcast; the fixed 800-char window missed it
+    when the id sat before the marker or farther away. Only true markers count
+    — past archives carry false and never match. Sibling-aware: the live id
+    sits within a few thousand chars of its marker. */
+function liveInlineVideoId(text: string): string {
+  const t = String(text || "");
+  const exts: Array<{ id: string; idx: number }> = [];
+  try {
+    const er = /"externalVideoId":"([\w-]{11})"/g;
+    let e: RegExpExecArray | null;
+    while ((e = er.exec(t))) exts.push({ id: e[1], idx: e.index });
+  } catch {}
+  if (!exts.length) return "";
+  let best = "";
+  let bestDist = Infinity;
+  try {
+    const marker = /"isLiveNow":\s*true/g;
+    let m: RegExpExecArray | null;
+    while ((m = marker.exec(t))) {
+      for (const x of exts) {
+        const d = Math.abs(x.idx - m.index);
+        if (d < bestDist && d <= 6000) {
+          bestDist = d;
+          best = x.id;
+        }
+      }
+    }
+  } catch {}
+  return best;
+}
+
 /** Read a YouTube page; unreadable pages return "no answer", never "off". */
 export function parseLivePage(html: string, pageUrl = ""): { read: boolean; live: boolean; videoId: string; title: string } {
   const text = String(html || "");
@@ -178,11 +212,9 @@ export function parseLivePage(html: string, pageUrl = ""): { read: boolean; live
      false and never match. Order-independent: YouTube serves the id before or
      after the marker, so a fixed 800-char window missed it and the main
      channel read unknown. */
-  const liveMarked = /"liveBroadcastDetails":\{"isLiveNow":true/.test(text);
-  const liveExternal =
-    (liveMarked && (/"externalVideoId":"([\w-]{11})"/.exec(text)?.[1] || "")) ||
-    /"liveBroadcastDetails":\{"isLiveNow":true[^\}]*\}[\s\S]{0,800}?"externalVideoId":"([\w-]{11})"/.exec(text)?.[1] ||
-    "";
+  const liveMarked = /"liveBroadcastDetails":\{[^}]*?"isLiveNow":\s*true/.test(text);
+  void liveMarked;
+  const liveExternal = liveInlineVideoId(text);
   /* No bare first-`videoId` fallback (note 324): a channel page is a grab-bag
      of ads, autoplay and related videos, so the first id in it is whoever
      YouTube put first this fetch — it once steered the player to an unrelated
@@ -215,11 +247,9 @@ export function channelLiveVideoId(html: string): string {
      vouch the designated main channel needs for walled watch pages. Past
      archives carry isLiveNow false and never match. Order-independent: the id
      may sit before or after the marker in the page. */
-  const liveMarkedTab = /"liveBroadcastDetails":\{"isLiveNow":true/.test(text);
-  const liveExt =
-    (liveMarkedTab && (/"externalVideoId":"([\w-]{11})"/.exec(text)?.[1] || "")) ||
-    /"liveBroadcastDetails":\{"isLiveNow":true[^\}]*\}[\s\S]{0,800}?"externalVideoId":"([\w-]{11})"/.exec(text)?.[1] ||
-    "";
+  const liveMarkedTab = /"liveBroadcastDetails":\{[^}]*?"isLiveNow":\s*true/.test(text);
+  void liveMarkedTab;
+  const liveExt = liveInlineVideoId(text);
   if (liveExt) return liveExt;
   const tab = text.indexOf('"title":"Live","selected":true');
   if (tab >= 0) {
@@ -300,11 +330,12 @@ export function ownerAllowsCandidate(ownerChannelId: string, candidateChannelId:
   return true;
 }
 
-/** The designated channel's own id, answered with no page read (note 358):
-    @twocorg is UCQ0KIUXUV7gTZmDDlvd3ZcQ (SPEC note 112 — the same answer the
-    bake uses), so the livestream gate knows whose video counts even through
-    the wall. Any other address names nothing, and every gate below behaves
-    exactly like before for it. */
+/** The designated channel's own id, answered with no page read (fallback
+    resolver only now, not the gate): @twocorg is UCQ0KIUXUV7gTZmDDlvd3ZcQ
+    (SPEC note 112 — the same answer the bake uses). The livestream gate below
+    is field-driven (whatever channel the office typed, main or guest field),
+    and only consults this map when the address itself names the handle. Any
+    other address resolves from its own page/URL instead. */
 export const DESIGNATED_CHANNEL_IDS: Record<string, string> = {
   "@twocorg": "UCQ0KIUXUV7gTZmDDlvd3ZcQ",
 };
@@ -326,29 +357,31 @@ export function designatedChannelIdForTarget(targetUrl: string): string {
   if (at) return DESIGNATED_CHANNEL_IDS[("@" + at[1]).toLowerCase()] || "";
   return "";
 }
-/** True while this channel may stand for the designated broadcast (note 358),
-    pure for the verifier: a named channel that is not the designated one is
-    somebody else's video and never plays; an unnamed one passes through (the
-    candidate and report gates below judge those — a thin read must still be
-    able to end silence). */
-export function isDesignatedChannel(channelId: string, designatedId: string): boolean {
+/** True while this channel may stand for the checked broadcast, pure for the
+    verifier: a named channel that is not the field's own is somebody else's
+    video and never plays; an unnamed one passes through (the candidate and
+    report gates below judge those — a thin read must still be able to end
+    silence). Field-driven: callers pass the checked address's own channel
+    (UC from its URL, baked answer, or page owner) — main and guest alike. */
+export function isDesignatedChannel(channelId: string, allowedId: string): boolean {
   const c = String(channelId || "");
-  const d = String(designatedId || "");
+  const d = String(allowedId || "");
   if (!d || !c) return true;
   return c === d;
 }
-/** True while a suggestion may stand for the designated broadcast (note 358),
-    pure for the verifier: the page that names the suggestions is a grab-bag,
-    so a suggestion from another channel is skipped like an off answer — and
-    with the designation known, an ownerless grab-bag mention plays only when
+/** True while a suggestion may stand for the checked broadcast, pure for the
+    verifier: the page that names the suggestions is a grab-bag, so a
+    suggestion from another channel is skipped like an off answer — and with
+    the field's channel known, an ownerless grab-bag mention plays only when
     the channel's own Live tab points at it. The Live tab names the channel's
-    own video, so it vouches where a walled watch page cannot. */
+    own video, so it vouches where a walled watch page cannot. Field-driven:
+    callers pass the checked address's own channel — main and guest alike. */
 export function candidateStandsForDesignated(
   candidateChannelId: string,
-  designatedId: string,
+  allowedId: string,
   fromLiveTab = false
 ): boolean {
-  const d = String(designatedId || "");
+  const d = String(allowedId || "");
   if (!d) return true;
   const c = String(candidateChannelId || "");
   if (c) return c === d;
@@ -374,13 +407,14 @@ export function inheritEnded(
   before: LiveStatus,
   targetUrl: string,
   checkedAt: number,
-  designatedId = ""
+  allowedId = ""
 ): { endedAt: number; videoId: string; title: string; channelId: string; platform: LivePlatform | "" } {
   if ((before.state === "live" || before.endedAt > 0) && isStatusForTarget(before, targetUrl)) {
-    /* A kept video from another channel is dropped too (note 358): the new
-       handle never inherits somebody else's service on its ended screen.
-       Older callers pass nothing and behave exactly like before. */
-    const d = String(designatedId || "");
+    /* A kept video from another channel is dropped too: the new handle never
+       inherits somebody else's service on its ended screen — the kept channel
+       must be the checked address's own (UC/baked answer passed by the
+       caller). Older callers pass nothing and behave exactly like before. */
+    const d = String(allowedId || "");
     const keptId = String(before.channelId || "");
     if (d && keptId && keptId !== d) return { endedAt: 0, videoId: "", title: "", channelId: "", platform: "" };
     return {
@@ -405,22 +439,28 @@ export function inheritEnded(
     once and the screen falls back to the main channel's last ended thumbnail.
     The latch lifts on a new live edge on another reading (a fresh start —
     guest or main — still opens by itself, with sound), never on quiet. */
-export type ScreenShut = { playing: string } | null;
-export function nextScreenShut(prevShut: ScreenShut, wasLiveTarget: string, guestUrl: string, isLive: boolean, nowLiveTarget: string, isOff = false): ScreenShut {
+export type ScreenShut = { playing: string; video?: string } | null;
+export function nextScreenShut(prevShut: ScreenShut, wasLiveTarget: string, guestUrl: string, isLive: boolean, nowLiveTarget: string, isOff = false, wasVideo = "", nowVideo = ""): ScreenShut {
   const was = String(wasLiveTarget || "");
   const guest = String(guestUrl || "");
   const now = String(nowLiveTarget || "");
+  const wasV = String(wasVideo || (prevShut && (prevShut as { video?: unknown }).video) || "");
+  const nowV = String(nowVideo || "");
   /* A new live edge while the screen sits shut re-arms first (note 388): a
      livestream that starts still opens by itself — the reading moved since the
-     last answer, so this is a start, not the same broadcast continuing. */
-  if (prevShut && isLive && now && now !== was) return null;
+     last answer, so this is a start, not the same broadcast continuing. The
+     address alone is not enough: back-to-back services on the SAME channel
+     share one target URL, so a new video id on the same address re-arms too —
+     otherwise the second service never opened by itself (main-channel fix:
+     the main stayed shut while a guest, on another address, always lifted). */
+  if (prevShut && isLive && now && (now !== was || (!!nowV && nowV !== wasV))) return null;
   /* The temporary guest was the screen's broadcast and its ending would hand
      a live main channel to the screen: shut instead — the screen closes and
      never plays another channel's livestream by itself. */
-  if (was && guest && was === guest && isLive && now && now !== guest) return { playing: now };
+  if (was && guest && was === guest && isLive && now && now !== guest) return { playing: now, video: nowV || undefined };
   /* Any end (note 388): the screen's broadcast reads off, so the screen
      closes at once onto the main channel's last ended thumbnail. */
-  if (was && isOff) return { playing: was };
+  if (was && isOff) return { playing: was, video: wasV || undefined };
   return prevShut;
 }
 
@@ -455,18 +495,20 @@ export function clearGuestOnStop(live: any): any {
 /** The walled-but-on-air answer (note 331), pure for the verifier: a channel
     page carrying on-air chrome that no suggestion confirmed plays the channel
     when the page names its owner clearly — otherwise it stays `unknown`, never
-    `off`, and never a guessed video. */
+    `off`, and never a guessed video. Field-driven: callers pass the checked
+    address's own channel (a chrome-only page follows it only when the page
+    names that owner); older callers pass nothing and behave exactly like before. */
 export function unverifiedChannelAnswer(
   live: boolean,
   title: string,
   channelId: string,
-  designatedId = ""
+  allowedId = ""
 ): { state: LiveState; videoId: string; title: string; channelId: string } {
-  /* Strict (note 358): a chrome-only page follows the channel only when the
-     page names the designated owner — an unnamed or foreign owner stays
+  /* Field-driven: a chrome-only page follows the channel only when the page
+     names the checked address's own owner — an unnamed or foreign owner stays
      unknown and the screen waits instead of playing a guess. Older callers
      pass nothing and behave exactly like before. */
-  const d = String(designatedId || "");
+  const d = String(allowedId || "");
   if (live && channelId && (!d || channelId === d)) return { state: "live", videoId: "", title, channelId };
   if (live) return { state: "unknown", videoId: "", title: "", channelId: "" };
   return { state: "off", videoId: "", title: "", channelId: "" };
@@ -499,11 +541,14 @@ async function resolveYoutube(
      suggestions is a grab-bag, so a live suggestion from another channel is
      skipped like an off answer — the asking moves on, never the player. */
   const owner = extractChannelId(html, target.url);
-  /* Only the designated channel's videos (note 358): with the designation
-     known, an ownerless grab-bag mention plays only when the channel's own
-     Live tab points at it — the Live tab vouches where a walled watch page
-     cannot. */
-  const designatedId = designatedChannelIdForTarget(target.url);
+  /* Field-driven gate (no hardcoded handle): whatever channel the office typed
+     in the field is whose video counts — the UC in the address, else the baked
+     answer for a known handle, else the page's own owner above. A known-foreign
+     suggestion is skipped; an ownerless grab-bag mention plays only with the
+     Live tab's vouch. This function serves the main and the guest slot alike,
+     so both get the same rule from their own field — the other channel's live
+     never plays instead. */
+  const allowedId = designatedChannelIdForTarget(target.url) || owner;
   const liveTabId = channelLiveVideoId(html);
   /* Asked one by one (best first): three candidates raced at once used to
      fire 9 page reads per check and trip the proxy rate-limit mid-service.
@@ -519,7 +564,7 @@ async function resolveYoutube(
     const watch = parseLivePage(watchHtml, url);
     if (watch.live && (watch.videoId || vid)) {
       if (!ownerAllowsCandidate(owner, watchChannelId(watchHtml))) continue;
-      if (!candidateStandsForDesignated(watchChannelId(watchHtml), designatedId, vid === liveTabId)) continue;
+      if (!candidateStandsForDesignated(watchChannelId(watchHtml), allowedId, vid === liveTabId)) continue;
       return { state: "live" as const, videoId: watch.videoId || vid, title: watch.title, channelId: "" };
     }
   }
@@ -530,7 +575,86 @@ async function resolveYoutube(
      repeat note 324, so the answer follows the channel instead, through
      `unverifiedChannelAnswer` above — and a page we merely could not read
      stays `unknown`, never `off`. */
-  return unverifiedChannelAnswer(parsed.live, parsed.title, parsed.live ? extractChannelId(html, target.url) : "", designatedId);
+  return unverifiedChannelAnswer(parsed.live, parsed.title, parsed.live ? extractChannelId(html, target.url) : "", allowedId);
+}
+
+/** The office's typed stream link, verified on air (typed-link fix): with a
+    channel set the typed link was ignored entirely and channel detection won —
+    even when detection named a different broadcast from the one put in. The
+    typed link outranks detection only while its own watch page proves it is
+    live right now; a stale/off link changes nothing and the channel path
+    behaves exactly as before. Thin reads (bot wall, offline) never outrank
+    either. Never throws. */
+export async function checkNamedVideoLive(videoId: string): Promise<{ live: boolean; videoId: string; title: string; channelId: string }> {
+  const none = { live: false, videoId: "", title: "", channelId: "" };
+  const id = parseYoutubeId(videoId);
+  if (!id) return none;
+  let html: string | null = null;
+  try {
+    html = await fetchPage(`https://www.youtube.com/watch?v=${id}`);
+  } catch {
+    return none;
+  }
+  if (html === null) return none;
+  const parsed = parseLivePage(html, `https://www.youtube.com/watch?v=${id}`);
+  if (!parsed.live) return none;
+  /* The page must be ABOUT this video: a canonical/details id naming another
+     video means YouTube redirected (a removed id lands on another video, not
+     a live marker for the asked one). A bot-walled page drops those markers
+     (note 322) — then the asked address stands, exactly like the scrape. */
+  const own =
+    /<link rel="canonical" href="https:\/\/www\.youtube\.com\/watch\?v=([\w-]{11})"/.exec(html)?.[1] ||
+    /"videoDetails":\{[^}]*?"videoId":"([\w-]{11})"/.exec(html)?.[1] ||
+    liveInlineVideoId(html) ||
+    "";
+  if (own && own !== id) return none;
+  let channelId = "";
+  try {
+    channelId = watchChannelId(html);
+  } catch {}
+  return { live: true, videoId: id, title: parsed.title, channelId };
+}
+
+/** Render hook for the typed-link check above: asks when the link changes and
+    re-asks on a slow poll while one is set (a pre-service link flips the
+    moment the broadcast starts). `checking` is true until the first answer
+    lands. Never throws; unknown reads as not-live. */
+export function useNamedVideoLive(
+  videoId: string,
+  active = true
+): { live: boolean; videoId: string; title: string; channelId: string; checking: boolean } {
+  const id = parseYoutubeId(videoId);
+  const [ans, setAns] = useState({ live: false, videoId: "", title: "", channelId: "", checking: !!id && active });
+  useEffect(() => {
+    setAns({ live: false, videoId: "", title: "", channelId: "", checking: !!id && active });
+    if (!active || !id) return;
+    let alive = true;
+    let timer = 0;
+    const ask = () => {
+      checkNamedVideoLive(id)
+        .then((r) => {
+          if (alive) setAns({ ...r, checking: false });
+        })
+        .catch(() => {
+          if (alive) setAns((prev) => ({ ...prev, checking: false }));
+        });
+    };
+    ask();
+    try {
+      timer = window.setInterval(() => {
+        try {
+          if (alive && document.visibilityState !== "hidden") ask();
+        } catch {}
+      }, 45_000);
+    } catch {}
+    return () => {
+      alive = false;
+      try {
+        window.clearInterval(timer);
+      } catch {}
+    };
+  }, [id, active]);
+  return ans;
 }
 
 /** Facebook can only confirm a broadcast (two markers); never trusts "off". */
