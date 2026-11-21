@@ -57,6 +57,7 @@ import {
 } from "../lib/store";
 import { SITE, STATS, SERVICES, img, type Person } from "../data/site";
 import { localUploadFallback, useCachedUploadUrl, useFeedUploadUrls, useUploadPreviewUrl } from "../lib/uploadCache";
+import { PhotoImg } from "./photoimg";
 import { photoOr } from "../data/photos";
 import { BRANCHES, DEFAULT_BRANCH_ID, HQ, branchFlag, branchZone, subBranchesOf, type Branch } from "../data/branches";
 import { LIVE, type WatchOption } from "../data/live";
@@ -1802,7 +1803,7 @@ export function BranchCard({
   return (
     <Card className={"branch-card" + (active ? " branch-card--active" : "")} pad={false}>
       <div className="branch-card__media">
-        <img src={photoOr(branch.image, "building2")} alt="" loading="lazy" />
+        <PhotoImg src={photoOr(branch.image, "building2")} fallback={photoOr("", "building2")} alt="" loading="lazy" />
         <span className="branch-card__flag">{branchFlag(branch)} {branch.country}</span>
         {branch.isHq && <span className="hq-tag">{ct("auto.site.dfdd25368f930047")}</span>}
         {typeof distanceKm === "number" && <span className="distance-tag"><Icon name="pin" size={12} /> {fmtDistance(distanceKm)}</span>}
@@ -1878,7 +1879,7 @@ export function EventCard({ event, layout = "grid" }: { event: ChurchEvent; layo
   return (
     <Card hover className={`event-card event-card--${layout}`} pad={false}>
       <div className="event-card__media">
-        <img src={photoOr(event.image, "welcome")} alt="" loading="lazy" />
+        <PhotoImg src={photoOr(event.image, "welcome")} fallback={photoOr("", "welcome")} alt="" loading="lazy" />
         <span className="event-card__date">
           <b>{day.day}</b>
           <em>{fmtMonthShort(day.month).toUpperCase()}</em>
@@ -1976,7 +1977,7 @@ export function MinistryCard({ ministry, onJoin }: { ministry: { id: string; nam
   return (
     <Card hover pad={false} className="ministry-card">
       <div className="ministry-card__media">
-        <img src={photoOr(ministry.image, "youth")} alt="" loading="lazy" />
+        <PhotoImg src={photoOr(ministry.image, "youth")} fallback={photoOr("", "youth")} alt="" loading="lazy" />
         <span className="ministry-card__for">{tx(ministry.for)}</span>
       </div>
       <div className="ministry-card__body">
