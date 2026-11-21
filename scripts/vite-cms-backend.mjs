@@ -574,7 +574,7 @@ export function cmsBackend() {
               return;
             }
             const ctype = String(req.headers["content-type"] || "").split(";")[0].trim().toLowerCase();
-            if (!ctype.startsWith("image/") && !ctype.startsWith("video/") && !ctype.startsWith("audio/")) {
+            if (!ctype.startsWith("image/") && !ctype.startsWith("video/")) {
               res.writeHead(400, { "cache-control": "no-store" });
               res.end("bad filetype");
               return;
@@ -604,11 +604,11 @@ export function cmsBackend() {
                 const asked = String(url.searchParams.get("name") || "file").split("/").pop() || "file";
                 let safe = asked.replace(/[^a-zA-Z0-9._-]+/g, "_").slice(0, 80) || "file";
                 if (!/\.[a-zA-Z0-9]{2,5}$/.test(safe)) {
-                  const ext = { "image/jpeg": ".jpg", "image/png": ".png", "image/webp": ".webp", "image/gif": ".gif", "video/mp4": ".mp4", "video/webm": ".webm", "video/quicktime": ".mov", "audio/mpeg": ".mp3", "audio/wav": ".wav", "audio/ogg": ".ogg", "audio/mp4": ".m4a" }[ctype] || "";
+                  const ext = { "image/jpeg": ".jpg", "image/png": ".png", "image/webp": ".webp", "image/gif": ".gif", "video/mp4": ".mp4", "video/webm": ".webm", "video/quicktime": ".mov" }[ctype] || "";
                   safe += ext;
                 }
                 /* Belt and braces: the stored name decides the served type. */
-                if (!/\.(jpg|jpeg|png|webp|gif|avif|mp4|webm|mov|m4v|ogv|mp3|wav|ogg|oga|opus|m4a|aac|flac|mid|midi)$/i.test(safe)) {
+                if (!/\.(jpg|jpeg|png|webp|gif|avif|mp4|webm|mov|m4v|ogv)$/i.test(safe)) {
                   res.writeHead(400, { "cache-control": "no-store" });
                   res.end("bad filetype");
                   return;
@@ -616,7 +616,16 @@ export function cmsBackend() {
                 const dir = path.join(ROOT, "data", "uploads");
                 await mkdir(dir, { recursive: true });
                 const fname = Date.now().toString(36) + "-" + safe;
-                await writeFile(path.join(dir, fname), Buffer.concat(chunks));
+                const _b = Buffer.concat(chunks);
+          try {
+            const _h = _b.slice(0, 2048).toString("latin1").toLowerCase();
+            if (_h.includes("<!doctype") || _h.includes("<html") || _h.includes("<head") || _h.includes("<meta") || _h.includes("<script") || _h.includes("wom-deploy") || _h.trimStart().startsWith("<")) {
+              res.writeHead(400, { "cache-control": "no-store" });
+              res.end("bad filetype");
+              return;
+            }
+          } catch {}
+          await writeFile(path.join(dir, fname), _b);
                 res.writeHead(200, { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" });
                 res.end(JSON.stringify({ url: "/data/uploads/" + fname }));
               } catch {

@@ -1,6 +1,7 @@
 import React, { useState } from "react";
 import { tx } from "../lib/i18n";
 import { SITE, VALUES, BELIEFS, TIMELINE, LEADERSHIP, FAQS, MINISTRIES, img } from "../data/site";
+import { resolvePhoto } from "../data/photos";
 import { BRANCHES, branchFlag } from "../data/branches";
 import { Badge, Btn, Card, Eyebrow, Icon, Reveal, Rich, Section, SectionHeading, Accordion, Tiles } from "../components/ui";
 import { ct } from "../data/copy";
@@ -158,7 +159,7 @@ function PersonCardLite({ person }: { person: (typeof LEADERSHIP)[number] }) {
     <Card pad={false} className="person-card" hover>
       <div className="person-card__photo">
         {person.image ? (
-          <img src={person.image} alt={person.name} loading="lazy" />
+          <img src={resolvePhoto(person.image)} alt={person.name} loading="lazy" />
         ) : (
           <span className="person-card__mono">
             <span className="monogram monogram--gold" style={{ width: 96, height: 96, fontSize: 34 }}>

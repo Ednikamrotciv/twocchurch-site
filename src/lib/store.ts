@@ -381,7 +381,7 @@ export function relativeTime(input: string | Date | number) {
   return fmtDate(d, "medium");
 }
 
-export function parseDuration(text: string): number {  const parts = text.split(":").map(Number);
+export function parseDuration(text: string): number {  const parts = String(text ?? "").split(":").map(Number);
   if (parts.length === 3) return parts[0] * 60 + parts[1];
   if (parts.length === 2) return parts[0];
   return 0;

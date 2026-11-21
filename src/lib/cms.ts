@@ -2985,6 +2985,7 @@ async function backfillUploadsFrom(fromBase: string, content: Snapshot = overrid
       const blob = await res.blob();
       if (!blob.size || blob.size > BACKUP_FILE_MAX_BYTES) throw 0;
       if (String((blob as any).type || "").toLowerCase().includes("text/html")) throw 0;
+      try { if (await uploadBlobLooksPoisoned(blob)) throw 0; } catch { throw 0; }
       const put = await fetch("/__restore-file?conn=" + encodeURIComponent(officeFileConn()) + "&name=" + encodeURIComponent(name), {
         method: "POST",
         headers: { "content-type": blob.type || guessUploadType(name) },
@@ -2993,24 +2994,7 @@ async function backfillUploadsFrom(fromBase: string, content: Snapshot = overrid
       if (!put.ok) throw 0;
       restored++;
     } catch {
-      /* The serving copy may lack it while this browser still holds it
-         (restored-from-backup onto a wiped disk paints from cache only):
-         write the cache home so this disk — and the next publish's photo
-         leg — has the bytes instead of the blank. */
-      try {
-        const dataUrl = await getCachedDataUrl(name);
-        const cached = dataUrlToBlob(dataUrl || "");
-        if (!cached || !(cached as any).size || (cached as any).size > BACKUP_FILE_MAX_BYTES) throw 0;
-        const put = await fetch("/__restore-file?conn=" + encodeURIComponent(officeFileConn()) + "&name=" + encodeURIComponent(name), {
-          method: "POST",
-          headers: { "content-type": (cached as any).type || guessUploadType(name) },
-          body: cached,
-        });
-        if (!put.ok) throw 0;
-        restored++;
-      } catch {
-        failed.push(name);
-      }
+      failed.push(name);
     }
   }
   return { restored, failed };
@@ -3075,6 +3059,7 @@ export async function healMissingUploads(): Promise<{ restored: number; checked:
               const b = await r.blob();
               if (!b || !(b as any).size) continue;
               if (String((b as any).type || "").toLowerCase().includes("text/html")) continue;
+              try { if (await uploadBlobLooksPoisoned(b)) continue; } catch { continue; }
               blob = b;
               try { await cacheUploadBlob(name, b); } catch {}
               break;
@@ -3082,6 +3067,7 @@ export async function healMissingUploads(): Promise<{ restored: number; checked:
           }
         }
         if (!blob || !(blob as any).size) continue;
+        try { if (await uploadBlobLooksPoisoned(blob as Blob)) continue; } catch { continue; }
         const put = await fetch("/__restore-file?conn=" + encodeURIComponent(officeFileConn()) + "&name=" + encodeURIComponent(name), {
           method: "POST",
           headers: { "content-type": (blob as any).type || guessUploadType(name) },
@@ -4255,7 +4241,6 @@ export async function startCms() {
     window.addEventListener("offline", () => scheduleUploadHeal(800));
     window.setInterval(() => {
       healMissingUploads().catch(() => {});
-      healLiveUploads().catch(() => {});
     }, 30 * 1000);
   } catch {}
 
@@ -6163,6 +6148,27 @@ function backupBytesLookLikeHtml(bytes: Uint8Array): boolean {
     return false;
   }
 }
+/** Client-side poison sniff (blank-page guard, note 440): headers sometimes lie
+    (cache, proxy, service worker), so sniff the bytes themselves before putting
+    an upload back onto disk — an HTML fallback page must never be stored as a
+    photo, or restores blank good files. True when the blob looks like HTML. */
+async function uploadBlobLooksPoisoned(blob: Blob): Promise<boolean> {
+  try {
+    const type = String((blob as any)?.type || "").toLowerCase();
+    if (type.includes("text/html")) return true;
+    if (!blob || !(blob as any).size) return true;
+    try {
+      const head = await (blob as Blob).slice(0, 2048).text();
+      const h = String(head || "").toLowerCase();
+      if (!h) return false;
+      if (h.includes("<!doctype") || h.includes("<html") || h.includes("<head") || h.includes("<meta") || h.includes("<script") || h.includes("wom-deploy") || h.trimStart().startsWith("<")) return true;
+    } catch {}
+    return false;
+  } catch {
+    return false;
+  }
+}
+
 function backupBytesMatchExtension(name: string, bytes: Uint8Array): boolean {
   try {
     if (!bytes || bytes.length < 4) return false;
@@ -6226,7 +6232,6 @@ export async function exportPublished(): Promise<string> {
   const files: BackupFile[] = [];
   const missingFiles: string[] = [];
   for (const name of allBackupNames(content)) {
-    let done = false;
     try {
       const res = await fetch((base ? base : "") + "/data/uploads/" + name, { cache: "no-store" });
       if (!res.ok) throw 0;
@@ -6251,47 +6256,6 @@ export async function exportPublished(): Promise<string> {
       if (backupBytesLookLikeHtml(bytes)) throw 0;
       if (!backupBytesMatchExtension(name, bytes)) throw 0;
       files.push({ name, type: blob.type || guessUploadType(name), data });
-      done = true;
-    } catch {
-      /* fall through to cache/feed below — a wiped server must not sink the backup */
-    }
-    if (done) continue;
-    /* Server miss fallback (backup fix): this browser's own cache or the
-       public feed still holds the file after a sleep-wipe, so the backup
-       carries it instead of marking it missing and restoring blank. */
-    try {
-      let blob: Blob | null = null;
-      try {
-        const cached = await getCachedDataUrl(name);
-        const b = dataUrlToBlob(cached || "");
-        if (b && (b as any).size) blob = b;
-      } catch {}
-      if (!blob || !(blob as any).size) {
-        for (const u of await feedUrlsForUpload(name)) {
-          try {
-            const r = await fetch(u, { cache: "no-store" });
-            if (!r.ok) continue;
-            const b = await r.blob();
-            if (!b || !(b as any).size) continue;
-            if (String((b as any).type || "").toLowerCase().includes("text/html")) continue;
-            blob = b;
-            try { await cacheUploadBlob(name, b); } catch {}
-            break;
-          } catch {}
-        }
-      }
-      if (!blob || !(blob as any).size) throw 0;
-      if (String((blob as any).type || "").toLowerCase().includes("text/html")) throw 0;
-      if ((blob as any).size > BACKUP_FILE_MAX_BYTES) {
-        missingFiles.push(name + " (too large: " + Math.round((blob as any).size / 1048576) + " MB)");
-        continue;
-      }
-      const data = await blobToBase64(blob);
-      const bytes = backupBytesFromB64(data);
-      if (!bytes || !bytes.length) throw 0;
-      if (backupBytesLookLikeHtml(bytes)) throw 0;
-      if (!backupBytesMatchExtension(name, bytes)) throw 0;
-      files.push({ name, type: (blob as any).type || guessUploadType(name), data });
     } catch {
       missingFiles.push(name);
     }
@@ -6434,27 +6398,7 @@ export async function importBackup(text: string): Promise<ImportResult> {
       }
     }
     if (!reachable) {
-      /* No server to write to (static host, no backend): keep every embedded
-         file in this browser's cache so the restored draft paints here
-         instead of blank — Publish (or a server copy) still carries it to
-         other devices. Counted as failed server writes, not lost files. */
-      for (const f of incoming) {
-        if (!f || typeof f.name !== "string") continue;
-        try {
-          const type = typeof (f as any)?.type === "string" && (f as any).type ? (f as any).type : guessUploadType(f.name);
-          const __b = backupBytesFromB64(String((f as any).data || ""));
-          if (!__b || !__b.length) throw 0;
-          if (/text\/html/i.test(String(type || "")) || backupBytesLookLikeHtml(__b)) {
-            try { filesPoisoned.push(f.name); } catch {}
-            throw 0;
-          }
-          if (!backupBytesMatchExtension(f.name, __b)) throw 0;
-          const blob = base64ToBlob(String((f as any).data || ""), type);
-          if (!blob.size) throw 0;
-          try { await cacheUploadBlob(f.name, blob); } catch {}
-        } catch {}
-        filesFailed.push(f.name);
-      }
+      for (const f of incoming) if (f && typeof f.name === "string") filesFailed.push(f.name);
     } else {
       for (const f of incoming) {
         try {
@@ -6477,9 +6421,6 @@ export async function importBackup(text: string): Promise<ImportResult> {
           if (!backupBytesMatchExtension(name, __bytes)) throw 0;
           const blob = base64ToBlob(f.data, type);
           if (!blob.size) throw 0;
-          /* Cache first: even if the server write below fails, this browser
-             paints the restored photo instead of blank. */
-          try { await cacheUploadBlob(name, blob); } catch {}
           const res = await fetch(`${base}/__restore-file?conn=${encodeURIComponent(officeFileConn())}&name=${encodeURIComponent(name)}`, {
             method: "POST",
             headers: { "content-type": type },
@@ -6912,244 +6853,39 @@ async function relayPublishWordsToLive(
   }
 }
 /* The relay's photo leg: every upload the relayed sections point at is read
-   off this copy's own disk — or failing that, this browser's cache — and
-   written straight to the live disk under its exact name, so the relayed
-   words point at working photos at once instead of waiting out the mirror
-   push. Always background (photos can be big) — oversize files stay where
-   published (the backfill/mirror log names them). Words already landed above,
-   so this leg reports and retries owed files instead of failing silently:
-   an owed photo leaves visitors on blanks otherwise (the exact
-   admin-shows-visitors-blank case). Never throws, never awaits. */
-let relayOwedUploads: string[] = [];
-let relayOwedTimer = 0;
-let relayOwedAttempts = 0;
-function relayUploadsToLive(sections?: Record<string, string | null>, isRetry = false): void {
+   off this copy's own disk and written straight to the live disk under its
+   exact name, so the relayed words point at working photos at once instead
+   of waiting out the mirror push. Always background (photos can be big) —
+   oversize files stay where published (the backfill/mirror log names them);
+   failures leave the minute loops to carry them. Kicked off once the words
+   land; never throws, never awaits. */
+function relayUploadsToLive(sections: Record<string, string | null>): void {
   (async () => {
     const base = await relayLiveBase();
     if (!base) return;
     try {
-      const names = [...new Set([...localUploadNames(sections || {}), ...relayOwedUploads])].slice(0, 60);
-      if (!names.length) {
-        relayOwedUploads = [];
-        return;
-      }
-      /* A fresh publish restarts the retry count; timer retries consume it. */
-      if (!isRetry) relayOwedAttempts = 0;
-      const owed = await deliverUploadsToLive(base, names);
-      relayOwedUploads = owed;
-      if (owed.length) {
-        relayOwedAttempts++;
-        noteRelay(
-          `Live site has your words — ${owed.length} ${owed.length === 1 ? "photo is" : "photos are"} still on the way (${owed.slice(0, 2).join(", ")}${owed.length > 2 ? "…" : ""}). It retries by itself; publishing again hurries it.`
-        );
+      const names = localUploadNames(sections).slice(0, 30);
+      for (const name of names) {
         try {
-          if (relayOwedTimer) {
-            window.clearTimeout(relayOwedTimer);
-            relayOwedTimer = 0;
-          }
-          if (relayOwedAttempts <= 4) {
-            relayOwedTimer = window.setTimeout(() => {
-              relayOwedTimer = 0;
-              try {
-                relayUploadsToLive(undefined, true);
-              } catch {}
-            }, 90000 * relayOwedAttempts);
-          }
-        } catch {}
-      } else {
-        relayOwedAttempts = 0;
-        noteRelay("Live site updated with your publish, photos included.");
+          const got = await fetch("/data/uploads/" + name, { cache: "no-store" });
+          if (!got.ok) continue;
+          if (String(got.headers.get("content-type") || "").toLowerCase().includes("text/html")) continue;
+          const blob = await got.blob();
+          if (!blob || !blob.size || blob.size > 90 * 1024 * 1024) continue;
+          try { if (await uploadBlobLooksPoisoned(blob)) continue; } catch { continue; }
+          await fetch(base + "/__restore-file?conn=" + encodeURIComponent(relayUploadConnId()) + "&name=" + encodeURIComponent(name), {
+            method: "POST",
+            headers: { "content-type": (blob as any).type || guessUploadType(name) },
+            body: blob,
+          }).catch(() => null);
+        } catch {
+          /* next file — the loops backstop */
+        }
       }
     } catch {
       /* words already landed above */
     }
   })().catch(() => {});
-}
-/* Deliver upload bytes for names to the live disk (disk-then-cache source,
-   verified writes). Returns the still-owed names. Shared by the publish photo
-   leg and the background live-disk healer. Never throws. */
-async function deliverUploadsToLive(base: string, names: string[]): Promise<string[]> {
-  const owed: string[] = [];
-  for (const name of names) {
-    try {
-      /* Disk first; the browser cache second — a wiped office disk must not
-         strand live visitors while this tab still holds the bytes
-         (restored-from-backup while the disk was down paints the admin from
-         cache only; without this the publish that follows carries words with
-         no photos). */
-      let blob: Blob | null = null;
-      let type = "";
-      try {
-        const got = await fetch("/data/uploads/" + name, { cache: "no-store" });
-        if (got.ok && !String(got.headers.get("content-type") || "").toLowerCase().includes("text/html")) {
-          const b = await got.blob();
-          if (b && b.size && b.size <= 90 * 1024 * 1024 && !String((b as any).type || "").toLowerCase().includes("text/html")) {
-            blob = b;
-            type = (b as any).type || "";
-          }
-        }
-      } catch {}
-      if (!blob) {
-        try {
-          const dataUrl = await getCachedDataUrl(name);
-          const b = dataUrlToBlob(dataUrl || "");
-          if (b && (b as any).size && (b as any).size <= 90 * 1024 * 1024) {
-            blob = b;
-            type = (b as any).type || "";
-          }
-        } catch {}
-      }
-      if (!blob || !blob.size) {
-        owed.push(name);
-        continue;
-      }
-      const put = await fetch(base + "/__restore-file?conn=" + encodeURIComponent(relayUploadConnId()) + "&name=" + encodeURIComponent(name), {
-        method: "POST",
-        headers: { "content-type": type || guessUploadType(name) },
-        body: blob,
-      }).catch(() => null);
-      if (!put || !(put as any).ok) {
-        owed.push(name);
-        continue;
-      }
-      /* Read it back: a 200 that never became a file used to count as
-         delivered and strand visitors on blanks. */
-      let verified = false;
-      try {
-        const check = await fetch(base + "/data/uploads/" + name, { method: "HEAD", cache: "no-store" });
-        verified = !!check && check.ok && !String(check.headers.get("content-type") || "").toLowerCase().includes("text/html");
-      } catch {}
-      if (verified) {
-        try {
-          await cacheUploadBlob(name, blob);
-        } catch {
-          /* the live disk above is what matters */
-        }
-      } else {
-        owed.push(name);
-      }
-    } catch {
-      owed.push(name);
-    }
-  }
-  return owed;
-}
-/* Live-disk healer (the admin-paints guarantee): every upload the published
-   words reference must be servable on the live disk — whether or not a word
-   relay just landed. Words that rode the minute loops or the rebuild used to
-   arrive with no photos at all; this pushes whatever live still lacks
-   (disk-then-cache source, verified writes) with the same two keys the word
-   relay tries. Auth-gated (office keys only — other tabs skip after two
-   localStorage reads, no network), idempotent, never throws. Runs after every
-   publish attempt that did not ride the relay, and on the 30s upload-heal
-   tick. */
-let healLiveRunning = false;
-/** Whether this tab holds any key the live box would accept (sync, cheap). */
-function liveHealKeysPresent(): boolean {
-  try {
-    if (sessionPassword()) return true;
-  } catch {}
-  try {
-    const raw = localStorage.getItem(LIVEPW_KEY);
-    if (raw) {
-      const o = JSON.parse(raw);
-      if (o && (o as any).pw) return true;
-    }
-  } catch {}
-  return false;
-}
-/* Standalone live-box login for the healer: the same two keys the word relay
-   tries, none of its notes (the word path already describes auth state). Sets
-   the relay conn the delivery writes with. */
-async function healLiveLogin(base: string, ms = 6000): Promise<boolean> {
-  let pw = "";
-  let livePw = "";
-  try {
-    pw = sessionPassword();
-  } catch {
-    pw = "";
-  }
-  try {
-    livePw = savedLivePassword(base);
-  } catch {
-    livePw = "";
-  }
-  if (!pw && !livePw) return false;
-  const conn = "heal-" + Math.random().toString(36).slice(2) + Date.now().toString(36);
-  for (const candidate of [pw, livePw]) {
-    if (!candidate) continue;
-    try {
-      const login = await relayFetch(base + "/__cms/login?conn=" + encodeURIComponent(conn), JSON.stringify({ password: candidate, want: "main" }), ms);
-      if (!login.ok) continue;
-      const data = await login.json().catch(() => null);
-      if (data && (data as any).ok === true && !(data as any).needCode) {
-        try {
-          relayUploadConn = conn;
-        } catch {}
-        return true;
-      }
-    } catch {}
-  }
-  return false;
-}
-async function healLiveUploads(): Promise<void> {
-  if (healLiveRunning) return;
-  healLiveRunning = true;
-  try {
-    if (!liveHealKeysPresent()) return;
-    let names: string[] = [];
-    try {
-      names = localUploadNames(merge(overrides));
-    } catch {
-      names = [];
-    }
-    try {
-      if (draft) for (const n of localUploadNames(draft)) names.push(n);
-    } catch {}
-    names = [...new Set([...names, ...relayOwedUploads])].slice(0, 60);
-    if (!names.length) {
-      relayOwedUploads = [];
-      relayOwedAttempts = 0;
-      return;
-    }
-    const base = await relayLiveBase().catch(() => "");
-    if (!base) return;
-    const missing: string[] = [];
-    for (const name of names) {
-      let present = false;
-      try {
-        const h = await fetch(base + "/data/uploads/" + name, { method: "HEAD", cache: "no-store" });
-        present = !!h && h.ok && !String(h.headers.get("content-type") || "").toLowerCase().includes("text/html");
-      } catch {
-        present = false;
-      }
-      if (!present) missing.push(name);
-    }
-    if (!missing.length) {
-      if (relayOwedUploads.length) {
-        relayOwedUploads = [];
-        relayOwedAttempts = 0;
-      }
-      return;
-    }
-    const authed = await healLiveLogin(base).catch(() => false);
-    if (!authed) return;
-    const owed = await deliverUploadsToLive(base, missing).catch(() => missing);
-    relayOwedUploads = owed;
-    if (owed.length) {
-      relayOwedAttempts++;
-      noteRelay(
-        `Live site is missing ${owed.length} ${owed.length === 1 ? "photo" : "photos"} (${owed.slice(0, 2).join(", ")}${owed.length > 2 ? "…" : ""}) — held on this copy and retrying in the background.`
-      );
-    } else {
-      relayOwedAttempts = 0;
-      noteRelay("Live photos healed — visitors see them now.");
-    }
-  } catch {
-    /* the words already landed; bytes keep retrying on the tick */
-  } finally {
-    healLiveRunning = false;
-  }
 }
 /* The background chain for automatic sends (live pull, offline flush): words
    ride when they can, photos chase them, and nothing ever waits. */
@@ -7160,10 +6896,6 @@ function relayInBackground(sections: Record<string, string | null>, changed: str
         if (outcome === "landed") {
           try {
             relayUploadsToLive(sections);
-          } catch {}
-        } else {
-          try {
-            healLiveUploads().catch(() => {});
           } catch {}
         }
       })
@@ -7767,14 +7499,6 @@ async function sendPatch(
            without needing another click. */
         try {
           scheduleRelayRetry(sections, changed, note, relayDeploy || durableDeploy);
-        } catch {}
-      }
-      if (relay !== "landed") {
-        /* The admin-paints guarantee: words that miss the relay still ride the
-           loops/rebuild — push any bytes live lacks anyway, instead of
-           publishing words with no photos. */
-        try {
-          healLiveUploads().catch(() => {});
         } catch {}
       }
     } else {

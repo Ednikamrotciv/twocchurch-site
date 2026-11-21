@@ -8,7 +8,7 @@ import { motion } from "framer-motion";
 import { Link, isPathMode, refreshRoute } from "../lib/router";
 import { Icon } from "./ui";
 import { photoOr } from "../data/photos";
-import { useCachedUploadUrl, useFeedUploadUrl, useFeedUploadUrls } from "../lib/uploadCache";
+import { useCachedUploadUrl, useFeedUploadUrl } from "../lib/uploadCache";
 import { useCmsVersion } from "../lib/cms";
 import { ct } from "../data/copy";
 import { tx } from "../lib/i18n";
@@ -377,15 +377,11 @@ export function AnnouncementSlide({
      repo too, so when the disk copy is gone AND this browser never cached it,
      the repo copy paints — any visitor, not just the uploader's browser. */
   const feedNamed = useFeedUploadUrl(named);
-  const feedNamedList = useFeedUploadUrls(named);
-  const feedNamedSecond = feedNamedList.length > 1 ? feedNamedList[1] : "";
   const deadFeed = useDeadPhoto(feedNamed);
-  const deadFeedSecond = useDeadPhoto(feedNamedSecond);
   /* The repo copy paints only while the disk copy is actually gone — a healthy
-     local file always wins, so no visitor depends on the repo hosts. Both
-     mirrors are tried: raw first (fresh after a push), jsdelivr second. */
+     local file always wins, so no visitor depends on the repo hosts. */
   const localDead = !cachedNamed && deadNamed;
-  const paintableFeed = localDead && feedNamed && !deadFeed ? feedNamed : localDead && feedNamedSecond && !deadFeedSecond ? feedNamedSecond : "";
+  const paintableFeed = localDead && feedNamed && !deadFeed ? feedNamed : "";
   const effectiveNamed = cachedNamed || paintableFeed || named;
   const original = resolveSlidePhoto(effectiveNamed, welcome, !cachedNamed && !paintableFeed && deadNamed);
   /* A face with no paintable photo paints no <img> at all (note 418): the face

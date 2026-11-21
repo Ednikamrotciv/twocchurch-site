@@ -185,6 +185,13 @@ export type VideoSource = {
   poster?: string;
 };
 
+/** Office uploads move between hosts: an old absolute /data/uploads/ address plays from
+    this copy (device-proof). Pasted links pass through. */
+export function normalizeUploadUrlLocal(url: string): string {
+  const m = /\/data\/uploads\/([A-Za-z0-9][A-Za-z0-9._-]*)/.exec(String(url || ""));
+  return m ? "/data/uploads/" + m[1] : String(url || "");
+}
+
 /** Has this slot actually got the source its platform needs? */
 export function hasVideo(source: VideoSource): boolean {
   if (!source) return false;
@@ -211,13 +218,13 @@ export function embedSrc(source: VideoSource, autoplay = true): string {
 /** The file address for an uploaded video. */
 export function fileSrc(source: VideoSource): string {
   if (!source || source.platform !== "upload") return "";
-  const value = String(source.uploadUrl || "").trim();
+  const value = normalizeUploadUrlLocal(String(source.uploadUrl || "").trim());
   return isUploadVideoUrl(value) ? value : "";
 }
 
 /** A still to show before the visitor presses play. */
 export function posterFor(source: VideoSource, fallback = ""): string {
-  if (source && source.poster) return source.poster;
+  if (source && source.poster) return normalizeUploadUrlLocal(source.poster);
   if (source && source.platform === "facebook") return fallback;
   if (source && source.platform === "upload") return fallback;
   return youtubeThumb(source?.youtubeId || "") || fallback;
@@ -227,7 +234,7 @@ export function posterFor(source: VideoSource, fallback = ""): string {
 export function watchUrl(source: VideoSource): string {
   if (!source) return "";
   if (source.platform === "facebook") return String(source.facebookUrl || "");
-  if (source.platform === "upload") return String(source.uploadUrl || "");
+  if (source.platform === "upload") return normalizeUploadUrlLocal(String(source.uploadUrl || ""));
   return youtubeWatch(source.youtubeId || "");
 }
 

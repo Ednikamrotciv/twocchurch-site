@@ -195,7 +195,9 @@ let overrides: Record<string, string> = {};
 export function photoSrc(key: string): string {
   /* Stored values stay host-relative ("src/assets/…") so content moves between
      hosts; the page URL is resolved here, so nested routes still load. */
-  return siteFile(overrides[key] || bundledPhoto(BUNDLED_FALLBACK[key] || key));
+  const raw = overrides[key] || bundledPhoto(BUNDLED_FALLBACK[key] || key);
+  const m = /\/data\/uploads\/([A-Za-z0-9][A-Za-z0-9._-]*)/.exec(String(raw || ""));
+  return siteFile(m ? "/data/uploads/" + m[1] : raw);
 }
 
 /**
@@ -239,7 +241,10 @@ export function applyPhotos(next: any) {
   const map: Record<string, string> = {};
   for (const key of PHOTO_KEYS) {
     const value = next && typeof next[key] === "string" ? next[key].trim() : "";
-    if (value) map[key] = value;
+    if (value) {
+      const m = /\/data\/uploads\/([A-Za-z0-9][A-Za-z0-9._-]*)/.exec(value);
+      map[key] = m ? "/data/uploads/" + m[1] : value;
+    }
   }
   overrides = map;
 
