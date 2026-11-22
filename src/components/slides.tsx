@@ -9,7 +9,6 @@ import { Link, isPathMode, refreshRoute } from "../lib/router";
 import { Icon } from "./ui";
 import { photoOr } from "../data/photos";
 import { useCachedUploadUrl, useFeedUploadUrl, useFeedUploadUrls } from "../lib/uploadCache";
-import { useUploadPreviewUrl } from "../lib/uploadCache";
 import { localUploadFallback } from "../lib/uploadCache";
 import { useCmsVersion } from "../lib/cms";
 import { ct } from "../data/copy";
@@ -215,9 +214,7 @@ function useVideoFrame(url: string): { poster: string; framed: string } {
   const [frame, setFrame] = useState({ poster: "", framed: "" });
   useEffect(() => {
     setFrame({ poster: "", framed: "" });
-    /* Blob:/data: previews are same-tab films (a fresh upload's own bytes or
-       its cached copy): no extension, but playable all the same. */
-    if (!url || (!isSlideVideoUrl(url) && !url.startsWith("blob:") && !url.startsWith("data:"))) return;
+    if (!isSlideVideoUrl(url)) return;
     let alive = true;
     let done = false;
     let ground = "";
@@ -372,19 +369,8 @@ export function AnnouncementSlide({
      decode falls back to the welcome photo exactly like an empty one. */
   const named = photoOr(slide.image, "welcome");
   const welcome = photoOr("", "welcome");
-  /* Films are keyed off the stored address: a same-tab preview (blob:) or a
-     cached copy (data:) carries no file extension, so the film test runs on
-     the stored address and the walk below tries every copy as a film. */
-  const namedIsVideo = isSlideVideoUrl(named);
-  /* Instant paint (blank-upload fix): the exact bytes just uploaded in this
-     tab paint before anything touches the server — the session preview leads
-     the photo chain. Films skip the data-URL cache (a big film would spike
-     the tab ~3x and kill it on a phone), so for films the session preview is
-     the only same-tab copy, tried first in the walk below. */
-  const sessionNamed = useUploadPreviewUrl(named);
-  const entryNamed = namedIsVideo ? named : sessionNamed || named;
-  const deadNamed = useDeadPhoto(entryNamed);
-  const deadWelcome = useDeadPhoto(entryNamed === welcome ? "" : welcome);
+  const deadNamed = useDeadPhoto(named);
+  const deadWelcome = useDeadPhoto(named === welcome ? "" : welcome);
   /* Sleep-free (note 413): while the server copy is wiped, paint the cached
      upload from this browser instead of the welcome fallback — blank-free. */
   const cachedNamed = useCachedUploadUrl(named);
@@ -408,12 +394,7 @@ export function AnnouncementSlide({
   const localDead = !cachedNamed && deadNamed;
   const paintableLocal = localDead && localNamed && localNamed !== named && !deadLocal ? localNamed : "";
   const paintableFeed = localDead && feedNamed && !deadFeed ? feedNamed : localDead && feedNamedSecond && !deadFeedSecond ? feedNamedSecond : "";
-  const effectiveNamed = namedIsVideo
-    ? cachedNamed || paintableLocal || paintableFeed || named
-    : sessionNamed || cachedNamed || paintableLocal || paintableFeed || named;
-  /* Photo chain note: films resolve through effectiveNamed exactly as before
-     (stored address or its cached copy) — the session preview joins the film
-     walk below, not this photo chain, so the film test below stays exact. */
+  const effectiveNamed = cachedNamed || paintableLocal || paintableFeed || named;
   const original = resolveSlidePhoto(effectiveNamed, welcome, !cachedNamed && !paintableLocal && !paintableFeed && deadNamed);
   /* A face with no paintable photo paints no <img> at all (note 418): the face
      keeps its palette gradient and its words instead of a blank/broken frame —
@@ -423,30 +404,11 @@ export function AnnouncementSlide({
   /* A film upload plays as it is — visitors work it with the player's own
      volume and time-range controls, flat face only (the 3D stage plays it
      silently while it turns, see slides3d). */
-  const isVideo = namedIsVideo;
-  /* A film walks every copy that could hold it — this tab's own bytes, the
-     browser cache, the stored address, this copy's disk, then the repo
-     mirrors — first playable wins, in order. With no feed configured there
-     are simply fewer copies to try; an exhausted walk shows the play mark
-     below instead of a black box. */
-  const videoAddrs = useMemo(() => {
-    const list: string[] = [];
-    for (const c of [sessionNamed, cachedNamed, named, localNamed, feedNamed, feedNamedSecond]) {
-      const s = String(c || "");
-      if (s && !list.includes(s)) list.push(s);
-    }
-    return list;
-  }, [sessionNamed, cachedNamed, named, localNamed, feedNamed, feedNamedSecond]);
-  const [videoIdx, setVideoIdx] = useState(0);
-  useEffect(() => {
-    setVideoIdx(0);
-  }, [videoAddrs.join("\0")]);
-  const vSrc = videoAddrs[Math.min(videoIdx, videoAddrs.length - 1)] || "";
-  const videoFailed = isVideo && (videoAddrs.length === 0 || videoIdx >= videoAddrs.length);
+  const isVideo = isSlideVideoUrl(original);
   /* Films carry their own background: the framed ground cut from the film's
      still (its own colours, like an upload), with the film played whole and
      contained over it. Until the still lands the ground stays dark. */
-  const videoFrame = useVideoFrame(isVideo && !videoFailed ? vSrc : "");
+  const videoFrame = useVideoFrame(original);
   const videoBg = isVideo ? videoFrame.framed : "";
   /* Shown in the frame; read for its colours as it was photographed, so the
      palette is the office's own picture and not the mat the frame puts round it. */
@@ -479,7 +441,7 @@ export function AnnouncementSlide({
         el.muted = true;
       } catch {}
     }
-  }, [videoActive, original, vSrc]);
+  }, [videoActive, original]);
   /* No paintable photo and no words of its own: borrow the welcome card's
      words (note 418) — “Welcome home” over the palette gradient, never blank. */
   const hasOwnWords = !!(String(slide.headline || "").trim() || String(slide.line || "").trim() || String(slide.cta || "").trim() || String(slide.link || "").trim());
@@ -654,36 +616,22 @@ export function AnnouncementSlide({
         style={paletteVars(palette)}
       >
         {videoBg ? <img className="aslide__photo" src={videoBg} alt="" aria-hidden="true" /> : null}
-        {!videoFailed ? (
-          <video
-            ref={videoEl}
-            key={vSrc}
-            className="aslide__media aslide__media--fit"
-            src={vSrc}
-            poster={videoFrame.poster || undefined}
-            controls
-            muted
-            playsInline
-            preload="metadata"
-            onPlay={report(true)}
-            onPause={report(false)}
-            onEnded={onEnded}
-            onError={() => {
-              /* Walk the copies in order — this tab's bytes, the cache, the
-                 stored address, this copy's disk, the repo mirrors — until
-                 one plays. Exhausted means genuinely gone: the mark below
-                 stands in, never a black frame. */
-              setVideoIdx((i) => i + 1);
-            }}
-            onClick={(e) => e.stopPropagation()}
-            onPointerDown={(e) => e.stopPropagation()}
-            onTouchStart={(e) => e.stopPropagation()}
-          />
-        ) : (
-          <span className="aslide__media aslide__media--empty" aria-hidden="true">
-            <Icon name="play" size={44} />
-          </span>
-        )}
+        <video
+          ref={videoEl}
+          className="aslide__media aslide__media--fit"
+          src={original}
+          poster={videoFrame.poster || undefined}
+          controls
+          muted
+          playsInline
+          preload="metadata"
+          onPlay={report(true)}
+          onPause={report(false)}
+          onEnded={onEnded}
+          onClick={(e) => e.stopPropagation()}
+          onPointerDown={(e) => e.stopPropagation()}
+          onTouchStart={(e) => e.stopPropagation()}
+        />
         {!wordless && (
           <>
             <span className="aslide__videotop" aria-hidden="true" />

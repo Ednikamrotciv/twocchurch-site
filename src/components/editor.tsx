@@ -1020,12 +1020,7 @@ export function LiveTransportButtons() {
        channel's list — and the last-service still — alone. */
     const aired = readLiveStatus();
     const airedGuest = isGuestTargetUrl(aired.target || "", guestTarget()?.url || "");
-    /* Strict channel-field ownership: only the main field's own ending seeds
-       the list — an answer stamped for another address (the office retyped
-       the channel since the check) never files a foreign service. */
-    const airedMainUrl = liveTarget()?.url || "";
-    const airedMain = !airedMainUrl || isStatusForTarget(aired, airedMainUrl);
-    askForRecentServices(!airedGuest && airedMain && aired.videoId ? { videoId: aired.videoId, title: aired.title } : undefined);
+    askForRecentServices(!airedGuest && aired.videoId ? { videoId: aired.videoId, title: aired.title } : undefined);
   };
   /* Reload repairs both slots at once (the general fix, same manual press as
      play/pause/stop): drops every poisoned verdict, stamps a reload press so

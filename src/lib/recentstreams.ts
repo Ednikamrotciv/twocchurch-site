@@ -455,13 +455,13 @@ export async function fetchRecentServices(): Promise<RecentServices | null> {
   const listed = [...grid, ...extra];
   if (!listed.length) return null;
 
-  /* Only the field's own videos paint (strict channel-field ownership, note
-     418): the channel feed is the proof of ownership — every upload the handle
-     publishes is in it — while a walled /videos grid can smuggle in ads,
-     autoplay and related uploads from other channels. Grid-only items with no
-     feed date are unproven on every channel now, so they wait for the feed
-     instead of painting — no other channel leaks in. */
-  const designatedRead = true;
+  /* Only @twocorg's own videos paint (note 418): the channel feed is the proof
+     of ownership — every upload the handle publishes is in it — while a walled
+     /videos grid can smuggle in ads, autoplay and related uploads from other
+     channels. Grid-only items with no feed date are unproven, so on the
+     designated channel they wait for the feed instead of painting; anywhere
+     else the grid reads exactly as before. */
+  const designatedRead = !!publishedChannelId();
   const items: RecentService[] = listed
     /* An upload with neither a date nor YouTube's own words is an *upcoming*
        broadcast, not a service that has happened: it is not a recent service. */
@@ -668,14 +668,6 @@ export function readRecentServices(): RecentServices {
      other channel's list falls to the fallback. */
   const designated = publishedChannelId();
   if (designated && cachedChannelId && cachedChannelId !== designated) return designatedFallback();
-  /* A retyped channel orphans the previous channel's cache at once: the stored
-     value names another address, so its list never paints under the new field
-     — strict channel-field ownership, no other channel leaks in. */
-  try {
-    const pastedNow = cleanChannelInput(LIVE.youtubeChannel);
-    const cachedValue = String((cached as unknown as { value?: unknown }).value || "");
-    if (pastedNow && cachedValue && cachedValue !== pastedNow) return designatedFallback();
-  } catch { /* uncached — fall through to the filters */ }
   const now = Date.now();
   const items = cached.items
     .filter((it) => it && parseYoutubeId(String(it.videoId || "")))
@@ -691,12 +683,11 @@ export function readRecentServices(): RecentServices {
        moment; past a night it is no longer worth showing, and the read would
        have had it by then if it was ever going to. */
     .filter((it) => !it.seeded || now - it.seeded < SEED_MAX_MS)
-    /* Only the field's own videos paint (strict channel-field ownership, note
-       418): a cached card without a feed date was never proven the handle's —
-       wall garbage and foreign endings linger exactly here — so dateless cards
-       go on every channel now, except a fresh just-ended seed still waiting on
-       YouTube. */
-    .filter((it) => Number(it.at) > 0 || (it.seeded && now - it.seeded < SEED_MAX_MS));
+    /* Only @twocorg's own videos paint (note 418): a cached card without a
+       feed date was never proven the handle's — wall garbage and foreign
+       endings linger exactly here — so on the designated channel dateless
+       cards go, except a fresh just-ended seed still waiting on YouTube. */
+    .filter((it) => !designated || Number(it.at) > 0 || (it.seeded && now - it.seeded < SEED_MAX_MS));
   if (!items.length) return designatedFallback();
   return { items, at: Number(cached.at) || 0, channelId: String(cached.channelId || "") };
 }

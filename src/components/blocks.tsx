@@ -56,8 +56,6 @@ import {
   displayLive,
 } from "../lib/store";
 import { SITE, STATS, SERVICES, img, type Person } from "../data/site";
-import { localUploadFallback, useCachedUploadUrl, useFeedUploadUrls, useUploadPreviewUrl } from "../lib/uploadCache";
-import { PhotoImg } from "./photoimg";
 import { photoOr } from "../data/photos";
 import { BRANCHES, DEFAULT_BRANCH_ID, HQ, branchFlag, branchZone, subBranchesOf, type Branch } from "../data/branches";
 import { LIVE, type WatchOption } from "../data/live";
@@ -499,33 +497,6 @@ export function VideoPlayer({
      its remount is already fresh. */
   const freshSrc = forceKey > 0 && src ? src + (src.indexOf("?") === -1 ? "?" : "&") + "womfresh=" + forceKey : src;
   const file = fileSrc(source);
-  /* Fresh-upload walk (blank-upload fix): the player tries every copy that
-     could hold the film — this tab's own bytes, the browser cache, the
-     stored address, this copy's disk, then the repo mirrors — before it
-     admits defeat. Only an exhausted walk lands on the dead view (grey
-     arrow over the latest thumbnail), never a black box. */
-  const sessionFile = useUploadPreviewUrl(file);
-  const cachedFile = useCachedUploadUrl(file);
-  const localFile = localUploadFallback(file);
-  const feedFiles = useFeedUploadUrls(file);
-  const fileAddrs = useMemo(() => {
-    const list: string[] = [];
-    for (const c of [sessionFile, cachedFile, file, localFile, ...feedFiles]) {
-      const s = String(c || "");
-      if (s && !list.includes(s)) list.push(s);
-    }
-    return list;
-  }, [sessionFile, cachedFile, file, localFile, feedFiles]);
-  const [fileIdx, setFileIdx] = useState(0);
-  useEffect(() => {
-    setFileIdx(0);
-  }, [fileAddrs.join("\0")]);
-  useEffect(() => {
-    /* Repair replays the whole walk from the first copy (a re-uploaded or
-       restored file heals without another page load). */
-    if (!dead) setFileIdx(0);
-  }, [dead]);
-  const playableFile = fileAddrs[Math.min(fileIdx, fileAddrs.length - 1)] || "";
   /* No blank screen: every branch below paints the latest previous thumbnail
      instead of black/blank — poster, then the source's own thumb, then the
      Watch screen's cover (latest previous service), never empty there. */
@@ -599,15 +570,12 @@ export function VideoPlayer({
           try { if (playing) setDead(true); } catch {}
           return;
         }
-        /* Field-driven gate (no hardcoded handle): only the main field's own
-           channel opens the player — a live answer from another channel, or
-           an unverified channel follow with no video, waits instead of
-           playing. The guest's own stamped answer passes while IT is live
-           (note 380). Resolved from the main address (UC id or known handle);
-           unknown stays permissive because the check itself already held the
-           answer to the field's own owner. */
-        const allowedTapId = designatedChannelIdForTarget(liveTarget()?.url || "");
-        if (!isDesignatedChannel(st.channelId || "", allowedTapId) && !(guestWatchUrl && isGuestTargetUrl(st.target || "", guestWatchUrl))) {
+        /* Only the designated channel opens the player (note 358): a live
+           answer from another channel — or an unverified channel follow
+           with no video — waits instead of playing. The guest's own stamped
+           answer passes while IT is live (note 380). */
+        const designatedId = designatedChannelIdForTarget(liveTarget()?.url || "");
+        if (!isDesignatedChannel(st.channelId || "", designatedId) && !(guestWatchUrl && isGuestTargetUrl(st.target || "", guestWatchUrl))) {
           setChecking(false);
           setNotLive(true);
           /* Somebody else's video can never play here: the centered arrow
@@ -637,7 +605,7 @@ export function VideoPlayer({
               setNotLive(true);
             });
         } else if (
-          (st.state === "live" && st.channelId && (!allowedTapId || st.channelId === allowedTapId)) ||
+          (st.state === "live" && st.channelId && (!designatedId || st.channelId === designatedId)) ||
           (guestWatchUrl && st.state === "live" && !!st.channelId && isGuestTargetUrl(st.target || "", guestWatchUrl))
         ) {
           setChecking(false);
@@ -1182,23 +1150,15 @@ export function VideoPlayer({
     return (
       <div className={shell + " player--file"}>
         <video
-          key={iframeKey + "|" + playableFile}
+          key={iframeKey}
           className="player__video"
-          src={playableFile}
+          src={file}
           poster={source?.poster || fallbackThumb || undefined}
           controls
           playsInline
           preload="metadata"
           onPlay={() => onPlay?.()}
-          onError={() => {
-            if (fileIdx + 1 >= fileAddrs.length) {
-              try {
-                setDead(true);
-              } catch {}
-            } else {
-              setFileIdx(fileIdx + 1);
-            }
-          }}
+          onError={() => setDead(true)}
         />
         {live && (
           <span className="player__live">
@@ -1806,7 +1766,7 @@ export function BranchCard({
   return (
     <Card className={"branch-card" + (active ? " branch-card--active" : "")} pad={false}>
       <div className="branch-card__media">
-        <PhotoImg src={photoOr(branch.image, "building2")} fallback={photoOr("", "building2")} alt="" loading="lazy" />
+        <img src={photoOr(branch.image, "building2")} alt="" loading="lazy" />
         <span className="branch-card__flag">{branchFlag(branch)} {branch.country}</span>
         {branch.isHq && <span className="hq-tag">{ct("auto.site.dfdd25368f930047")}</span>}
         {typeof distanceKm === "number" && <span className="distance-tag"><Icon name="pin" size={12} /> {fmtDistance(distanceKm)}</span>}
@@ -1882,7 +1842,7 @@ export function EventCard({ event, layout = "grid" }: { event: ChurchEvent; layo
   return (
     <Card hover className={`event-card event-card--${layout}`} pad={false}>
       <div className="event-card__media">
-        <PhotoImg src={photoOr(event.image, "welcome")} fallback={photoOr("", "welcome")} alt="" loading="lazy" />
+        <img src={photoOr(event.image, "welcome")} alt="" loading="lazy" />
         <span className="event-card__date">
           <b>{day.day}</b>
           <em>{fmtMonthShort(day.month).toUpperCase()}</em>
@@ -1980,7 +1940,7 @@ export function MinistryCard({ ministry, onJoin }: { ministry: { id: string; nam
   return (
     <Card hover pad={false} className="ministry-card">
       <div className="ministry-card__media">
-        <PhotoImg src={photoOr(ministry.image, "youth")} fallback={photoOr("", "youth")} alt="" loading="lazy" />
+        <img src={photoOr(ministry.image, "youth")} alt="" loading="lazy" />
         <span className="ministry-card__for">{tx(ministry.for)}</span>
       </div>
       <div className="ministry-card__body">

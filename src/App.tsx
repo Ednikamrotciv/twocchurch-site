@@ -52,7 +52,8 @@ const Admin = React.lazy(
     import("./pages/Admin").then((m) => ({ default: m.Admin })),
   ),
 );
-const AppErrorBoundary = ErrorBoundary as unknown as React.ComponentType<any>;
+const AppErrorBoundary =
+  ErrorBoundary as unknown as React.ComponentType<React.PropsWithChildren>;
 
 /* Explicit local preview only (?maintenance=1): the office's way to see the
    notice on demand. Visitors on a fresh deploy see it until Publish clears it. */
@@ -367,9 +368,9 @@ function SiteApp() {
       {previewing && <PreviewBanner />}
       <Header />
       <main id="main" key={to}>
-        <ErrorBoundary>
+        <AppErrorBoundary>
           <React.Suspense fallback={null}>{page}</React.Suspense>
-        </ErrorBoundary>
+        </AppErrorBoundary>
       </main>
       <Footer />
       <ScrollTop />
