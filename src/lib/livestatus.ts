@@ -357,6 +357,34 @@ export function designatedChannelIdForTarget(targetUrl: string): string {
   if (at) return DESIGNATED_CHANNEL_IDS[("@" + at[1]).toLowerCase()] || "";
   return "";
 }
+/** The checked slot's own channel from the office fields (strict-channel
+    rule): the UC typed straight into the slot's field, else the id the last
+    read resolved beside that same cleaned value — the guest slot answers
+    from the guest field, the main slot from the main field. Slot-aware on
+    purpose: the main field's id must never judge the guest's video. "" when
+    the slot's channel is unresolvable (a bare handle behind the wall); the
+    page owner above still answers those, exactly as before. */
+export function storedChannelForTargetUrl(targetUrl: string): string {
+  try {
+    const t = String(targetUrl || "");
+    let pasted = "";
+    try {
+      const g = guestTarget()?.url || "";
+      pasted = (g && t === g) ? String((LIVE as any)?.externalYoutubeChannel || "") : String((LIVE as any)?.youtubeChannel || "");
+    } catch {
+      pasted = String((LIVE as any)?.youtubeChannel || "");
+    }
+    const clean = cleanChannelInput(pasted);
+    if (!clean) return "";
+    const direct = /(UC[\w-]{20,24})/.exec(clean)?.[1] || "";
+    if (direct) return direct;
+    const cached = readStore<{ value?: string; id?: string } | null>("wom.ytchannel", null);
+    if (cached && cached.value === clean && /^UC[\w-]{20,24}$/.test(String(cached.id || ""))) return String(cached.id);
+  } catch {
+    /* uncached — the page owner above still answers */
+  }
+  return "";
+}
 /** True while this channel may stand for the checked broadcast, pure for the
     verifier: a named channel that is not the field's own is somebody else's
     video and never plays; an unnamed one passes through (the candidate and
@@ -542,13 +570,14 @@ async function resolveYoutube(
      skipped like an off answer — the asking moves on, never the player. */
   const owner = extractChannelId(html, target.url);
   /* Field-driven gate (no hardcoded handle): whatever channel the office typed
-     in the field is whose video counts — the UC in the address, else the baked
-     answer for a known handle, else the page's own owner above. A known-foreign
-     suggestion is skipped; an ownerless grab-bag mention plays only with the
-     Live tab's vouch. This function serves the main and the guest slot alike,
-     so both get the same rule from their own field — the other channel's live
-     never plays instead. */
-  const allowedId = designatedChannelIdForTarget(target.url) || owner;
+     in the slot's field is whose video counts — the UC in the address, else
+     the baked answer for a known handle, else the page's own owner above,
+     else the id the last read resolved beside that same field value. A
+     known-foreign suggestion is skipped; an ownerless grab-bag mention plays
+     only with the Live tab's vouch. This function serves the main and the
+     guest slot alike, so both get the same rule from their own field — the
+     other channel's live never plays instead. */
+  const designatedId = designatedChannelIdForTarget(target.url) || owner || storedChannelForTargetUrl(target.url);
   const liveTabId = channelLiveVideoId(html);
   /* Asked one by one (best first): three candidates raced at once used to
      fire 9 page reads per check and trip the proxy rate-limit mid-service.
@@ -564,7 +593,7 @@ async function resolveYoutube(
     const watch = parseLivePage(watchHtml, url);
     if (watch.live && (watch.videoId || vid)) {
       if (!ownerAllowsCandidate(owner, watchChannelId(watchHtml))) continue;
-      if (!candidateStandsForDesignated(watchChannelId(watchHtml), allowedId, vid === liveTabId)) continue;
+      if (!candidateStandsForDesignated(watchChannelId(watchHtml), designatedId, vid === liveTabId)) continue;
       return { state: "live" as const, videoId: watch.videoId || vid, title: watch.title, channelId: "" };
     }
   }
@@ -575,7 +604,7 @@ async function resolveYoutube(
      repeat note 324, so the answer follows the channel instead, through
      `unverifiedChannelAnswer` above — and a page we merely could not read
      stays `unknown`, never `off`. */
-  return unverifiedChannelAnswer(parsed.live, parsed.title, parsed.live ? extractChannelId(html, target.url) : "", allowedId);
+  return unverifiedChannelAnswer(parsed.live, parsed.title, parsed.live ? extractChannelId(html, target.url) : "", designatedId);
 }
 
 /** The office's typed stream link, verified on air (typed-link fix): with a
@@ -1334,9 +1363,12 @@ async function run() {
   if (!watchers.size) return;
   /* A broadcast that is on air is the one moment the answer matters, so it is
      never skipped; a hidden tab is otherwise left alone (no point in spending
-     the proxy's time on a screen nobody is looking at). */
+     the proxy's time on a screen nobody is looking at) — unless this copy is
+     the office (a report sink is set): deployed visitors depend on its
+     reports, so it keeps reporting in the background exactly like the local
+     copy does with its tab open. */
   const hidden = document.visibilityState === "hidden";
-  if (hidden && snapshot.status.state !== "live") {
+  if (hidden && snapshot.status.state !== "live" && !reportSink) {
     schedule(30_000);
     return;
   }

@@ -1,3 +1,35 @@
+STRICT-CHANNEL + DEPLOY-PARITY FIX — read this first (unified442, 2026-11-22)
+==============================================================================
+This zip fixes two livestream complaints at once. Redeploy BOTH sides from
+this zip and Publish once (same order as below — mixed 441/442 copies ignore
+each other's live reports by design until both sides match).
+
+1. ONLY THE TYPED CHANNELS PLAY. A foreign livestream could reach the screen
+   on deploy while local stayed correct: datacenter IPs get bot-walled pages
+   with no owner/channel ids, and the unknown-everything path passed both
+   gates open — a grab-bag candidate (ad, related upload, another live) could
+   play. Now every gate resolves against the slot's own field first (UC in
+   the address, known handle, page owner, or the id the last read resolved
+   beside that same field value): the main slot judges by the main field, the
+   guest slot by the guest field. The typed stream link must now be proven the
+   field's own channel (or no channel set at all); Recent services remembers
+   which field value it was read for and drops the old channel's list on a
+   retype (merges included); the Watch cover no longer borrows a hardcoded
+   thumbnail for other channels. Unprovable thin reads still wait instead of
+   ending a service — same as before.
+2. DEPLOY READS LIKE LOCAL. The `npm run dev` backend's /__yt now answers
+   cross-origin like the production server, so a deploy joined to an office
+   PC on `npm run dev` reads YouTube through the office exactly like local.
+   The office tab also keeps reporting while hidden, so deployed visitors see
+   the same live answer as the local screen. Still required (unchanged): the
+   office server address in cms-server.txt baked in (server.json), the backend
+   awake (Render free tier sleeps — keep-awake ping to /version.json), and the
+   office Play+Publish when detection alone cannot confirm (bot wall). Without
+   an office to read through, a static deploy only has the public proxies —
+   same as before, and slower/flakier by nature.
+3. Code word unified441 -> unified442 (update number stays 441). Every deploy
+   holds on maintenance until the office publishes — that is by design.
+
 LIVESTREAM REDEPLOY FIX — read this first (update 440 bundle, final_9 package, 2026-11-06)
 ==============================================================================
 (final_9 = verified re-package: chunk-load self-heal on all lazy pages,
