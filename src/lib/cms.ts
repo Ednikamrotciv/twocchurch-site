@@ -2074,8 +2074,29 @@ export function gateLiveCommand(live: any, publishedLive: any): any {
   const pub = Number((publishedLive as any)?.liveCommandAt) || 0;
   const gat = Number((live as any).guestCommandAt) || 0;
   const gpub = Number((publishedLive as any)?.guestCommandAt) || 0;
-  if (at > pub && gat > gpub) return live;
   const out = { ...(live as any) };
+  /* Strict channel-field ownership: a retyped channel orphans the other
+     address's verified stamps in the same stroke — the published video id +
+     channel travel only with the channel they were verified for, so a new
+     field never opens the old channel's broadcast. Runs before the clicked
+     fast path below, so even a press-then-retype Publish cannot carry a
+     stale broadcast across addresses. */
+  try {
+    const clean = (v: unknown) => String(v == null ? "" : v).trim().replace(/@@+/g, "@").replace(/\s+/g, "");
+    if (clean((live as any).youtubeChannel) !== clean((publishedLive as any)?.youtubeChannel)) {
+      out.liveVideoId = "";
+      out.liveVideoTitle = "";
+      out.liveVideoChannelId = "";
+      out.liveVideoAt = 0;
+    }
+    if (clean((live as any).externalYoutubeChannel) !== clean((publishedLive as any)?.externalYoutubeChannel)) {
+      out.guestVideoId = "";
+      out.guestVideoTitle = "";
+      out.guestVideoChannelId = "";
+      out.guestVideoAt = 0;
+    }
+  } catch { /* stamps travel as before */ }
+  if (at > pub && gat > gpub) return out;
   /* The Reload repair stamp travels only on a newer row press — an unclicked
      Publish never remounts visitors. Either row's press carries it (the fix
      covers both slots), so gate on the OR, not per-slot. */

@@ -30,9 +30,6 @@ export type RecentServices = {
   at: number;
   /** The channel the list came from, once it is known. */
   channelId: string;
-  /** The cleaned channel input this list was read for — a retyped channel
-      drops the old channel's list instead of merging it. */
-  for?: string;
 };
 
 export const RECENT_KEY = "wom.recentstreams";
@@ -458,13 +455,13 @@ export async function fetchRecentServices(): Promise<RecentServices | null> {
   const listed = [...grid, ...extra];
   if (!listed.length) return null;
 
-  /* Only @twocorg's own videos paint (note 418): the channel feed is the proof
-     of ownership — every upload the handle publishes is in it — while a walled
-     /videos grid can smuggle in ads, autoplay and related uploads from other
-     channels. Grid-only items with no feed date are unproven, so on the
-     designated channel they wait for the feed instead of painting; anywhere
-     else the grid reads exactly as before. */
-  const designatedRead = !!publishedChannelId();
+  /* Only the field's own videos paint (strict channel-field ownership, note
+     418): the channel feed is the proof of ownership — every upload the handle
+     publishes is in it — while a walled /videos grid can smuggle in ads,
+     autoplay and related uploads from other channels. Grid-only items with no
+     feed date are unproven on every channel now, so they wait for the feed
+     instead of painting — no other channel leaks in. */
+  const designatedRead = true;
   const items: RecentService[] = listed
     /* An upload with neither a date nor YouTube's own words is an *upcoming*
        broadcast, not a service that has happened: it is not a recent service. */
@@ -486,17 +483,13 @@ export async function fetchRecentServices(): Promise<RecentServices | null> {
 
   /* Never lose a service to a thin read: the channel only ever carries the
      latest uploads, so a read that comes back short must not evict the older
-     services already saved — they stay until newer ones push them past KEEP.
-     A retyped channel still drops everything: keeps read for another channel
-     never merge into the new handle's list. */
+     services already saved — they stay until newer ones push them past KEEP. */
   const known = new Set(collapsed.map((it) => it.videoId));
-  const curList = readRecentServices();
-  const keepsBase = curList.channelId && channelId && curList.channelId !== channelId ? [] : curList.items;
   /* Only @twocorg's own videos stay (note 418): a kept card without a feed date
      was never proven the handle's — wall garbage and foreign endings linger
      exactly here — so on the designated channel dateless keeps go. Fresh
      just-ended seeds are not keeps (they never reach this filter). */
-  const kept = keepsBase.filter(
+  const kept = readRecentServices().items.filter(
     (it) => !it.seeded && !known.has(it.videoId) && (!designatedRead || Number(it.at) > 0)
   );
   const merged = [...collapsed, ...kept].sort((a, b) => whenOf(b, now) - whenOf(a, now));
@@ -675,18 +668,14 @@ export function readRecentServices(): RecentServices {
      other channel's list falls to the fallback. */
   const designated = publishedChannelId();
   if (designated && cachedChannelId && cachedChannelId !== designated) return designatedFallback();
-  /* Only the field's own list survives a retype (strict-channel rule): the
-     saved list remembers which channel input it was read for, so typing a new
-     channel drops the old channel's services at once instead of merging
-     them — no other livestream rides along. Unstamped older caches read as
-     before. */
+  /* A retyped channel orphans the previous channel's cache at once: the stored
+     value names another address, so its list never paints under the new field
+     — strict channel-field ownership, no other channel leaks in. */
   try {
     const pastedNow = cleanChannelInput(LIVE.youtubeChannel);
-    const savedFor = String((cached as { for?: unknown }).for || "");
-    if (savedFor && pastedNow && savedFor !== pastedNow) return designatedFallback();
-  } catch {
-    /* unjudgeable cache reads as before */
-  }
+    const cachedValue = String((cached as unknown as { value?: unknown }).value || "");
+    if (pastedNow && cachedValue && cachedValue !== pastedNow) return designatedFallback();
+  } catch { /* uncached — fall through to the filters */ }
   const now = Date.now();
   const items = cached.items
     .filter((it) => it && parseYoutubeId(String(it.videoId || "")))
@@ -702,23 +691,18 @@ export function readRecentServices(): RecentServices {
        moment; past a night it is no longer worth showing, and the read would
        have had it by then if it was ever going to. */
     .filter((it) => !it.seeded || now - it.seeded < SEED_MAX_MS)
-    /* Only @twocorg's own videos paint (note 418): a cached card without a
-       feed date was never proven the handle's — wall garbage and foreign
-       endings linger exactly here — so on the designated channel dateless
-       cards go, except a fresh just-ended seed still waiting on YouTube. */
-    .filter((it) => !designated || Number(it.at) > 0 || (it.seeded && now - it.seeded < SEED_MAX_MS));
+    /* Only the field's own videos paint (strict channel-field ownership, note
+       418): a cached card without a feed date was never proven the handle's —
+       wall garbage and foreign endings linger exactly here — so dateless cards
+       go on every channel now, except a fresh just-ended seed still waiting on
+       YouTube. */
+    .filter((it) => Number(it.at) > 0 || (it.seeded && now - it.seeded < SEED_MAX_MS));
   if (!items.length) return designatedFallback();
   return { items, at: Number(cached.at) || 0, channelId: String(cached.channelId || "") };
 }
 
 function saveRecentServices(next: RecentServices) {
-  let stamped: RecentServices = next;
-  try {
-    stamped = { ...next, for: cleanChannelInput(LIVE.youtubeChannel) };
-  } catch {
-    /* save unstamped — reads as before */
-  }
-  writeStore(RECENT_KEY, stamped);
+  writeStore(RECENT_KEY, next);
 }
 
 /* A proven new update drops the old card once (note 362): the next read, or

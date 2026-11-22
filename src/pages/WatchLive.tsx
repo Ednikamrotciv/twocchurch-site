@@ -110,11 +110,9 @@ export function WatchLive() {
      channel, or an unverified channel follow for one, reads as waiting until
      the fresh check proves the field's own channel is on air. Resolved from
      the address (UC id or known handle) plus the office-stamped channel from
-     the last Play, plus the id the last read resolved beside this same field
-     value; the check itself (livestatus.ts) already held every answer to the
-     field's own owner, and this holds the screen to it too — only the
-     channels inputted in the channel fields ever reach the player. */
-  const designatedFieldId = designatedChannelIdForTarget(targetUrl);
+     the last Play; unknown stays permissive here because the check itself
+     (livestatus.ts) already held the answer to the field's own owner. */
+  const allowedMainFieldId = designatedChannelIdForTarget(targetUrl);
   const airForTarget = isStatusForTarget(air, targetUrl)
     ? air
     : { ...air, state: "unknown" as const, videoId: "", title: "", channelId: "" };
@@ -140,11 +138,12 @@ export function WatchLive() {
   const pubMainChannelRaw = !!LIVE.isLive ? String((LIVE as any).liveVideoChannelId || "") : "";
   const pubMainChannel = /^UC[\w-]{20,24}$/.test(pubMainChannelRaw) ? pubMainChannelRaw : "";
   const pubMainTitle = !!LIVE.isLive ? String((LIVE as any).liveVideoTitle || "") : "";
-  /* The office-stamped channel joins the field's own id above: a main channel
-     the office retyped to an address with no baked answer is still known from
-     the last Play press, or from the last read beside this same field value —
-     so the screen holds it to that channel too. */
-  const designatedId = designatedFieldId || pubMainChannel || publishedChannelId();
+  /* The office-stamped channel joins the field's own id above, plus the resolved
+     id behind the typed field: a main channel the office retyped to an address
+     with no baked answer is still known from the last Play press or the last
+     successful read, so the screen holds it to that channel too. Only the
+     field's own channel ever plays. */
+  const allowedMainId = allowedMainFieldId || pubMainChannel || publishedChannelId();
   const guestCheckedAt = Number(air.checkedAt) || 0;
   /* A stale command never replays or steals the screen (the office forgot
      Stop): a check newer than the command that does not show THIS slot live
@@ -216,7 +215,7 @@ export function WatchLive() {
      only the main field's own channel is followed, and only one tap, never
      autoplay — anything else waits. A live guest's own channel follows the
      same way (note 380): one tap, never autoplay. */
-  const detectedChannel = screenAir.state === "live" && !screenAir.videoId && !!screenAir.channelId && (guestLive ? isGuestTargetUrl(screenAir.target, guestUrl) : (!designatedId || screenAir.channelId === designatedId)) ? screenAir.channelId : "";
+  const detectedChannel = screenAir.state === "live" && !screenAir.videoId && !!screenAir.channelId && (guestLive ? isGuestTargetUrl(screenAir.target, guestUrl) : (!allowedMainId || screenAir.channelId === allowedMainId)) ? screenAir.channelId : "";
   /* Dead-video gate (note 333): a named id that YouTube says is gone never
      autoplays into the black "unavailable" frame — and the unverified channel
      follow below is always one tap, never autoplay. Unknown (offline, probe
@@ -228,17 +227,16 @@ export function WatchLive() {
      ignored entirely and channel detection won — even when detection named a
      different broadcast from the one put in. A typed link proven live on its
      own watch page outranks detection; a stale/off/thin link changes nothing
-     (the stray-link guard still holds for those). Strict-channel rule: the
-     typed video must be proven the field's own — the probe's channel and the
-     field's channel both known and equal — or there must be no channel set at
-     all (pure video mode). An unprovable typed link waits; it never outranks
-     the channel with a guess. The verdict warms the same cache the player
-     verifies behind the frame. */
+     (the stray-link guard still holds for those), and the typed video's
+     channel must be the screen's own channel when that channel is known — a
+     walled typed link never outranks a known field, so only the field's
+     channel ever plays. The verdict warms the same cache the player verifies
+     behind the frame. */
   const typedInputId = parseYoutubeId(LIVE.youtubeId);
   const typedProbe = useNamedVideoLive(LIVE.youtubeId, !!typedInputId && !guestLive);
   const typedVerdict = useYoutubeVerdict(typedInputId);
-  const typedOwner = designatedId || airForTarget.channelId || "";
-  const typedSameChannel = !typedOwner ? !hasChannel : (!!typedProbe.channelId && typedProbe.channelId === typedOwner);
+  const typedOwner = allowedMainId || airForTarget.channelId || "";
+  const typedSameChannel = !typedOwner || (!!typedProbe.channelId && typedProbe.channelId === typedOwner);
   const typedWin = !!typedInputId && typedProbe.live && typedProbe.videoId === typedInputId && typedSameChannel && (typedVerdict === true || typedVerdict === null);
   const checkingTypedId = !!typedInputId && typedProbe.checking && !typedWin;
   /* Field-driven: a named video from another channel never autoplays —
@@ -251,7 +249,7 @@ export function WatchLive() {
      which verifies behind the frame itself. Only a proven-dead id is held
      back, and it still reaches the player below for its fallback. */
   const idOk = idVerdict === true || idVerdict === null;
-  const playableId = detectedId && idOk && (isDesignatedChannel(airForTarget.channelId, designatedId) || (guestLive && isGuestTargetUrl(screenAir.target, guestUrl))) ? detectedId : "";
+  const playableId = detectedId && idOk && (isDesignatedChannel(airForTarget.channelId, allowedMainId) || (guestLive && isGuestTargetUrl(screenAir.target, guestUrl))) ? detectedId : "";
   /* The published id plays with the same unknown-plays rule (note 420): it
      was verified at stamp time, so no designated gate — the office already
      proved it. Only a proven-dead stamp is held back (it still reaches the
@@ -266,7 +264,7 @@ export function WatchLive() {
      player's own dead fallback names it and offers the platform link — never
      the black "unavailable" frame, and never the ticking clock for a live
      that is already on air. */
-  const deadLiveId = detectedId && idVerdict === false && (isDesignatedChannel(airForTarget.channelId, designatedId) || (guestLive && isGuestTargetUrl(screenAir.target, guestUrl))) ? detectedId : "";
+  const deadLiveId = detectedId && idVerdict === false && (isDesignatedChannel(airForTarget.channelId, allowedMainId) || (guestLive && isGuestTargetUrl(screenAir.target, guestUrl))) ? detectedId : "";
   const deadPubId = !detectedId && !detectedChannel && !fbLive && !!effPubVideo && pubVerdict === false && !effPubChannel ? effPubVideo : "";
   const watchable = !!playId || !!deadLiveId || !!deadPubId || !!followChannel || fbLive || !!verifiedFallbackId;
   /* Dead-video gate (note 413, opened note 420): a named id reaches the
@@ -291,7 +289,7 @@ export function WatchLive() {
      Publish lifts the same way the main one always did. The same stamped id
      covers a main channel the office retyped away from the designation. */
   const overrideGuestChannel = pubGuestChannel || designatedChannelIdForTarget(guestUrl);
-  const overrideMainChannel = pubMainChannel || designatedChannelIdForTarget(targetUrl) || publishedChannelId();
+  const overrideMainChannel = pubMainChannel || designatedChannelIdForTarget(targetUrl);
   /* A fresh off-read for the other slot retires a stale override (the office
      forgot Stop): walled/unknown reads never retire anything. */
   const overrideMain = !!LIVE.isLive && hasChannel && !guestLive && !guestPubActive && screenAir.state !== "live" && airForTarget.state === "unknown" && !shutNow;
@@ -355,7 +353,7 @@ export function WatchLive() {
      Order fix: the baked thumbnail used to sit third and shadow the sermon
      and hero stills whenever no recent had loaded yet — it now closes the
      chain, so every still above it is reachable. */
-  const bakedLatestThumb = designatedFallback().items[0]?.thumb || img("watch-live") || "";
+  const bakedLatestThumb = designatedFallback().items[0]?.thumb || "https://i.ytimg.com/vi/dcCt75FMm6o/hqdefault.jpg";
   const cover =
     (airForTarget.endedAt && airForTarget.videoId && airForTarget.platform !== "facebook" ? youtubeThumb(airForTarget.videoId) : "") ||
     recentStreams.items[0]?.thumb ||
