@@ -913,32 +913,12 @@ export function AnnouncementSlides({ slides = SLIDES }: { slides?: AnnouncementS
   const webgl = useWebGLAvailable();
   useEffect(() => {
     if (calm || !webgl) return;
-    /* Eager warm-up: the box chunk (three.js) is heavy, so start it early on a
-       short timer as well as on idle — idle alone may never fire on a busy
-       page, which left the stage blank on first view. */
-    let idleId = 0;
-    let timer = 0;
-    try {
-      timer = window.setTimeout(() => {
-        void import("./slides3d").catch(() => {});
-      }, 900);
-    } catch {}
-    try {
-      const ric = (window as unknown as { requestIdleCallback?: (cb: () => void) => number }).requestIdleCallback;
-      if (ric) {
-        idleId = ric(() => {
-          void import("./slides3d").catch(() => {});
-        });
-      }
-    } catch {}
-    return () => {
-      try {
-        window.clearTimeout(timer);
-      } catch {}
-      try {
-        (window as unknown as { cancelIdleCallback?: (id: number) => void }).cancelIdleCallback?.(idleId);
-      } catch {}
-    };
+    const ric = (window as unknown as { requestIdleCallback?: (cb: () => void) => number }).requestIdleCallback;
+    if (!ric) return;
+    const id = ric(() => {
+      void import("./slides3d");
+    });
+    return () => (window as unknown as { cancelIdleCallback?: (id: number) => void }).cancelIdleCallback?.(id);
   }, [calm, webgl]);
   /* The 3D cuboid turns itself, slowly and without steps; the arrows, swipe,
      keys or a tap just lend it speed. */
@@ -1140,7 +1120,7 @@ export function AnnouncementSlides({ slides = SLIDES }: { slides?: AnnouncementS
               aria-label={ct("auto.site.ed1bc718392f9ee1")}
             >
               <StageErrorBoundary fallback={<img className="aslide__photo" src={standIn} alt="" />}>
-                <React.Suspense fallback={<img className="aslide__photo" src={standIn} alt="" />}>
+                <React.Suspense fallback={null}>
                   <CuboidSpace3D slides={[]} apiRef={cuboidApi} held={held} />
                 </React.Suspense>
               </StageErrorBoundary>
@@ -1257,7 +1237,7 @@ export function AnnouncementSlides({ slides = SLIDES }: { slides?: AnnouncementS
             aria-label={ct("auto.site.ed1bc718392f9ee1")}
           >
             <StageErrorBoundary fallback={<img className="aslide__photo" src={standIn} alt="" />}>
-              <React.Suspense fallback={<div className="aslides__fallback"><AnnouncementSlide slide={live[0]} design={designs[0] || "plate"} index={1} total={count} /></div>}>
+              <React.Suspense fallback={null}>
                 <CuboidSpace3D slides={live} apiRef={cuboidApi} held={held} />
               </React.Suspense>
             </StageErrorBoundary>
