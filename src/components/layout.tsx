@@ -11,6 +11,7 @@ import { SERMONS, sermonDate, sermonThumb } from "../data/sermons";
 import { EVENTS, SEED_TESTIMONIES } from "../data/content";
 import { Icon, IconBtn, OPEN_SEARCH_EVENT } from "./ui";
 import { eventDate, AnnouncementBanner } from "./blocks";
+import { PhotoImg } from "./photoimg";
 import { ct } from "../data/copy";
 
 /* ------------------------------------------------------------------ search index */
@@ -587,28 +588,11 @@ export function PageHead({
     <section className={"page-head" + (image ? " page-head--image" : "")}>
       {image && (
         <div className="page-head__bg" aria-hidden="true">
-          <img
-            src={image}
-            alt=""
-            onError={(e) => {
-              /* A missing custom banner (deleted upload, moved file) falls
-                 back to the bundled hero once instead of leaving a broken
-                 header — same fallback on local and on every deploy. */
-              try {
-                const el = e.currentTarget;
-                if (el.dataset.fb) {
-                  el.style.display = "none";
-                  return;
-                }
-                el.dataset.fb = "1";
-                el.src = siteFile("src/assets/img/hero.jpg");
-              } catch {
-                try {
-                  e.currentTarget.style.display = "none";
-                } catch {}
-              }
-            }}
-          />
+          {/* Wired banner (blank-upload fix): the banner paints through the
+              same copy-chain as the console previews — this tab's own bytes,
+              the cache, this copy's disk, the repo mirrors — so a fresh
+              upload reflects here at once and never mismatches to the hero. */}
+          <PhotoImg src={image} fallback={siteFile("src/assets/img/hero.jpg")} alt="" />
         </div>
       )}
       <div className="container page-head__inner">

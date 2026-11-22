@@ -2987,6 +2987,11 @@ function diffAgainstLive(liveSections: Snapshot): { ids: string[]; patch: Record
 async function backfillUploadsFrom(fromBase: string, content: Snapshot = overrides): Promise<{ restored: number; failed: string[] }> {
   let restored = 0;
   const failed: string[] = [];
+  /* The words themselves may name hosts that still serve the file (an
+     absolute office address the admin frame paints but this disk lacks) —
+     tried for every missing file below, after the counterpart. */
+  let wordOrigins: string[] = [];
+  try { wordOrigins = storedUploadOrigins(content); } catch { wordOrigins = []; }
   for (const name of localUploadNames(content)) {
     let here = false;
     try {
@@ -3021,6 +3026,27 @@ async function backfillUploadsFrom(fromBase: string, content: Snapshot = overrid
       fetched = false;
     }
     } /* end direct counterpart fetch (feed bases use the mirror loop) */
+    if (fetched) continue;
+    /* Stored absolute addresses name a host proven to hold these bytes —
+       pull from there before the mirrors (which lag a fresh push). */
+    if (!fetched && wordOrigins.length) {
+      try {
+        const got = await fetchUploadFromOrigins(wordOrigins, name);
+        if (got) {
+          const put = await fetch("/__restore-file?conn=" + encodeURIComponent(officeFileConn()) + "&name=" + encodeURIComponent(name), {
+            method: "POST",
+            headers: { "content-type": (got as any).type || guessUploadType(name) },
+            body: got,
+          });
+          if (put.ok) {
+            restored++;
+            fetched = true;
+          }
+        }
+      } catch {
+        fetched = false;
+      }
+    }
     if (fetched) continue;
     /* Counterpart silent (asleep, or this adoption came off the feed mirror):
        try the public repo mirrors before giving up — the same bytes the heal
@@ -3085,6 +3111,11 @@ export async function healMissingUploads(): Promise<{ restored: number; checked:
     try {
       if (draft) for (const n of localUploadNames(draft)) seen.add(n);
     } catch {}
+    /* Stored absolute addresses name hosts proven to hold these bytes. */
+    let healOrigins: string[] = [];
+    try {
+      healOrigins = storedUploadOrigins(draft || merge(overrides));
+    } catch { healOrigins = []; }
     let restored = 0;
     let checked = 0;
     for (const name of [...seen]) {
@@ -3126,6 +3157,14 @@ export async function healMissingUploads(): Promise<{ restored: number; checked:
             }
           } catch {}
         }
+        /* Stored absolute addresses name a host proven to hold these bytes —
+           pull from there before the mirrors (which lag a fresh push). */
+        if ((!blob || !(blob as any).size) && healOrigins.length) {
+          try {
+            const got = await fetchUploadFromOrigins(healOrigins, name);
+            if (got) blob = got;
+          } catch {}
+        }
         if (!blob || !(blob as any).size) {
           for (const u of await feedUrlsForUpload(name)) {
             try {
@@ -3161,6 +3200,118 @@ function scheduleUploadHeal(delayMs = 2500): void {
       healMissingUploads().catch(() => {});
     }, delayMs);
   } catch {}
+}
+
+/* Restore-time redownload (office request: no manual redownload/reupload —
+   the restore click itself fetches): every listed upload this copy's disk
+   cannot serve is pulled from this browser's cache, the live box or the
+   public mirrors and written back to the office server under its exact name,
+   so visitors and every admin frame paint it after the next Publish with
+   nothing further to do. `present` names already serve (nothing faulty);
+   `restored` were fetched and verified; `failed` are still faulty (the
+   publish click rides the same fetch and retries them). Never throws. */
+async function redownloadUploads(names: string[], origins: string[] = []): Promise<{ restored: string[]; failed: string[]; present: string[] }> {
+  const restored: string[] = [];
+  const failed: string[] = [];
+  const present: string[] = [];
+  try {
+    if (typeof navigator !== "undefined" && (navigator as any).onLine === false) return { restored, failed, present };
+  } catch {}
+  const seen = new Set<string>();
+  for (const raw of names || []) {
+    const name = String(raw || "");
+    if (!name || seen.has(name)) continue;
+    seen.add(name);
+    try {
+      let missing = false;
+      try {
+        missing = await uploadNameMissing(name);
+      } catch {
+        continue;
+      }
+      if (!missing) {
+        present.push(name);
+        continue;
+      }
+      let blob: any = null;
+      try {
+        const dataUrl = await getCachedDataUrl(name);
+        blob = dataUrlToBlob(dataUrl || "");
+      } catch {
+        blob = null;
+      }
+      if (!blob || !(blob as any).size) {
+        try {
+          const liveBase = await liveBaseUrl().catch(() => "");
+          if (liveBase) {
+            const r = await fetch(liveBase + "/data/uploads/" + encodeURIComponent(name), { cache: "no-store" });
+            if (r.ok && !String(r.headers.get("content-type") || "").toLowerCase().includes("text/html")) {
+              const b = await r.blob();
+              if (b && (b as any).size && !String((b as any).type || "").toLowerCase().includes("text/html") && (b as any).size <= BACKUP_FILE_MAX_BYTES) {
+                blob = b;
+                try { await cacheUploadBlob(name, b); } catch {}
+              }
+            }
+          }
+        } catch {}
+      }
+      /* Stored absolute addresses name a host proven to hold these bytes
+         (the admin frame painting them proves it still serves) — pull from
+         there before the mirrors (which lag a fresh push). */
+      if ((!blob || !(blob as any).size) && origins.length) {
+        try {
+          const got = await fetchUploadFromOrigins(origins, name);
+          if (got) blob = got;
+        } catch {}
+      }
+      if (!blob || !(blob as any).size) {
+        try {
+          for (const u of await feedUrlsForUpload(name)) {
+            try {
+              const r = await fetch(u, { cache: "no-store" });
+              if (!r.ok) continue;
+              const b = await r.blob();
+              if (!b || !(b as any).size) continue;
+              if (String((b as any).type || "").toLowerCase().includes("text/html")) continue;
+              if ((b as any).size > BACKUP_FILE_MAX_BYTES) continue;
+              blob = b;
+              try { await cacheUploadBlob(name, b); } catch {}
+              break;
+            } catch {}
+          }
+        } catch {}
+      }
+      if (!blob || !(blob as any).size) {
+        failed.push(name);
+        continue;
+      }
+      const put = await fetch("/__restore-file?conn=" + encodeURIComponent(officeFileConn()) + "&name=" + encodeURIComponent(name), {
+        method: "POST",
+        headers: { "content-type": (blob as any).type || guessUploadType(name) },
+        body: blob,
+      }).catch(() => null);
+      if (!put || !(put as any).ok) {
+        failed.push(name);
+        continue;
+      }
+      /* Read it back (note 346): only a file the server actually serves counts. */
+      let verified = false;
+      try {
+        const check = await fetch("/data/uploads/" + name, { cache: "no-store" });
+        verified = !!check.ok && !String(check.headers.get("content-type") || "").toLowerCase().includes("text/html");
+      } catch {
+        verified = false;
+      }
+      if (!verified) {
+        failed.push(name);
+        continue;
+      }
+      restored.push(name);
+    } catch {
+      failed.push(name);
+    }
+  }
+  return { restored, failed, present };
 }
 
 /* Publish-time upload fetch (office request: no manual retry button — the
@@ -6347,8 +6498,84 @@ function localUploadNames(content: Snapshot): string[] {
   return [...seen];
 }
 
-function guessUploadType(name: string): string {
-  const ext = (name.split(".").pop() || "").toLowerCase();
+/* Restore repair (blank-photo fix): absolute office addresses name the host
+   that held the bytes — when this disk lacks the file, that host is the best
+   source after this browser's cache (the admin frame painting it proves it
+   still serves). Distinct origins only, capped, never this copy itself (the
+   missing check already proved this disk lacks it). */
+function storedUploadOrigins(content: Snapshot, cap = 5): string[] {
+  const out: string[] = [];
+  let own = "";
+  try { own = String(window.location?.origin || ""); } catch {}
+  let text = "";
+  try { text = JSON.stringify(content); } catch { return out; }
+  const re = /(https?:\/\/[^/"'\s\\]+)\/data\/uploads\/[A-Za-z0-9][A-Za-z0-9._-]*/g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(text))) {
+    const origin = String(m[1] || "");
+    if (!origin || origin === own || out.indexOf(origin) !== -1) continue;
+    out.push(origin);
+    if (out.length >= cap) break;
+  }
+  return out;
+}
+
+/** First absolute /data/uploads/ address seen per file name (restore repair:
+   files this disk cannot be healed with keep pointing at the host that holds
+   them instead of blanking every frame that paints them). */
+function storedUploadAddresses(content: Snapshot): Map<string, string> {
+  const map = new Map<string, string>();
+  let text = "";
+  try { text = JSON.stringify(content); } catch { return map; }
+  const re = /(https?:\/\/[^/"'\s\\]+\/data\/uploads\/([A-Za-z0-9][A-Za-z0-9._-]*))/g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(text))) {
+    const name = String(m[2] || "");
+    if (name && !map.has(name)) map.set(name, String(m[1] || ""));
+  }
+  return map;
+}
+
+/* GET a remote upload into validated bytes (errors, html bodies, empties and
+   oversize files are all "no"). Used by the restore/publish repair loops for
+   non-mirror hosts. Never throws. */
+async function fetchUploadBytes(url: string): Promise<Blob | null> {
+  try {
+    const res = await fetch(url, { cache: "no-store" });
+    if (!res.ok) return null;
+    if (String(res.headers.get("content-type") || "").toLowerCase().includes("text/html")) return null;
+    const blob = await res.blob();
+    if (!blob || !(blob as any).size || (blob as any).size > BACKUP_FILE_MAX_BYTES) return null;
+    if (String((blob as any).type || "").toLowerCase().includes("text/html")) return null;
+    return blob as Blob;
+  } catch {
+    return null;
+  }
+}
+
+/* First host wins: try each origin base for this file name, caching what
+   lands so this tab paints instantly and can heal other copies. Returns the
+   bytes or null. Bounded by the caller's own clock. Never throws. */
+async function fetchUploadFromOrigins(origins: string[], name: string): Promise<Blob | null> {
+  for (const base of origins || []) {
+    const root = String(base || "").replace(/\/+$/, "");
+    if (!root) continue;
+    try {
+      const blob = await fetchUploadBytes(root + "/data/uploads/" + encodeURIComponent(name));
+      if (blob) {
+        try { await cacheUploadBlob(name, blob); } catch {}
+        return blob;
+      }
+    } catch {}
+  }
+  return null;
+}
+
+function escRe(s: string): string {
+  return String(s || "").replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function guessUploadType(name: string): string {  const ext = (name.split(".").pop() || "").toLowerCase();
   return (
     ({
       jpg: "image/jpeg", jpeg: "image/jpeg", png: "image/png", webp: "image/webp", gif: "image/gif", avif: "image/avif", svg: "image/svg+xml",
@@ -6613,7 +6840,18 @@ export async function importBackup(text: string): Promise<ImportResult> {
   } catch {}
   /* Device-proof uploads: absolute office addresses name the old host — point
      them at this copy's own disk so the restored words paint the files the
-     restore writes here, on any device. Pasted links never match and ride on. */
+     restore writes here, on any device. Pasted links never match and ride on.
+     Remembered first (below): files this disk cannot be healed with keep the
+     absolute address that still serves them instead of blanking. */
+  let keptOrigins: string[] = [];
+  let keptAddresses: Map<string, string> = new Map();
+  try {
+    keptOrigins = storedUploadOrigins(kept);
+    keptAddresses = storedUploadAddresses(kept);
+  } catch {
+    keptOrigins = [];
+    keptAddresses = new Map();
+  }
   try {
     const flat = JSON.parse(JSON.stringify(kept).replace(/https?:\/\/[^/"'\s\\]+\/data\/uploads\//g, "/data/uploads/"));
     for (const k of Object.keys(kept)) delete (kept as any)[k];
@@ -6670,30 +6908,29 @@ export async function importBackup(text: string): Promise<ImportResult> {
   const filesFailed: string[] = [];
   const filesPoisoned: string[] = [];
   let filesRestored = 0;
+  /* Same-origin counts (restore+publish must reach every copy): on a
+     server-backed tab with no office address — live/admin talking to its
+     own backend — the files belong to THIS backend. Refusing them published
+     words that pointed at photos only the restoring tab could paint, so a
+     restore+publish "worked" on one tab and nowhere else. An office
+     address still wins when one is set; localhost keeps its old pass. */
+  let reachable = false;
+  try {
+    reachable = !!serverUrl();
+    if (!reachable) reachable = !!(socket && status === "online");
+  } catch {
+    reachable = false;
+  }
+  if (!reachable) {
+    try {
+      const host = window.location?.hostname || "";
+      reachable = host === "localhost" || host === "127.0.0.1" || host === "";
+    } catch {
+      reachable = false;
+    }
+  }
   if (incoming.length) {
     const base = serverUrl();
-    /* Same-origin counts (restore+publish must reach every copy): on a
-       server-backed tab with no office address — live/admin talking to its
-       own backend — the files belong to THIS backend. Refusing them published
-       words that pointed at photos only the restoring tab could paint, so a
-       restore+publish "worked" on one tab and nowhere else. An office
-       address still wins when one is set; localhost keeps its old pass. */
-    let reachable = !!base;
-    if (!reachable) {
-      try {
-        reachable = !!(socket && status === "online");
-      } catch {
-        reachable = false;
-      }
-    }
-    if (!reachable) {
-      try {
-        const host = window.location?.hostname || "";
-        reachable = host === "localhost" || host === "127.0.0.1" || host === "";
-      } catch {
-        reachable = false;
-      }
-    }
     if (!reachable) {
       /* No server to write to (static host, no backend): keep every embedded
          file in this browser's cache so the restored draft paints here
@@ -6783,6 +7020,89 @@ export async function importBackup(text: string): Promise<ImportResult> {
         }
       }
     }
+  }
+  /* Automatic redownload (office request): faulty uploads the backup names —
+     missing, failed or poisoned — come back by themselves at this click, so
+     visitors and every admin frame paint them after Publish with no manual
+     redownload and reupload. The publish click rides the same fetch and
+     retries whatever is still faulty then. Bounded, never throws; the counts
+     below stay truthful about what this click actually fixed. */
+  if (reachable) {
+    try {
+      let refs: string[] = [];
+      try { refs = localUploadNames(draft); } catch { refs = []; }
+      const cands: string[] = [];
+      for (const n of [...refs, ...filesMissing, ...filesFailed, ...filesPoisoned]) {
+        if (typeof n === "string" && n && cands.indexOf(n) < 0) cands.push(n);
+      }
+      if (cands.length) {
+        /* The backup's own absolute addresses name hosts proven to hold these
+           bytes (the admin frame painting them proves they still serve) —
+           tried after the live box, before the mirrors. */
+        const pass = redownloadUploads(cands, keptOrigins).catch((): { restored: string[]; failed: string[]; present: string[] } => ({ restored: [], failed: [], present: [] }));
+        const done = await Promise.race([pass, new Promise<null>((resT) => window.setTimeout(() => resT(null), 20000))]).catch(() => null);
+        if (done) {
+          const okSet = new Set<string>([...done.present, ...done.restored]);
+          for (const arr of [filesMissing, filesFailed, filesPoisoned]) {
+            for (let i = arr.length - 1; i >= 0; i--) {
+              if (okSet.has(arr[i])) arr.splice(i, 1);
+            }
+          }
+          filesRestored += done.restored.length;
+          /* Files this disk still cannot serve keep the host that holds
+             them: point the restored words back at the stored absolute
+             address instead of blanking every frame that paints them. Only
+             names never verified present are touched; absolute addresses
+             already pointing at a host are left exactly as they are. */
+          try {
+            const faulty: string[] = [];
+            const seenF = new Set<string>();
+            const pushF = (n: any) => {
+              const s = String(n || "");
+              if (s && !seenF.has(s)) { seenF.add(s); faulty.push(s); }
+            };
+            for (const n of done.failed) pushF(n);
+            for (const arr of [filesMissing, filesFailed, filesPoisoned]) for (const n of arr) pushF(n);
+            const fixes: Array<[string, string]> = [];
+            for (const n of faulty) {
+              const abs = keptAddresses.get(n);
+              if (abs) fixes.push([n, abs]);
+            }
+            if (fixes.length) {
+              let text = "";
+              try { text = JSON.stringify(draft); } catch { text = ""; }
+              if (text) {
+                let changed = false;
+                for (const [n, abs] of fixes) {
+                  const re = new RegExp("(https?:\\/\\/[^\\/\"'\\s\\\\]+)?\\/data\\/uploads\\/" + escRe(n) + "(?![A-Za-z0-9._-])", "g");
+                  const next = text.replace(re, (m: string, host: string) => (host ? m : abs));
+                  if (next !== text) { text = next; changed = true; }
+                }
+                if (changed) {
+                  const fixed = JSON.parse(text);
+                  for (const k of Object.keys(draft)) delete (draft as any)[k];
+                  Object.assign(draft, fixed);
+                  /* Photo overrides follow the draft, so banners and cards
+                     paint the repaired address at once — not after the next
+                     edit — on this frame and every admin frame it stages to. */
+                  try {
+                    for (const def of SECTION_DEFS) {
+                      if (def.id === "photos-banners" || def.id === "photos-ministries" || def.id === "photos-leadership") {
+                        const v = (draft as any)[def.id];
+                        if (v !== undefined) def.bind(clone(v));
+                      }
+                    }
+                  } catch {}
+                  persistDraft();
+                  notify();
+                  stageSharedDraftSoon();
+                }
+              }
+            }
+          } catch {}
+        }
+      }
+    } catch {}
   }
   return { ok: true, restored, skipped, filesRestored, filesFailed, filesMissing, filesPoisoned, channelMoved: channelMoved || undefined, guestCleared: guestCleared || undefined };
 }
