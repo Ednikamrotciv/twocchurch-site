@@ -5791,6 +5791,15 @@
   position: absolute;
   inset: 0;
 }
+/* While the 3D chunk loads, the flat first slide holds the same box — the
+   stage never sits blank waiting on three.js. */
+.aslides__fallback {
+  position: absolute;
+  inset: 0;
+}
+.aslides__fallback .aslide {
+  animation: none;
+}
 .aslides__gl > div {
   width: 100%;
   height: 100%;

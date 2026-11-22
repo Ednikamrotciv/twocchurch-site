@@ -52,12 +52,7 @@ const Admin = React.lazy(
     import("./pages/Admin").then((m) => ({ default: m.Admin })),
   ),
 );
-
-// The boundary is a React class component whose type is valid at runtime, but
-// older React declarations describe componentDidCatch.componentStack as
-// string-only while the library declaration allows null. Expose it as a plain
-// component type here so JSX checking does not compare those declarations.
-const SafeErrorBoundary = ErrorBoundary as unknown as React.ComponentType<
+const AppErrorBoundary = ErrorBoundary as unknown as React.ComponentType<
   React.PropsWithChildren<object>
 >;
 
@@ -236,11 +231,11 @@ export function App() {
         {/* Never a loader page: nothing flashes while the admin chunk arrives —
             the site shell stays on screen, and a crash inside it lands on the
             error card — not a white page. */}
-        <SafeErrorBoundary>
+        <AppErrorBoundary>
           <React.Suspense fallback={null}>
             <Admin />
           </React.Suspense>
-        </SafeErrorBoundary>
+        </AppErrorBoundary>
         <LangAsk />
       </>
     );
@@ -374,9 +369,9 @@ function SiteApp() {
       {previewing && <PreviewBanner />}
       <Header />
       <main id="main" key={to}>
-        <SafeErrorBoundary>
+        <AppErrorBoundary>
           <React.Suspense fallback={null}>{page}</React.Suspense>
-        </SafeErrorBoundary>
+        </AppErrorBoundary>
       </main>
       <Footer />
       <ScrollTop />

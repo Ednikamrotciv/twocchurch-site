@@ -3086,48 +3086,15 @@ async function backfillUploadsFrom(fromBase: string, content: Snapshot = overrid
    html (the app fallback), so html answers count as missing like a 404. */
 let uploadHealRunning = false;
 async function uploadNameMissing(name: string): Promise<boolean> {
-  /* Deep health (restore auto-repair, image fix): missing OR unhealthy both
-     need a heal. A wiped disk answers 200 html, a poisoned backup wrote html
-     as an image, or a truncated upload has the wrong magic — all paint blank.
-     Offline the fetch throws: that proves nothing about the server file, so
-     answer "not missing" and let the cached copy paint; the next online heal
-     restores. Silent, never throws. */
+  /* Active both online and offline: offline the fetch throws — that proves
+     nothing about the server file (the browser is offline), so answer "not
+     missing" and let the cached copy paint; the next online heal restores. */
   try {
     if (typeof navigator !== "undefined" && (navigator as any).onLine === false) return false;
     const res = await fetch("/data/uploads/" + name, { cache: "no-store" });
     if (!res.ok) return true;
     const type = String(res.headers.get("content-type") || "").toLowerCase();
     if (type.includes("text/html")) return true;
-    let blob: Blob | null = null;
-    try { blob = await res.blob(); } catch { return true; }
-    if (!blob || !(blob as any).size) return true;
-    if ((blob as any).size > BACKUP_FILE_MAX_BYTES) return true;
-    if (String((blob as any).type || "").toLowerCase().includes("text/html")) return true;
-    try {
-      const snip = await blob.slice(0, 2048).text().catch(() => "");
-      const low = String(snip || "").toLowerCase();
-      if (low.includes("<!doctype") || low.includes("<html") || low.includes("<head") || low.includes("<meta") || low.includes("wom-deploy") || low.includes("wom-notes") || low.includes("__wom")) return true;
-      if (low.trimStart().startsWith("<")) return true;
-    } catch {}
-    try {
-      const ext = (String(name).split(".").pop() || "").toLowerCase();
-      const isImg = ext === "jpg" || ext === "jpeg" || ext === "png" || ext === "gif" || ext === "webp" || ext === "avif";
-      if (isImg) {
-        const ab = await blob.slice(0, 12).arrayBuffer().catch(() => new ArrayBuffer(0));
-        const buf = new Uint8Array(ab);
-        if (!buf.length) return true;
-        if (ext === "jpg" || ext === "jpeg") { if (!(buf[0] === 0xff && buf[1] === 0xd8 && buf[2] === 0xff)) return true; }
-        else if (ext === "png") { if (!(buf[0] === 0x89 && buf[1] === 0x50 && buf[2] === 0x4e && buf[3] === 0x47)) return true; }
-        else if (ext === "gif") { if (!(buf[0] === 0x47 && buf[1] === 0x49 && buf[2] === 0x46 && buf[3] === 0x38)) return true; }
-        else if (ext === "webp") { if (!(buf.length >= 12 && buf[0] === 0x52 && buf[1] === 0x49 && buf[2] === 0x46 && buf[3] === 0x46 && buf[8] === 0x57 && buf[9] === 0x45 && buf[10] === 0x42 && buf[11] === 0x50)) return true; }
-        else if (ext === "avif") {
-          if (buf.length < 12) return true;
-          const box = String.fromCharCode(buf[4], buf[5], buf[6], buf[7]);
-          const brand = String.fromCharCode(buf[8], buf[9], buf[10], buf[11]).toLowerCase();
-          if (!(box === "ftyp" && (brand.indexOf("avif") !== -1 || brand.indexOf("heic") !== -1 || brand.indexOf("mif1") !== -1 || brand.indexOf("msf1") !== -1))) return true;
-        }
-      }
-    } catch { return true; }
     return false;
   } catch {
     return false;
@@ -6744,11 +6711,6 @@ export async function exportPublished(): Promise<string> {
   const base = serverUrl();
   const files: BackupFile[] = [];
   const missingFiles: string[] = [];
-  /* Restore auto-repair (image fix): absolute office addresses name hosts
-     proven to hold these bytes — tried before the mirrors when this disk
-     lacks the file, so backups carry real photos even after a sleep-wipe. */
-  let exportOrigins: string[] = [];
-  try { exportOrigins = storedUploadOrigins(content); } catch { exportOrigins = []; }
   for (const name of allBackupNames(content)) {
     let done = false;
     try {
@@ -6780,11 +6742,9 @@ export async function exportPublished(): Promise<string> {
       /* fall through to cache/feed below — a wiped server must not sink the backup */
     }
     if (done) continue;
-    /* Server miss fallback (backup fix + restore auto-repair): this browser's
-       own cache, the stored absolute hosts, or the public feed still holds
-       the file after a sleep-wipe, so the backup carries it instead of
-       marking it missing and restoring blank. Origins (absolute office
-       addresses) are tried before the mirrors, which lag a fresh push. */
+    /* Server miss fallback (backup fix): this browser's own cache or the
+       public feed still holds the file after a sleep-wipe, so the backup
+       carries it instead of marking it missing and restoring blank. */
     try {
       let blob = null;
       try {
@@ -6792,12 +6752,6 @@ export async function exportPublished(): Promise<string> {
         const b = dataUrlToBlob(cached || "");
         if (b && b.size) blob = b;
       } catch {}
-      if ((!blob || !blob.size) && exportOrigins.length) {
-        try {
-          const got = await fetchUploadFromOrigins(exportOrigins, name);
-          if (got) blob = got;
-        } catch {}
-      }
       if (!blob || !blob.size) {
         for (const u of await feedUrlsForUpload(name)) {
           try {
