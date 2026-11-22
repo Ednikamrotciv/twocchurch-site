@@ -47,17 +47,19 @@ import { SITE } from "./data/site";
 import { BRANCHES, HQ } from "./data/branches";
 import { EVENTS } from "./data/content";
 
-// The boundary is implemented in the app's own error style, but older declarations
-// can describe componentDidCatch too narrowly for the JSX type checker.
-const SafeErrorBoundary = ErrorBoundary as unknown as React.ComponentType<{
-  children?: React.ReactNode;
-}>;
-
 const Admin = React.lazy(
   lazyPage("Admin", () =>
     import("./pages/Admin").then((m) => ({ default: m.Admin })),
   ),
 );
+
+// The boundary is a React class component whose type is valid at runtime, but
+// older React declarations describe componentDidCatch.componentStack as
+// string-only while the library declaration allows null. Expose it as a plain
+// component type here so JSX checking does not compare those declarations.
+const SafeErrorBoundary = ErrorBoundary as unknown as React.ComponentType<
+  React.PropsWithChildren<object>
+>;
 
 /* Explicit local preview only (?maintenance=1): the office's way to see the
    notice on demand. Visitors on a fresh deploy see it until Publish clears it. */

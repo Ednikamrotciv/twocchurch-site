@@ -599,15 +599,12 @@ export function VideoPlayer({
           try { if (playing) setDead(true); } catch {}
           return;
         }
-        /* Field-driven gate (no hardcoded handle): only the main field's own
-           channel opens the player — a live answer from another channel, or
-           an unverified channel follow with no video, waits instead of
-           playing. The guest's own stamped answer passes while IT is live
-           (note 380). Resolved from the main address (UC id or known handle);
-           unknown stays permissive because the check itself already held the
-           answer to the field's own owner. */
-        const allowedTapId = designatedChannelIdForTarget(liveTarget()?.url || "");
-        if (!isDesignatedChannel(st.channelId || "", allowedTapId) && !(guestWatchUrl && isGuestTargetUrl(st.target || "", guestWatchUrl))) {
+        /* Only the designated channel opens the player (note 358): a live
+           answer from another channel — or an unverified channel follow
+           with no video — waits instead of playing. The guest's own stamped
+           answer passes while IT is live (note 380). */
+        const designatedId = designatedChannelIdForTarget(liveTarget()?.url || "");
+        if (!isDesignatedChannel(st.channelId || "", designatedId) && !(guestWatchUrl && isGuestTargetUrl(st.target || "", guestWatchUrl))) {
           setChecking(false);
           setNotLive(true);
           /* Somebody else's video can never play here: the centered arrow
@@ -637,7 +634,7 @@ export function VideoPlayer({
               setNotLive(true);
             });
         } else if (
-          (st.state === "live" && st.channelId && (!allowedTapId || st.channelId === allowedTapId)) ||
+          (st.state === "live" && st.channelId && (!designatedId || st.channelId === designatedId)) ||
           (guestWatchUrl && st.state === "live" && !!st.channelId && isGuestTargetUrl(st.target || "", guestWatchUrl))
         ) {
           setChecking(false);

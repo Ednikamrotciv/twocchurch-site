@@ -402,6 +402,9 @@ function useFaceTextures(
   /* Taps and turns restart the muted faces (and unlock them where the browser
      holds autoplay until the first touch). */
   const liveRef = useRef<() => void>(() => {});
+  /* Slow-3D fix: only the very first paint swaps blank for words — later
+     turnovers keep the old faces up while the new set upgrades per-face. */
+  const firstPaintRef = useRef(false);
   /* A zoomed box stretches its faces bigger — paint them denser so the words
      stay sharp instead of stretching. */
   const pageZoom = usePageZoomFactor();
@@ -436,12 +439,12 @@ function useFaceTextures(
        the resting paint below reads the still off it, and the live loop after
        the swap keeps the picture moving under the same words. */
     const filmEls: { slot: FaceSlot; video: HTMLVideoElement }[] = [];
-    /* Every copy that could hold the file, same-tab bytes first: a fresh
-       upload paints instantly, an absolute address moved between hosts still
-       resolves off this copy's disk, and the repo mirrors cover a wiped
-       disk. First paintable wins; genuinely gone resolves null (logo for a
+    /* Fast copies first (slow-3D fix): same-tab bytes, cache, stored address
+       and this copy's disk resolve synchronously — no feed wait before the
+       first paint. Mirrors are tried per-face only when every fast copy
+       misses. First paintable wins; genuinely gone resolves null (logo for a
        picture, play mark for a film), never a black face. */
-    const orderedCopies = async (url: string): Promise<string[]> => {
+    const fastCopiesSync = (url: string): string[] => {
       const list: string[] = [];
       const push = (u: string) => {
         const s = String(u || "");
@@ -451,9 +454,6 @@ function useFaceTextures(
       push(getCachedDataUrlSync(url));
       push(url);
       push(localUploadFallback(url));
-      try {
-        for (const f of await feedUrlsForUpload(url)) push(f);
-      } catch {}
       return list;
     };
     const loadOne = (slot: FaceSlot, url: string): Promise<HTMLImageElement | HTMLVideoElement | null> =>
@@ -538,69 +538,116 @@ function useFaceTextures(
         img.onerror = () => resolve(null);
         img.src = url;
       });
-    const load = async (slot: FaceSlot): Promise<HTMLImageElement | HTMLVideoElement | null> => {
-      if (!slot.url) return null;
-      /* The kind never changes across copies (a film stays a film whatever
-         copy holds it), so the stored address decides the loader while each
-         copy in turn gets its chance to paint. */
-      const copies = await orderedCopies(slot.url);
-      for (const u of copies) {
-        try {
-          const got = await loadOne(slot, u);
-          if (got) return got;
-        } catch {}
+    const sizes = slots.map((slot) => {
+      const W = Math.round((slot.aspect > 1.2 ? 1024 : 768) * Math.min(2.5, Math.max(1, pageZoom)));
+      return { W, H: Math.round(W / slot.aspect) };
+    });
+    /* Words-first paint (slow-3D fix): the stage used to show blank faces
+       until every photo — slowest first — finished loading (feed wait +
+       sequential copies + Promise.all over all six faces). Paint words on
+       dark right now so slides read instantly, then upgrade each face in
+       place as its own picture loads. Updates keep the old faces up (no
+       flash): only the very first paint swaps blank for words. */
+    try {
+      if (!firstPaintRef.current) {
+        firstPaintRef.current = true;
+        const initial = slots.map((slot, i) => {
+          const cv = drawFace(slot, null, sizes[i].W, sizes[i].H, logoUrl);
+          const tex = new THREE.CanvasTexture(cv);
+          tex.colorSpace = THREE.SRGBColorSpace;
+          tex.anisotropy = 4;
+          return tex;
+        });
+        if (alive) {
+          let keepPrev = false;
+          setTextures((prev) => {
+            if (prev.some((t) => !!t)) {
+              keepPrev = true;
+              return prev;
+            }
+            return initial;
+          });
+          if (keepPrev) initial.forEach((t) => { try { t.dispose(); } catch {} });
+        } else {
+          initial.forEach((t) => { try { t.dispose(); } catch {} });
+        }
       }
-      return null;
-    };
-    (async () => {
-      const photos = await Promise.all(slots.map(load));
-      if (!alive) return;
-      const painted = slots.map((slot, i) => {
-        const W = Math.round((slot.aspect > 1.2 ? 1024 : 768) * Math.min(2.5, Math.max(1, pageZoom)));
-        const H = Math.round(W / slot.aspect);
-        let cv = drawFace(slot, photos[i], W, H, logoUrl);
+    } catch {}
+    liveRef.current = kick;
+    window.addEventListener("pointerdown", kick);
+    document.addEventListener("visibilitychange", onVis);
+    /* Each face upgrades itself the moment its own picture loads — no face
+       waits for another, and mirrors are only asked when the fast copies
+       (same-tab bytes, cache, stored address, this copy's disk) all miss. */
+    slots.forEach((slot, i) => {
+      (async () => {
+        const { W, H } = sizes[i];
+        let photo: HTMLImageElement | HTMLVideoElement | null = null;
+        for (const u of fastCopiesSync(slot.url)) {
+          if (!alive) return;
+          try {
+            const got = await loadOne(slot, u);
+            if (got) { photo = got; break; }
+          } catch {}
+        }
+        if (!photo && alive) {
+          try {
+            const fast = fastCopiesSync(slot.url);
+            for (const f of await feedUrlsForUpload(slot.url)) {
+              if (!alive) return;
+              const s = String(f || "");
+              if (!s || fast.includes(s)) continue;
+              try {
+                const got = await loadOne(slot, s);
+                if (got) { photo = got; break; }
+              } catch {}
+            }
+          } catch {}
+        }
+        if (!alive) {
+          try {
+            const v = photo as unknown as HTMLVideoElement | null;
+            if (v && (v as HTMLVideoElement).pause) {
+              try { (v as HTMLVideoElement).pause(); } catch {}
+              try { (v as HTMLVideoElement).removeAttribute("src"); } catch {}
+              try { (v as HTMLVideoElement).load(); } catch {}
+            }
+          } catch {}
+          return;
+        }
+        let cv = drawFace(slot, photo, W, H, logoUrl);
         let tainted = false;
         try {
-          /* A tainted canvas throws here — re-paint without the picture. */
           cv.getContext("2d")?.getImageData(0, 0, 1, 1);
         } catch {
           tainted = true;
           cv = drawFace(slot, null, W, H, logoUrl);
         }
-        return { slot, cv, W, H, tainted };
-      });
-      if (!alive) return;
-      const next = painted.map((p) => {
-        const tex = new THREE.CanvasTexture(p.cv);
+        const tex = new THREE.CanvasTexture(cv);
         tex.colorSpace = THREE.SRGBColorSpace;
         tex.anisotropy = 4;
-        return tex;
-      });
-      if (!alive) {
-        next.forEach((t) => t.dispose());
-        return;
-      }
-      setTextures((prev) => {
-        prev.forEach((t) => t?.dispose());
-        return next;
-      });
-      /* Films play on the box while it turns — silently, under an identical
-         words sheet. The resting face above already shows the thumbnail, so
-         the picture only ever changes from a still into motion, never into
-         black. A face whose pixels will not share (tainted) keeps its
-         words-on-dark rest and never joins the loop. */
-      painted.forEach((p, i) => {
-        if (p.tainted) return;
-        const found = filmEls.find((f) => f.slot === p.slot);
+        if (!alive) {
+          try { tex.dispose(); } catch {}
+          return;
+        }
+        setTextures((prev) => {
+          const next = prev.slice();
+          while (next.length < slots.length) next.push(null);
+          try { next[i]?.dispose(); } catch {}
+          next[i] = tex;
+          return next;
+        });
+        if (tainted) return;
+        const found = filmEls.find((f) => f.slot === slot);
         const v = found ? found.video : null;
         if (!v || v.readyState < 2 || !v.videoWidth || !v.videoHeight) return;
-        const slide = p.slot.slide;
+        const slide = slot.slide;
         const wordless =
           !tx(String(slide?.headline || "").trim()) &&
           !tx(String(slide?.line || "").trim()) &&
           !(tx(String(slide?.cta || "").trim()) && String(slide?.link || "").trim());
-        const sheet = wordless ? null : paintWordsSheet(slide, false, p.W, p.H);
-        const dctx = p.cv.getContext("2d");
+        const sheet = wordless ? null : paintWordsSheet(slide, false, W, H);
+        const dctx = cv.getContext("2d");
         if (!dctx) return;
         films.push(v);
         tryPlay(v);
@@ -613,22 +660,17 @@ function useFaceTextures(
               tryPlay(v);
             }
             if (v.readyState >= 2) {
-              drawPhotoLayer(dctx, v, true, false, p.W, p.H);
+              drawPhotoLayer(dctx, v, true, false, W, H);
               if (sheet) dctx.drawImage(sheet, 0, 0);
-              next[i].needsUpdate = true;
+              tex.needsUpdate = true;
             }
           } catch {
-            /* Tainted or lost mid-turn — stop the loop and leave the resting
-               face up. It read a real still, so it never blanks. */
             window.clearInterval(timer);
           }
         }, 100);
         timers.push(timer);
-      });
-      liveRef.current = kick;
-      window.addEventListener("pointerdown", kick);
-      document.addEventListener("visibilitychange", onVis);
-    })();
+      })();
+    });
     return () => {
       alive = false;
       liveRef.current = () => {};
