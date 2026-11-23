@@ -52,6 +52,8 @@ const Admin = React.lazy(
     import("./pages/Admin").then((m) => ({ default: m.Admin })),
   ),
 );
+// The boundary's optional componentStack typing is narrower than React's
+// ErrorInfo definition; cast at this JSX use site without changing its runtime.
 const AppErrorBoundary =
   ErrorBoundary as unknown as React.ComponentType<React.PropsWithChildren>;
 

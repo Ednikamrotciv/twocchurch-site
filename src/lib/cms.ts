@@ -14,7 +14,7 @@ import { applyBakedRecent, clearRecentCaches } from "./recentstreams";
 import { bakedFeedSpec, feedIsNewer, peekSeed, siteFile, type FeedSeed, type FeedSpec } from "./livefeed";
 import { BUILD_NOTES, CODE_ID } from "./hooks";
 import { cleanChannelInput } from "./embed";
-import { cacheUploadBlob, dataUrlToBlob, feedUrlsForUpload, getCachedDataUrl, uploadNameOf } from "./uploadCache";
+import { cacheUploadBlob, dataUrlToBlob, feedUrlsForUpload, getCachedDataUrl, rememberUploadPreview, uploadNameOf } from "./uploadCache";
 import { setLiveReportSink } from "./livestatus";
 
 export type Snapshot = Record<string, any>;
@@ -6882,6 +6882,8 @@ export type ImportResult = {
   filesPoisoned?: string[];
   channelMoved?: string;
   guestCleared?: string;
+  /** Retired photo-section values folded into the current Photos & banners frames. */
+  migratedPhotos?: number;
 };
 
 /**
@@ -6914,6 +6916,46 @@ export async function importBackup(text: string): Promise<ImportResult> {
     if (known.has(key)) kept[key] = content[key];
     else skipped.push(key);
   }
+  /* Retired photo sections ride along: very old backups keep their pictures
+     under section ids this update no longer carries (e.g. `photos-main`),
+     which used to be dropped — emptying every Photos & banners frame after
+     a restore even though the backup held the uploads. Any skipped object
+     whose keys are known photo slots folds into the matching current photo
+     section (only where that slot is still empty there), so the uploads land
+     on their frames with no re-linking. Fully-consumed sections stop being
+     reported as left out. */
+  let migratedPhotos = 0;
+  try {
+    for (let i = skipped.length - 1; i >= 0; i--) {
+      const key = skipped[i];
+      const obj = (content as any)[key];
+      if (!obj || typeof obj !== "object" || Array.isArray(obj)) continue;
+      let consumed = true;
+      let moved = 0;
+      for (const slotKey of Object.keys(obj)) {
+        const val = (obj as any)[slotKey];
+        /* Empty values carry nothing — never block the section folding away. */
+        if (val === "" || val === undefined || val === null) continue;
+        const sectionId = photoSectionId(slotKey);
+        if (!sectionId || typeof val !== "string" || !val.trim()) { consumed = false; continue; }
+        const target = (kept as any)[sectionId];
+        if (target && typeof target === "object" && !Array.isArray(target)) {
+          const cur = (target as any)[slotKey];
+          /* The backup's newer-schema value wins; the legacy twin is shadowed, not lost. */
+          if (typeof cur === "string" && cur.trim()) continue;
+          (target as any)[slotKey] = val;
+        } else if (target === undefined) {
+          (kept as any)[sectionId] = { [slotKey]: val };
+        } else {
+          consumed = false;
+          continue;
+        }
+        moved++;
+      }
+      if (moved > 0) migratedPhotos += moved;
+      if (consumed) skipped.splice(i, 1);
+    }
+  } catch {}
   /* An emptied topics list in the backup means "nothing saved", not "the office
      deleted every desk" — keeping the defaults here is what keeps the contact
      page working after the restore (it used to crash on the empty list). */
@@ -7097,6 +7139,9 @@ export async function importBackup(text: string): Promise<ImportResult> {
           } catch {
             /* the server copy above is what matters */
           }
+          /* …and it paints from this tab's own bytes at once, not after a
+             cache round-trip: restored uploads land on their frames now. */
+          try { rememberUploadPreview(name, blob); } catch {}
         } catch {
           if (f && typeof f.name === "string") filesFailed.push(f.name);
         }
@@ -7186,7 +7231,23 @@ export async function importBackup(text: string): Promise<ImportResult> {
       }
     } catch {}
   }
-  return { ok: true, restored, skipped, filesRestored, filesFailed, filesMissing, filesPoisoned, channelMoved: channelMoved || undefined, guestCleared: guestCleared || undefined };
+  /* Photo overrides follow the restored draft, so banners, cards and the
+     leadership rows paint the restored uploads at once — on this frame and
+     every admin frame it stages to — whether or not any address needed
+     repairing above. The page behind the drawer follows on the same beat. */
+  try {
+    for (const def of SECTION_DEFS) {
+      if (def.id === "photos-banners" || def.id === "photos-ministries" || def.id === "photos-leadership") {
+        const v = (draft as any)[def.id];
+        if (v !== undefined) def.bind(clone(v));
+      }
+    }
+  } catch {}
+  try { persistDraft(); } catch {}
+  try { applyDraftLiveSoon(); } catch {}
+  try { notify(); } catch {}
+  try { stageSharedDraftSoon(); } catch {}
+  return { ok: true, restored, skipped, filesRestored, filesFailed, filesMissing, filesPoisoned, channelMoved: channelMoved || undefined, guestCleared: guestCleared || undefined, migratedPhotos: migratedPhotos || undefined };
 }
 
 /* ----------------------------------------------------------------- publish */

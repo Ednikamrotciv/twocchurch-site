@@ -204,42 +204,6 @@ export function rememberUploadPreview(name: string, blob: Blob): string {
   }
 }
 
-export function forgetUploadPreview(name: string): void {
-  const clean = String(name || "").trim();
-  if (!clean) return;
-  try {
-    const prev = sessionPreviews.get(clean);
-    if (prev) {
-      try { URL.revokeObjectURL(prev); } catch {}
-      sessionPreviews.delete(clean);
-    }
-  } catch {}
-}
-
-/** Drop every same-browser copy of an upload: session bytes, IDB + memory + localStorage cache. Never throws. */
-export async function forgetCachedUpload(name: string): Promise<void> {
-  const clean = String(name || "").trim();
-  if (!clean) return;
-  try { MEM.delete(clean); } catch {}
-  try { localStorage.removeItem(LS_PREFIX + clean); } catch {}
-  try {
-    const db = await idb();
-    if (db) {
-      await new Promise<void>((resolve) => {
-        try {
-          const tx = db.transaction(IDB_STORE, "readwrite");
-          tx.objectStore(IDB_STORE).delete(clean);
-          tx.oncomplete = () => resolve();
-          (tx as any).onerror = () => resolve();
-          (tx as any).onabort = () => resolve();
-        } catch {
-          resolve();
-        }
-      });
-      try { db.close(); } catch {}
-    }
-  } catch {}
-}
 /** Sync read of the session preview for a full upload URL ("" when none). */
 export function sessionPreviewForUrl(url: string): string {
   const name = uploadNameOf(url);
@@ -320,74 +284,6 @@ export function useFeedUploadUrls(url: string): string[] {
     return () => { alive = false; };
   }, [name]);
   return feeds;
-}
-
-/* Recent uploads (no-copy reuse): every successful upload in any field is
-   remembered here (name + stored address, newest first, capped), so every
-   photo field can offer a one-tap "Recent uploads" strip — a picture uploaded
-   for a slide or a leader lands in Photos & banners with one tap, never a
-   copied link. Names/addresses ride localStorage; bytes reuse the session
-   preview and the IDB/data-URL cache above. Never throws. */
-export type RecentUpload = { name: string; url: string; at: number };
-const RECENT_KEY = "wom.recentUploads";
-const RECENT_CAP = 12;
-let recentCache: RecentUpload[] | null = null;
-const recentSubs = new Set<() => void>();
-function readRecentUploads(): RecentUpload[] {
-  if (recentCache) return recentCache;
-  try {
-    const raw = localStorage.getItem(RECENT_KEY);
-    const list = raw ? JSON.parse(raw) : [];
-    recentCache = Array.isArray(list)
-      ? list.filter((x) => x && typeof x.name === "string" && typeof x.url === "string").slice(0, RECENT_CAP)
-      : [];
-  } catch {
-    recentCache = [];
-  }
-  return recentCache;
-}
-export function rememberRecentUpload(name: string, url: string): void {
-  const n = String(name || "").trim();
-  const u = String(url || "").trim();
-  if (!n || !u) return;
-  try {
-    const list = readRecentUploads().filter((x) => x.name !== n);
-    list.unshift({ name: n, url: u, at: Date.now() });
-    recentCache = list.slice(0, RECENT_CAP);
-    try { localStorage.setItem(RECENT_KEY, JSON.stringify(recentCache)); } catch {}
-    recentSubs.forEach((fn) => { try { fn(); } catch {} });
-  } catch {}
-}
-/** Drop an upload from the recent strip (replaced uploads leave no link behind). Never throws. */
-export function forgetRecentUpload(name: string): void {
-  const n = String(name || "").trim();
-  if (!n) return;
-  try {
-    recentCache = readRecentUploads().filter((x) => x.name !== n);
-    try { localStorage.setItem(RECENT_KEY, JSON.stringify(recentCache)); } catch {}
-    recentSubs.forEach((fn) => { try { fn(); } catch {} });
-  } catch {}
-}
-/** Best same-browser bytes for a recent upload, sync: session, cache, stored. */
-export function recentUploadThumb(url: string): string {
-  try {
-    return sessionPreviewForUrl(url) || getCachedDataUrlSync(url) || String(url || "");
-  } catch {
-    return String(url || "");
-  }
-}
-/** The remembered uploads, live-updating; kind filters films out of (or into) the strip. */
-export function useRecentUploads(kind?: "image" | "video"): RecentUpload[] {
-  const [, bump] = useState(0);
-  useEffect(() => {
-    const fn = () => bump((v) => v + 1);
-    recentSubs.add(fn);
-    return () => { recentSubs.delete(fn); };
-  }, []);
-  const all = readRecentUploads();
-  if (!kind) return all;
-  const isFilm = (r: RecentUpload) => /\.(mp4|m4v|webm|ogv|ogg|mov)(\?|#|$)/i.test(r.name || "");
-  return all.filter((r) => (kind === "video" ? isFilm(r) : !isFilm(r)));
 }
 
 export { dataUrlToBlob };

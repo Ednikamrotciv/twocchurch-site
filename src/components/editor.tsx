@@ -55,7 +55,7 @@ import {
   sectionIsHidden,
 } from "../lib/cmsSchema";
 import * as cms from "../lib/cms";
-import { cacheUploadBlob, forgetRecentUpload, localUploadFallback, rememberRecentUpload, rememberUploadPreview, recentUploadThumb, uploadNameOf, useCachedUploadUrl, useFeedUploadUrl, useFeedUploadUrls, useRecentUploads, useUploadPreviewUrl } from "../lib/uploadCache";
+import { cacheUploadBlob, localUploadFallback, rememberUploadPreview, uploadNameOf, useCachedUploadUrl, useFeedUploadUrl, useFeedUploadUrls, useUploadPreviewUrl } from "../lib/uploadCache";
 import { siteFile } from "../lib/livefeed";
 import { serverUrl } from "../lib/remoteserver";
 
@@ -1665,19 +1665,18 @@ function DeleteUpload({ url, what, onGone }: { url: string; what: string; onGone
 }
 
 /* A new upload replaces the last one: the old office file leaves the server
-   (into data/.trash, 72h rollback, same as the manual delete) and its recent
-   entry goes with it — so the old link is gone and only the new upload's
-   link stays in the field. Same-browser cached bytes stay (any other field
-   still using the old photo keeps painting from them). Runs AFTER the new
-   value is set, never blocks it, and never fails the upload: a server delete
-   that cannot happen only costs a quiet note. */
+   (into data/.trash, 72h rollback, same as the manual delete) — so the old
+   link is gone and only the new upload's link stays in the field.
+   Same-browser cached bytes stay (any other field still using the old photo
+   keeps painting from them). Runs AFTER the new value is set, never blocks
+   it, and never fails the upload: a server delete that cannot happen only
+   costs a quiet note. */
 async function retireReplacedUpload(prev: string, next: string, what: string): Promise<void> {
   try {
     const oldName = hostedUploadName(prev || "");
     const newName = hostedUploadName(next || "");
     /* Bundled photos and pasted links are not office files; same name means nothing changed. */
     if (!oldName || oldName === newName) return;
-    forgetRecentUpload(oldName);
     try {
       const trash = await deleteHostFile(oldName);
       try {
@@ -1714,9 +1713,6 @@ export function PhotoUpload({ onDone, frame }: { onDone: (url: string) => void; 
         if (kept) {
           rememberUploadPreview(kept, blob);
           await cacheUploadBlob(kept, blob);
-          /* No-copy reuse: every upload joins the recent strip every photo
-             field offers, so it lands in Photos & banners with one tap. */
-          rememberRecentUpload(kept, url);
         }
       } catch {}
       onDone(url);
@@ -1772,7 +1768,6 @@ export function VideoUpload({ onDone }: { onDone: (url: string) => void }) {
         if (kept) {
           rememberUploadPreview(kept, file);
           await cacheUploadBlob(kept, file);
-          rememberRecentUpload(kept, url);
         }
       } catch {}
       onDone(url);
@@ -1891,35 +1886,6 @@ function VideoField({
   );
 }
 
-/** One-tap reuse (no-copy uploads): every picture uploaded anywhere in the
-    console joins the recent strip, so a fresh upload lands in Photos &
-    banners with one tap — never a copied link. Thumbnails paint from this
-    tab's own bytes or the browser cache, so they show even while the server
-    copy is still warming up. */
-function RecentUploadStrip({ current, onPick }: { current: string; onPick: (url: string) => void }) {
-  const recents = useRecentUploads("image");
-  const currentName = uploadNameOf(current || "");
-  const others = recents.filter((r) => r.name !== currentName).slice(0, 8);
-  if (others.length === 0) return null;
-  return (
-    <div className="admin__reuse-strip" role="group" aria-label="Recent uploads — tap to use one here">
-      <span className="admin__reuse-label">Recent uploads — tap to use here:</span>
-      {others.map((r) => (
-        <button
-          key={r.name}
-          type="button"
-          className="admin__reuse-thumb"
-          title={r.name}
-          aria-label={`Use ${r.name} here`}
-          onClick={() => onPick(r.url)}
-        >
-          <img src={recentUploadThumb(r.url)} alt="" loading="lazy" draggable={false} onError={(e) => { try { e.currentTarget.style.visibility = "hidden"; } catch {} }} />
-        </button>
-      ))}
-    </div>
-  );
-}
-
 /** One photo control for every picture: upload, paste an address, or clear. */
 function ImageField({
   def,
@@ -2007,7 +1973,6 @@ function ImageField({
         if (kept) {
           rememberUploadPreview(kept, framed);
           await cacheUploadBlob(kept, framed);
-          rememberRecentUpload(kept, fittedUrl);
         }
       } catch {}
       onChange(fittedUrl);
@@ -2055,7 +2020,6 @@ function ImageField({
         <div className="admin__imageinputs">
           <p className="admin__imagecaption">{caption}</p>
           <PhotoUpload onDone={(url) => { onChange(url); retireReplacedUpload(text, url, "photo"); }} frame={def.frame} />
-          <RecentUploadStrip current={text} onPick={(url) => { onChange(url); retireReplacedUpload(text, url, "photo"); }} />
           <Input
             value={custom ? text : ""}
             onChange={(e) => onChange(e.target.value)}
@@ -2816,10 +2780,13 @@ export function ToolsPage() {
         const guestBit = res.guestCleared
           ? ` Guest channel in the backup was ${res.guestCleared} — cleared, since every update arrives with an empty guest slot (paste it back in the Live stream console if that event is still on).`
           : "";
+        const migBit = res.migratedPhotos
+          ? ` ${res.migratedPhotos} older ${res.migratedPhotos === 1 ? "photo" : "photos"} from a retired section moved straight into the current Photos & banners frames.`
+          : "";
         fireToast(
           left
-            ? `Brought back ${n} ${n === 1 ? "section" : "sections"} — review, then Publish. ${left} ${left === 1 ? "section" : "sections"} from the backup no longer exist in this update and ${left === 1 ? "was" : "were"} left out.${imgBit}${missBit}${poisonBit}${chanBit}${guestBit}`
-            : `Brought back ${n} ${n === 1 ? "section" : "sections"} — review, then Publish to put it live.${imgBit}${missBit}${poisonBit}${chanBit}${guestBit}`,
+            ? `Brought back ${n} ${n === 1 ? "section" : "sections"} — review, then Publish. ${left} ${left === 1 ? "section" : "sections"} from the backup no longer exist in this update and ${left === 1 ? "was" : "were"} left out.${imgBit}${missBit}${poisonBit}${chanBit}${guestBit}${migBit}`
+            : `Brought back ${n} ${n === 1 ? "section" : "sections"} — review, then Publish to put it live.${imgBit}${missBit}${poisonBit}${chanBit}${guestBit}${migBit}`,
           "success"
         );
       }
