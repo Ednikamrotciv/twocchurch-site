@@ -638,7 +638,7 @@ const server = http.createServer(async (req, res) => {
             ytBytes += chunk.length;
             if (ytBytes > YT_MAX_BYTES) {
               ytTooBig = true;
-              try { await upstream.cancel(); } catch {}
+              try { await upstream.body?.cancel?.(); } catch {}
               break;
             }
             ytParts.push(chunk);
@@ -646,7 +646,18 @@ const server = http.createServer(async (req, res) => {
         } catch {
           ytTooBig = true;
         }
-        const text = ytTooBig ? "" : Buffer.concat(ytParts).toString("utf8");
+        let text = "";
+        if (!ytTooBig) {
+          try {
+            const total = ytParts.reduce((n, p) => n + (p ? p.length : 0), 0);
+            const buf = new Uint8Array(total);
+            let off = 0;
+            for (const p of ytParts) { buf.set(p, off); off += p.length; }
+            text = new TextDecoder().decode(buf);
+          } catch {
+            text = Buffer.concat(ytParts.map((p) => (Buffer.isBuffer(p) ? p : Buffer.from(p)))).toString("utf8");
+          }
+        }
         /* Deployed parity (like netlify/functions/yt.mjs): a joined copy on
            another origin must be able to READ these, so every /__yt answer
            carries ACAO. Same-origin local runs behave exactly as before. */

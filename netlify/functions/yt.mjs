@@ -41,12 +41,22 @@ export async function handler(event) {
           bytes += chunk.length;
           if (bytes > MAX_BYTES) {
             tooLarge = true;
-            try { await upstream.cancel(); } catch {}
+            try { await upstream.body?.cancel?.(); } catch {}
             break;
           }
           parts.push(chunk);
         }
-        if (!tooLarge) text = Buffer.concat(parts).toString("utf8");
+        if (!tooLarge) {
+          try {
+            const total = parts.reduce((n, p) => n + (p ? p.length : 0), 0);
+            const buf = new Uint8Array(total);
+            let off = 0;
+            for (const p of parts) { buf.set(p, off); off += p.length; }
+            text = new TextDecoder().decode(buf);
+          } catch {
+            text = Buffer.concat(parts.map((p) => (typeof Buffer !== "undefined" && Buffer.isBuffer(p) ? p : Buffer.from(p)))).toString("utf8");
+          }
+        }
       } catch {
         tooLarge = true;
       }

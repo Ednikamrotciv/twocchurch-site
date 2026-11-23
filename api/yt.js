@@ -31,10 +31,20 @@ export default async function handler(req, res) {
       let bytes = 0;
       for await (const chunk of upstream.body) {
         bytes += chunk.length;
-        if (bytes > MAX_BYTES) { tooLarge = true; try { await upstream.cancel(); } catch {} break; }
+        if (bytes > MAX_BYTES) { tooLarge = true; try { await upstream.body?.cancel?.(); } catch {} break; }
         parts.push(chunk);
       }
-      if (!tooLarge) text = Buffer.concat(parts).toString("utf8");
+      if (!tooLarge) {
+        try {
+          const total = parts.reduce((n, p) => n + (p ? p.length : 0), 0);
+          const buf = new Uint8Array(total);
+          let off = 0;
+          for (const p of parts) { buf.set(p, off); off += p.length; }
+          text = new TextDecoder().decode(buf);
+        } catch {
+          text = Buffer.concat(parts.map((p) => (Buffer.isBuffer(p) ? p : Buffer.from(p)))).toString("utf8");
+        }
+      }
     } catch { tooLarge = true; }
     if (!upstream.ok || !text) { res.status(502).send(tooLarge ? "too large" : "unreachable"); return; }
     res.setHeader("content-type", "text/html; charset=utf-8");

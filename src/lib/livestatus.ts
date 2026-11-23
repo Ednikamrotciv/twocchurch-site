@@ -675,14 +675,14 @@ export function parseFacebookLivePage(html: string): { live: boolean; videoId: s
 
 function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
   return new Promise<T>((resolve, reject) => {
-    const id = window.setTimeout(() => reject(new Error("live check timed out")), ms);
+    const id = setTimeout(() => reject(new Error("live check timed out")), ms);
     promise.then(
       (value) => {
-        window.clearTimeout(id);
+        clearTimeout(id);
         resolve(value);
       },
       (err) => {
-        window.clearTimeout(id);
+        clearTimeout(id);
         reject(err);
       }
     );
@@ -716,7 +716,7 @@ async function fetchPage(url: string, outerSignal?: AbortSignal): Promise<string
   } catch {}
   let timer = 0;
   try {
-    timer = window.setTimeout(stop, CHECK_TIMEOUT_MS * 2);
+    timer = setTimeout(stop, CHECK_TIMEOUT_MS * 2);
   } catch {}
   const unlisten = () => {
     try { outerSignal?.removeEventListener("abort", stop); } catch {}
@@ -734,7 +734,7 @@ async function fetchPage(url: string, outerSignal?: AbortSignal): Promise<string
         stop
       );
     } finally {
-      try { if (timer) window.clearTimeout(timer); } catch {}
+      try { if (timer) clearTimeout(timer); } catch {}
       unlisten();
       stop();
     }
@@ -925,7 +925,7 @@ async function fetchPageFacebook(url: string): Promise<string | null> {
   };
   let timer = 0;
   try {
-    timer = window.setTimeout(stop, CHECK_TIMEOUT_MS * 2);
+    timer = setTimeout(stop, CHECK_TIMEOUT_MS * 2);
   } catch {}
   try {
     return await firstValidHtml(
@@ -944,7 +944,7 @@ async function fetchPageFacebook(url: string): Promise<string | null> {
   } catch {
     return null;
   } finally {
-    try { if (timer) window.clearTimeout(timer); } catch {}
+    try { if (timer) clearTimeout(timer); } catch {}
     stop();
   }
 }
@@ -1350,11 +1350,11 @@ function schedule(ms: number) {
   } catch {
     /* the check below degrades exactly as before */
   }
-  window.clearTimeout(timer);
+  clearTimeout(timer);
   /* Jitter: every open tab polling on the exact second hammers the proxy as
      one burst mid-service. +/-1s spreads the load; timing stays the same. */
   const jitter = Math.floor(Math.random() * 2000) - 1000;
-  timer = window.setTimeout(run, Math.max(0, ms + jitter));
+  timer = setTimeout(run, Math.max(0, ms + jitter));
 }
 
 /** Ask at once (the Watch page just opened, the office pressed Start/Stop,
@@ -1372,7 +1372,7 @@ let targetNoteTimer = 0;
 export function noteLiveTargetMayHaveChanged() {
   if (!polling || !watchers.size) return;
   if (targetNoteTimer) return;
-  targetNoteTimer = window.setTimeout(() => {
+  targetNoteTimer = setTimeout(() => {
     targetNoteTimer = 0;
     try {
       if (targetSignature() !== lastTarget) schedule(0);
@@ -1492,8 +1492,8 @@ function startPolling() {
 
 function stopPolling() {
   polling = false;
-  window.clearTimeout(timer);
-  window.clearTimeout(targetNoteTimer);
+  clearTimeout(timer);
+  clearTimeout(targetNoteTimer);
   targetNoteTimer = 0;
   document.removeEventListener("visibilitychange", onWake);
   window.removeEventListener("online", onWake);
@@ -1646,7 +1646,7 @@ export async function verifyYoutubeId(videoId: string): Promise<boolean | null> 
   const job = (async (): Promise<boolean | null> => {
     try {
       const ctrl = typeof AbortController !== "undefined" ? new AbortController() : null;
-      const timer = ctrl ? window.setTimeout(() => ctrl.abort(), VERIFY_TIMEOUT_MS) : 0;
+      const timer = ctrl ? setTimeout(() => ctrl.abort(), VERIFY_TIMEOUT_MS) : 0;
       try {
         /* CORS-open door first (note 420): the direct oEmbed read below can
            fail on headers while the video plays fine, so ask the mirror that
@@ -1662,7 +1662,7 @@ export async function verifyYoutubeId(videoId: string): Promise<boolean | null> 
         if (verdict !== null) verifyCache.set(id, { ok: verdict, at: Date.now() });
         return verdict;
       } finally {
-        if (timer) window.clearTimeout(timer);
+        if (timer) clearTimeout(timer);
       }
     } catch {
       return null;

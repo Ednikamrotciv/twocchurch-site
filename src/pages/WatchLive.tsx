@@ -381,9 +381,15 @@ export function WatchLive() {
       ? { platform: "facebook", facebookUrl: LIVE.facebookUrl }
       : { platform: "youtube", youtubeId: playId || deadLiveId || deadPubId || verifiedFallbackId, youtubeChannelId: followChannel || (!streaming && overrideId) || undefined };
   /* The grace window replays the last playable address: a fresh off keeps the
-     frame on exactly what was playing instead of an empty follow. */
+     frame on exactly what was playing instead of an empty follow.
+     Effect, not render-mutation (concurrent-mode fix): writing a ref during
+     render tears under concurrent renders — the off-transition frame could
+     read a half-updated address and flash empty. The effect commits the last
+     playable source after paint, so a fresh off replays the last live frame. */
   const graceRef = useRef<VideoSource | null>(null);
-  if (streaming && watchable) graceRef.current = freshSource;
+  useEffect(() => {
+    if (streaming && watchable) graceRef.current = freshSource;
+  });
   const liveSource: VideoSource = offFresh && graceRef.current ? graceRef.current : freshSource;
   const youtubeLink =
     watchUrl({ platform: "youtube", youtubeId: playId }) ||
