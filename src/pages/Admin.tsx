@@ -889,7 +889,7 @@ function PagePanel({
                 <button type="button" className="epanel__back" onClick={() => onView({ kind: "home" })}>
                   <Icon name="arrowLeft" size={15} /> All the things you can change
                 </button>
-                <p className="epanel__viewTitle">{view.title}</p>
+                <p className="epanel__viewTitle">{sectionView && isPhotoMember(sectionView.id) ? "Photos and Banners" : view.title}</p>
                 {view.entryKey && <p className="epanel__lede">We found this for you — it is highlighted below.</p>}
                 {sectionView ? (sectionView.id === "prayerFocus" || sectionView.id === "prayerCategories") && pairReady ? pairBlock(view.entryKey) : isPhotoMember(sectionView.id) ? photoBlock(view.entryKey) : block(sectionView, view.entryKey) : <p className="epanel__empty">That part of the site could not be found.</p>}
               </>

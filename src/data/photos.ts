@@ -124,25 +124,25 @@ export const PHOTO_SLOTS: PhotoSlot[] = [
   {
     key: "pastor-1",
     label: "Leadership photo 1",
-    where: "The first person on the About page leadership team. Change it here, or give that person their own photo in the Leadership section.",
+    where: "The first person on the About page leadership team. Change it here, or give that person their own photo in the Leadership section — either way, both stay in step.",
     group: "Leadership photos",
   },
   {
     key: "pastor-2",
     label: "Leadership photo 2",
-    where: "The second person on the leadership team.",
+    where: "The second person on the leadership team. Change it here, or give that person their own photo in the Leadership section — either way, both stay in step.",
     group: "Leadership photos",
   },
   {
     key: "pastor-3",
     label: "Leadership photo 3",
-    where: "The third person on the leadership team.",
+    where: "The third person on the leadership team. Change it here, or give that person their own photo in the Leadership section — either way, both stay in step.",
     group: "Leadership photos",
   },
   {
     key: "pastor-4",
     label: "Leadership photo 4",
-    where: "The fourth person on the leadership team.",
+    where: "The fourth person on the leadership team. Change it here, or give that person their own photo in the Leadership section — either way, both stay in step.",
     group: "Leadership photos",
   },
 ];

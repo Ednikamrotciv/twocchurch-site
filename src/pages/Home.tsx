@@ -15,6 +15,7 @@ import { useTestimonies } from "../lib/collections";
 import { fireToast } from "../lib/hooks";
 import { mailto } from "../lib/store";
 import { siteFile } from "../lib/livefeed";
+import { PhotoImg } from "../components/photoimg";
 
 export function Home() {
   const now = useNow(1000);
@@ -32,7 +33,10 @@ export function Home() {
       {/* ---------------- hero ---------------- */}
       <section className="hero">
         <div className="hero__bg" aria-hidden="true">
-          <img className="hero__photo" src={img("home")} alt="" onError={(e) => { try { const el = e.currentTarget; if (el.dataset.fb) { el.style.display = "none"; return; } el.dataset.fb = "1"; el.src = siteFile("src/assets/img/hero.jpg"); } catch {} }} />
+          {/* Same chain as every banner (blank-upload fix): session bytes, cache,
+              stored address, this copy's disk, repo mirrors, bundled hero — so a
+              Photos and Banners change paints here at once, in admin and for visitors. */}
+          <PhotoImg className="hero__photo" src={img("home")} fallback={siteFile("src/assets/img/hero.jpg")} alt="" />
           <span className="hero__scrim" />
           <img className="hero__faint" src={img("hero-faint")} alt="" onError={(e) => { try { e.currentTarget.style.display = "none"; } catch {} }} />
           <span className="hero__glow" />

@@ -483,7 +483,7 @@ const CORE_SECTIONS: SectionDef[] = [
       { path: "name", label: "Full name", type: "text" },
       { path: "role", label: "Role", type: "text" },
       { path: "bio", label: "Short biography", type: "textarea", rows: 4 },
-      { path: "image", label: "Photo", type: "image", hint: "Shown on this person's card on the About page. Leave it empty to show their initials instead.", emptyNote: "No photo of their own — their initials are shown instead." },
+      { path: "image", label: "Photo", type: "image", hint: "Shown on this person's card on the About page. Leave it empty to show their initials instead. The first four people also fill the Leadership photos slots in Photos and Banners, automatically.", emptyNote: "No photo of their own — their initials are shown instead." },
       { path: "monogram", label: "Monogram", type: "text", hint: "Two letters shown when there is no photo." },
       { path: "verse", label: "Life verse", type: "textarea", rows: 2 },
     ],
@@ -579,7 +579,7 @@ const CORE_SECTIONS: SectionDef[] = [
       { path: "pastor", label: "Branch pastor", type: "text" },
       { path: "pastorRole", label: "Pastor's title", type: "text" },
       { path: "languages", label: "Languages", type: "strings" },
-      { path: "image", label: "Photo", type: "image", fallbackPhoto: "building2" },
+      { path: "image", label: "Photo", type: "image", fallbackPhoto: "building2", hint: "The branch's photo. If this replaces a shared photo, the matching picture in Photos and Banners follows it automatically." },
       /* No Global HQ / Sub-branch fields any more (note 131); `isHq`/`isSub` are set elsewhere. */
       {
         path: "parentId",
@@ -644,7 +644,7 @@ const CORE_SECTIONS: SectionDef[] = [
     idKey: "id",
     fields: [
       { path: "name", label: "Ministry name", type: "text" },
-      { path: "image", label: "Photo", type: "image", hint: "The picture on this ministry's card on the Ministries page.", fallbackPhoto: "youth" },
+      { path: "image", label: "Photo", type: "image", hint: "The picture on this ministry's card on the Ministries page. If this replaces a shared photo, the matching picture in Photos and Banners follows it automatically.", fallbackPhoto: "youth" },
       { path: "description", label: "Description", type: "textarea", rows: 3 },
       { path: "meets", label: "Meets", type: "text" },
       { path: "leader", label: "Leader", type: "text" },
@@ -673,7 +673,7 @@ const CORE_SECTIONS: SectionDef[] = [
       { path: "durationMin", label: "Minutes long", type: "number", min: 15, max: 1440, step: 15 },
       { path: "location", label: "Where", type: "text" },
       { path: "branchId", label: "Host branch", type: "select", optionsFrom: "branches" },
-      { path: "image", label: "Photo", type: "image", hint: "The picture on this activity's card — and on the home page when it is featured.", fallbackPhoto: "welcome" },
+      { path: "image", label: "Photo", type: "image", hint: "The picture on this activity's card — and on the home page when it is featured. If this replaces a shared photo, the matching picture in Photos and Banners follows it automatically.", fallbackPhoto: "welcome" },
       { path: "cost", label: "Cost", type: "text" },
       { path: "featured", label: "Feature on the home page", type: "boolean" },
       { path: "register", label: "Show a register button", type: "boolean" },

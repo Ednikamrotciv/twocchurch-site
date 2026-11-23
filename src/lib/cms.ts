@@ -3,6 +3,7 @@
 
 import { useSyncExternalStore } from "react";
 import { SECTION_DEFS, buildDefaults, clone, getPath, photoSectionId, refreshDerived, sectionById, setPath, type Field, type SectionDef } from "./cmsSchema";
+import { photoKeyOf } from "../data/photos";
 import { copyIsFixed, copySectionOf } from "../data/copy";
 import { TESTIMONY_CATEGORIES } from "../data/content";
 import { SLIDES, purgeExpiredSlides } from "../data/slides";
@@ -2419,6 +2420,55 @@ export function setCopyValue(copyId: string, value: string) {
   );
 }
 
+/* Restore-time twin of the edit-time link above: an old backup can hold a card
+   upload whose slot was never filled (saved before the two-way sync, or the
+   slot cleared since). Fill only those gaps — a slot the backup set on purpose
+   is never rewritten. Compares each restored row against the shipped original
+   with the same id, so renames and reorders link to the right slot. Returns
+   the number of slots filled (each marked dirty, so Publish carries them). */
+function healRestoredRecordSlots(d: Snapshot): number {
+  let filled = 0;
+  try {
+    for (const sectionId of ["ministries", "branches", "events"]) {
+      const def = sectionById(sectionId);
+      if (!def) continue;
+      const from = (defaults as any)?.[sectionId];
+      const into = (d as any)?.[sectionId];
+      if (!Array.isArray(from) || !Array.isArray(into)) continue;
+      const fromById = new Map<string, any>();
+      for (const p of from) {
+        if (p && typeof p === "object" && String((p as any).id || "").trim()) fromById.set(String((p as any).id), p);
+      }
+      for (const n of into) {
+        if (!n || typeof n !== "object") continue;
+        const nid = String((n as any).id || "").trim();
+        if (!nid || !fromById.has(nid)) continue;
+        const p = fromById.get(nid);
+        for (const f of RECORD_IMAGE_FIELDS) {
+          const oldS = p && typeof p[f] === "string" ? p[f].trim() : "";
+          const newS = typeof (n as any)[f] === "string" ? (n as any)[f].trim() : "";
+          if (!newS || oldS === newS) continue;
+          const key = photoKeyOf(oldS);
+          if (!key) continue;
+          const pid = photoSectionId(key);
+          if (!pid) continue;
+          let sec = (d as any)[pid];
+          if (!sec || typeof sec !== "object" || Array.isArray(sec)) {
+            sec = {};
+            (d as any)[pid] = sec;
+          }
+          const cur = typeof sec[key] === "string" ? sec[key].trim() : "";
+          if (cur) continue;
+          sec[key] = newS;
+          filled++;
+          dirty[pid] = true;
+        }
+      }
+    }
+  } catch {}
+  return filled;
+}
+
 /** Replace one of the site's photos (a row in the drawer's *Photos & covers*). */
 export function setPhotoValue(slotKey: string, value: string) {
   const sectionId = photoSectionId(slotKey);
@@ -2426,6 +2476,141 @@ export function setPhotoValue(slotKey: string, value: string) {
   const current = getDraft()[sectionId];
   if (!current || typeof current !== "object") return;
   setSectionValue(sectionId, { ...current, [slotKey]: value });
+}
+
+/* Leadership ↔ Photos and Banners stay in step both ways. Photos → leadership
+   already flows through `applyPhotos` at bind time (any card still showing a
+   bundled pastor photo follows its slot). The reverse lives here: the first
+   four leadership rows ARE the four "Leadership photos" slots (in order), so
+   giving a leader their own photo writes the same address into that slot's
+   draft value — admin previews, every card/banner, and the visitor site all
+   paint it after Publish. Empty rows leave their slot alone (a monogram is
+   not a photo). Never throws. */
+const LEADERSHIP_SLOT_KEYS = ["pastor-1", "pastor-2", "pastor-3", "pastor-4"];
+function syncLeadershipSlotsFromDraft(d: Snapshot): boolean {
+  try {
+    const leaders = (d as any)["leadership"];
+    if (!Array.isArray(leaders)) return false;
+    let photos = (d as any)["photos-leadership"];
+    if (!photos || typeof photos !== "object" || Array.isArray(photos)) {
+      photos = {};
+      (d as any)["photos-leadership"] = photos;
+    }
+    let changed = false;
+    for (let i = 0; i < LEADERSHIP_SLOT_KEYS.length; i++) {
+      const slot = LEADERSHIP_SLOT_KEYS[i];
+      const leader = leaders[i];
+      const img = leader && typeof leader.image === "string" ? leader.image.trim() : "";
+      if (!img) continue;
+      if ((photos as any)[slot] !== img) {
+        (photos as any)[slot] = img;
+        changed = true;
+      }
+    }
+    return changed;
+  } catch {
+    return false;
+  }
+}
+
+/** After a leadership draft change, carry it into the photo slots (dirty when moved). */
+function carryLeadershipIntoPhotoSlots(d: Snapshot): void {
+  try {
+    const before = JSON.stringify((d as any)["photos-leadership"] ?? null);
+    if (syncLeadershipSlotsFromDraft(d)) {
+      try {
+        if (JSON.stringify((d as any)["photos-leadership"]) !== before) dirty["photos-leadership"] = true;
+      } catch {
+        dirty["photos-leadership"] = true;
+      }
+    }
+  } catch {}
+}
+
+/* Any card's own upload follows its shared photo back into Photos and Banners.
+   Ministries, branches and events reuse the shared pictures: while a row still
+   shows a bundled photo, `applyPhotos` pushes slot changes into it (forward).
+   The reverse lives here — when that row's picture is swapped for an upload,
+   the slot it came from takes the same upload, so Photos and Banners, every
+   other card using that photo, and the visitor site all stay in step after
+   Publish. Matches by the previous bundled photo (or by the slot still
+   holding the old address, for a second upload), so renames, reorders and new
+   rows are safe; rows that never showed a shared photo stay local. Slides and
+   sermon videos are deliberately excluded (per-item art, never shared). */
+const RECORD_IMAGE_FIELDS = ["image"];
+function syncRecordImagesIntoPhotoSlots(d: Snapshot, sectionId: string, prevVal: any, nextVal: any): void {
+  try {
+    const prevList = Array.isArray(prevVal) ? prevVal : [];
+    const nextList = Array.isArray(nextVal) ? nextVal : [];
+    if (!prevList.length && !nextList.length) return;
+    const prevById = new Map<string, any>();
+    for (const p of prevList) {
+      if (p && typeof p === "object" && String((p as any).id || "").trim()) prevById.set(String((p as any).id), p);
+    }
+    const before: Record<string, string> = {};
+    let touched = false;
+    const linkSlot = (newS: string, oldS: string): { pid: string; key: string } | null => {
+      const key = photoKeyOf(oldS);
+      if (key && photoSectionId(key)) return { pid: photoSectionId(key), key };
+      /* A second upload: the old address is no longer bundled, but the slot
+         still holds it — follow that link instead of stranding the slot. */
+      if (oldS) {
+        for (const def of SECTION_DEFS) {
+          if (!def.id.startsWith("photos-")) continue;
+          const sec = (d as any)[def.id];
+          if (!sec || typeof sec !== "object" || Array.isArray(sec)) continue;
+          for (const k of Object.keys(sec)) {
+            if (typeof (sec as any)[k] === "string" && (sec as any)[k].trim() === oldS && photoSectionId(k)) {
+              return { pid: photoSectionId(k), key: k };
+            }
+          }
+        }
+      }
+      return null;
+    };
+    nextList.forEach((n, i) => {
+      if (!n || typeof n !== "object") return;
+      let p: any = null;
+      const nid = String((n as any).id || "").trim();
+      if (nid && prevById.has(nid)) p = prevById.get(nid);
+      else if (prevList[i] && typeof prevList[i] === "object") {
+        const pid = String((prevList[i] as any).id || "").trim();
+        if (!pid || pid === nid) p = prevList[i];
+      }
+      for (const f of RECORD_IMAGE_FIELDS) {
+        const oldS = p && typeof p[f] === "string" ? p[f].trim() : "";
+        const newS = typeof (n as any)[f] === "string" ? (n as any)[f].trim() : "";
+        if (!newS || oldS === newS) continue;
+        const link = linkSlot(newS, oldS);
+        if (!link) continue;
+        let sec = (d as any)[link.pid];
+        if (!sec || typeof sec !== "object" || Array.isArray(sec)) {
+          sec = {};
+          (d as any)[link.pid] = sec;
+        }
+        if (sec[link.key] !== newS) {
+          if (!(link.pid in before)) {
+            try {
+              before[link.pid] = JSON.stringify(sec);
+            } catch {
+              before[link.pid] = "";
+            }
+          }
+          sec[link.key] = newS;
+          touched = true;
+        }
+      }
+    });
+    if (touched) {
+      for (const pid of Object.keys(before)) {
+        try {
+          if (JSON.stringify((d as any)[pid]) !== before[pid]) dirty[pid] = true;
+        } catch {
+          dirty[pid] = true;
+        }
+      }
+    }
+  } catch {}
 }
 
 /* ------------------------------------------------------------------ socket */
@@ -6408,6 +6593,15 @@ export function setSectionValue(sectionId: string, value: any) {
   pushEditUndo(sectionId, prev);
   d[sectionId] = value;
   dirty[sectionId] = true;
+  /* A card's own upload is also its shared photo: leadership rows fill their
+     slots in order, and any other row that swapped a shared photo carries its
+     slot with it — Photos and Banners stays in step either way. */
+  if (sectionId === "leadership") {
+    syncRecordImagesIntoPhotoSlots(d, sectionId, prev, value);
+    carryLeadershipIntoPhotoSlots(d);
+  } else if (sectionId === "ministries" || sectionId === "branches" || sectionId === "events") {
+    syncRecordImagesIntoPhotoSlots(d, sectionId, prev, value);
+  }
   persistDraft();
   /* The drawer reads the draft, so its field updates on this notify; the page
      behind it is re-drawn on the paced preview (see applyDraftLiveSoon). */
@@ -6424,6 +6618,7 @@ export function resetSection(sectionId: string) {
   pushEditUndo(sectionId, prev);
   d[sectionId] = clone(defaults[sectionId]);
   dirty[sectionId] = true;
+  if (sectionId === "leadership" && d) carryLeadershipIntoPhotoSlots(d);
   persistDraft();
   notify();
   applyDraftLiveSoon();
@@ -6455,8 +6650,16 @@ export function undoEdit(): { ok: boolean; label?: string } {
   const entry = editUndos.pop();
   if (!entry) return { ok: false };
   const d = getDraft();
+  const undone = clone(d[entry.sectionId]);
   d[entry.sectionId] = entry.prev;
   dirty[entry.sectionId] = true;
+  /* Taking back a card change takes back its photo-slot shadow too. */
+  if (entry.sectionId === "leadership") {
+    syncRecordImagesIntoPhotoSlots(d, entry.sectionId, undone, entry.prev);
+    carryLeadershipIntoPhotoSlots(d);
+  } else if (entry.sectionId === "ministries" || entry.sectionId === "branches" || entry.sectionId === "events") {
+    syncRecordImagesIntoPhotoSlots(d, entry.sectionId, undone, entry.prev);
+  }
   persistDraft();
   /* A discrete step, not typing: show it now rather than on the paced preview. */
   if (autoPreview) {
@@ -6884,6 +7087,8 @@ export type ImportResult = {
   guestCleared?: string;
   /** Retired photo-section values folded into the current Photos & banners frames. */
   migratedPhotos?: number;
+  /** Restored card uploads linked into their Photos and Banners slots. */
+  linkedPhotos?: number;
 };
 
 /**
@@ -6988,6 +7193,19 @@ export async function importBackup(text: string): Promise<ImportResult> {
   dirty = {};
   editUndos = [];
   for (const id of restored) dirty[id] = true;
+  /* A restored leadership wall carries its own photos into the Leadership
+     slots (in order), so the frames match the wall with no re-linking. */
+  try {
+    if (draft && (dirty as any)["leadership"] && syncLeadershipSlotsFromDraft(draft)) dirty["photos-leadership"] = true;
+  } catch {}
+  /* Restored cards link back into Photos and Banners the same way live edits
+     do: a backup saved before the two-way sync (or hand-edited since) can hold
+     a card upload whose slot is still empty — fill only those gaps, never
+     rewrite a slot the backup set on purpose. Returns the number filled. */
+  let linkedPhotos = 0;
+  try {
+    if (draft) linkedPhotos = healRestoredRecordSlots(draft);
+  } catch {}
   /* @twocorg arrives ready, restore half (note 354): a backup saved before
      the move still names the old handle — restoring it must not re-put the
      debugging channel (the boot move only runs on stored words, never on a
@@ -7247,7 +7465,7 @@ export async function importBackup(text: string): Promise<ImportResult> {
   try { applyDraftLiveSoon(); } catch {}
   try { notify(); } catch {}
   try { stageSharedDraftSoon(); } catch {}
-  return { ok: true, restored, skipped, filesRestored, filesFailed, filesMissing, filesPoisoned, channelMoved: channelMoved || undefined, guestCleared: guestCleared || undefined, migratedPhotos: migratedPhotos || undefined };
+  return { ok: true, restored, skipped, filesRestored, filesFailed, filesMissing, filesPoisoned, channelMoved: channelMoved || undefined, guestCleared: guestCleared || undefined, migratedPhotos: migratedPhotos || undefined, linkedPhotos: linkedPhotos || undefined };
 }
 
 /* ----------------------------------------------------------------- publish */
