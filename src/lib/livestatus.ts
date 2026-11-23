@@ -357,34 +357,6 @@ export function designatedChannelIdForTarget(targetUrl: string): string {
   if (at) return DESIGNATED_CHANNEL_IDS[("@" + at[1]).toLowerCase()] || "";
   return "";
 }
-/** The checked slot's own channel from the office fields (strict-channel
-    rule): the UC typed straight into the slot's field, else the id the last
-    read resolved beside that same cleaned value — the guest slot answers
-    from the guest field, the main slot from the main field. Slot-aware on
-    purpose: the main field's id must never judge the guest's video. "" when
-    the slot's channel is unresolvable (a bare handle behind the wall); the
-    page owner above still answers those, exactly as before. */
-export function storedChannelForTargetUrl(targetUrl: string): string {
-  try {
-    const t = String(targetUrl || "");
-    let pasted = "";
-    try {
-      const g = guestTarget()?.url || "";
-      pasted = (g && t === g) ? String((LIVE as any)?.externalYoutubeChannel || "") : String((LIVE as any)?.youtubeChannel || "");
-    } catch {
-      pasted = String((LIVE as any)?.youtubeChannel || "");
-    }
-    const clean = cleanChannelInput(pasted);
-    if (!clean) return "";
-    const direct = /(UC[\w-]{20,24})/.exec(clean)?.[1] || "";
-    if (direct) return direct;
-    const cached = readStore<{ value?: string; id?: string } | null>("wom.ytchannel", null);
-    if (cached && cached.value === clean && /^UC[\w-]{20,24}$/.test(String(cached.id || ""))) return String(cached.id);
-  } catch {
-    /* uncached — the page owner above still answers */
-  }
-  return "";
-}
 /** True while this channel may stand for the checked broadcast, pure for the
     verifier: a named channel that is not the field's own is somebody else's
     video and never plays; an unnamed one passes through (the candidate and
@@ -570,14 +542,13 @@ async function resolveYoutube(
      skipped like an off answer — the asking moves on, never the player. */
   const owner = extractChannelId(html, target.url);
   /* Field-driven gate (no hardcoded handle): whatever channel the office typed
-     in the slot's field is whose video counts — the UC in the address, else
-     the baked answer for a known handle, else the page's own owner above,
-     else the id the last read resolved beside that same field value. A
-     known-foreign suggestion is skipped; an ownerless grab-bag mention plays
-     only with the Live tab's vouch. This function serves the main and the
-     guest slot alike, so both get the same rule from their own field — the
-     other channel's live never plays instead. */
-  const designatedId = designatedChannelIdForTarget(target.url) || owner || storedChannelForTargetUrl(target.url);
+     in the field is whose video counts — the UC in the address, else the baked
+     answer for a known handle, else the page's own owner above. A known-foreign
+     suggestion is skipped; an ownerless grab-bag mention plays only with the
+     Live tab's vouch. This function serves the main and the guest slot alike,
+     so both get the same rule from their own field — the other channel's live
+     never plays instead. */
+  const allowedId = designatedChannelIdForTarget(target.url) || owner;
   const liveTabId = channelLiveVideoId(html);
   /* Asked one by one (best first): three candidates raced at once used to
      fire 9 page reads per check and trip the proxy rate-limit mid-service.
@@ -593,7 +564,7 @@ async function resolveYoutube(
     const watch = parseLivePage(watchHtml, url);
     if (watch.live && (watch.videoId || vid)) {
       if (!ownerAllowsCandidate(owner, watchChannelId(watchHtml))) continue;
-      if (!candidateStandsForDesignated(watchChannelId(watchHtml), designatedId, vid === liveTabId)) continue;
+      if (!candidateStandsForDesignated(watchChannelId(watchHtml), allowedId, vid === liveTabId)) continue;
       return { state: "live" as const, videoId: watch.videoId || vid, title: watch.title, channelId: "" };
     }
   }
@@ -604,7 +575,7 @@ async function resolveYoutube(
      repeat note 324, so the answer follows the channel instead, through
      `unverifiedChannelAnswer` above — and a page we merely could not read
      stays `unknown`, never `off`. */
-  return unverifiedChannelAnswer(parsed.live, parsed.title, parsed.live ? extractChannelId(html, target.url) : "", designatedId);
+  return unverifiedChannelAnswer(parsed.live, parsed.title, parsed.live ? extractChannelId(html, target.url) : "", allowedId);
 }
 
 /** The office's typed stream link, verified on air (typed-link fix): with a
@@ -720,27 +691,63 @@ function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
 
 /** Page HTML via a same-origin / office-server proxy, else public CORS proxy.
     Fast path: same-origin + office race in parallel (was sequential timeouts).
-    First VALID answer wins — a fast door never waits out a slow one. */
-async function fetchPage(url: string): Promise<string | null> {
+    First VALID answer wins — a fast door never waits out a slow one. Losing
+    doors are aborted the moment a winner lands (they used to download whole
+    pages in the background of every check — on the Watch page's urgent
+    cadence those piles burned mobile data and tripped proxy rate limits
+    mid-service), and nothing outlives twice the per-door timeout. */
+async function fetchPage(url: string, outerSignal?: AbortSignal): Promise<string | null> {
   /* Fast live: all doors race at once — same-origin, office, public proxy.
      The old code waited out same+office before even trying the public door,
      which held the Watch screen past the live start on static hosts. First
      valid answer wins; a miss degrades exactly as before (unknown). */
+  let ctrl: AbortController | null = null;
   try {
-    return await firstValidHtml([
-      fetchPageSameOrigin(url),
-      fetchPageStaticProxy(url),
-      fetchPageOffice(url),
-      fetchPageRemote(url),
-    ]);
+    ctrl = typeof AbortController !== "undefined" ? new AbortController() : null;
+  } catch {
+    ctrl = null;
+  }
+  const signal = ctrl ? ctrl.signal : undefined;
+  const stop = () => {
+    try { ctrl?.abort(); } catch {}
+  };
+  try {
+    if (outerSignal && (outerSignal as any).aborted) return null;
+  } catch {}
+  let timer = 0;
+  try {
+    timer = window.setTimeout(stop, CHECK_TIMEOUT_MS * 2);
+  } catch {}
+  const unlisten = () => {
+    try { outerSignal?.removeEventListener("abort", stop); } catch {}
+  };
+  try {
+    try { outerSignal?.addEventListener("abort", stop, { once: true }); } catch {}
+    try {
+      return await firstValidHtml(
+        [
+          fetchPageSameOrigin(url, signal),
+          fetchPageStaticProxy(url, signal),
+          fetchPageOffice(url, signal),
+          fetchPageRemote(url, signal),
+        ],
+        stop
+      );
+    } finally {
+      try { if (timer) window.clearTimeout(timer); } catch {}
+      unlisten();
+      stop();
+    }
   } catch {
     return null;
   }
 }
 
 /** First valid (non-null) door wins; never waits out the slowest door.
-    Rejects/nulls are ignored until every door settles, then null. */
-function firstValidHtml(jobs: Promise<string | null>[]): Promise<string | null> {
+    Rejects/nulls are ignored until every door settles, then null.
+    `onFirstValid` fires the moment a winner lands — callers abort the losing
+    doors there instead of downloading whole pages in the background. */
+function firstValidHtml(jobs: Promise<string | null>[], onFirstValid?: () => void): Promise<string | null> {
   return new Promise((resolve) => {
     let pending = jobs.length;
     let done = false;
@@ -754,6 +761,7 @@ function firstValidHtml(jobs: Promise<string | null>[]): Promise<string | null> 
           if (done) return;
           if (typeof value === "string" && value.length > 0) {
             done = true;
+            try { onFirstValid?.(); } catch {}
             resolve(value);
             return;
           }
@@ -791,9 +799,9 @@ function isYoutubeHtml(html: string): boolean {
     and deployed visitors alike — reads through its own host first instead of
     paying for the office or public doors. Static hosts answer nothing here
     and fall through below, exactly as before. */
-async function fetchPageSameOrigin(url: string): Promise<string | null> {
+async function fetchPageSameOrigin(url: string, signal?: AbortSignal): Promise<string | null> {
   try {
-    const res = await withTimeout(fetch(`/__yt?url=${encodeURIComponent(url)}`, { cache: "no-store" }), CHECK_TIMEOUT_MS);
+    const res = await withTimeout(fetch(`/__yt?url=${encodeURIComponent(url)}`, { cache: "no-store", signal }), CHECK_TIMEOUT_MS);
     if (!res || !res.ok) return null;
     const text = await res.text();
     if (typeof text !== "string" || text.length === 0) return null;
@@ -811,9 +819,9 @@ async function fetchPageSameOrigin(url: string): Promise<string | null> {
    of failure: when it slowed or 500'd, every check read unknown and the Watch
    screen sat on the clock through a live service. First VALID YouTube answer
    wins; a miss degrades exactly as before (unknown, quiet). */
-async function proxyDoor(proxyUrl: string, url: string): Promise<string | null> {
+async function proxyDoor(proxyUrl: string, url: string, signal?: AbortSignal): Promise<string | null> {
   try {
-    const res = await withTimeout(fetch(proxyUrl + encodeURIComponent(url), { cache: "no-store" }), CHECK_TIMEOUT_MS);
+    const res = await withTimeout(fetch(proxyUrl + encodeURIComponent(url), { cache: "no-store", signal }), CHECK_TIMEOUT_MS);
     if (!res || !res.ok) return null;
     const text = await res.text();
     if (typeof text !== "string" || text.length === 0) return null;
@@ -823,12 +831,12 @@ async function proxyDoor(proxyUrl: string, url: string): Promise<string | null> 
     return null;
   }
 }
-async function fetchPageRemote(url: string): Promise<string | null> {
+async function fetchPageRemote(url: string, signal?: AbortSignal): Promise<string | null> {
   try {
     return await firstValidHtml([
-      proxyDoor("https://api.allorigins.win/raw?url=", url),
-      proxyDoor("https://corsproxy.io/?url=", url),
-      proxyDoor("https://api.codetabs.com/v1/proxy?quest=", url),
+      proxyDoor("https://api.allorigins.win/raw?url=", url, signal),
+      proxyDoor("https://corsproxy.io/?url=", url, signal),
+      proxyDoor("https://api.codetabs.com/v1/proxy?quest=", url, signal),
     ]);
   } catch {
     return null;
@@ -841,7 +849,7 @@ async function fetchPageRemote(url: string): Promise<string | null> {
     index.html there), so without these the only door left was the public proxy.
     Same-origin, no CORS, and YouTube-only by design like /__yt. Missing
     anywhere else -> null. */
-async function fetchPageStaticProxy(url: string): Promise<string | null> {
+async function fetchPageStaticProxy(url: string, signal?: AbortSignal): Promise<string | null> {
   const doors = [
     `/.netlify/functions/yt?url=${encodeURIComponent(url)}`,
     `/api/yt?url=${encodeURIComponent(url)}`,
@@ -849,7 +857,7 @@ async function fetchPageStaticProxy(url: string): Promise<string | null> {
   try {
     const jobs = doors.map(async (door) => {
       try {
-        const res = await withTimeout(fetch(door, { cache: "no-store" }), CHECK_TIMEOUT_MS);
+        const res = await withTimeout(fetch(door, { cache: "no-store", signal }), CHECK_TIMEOUT_MS);
         if (!res || !res.ok) return null;
         const text = await res.text();
         if (typeof text !== "string" || text.length === 0) return null;
@@ -870,12 +878,12 @@ async function fetchPageStaticProxy(url: string): Promise<string | null> {
 
 /** Office-server YouTube read for deployed copies joined to it. Skipped when
     this copy stands alone (the public proxy below covers that). */
-async function fetchPageOffice(url: string): Promise<string | null> {
+async function fetchPageOffice(url: string, signal?: AbortSignal): Promise<string | null> {
   try {
     const base = serverUrl();
     if (!base) return null;
     const res = await withTimeout(
-      fetch(`${base}/__yt?url=${encodeURIComponent(url)}`, { cache: "no-store" }),
+      fetch(`${base}/__yt?url=${encodeURIComponent(url)}`, { cache: "no-store", signal }),
       CHECK_TIMEOUT_MS
     );
     if (!res || !res.ok) return null;
@@ -898,27 +906,46 @@ async function fetchPageOffice(url: string): Promise<string | null> {
 async function fetchPageFacebook(url: string): Promise<string | null> {
   /* Three public doors race (was allorigins alone): Facebook reads share the
      same single-proxy failure as YouTube did. Any readable page is fine —
-     error pages simply read as unknown, exactly as before. */
+     error pages simply read as unknown, exactly as before. Losers abort on
+     the first readable page, like the YouTube race above. */
   const doors = [
     "https://api.allorigins.win/raw?url=",
     "https://corsproxy.io/?url=",
     "https://api.codetabs.com/v1/proxy?quest=",
   ];
+  let ctrl: AbortController | null = null;
+  try {
+    ctrl = typeof AbortController !== "undefined" ? new AbortController() : null;
+  } catch {
+    ctrl = null;
+  }
+  const signal = ctrl ? ctrl.signal : undefined;
+  const stop = () => {
+    try { ctrl?.abort(); } catch {}
+  };
+  let timer = 0;
+  try {
+    timer = window.setTimeout(stop, CHECK_TIMEOUT_MS * 2);
+  } catch {}
   try {
     return await firstValidHtml(
       doors.map(async (base) => {
         try {
-          const res = await withTimeout(fetch(base + encodeURIComponent(url), { cache: "no-store" }), CHECK_TIMEOUT_MS);
+          const res = await withTimeout(fetch(base + encodeURIComponent(url), { cache: "no-store", signal }), CHECK_TIMEOUT_MS);
           if (!res || !res.ok) return null;
           const text = await res.text();
           return typeof text === "string" && text.length > 0 ? text : null;
         } catch {
           return null;
         }
-      })
+      }),
+      stop
     );
   } catch {
     return null;
+  } finally {
+    try { if (timer) window.clearTimeout(timer); } catch {}
+    stop();
   }
 }
 
@@ -1363,12 +1390,9 @@ async function run() {
   if (!watchers.size) return;
   /* A broadcast that is on air is the one moment the answer matters, so it is
      never skipped; a hidden tab is otherwise left alone (no point in spending
-     the proxy's time on a screen nobody is looking at) — unless this copy is
-     the office (a report sink is set): deployed visitors depend on its
-     reports, so it keeps reporting in the background exactly like the local
-     copy does with its tab open. */
+     the proxy's time on a screen nobody is looking at). */
   const hidden = document.visibilityState === "hidden";
-  if (hidden && snapshot.status.state !== "live" && !reportSink) {
+  if (hidden && snapshot.status.state !== "live") {
     schedule(30_000);
     return;
   }

@@ -1669,6 +1669,15 @@
   position: relative;
   aspect-ratio: 16 / 9;
   overflow: hidden;
+  /* A missing/slow photo must read as a panel, never a black hole. */
+  background: var(--panel-2);
+}
+
+/* Grid children are Reveal wrappers, not the cards: let long addresses and
+   pastor names shrink instead of overflowing the phone column. */
+.branch-country .grid > .mreveal,
+.branch-sub .grid > .mreveal {
+  min-width: 0;
 }
 
 .branch-card__media img {
@@ -5790,6 +5799,26 @@
 .aslides__gl {
   position: absolute;
   inset: 0;
+  /* The canvas fades in over the instant flat poster (see .aslides__poster)
+     the moment WebGL reports ready — never a black flash while three loads. */
+  opacity: 0;
+  transition: opacity 0.6s ease;
+}
+.aslides--3d.is-live .aslides__gl {
+  opacity: 1;
+}
+/* Instant announcement: the first slide flat, in the same frame box, painted
+   from first paint while the lazy 3D chunk downloads. Unmounts after the
+   canvas fades in; tappable until then, so the announcement never waits. */
+.aslides__poster {
+  position: absolute;
+  inset: 0;
+  z-index: 10;
+  transition: opacity 0.5s ease;
+}
+.aslides__poster.is-fading {
+  opacity: 0;
+  pointer-events: none;
 }
 .aslides__gl > div {
   width: 100%;
@@ -5884,6 +5913,8 @@
   .aslides__arrow svg { animation: none; }
   .aslides { transition: none; }
   .aslides-motion { opacity: 1 !important; transform: none !important; }
+  .aslides__gl { opacity: 1; transition: none; }
+  .aslides__poster { transition: none; }
   .athumb { transition: none; }
 }
 .aslide .aslide__photo {

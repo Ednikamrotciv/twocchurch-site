@@ -1,4 +1,4 @@
-import { mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, readdir, readFile, rm, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { createHash } from "node:crypto";
 
@@ -84,13 +84,123 @@ async function uploadsManifest(rootDir) {
     const files = await readdir(path.join(rootDir, "data", "uploads"));
     for (const f of files) {
       try {
-        const bytes = (await readFile(path.join(rootDir, "data", "uploads", f))).length;
-        uploads.push({ name: f, bytes });
+        if (f.includes("..") || f.includes("/") || f.includes("\\")) continue;
+        const bytes = await readFile(path.join(rootDir, "data", "uploads", f));
+        /* A sha per file (note: restore repair): a later restore can tell a
+           truncated/corrupt survivor apart from the bytes that were backed up,
+           not just present from absent. Old snapshots without shas still
+           restore — they validate by magic bytes instead. */
+        uploads.push({ name: f, bytes: bytes.length, sha: hash(bytes) });
       } catch { /* a directory, or vanished mid-listing */ }
     }
   } catch { /* no uploads yet */ }
   uploads.sort((a, b) => (a.name < b.name ? -1 : 1));
   return uploads;
+}
+
+/* Byte truth for restore repair (mirrors the upload doors and
+   src/lib/cms.ts backupBytesMatchExtension): only magic bytes prove a file.
+   Broken (truncated/zero-byte) and infected (HTML page planted as media)
+   bytes fail here and are quarantined, never served. */
+function restoreBytesLookLikeHtml(buf) {
+  try {
+    const head = buf.slice(0, 2048).toString("latin1").toLowerCase();
+    if (head.includes("<!doctype") || head.includes("<html") || head.includes("<head") || head.includes("<meta") || head.includes("<script") || head.includes("<link") || head.includes("wom-deploy") || head.includes("wom-notes") || head.includes("__wom")) return true;
+    if (head.trimStart().startsWith("<")) return true;
+    return false;
+  } catch { return false; }
+}
+function restoreBytesMatchExtension(name, buf) {
+  try {
+    if (!buf || buf.length < 4) return false;
+    const ext = String(name.split(".").pop() || "").toLowerCase();
+    const b = buf;
+    if (ext === "jpg" || ext === "jpeg") return b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff;
+    if (ext === "png") return b[0] === 0x89 && b[1] === 0x50 && b[2] === 0x4e && b[3] === 0x47;
+    if (ext === "gif") return b[0] === 0x47 && b[1] === 0x49 && b[2] === 0x46 && b[3] === 0x38;
+    if (ext === "webp") return b.length >= 12 && b[0] === 0x52 && b[1] === 0x49 && b[2] === 0x46 && b[3] === 0x46 && b[8] === 0x57 && b[9] === 0x45 && b[10] === 0x42 && b[11] === 0x50;
+    if (ext === "avif") {
+      if (b.length < 12) return false;
+      const box = String.fromCharCode(b[4], b[5], b[6], b[7]);
+      const brand = String.fromCharCode(b[8], b[9], b[10], b[11]).toLowerCase();
+      return box === "ftyp" && (brand.indexOf("avif") !== -1 || brand.indexOf("heic") !== -1 || brand.indexOf("mif1") !== -1 || brand.indexOf("msf1") !== -1);
+    }
+    if (ext === "mp4" || ext === "mov" || ext === "m4v" || ext === "m4a") {
+      if (b.length < 8) return false;
+      return String.fromCharCode(b[4], b[5], b[6], b[7]) === "ftyp";
+    }
+    if (ext === "webm") return b[0] === 0x1a && b[1] === 0x45 && b[2] === 0xdf && b[3] === 0xa3;
+    if (ext === "ogv" || ext === "ogg" || ext === "oga" || ext === "opus") return b[0] === 0x4f && b[1] === 0x67 && b[2] === 0x67 && b[3] === 0x53;
+    if (ext === "mp3") {
+      if (b[0] === 0x49 && b[1] === 0x44 && b[2] === 0x33) return true;
+      return b[0] === 0xff && (b[1] === 0xfb || b[1] === 0xf3 || b[1] === 0xf2 || (b[1] & 0xe0) === 0xe0);
+    }
+    if (ext === "wav") return b.length >= 12 && b[0] === 0x52 && b[1] === 0x49 && b[2] === 0x46 && b[3] === 0x46 && b[8] === 0x57 && b[9] === 0x41 && b[10] === 0x56 && b[11] === 0x45;
+    if (ext === "flac") return b[0] === 0x66 && b[1] === 0x4c && b[2] === 0x61 && b[3] === 0x43;
+    if (ext === "aac") return b[0] === 0xff && (b[1] === 0xf1 || b[1] === 0xf9);
+    if (ext === "mid" || ext === "midi") return b[0] === 0x4d && b[1] === 0x54 && b[2] === 0x68 && b[3] === 0x64;
+    if (ext === "svg" || ext === "svgz") return false;
+    return true;
+  } catch { return false; }
+}
+function restoreBytesOk(name, buf) {
+  try {
+    if (!buf || !buf.length) return false;
+    if (restoreBytesLookLikeHtml(buf)) return false;
+    if (!restoreBytesMatchExtension(name, buf)) return false;
+    return true;
+  } catch { return false; }
+}
+
+/* Validate every upload on disk after a restore: missing files are named so
+   the browser heal loop refetches them, and broken/infected files (empty,
+   HTML, magic-mismatched, or sha-diverged from the manifest) are moved aside
+   into data/.trash/ — which unblocks the heal loop (a corrupt survivor used
+   to read as "present" forever) and takes the bad bytes out of serving.
+   Nothing is ever deleted: the trash keeps them for 72h like any removal. */
+async function repairUploadsOnDisk(rootDir, meta) {
+  const missingUploads = [];
+  const quarantined = [];
+  const dataDir = path.join(rootDir, "data", "uploads");
+  const trashDir = path.join(rootDir, "data", ".trash");
+  let disk = [];
+  try {
+    disk = await readdir(dataDir);
+  } catch { disk = []; }
+  const manifest = new Map();
+  try {
+    for (const u of (meta && meta.uploads) || []) {
+      if (u && u.name) manifest.set(u.name, u);
+    }
+  } catch {}
+  for (const f of disk) {
+    try {
+      if (!f || f.includes("..") || f.includes("/") || f.includes("\\")) continue;
+      const full = path.join(dataDir, f);
+      const bytes = await readFile(full).catch(() => null);
+      if (!bytes) continue;
+      const entry = manifest.get(f);
+      const shaMismatch = !!(entry && entry.sha && hash(bytes) !== entry.sha);
+      if (!shaMismatch && restoreBytesOk(f, bytes)) continue;
+      await mkdir(trashDir, { recursive: true });
+      const dest = path.join(trashDir, Date.now().toString() + "-" + f);
+      try {
+        await rename(full, dest);
+      } catch {
+        continue;
+      }
+      quarantined.push(f);
+    } catch {}
+  }
+  try {
+    for (const [name] of manifest) {
+      const st = await readFile(path.join(dataDir, name)).catch(() => null);
+      if (!st) missingUploads.push(name);
+    }
+  } catch {}
+  missingUploads.sort();
+  quarantined.sort();
+  return { missingUploads, quarantined };
 }
 
 /* Snapshot the current store. Skips when the bytes match the newest snapshot,
@@ -169,14 +279,13 @@ export async function restore(rootDir, name, force) {
     await writeFile(path.join(dataDir, "cms-version.txt"), ver);
   } catch { /* snapshot predates versioning */ }
   await recordSeen(rootDir, hash(snap));
-  let missingUploads = [];
-  if (meta && meta.uploads) {
-    for (const u of meta.uploads) {
-      const st = await readFile(path.join(dataDir, "uploads", u.name)).catch(() => null);
-      if (!st) missingUploads.push(u.name);
-    }
-  }
-  return { restored: pick, at: meta && meta.at, missingUploads };
+  /* Restore repair: the state is back — now take the broken/infected files
+     out of serving (quarantine) and name what's still missing, so the browser
+     heal loop refetches every one of them from cache, the live box or the
+     mirrors on the next Publish. A restore that only replaced words used to
+     leave corrupt survivors behind, reading as "present" forever. */
+  const repair = await repairUploadsOnDisk(rootDir, meta);
+  return { restored: pick, at: meta && meta.at, missingUploads: repair.missingUploads, quarantined: repair.quarantined };
 }
 
 /* Bless the live bytes as this folder's own (after deliberately placing a
@@ -277,6 +386,10 @@ function reportMissingUploads(_rootDir, _r) {
   if (missing.length) {
     console.log(`note: ${missing.length} uploaded file(s) from that day are not on disk: ${missing.slice(0, 5).join(", ")}${missing.length > 5 ? ", …" : ""}`);
   }
+  const quarantined = _r.quarantined || [];
+  if (quarantined.length) {
+    console.log(`repaired: ${quarantined.length} broken/infected upload(s) moved aside to data/.trash/ for the heal loop to refetch: ${quarantined.slice(0, 5).join(", ")}${quarantined.length > 5 ? ", …" : ""}`);
+  }
 }
 
 export async function list(rootDir) {
@@ -301,6 +414,7 @@ if (CLI) {
       console.log(`restored data-backups/${r.restored}/ from ${r.at || "unknown time"}`);
       reportMissingUploads(root, r);
       if ((r.missingUploads || []).length) console.log(`missing uploads: ${r.missingUploads.join(", ")}`);
+      if ((r.quarantined || []).length) console.log(`quarantined (moved to data/.trash/ for refetch): ${r.quarantined.join(", ")}`);
     }
   } else if (cmd === "adopt") {
     const r = await adoptLive(root);

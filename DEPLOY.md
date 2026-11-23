@@ -223,29 +223,6 @@ A Render Web Service works as the always-on backend:
 Then put the service's `https://xxx.onrender.com` URL alone in
 `cms-server.txt`, commit, push, and rebuild the static site once.
 
-## Why a deploy can differ from local (livestream)
-
-Local reads YouTube from the office network (unwalled) through its own
-backend; a deploy reads through other doors, in this order: its own host
-(same-origin `/__yt` on Render, `netlify/functions/yt` on Netlify,
-`api/yt` on Vercel, `functions/__yt` on Cloudflare Pages), then the office
-server (`cms-server.txt` → `server.json`), then the office's live report,
-then the public CORS proxies. A deploy matches local exactly only while one
-of the first three doors answers:
-
-- Bake the office address in: `cms-server.txt` must hold the Render/office
-  URL and the frontend must be rebuilt after it, or the deploy stands alone.
-- Keep the backend awake (free tier sleeps — UptimeRobot to `/version.json`).
-- During a service keep one signed-in office tab open (Admin is fine, even
-  hidden) so visitors inherit its live report; or press Play + Publish, which
-  stamps the verified video id and lifts every visitor with no scrape wait.
-- Hosts built from a manual `dist/` upload (drag-and-drop, cPanel) have no
-  server doors — use a git-connected site so the YouTube functions deploy.
-
-If the red "Watch on YouTube" button plays but the site player shows the
-grey arrow, nothing above is broken: the Play switch is on with no live
-broadcast, or embedding is disabled for that video.
-
 ## Recent services on every copy
 
 *Recent services* no longer depends on the visitor's browser reaching

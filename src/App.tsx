@@ -9,11 +9,7 @@ import {
   PreviewBanner,
 } from "./components/layout";
 import { Toaster } from "./components/ui";
-import { ErrorBoundary as ErrorBoundaryImpl } from "./components/ErrorBoundary";
-
-const ErrorBoundary = ErrorBoundaryImpl as unknown as React.ComponentType<{
-  children?: React.ReactNode;
-}>;
+import { ErrorBoundary } from "./components/ErrorBoundary";
 import {
   startCms,
   useCmsVersion,
@@ -56,6 +52,11 @@ const Admin = React.lazy(
     import("./pages/Admin").then((m) => ({ default: m.Admin })),
   ),
 );
+// React versions can differ in their ErrorInfo.componentStack nullability.
+// Adapt only the boundary's JSX type here; the runtime implementation is unchanged.
+const AppErrorBoundary = ErrorBoundary as unknown as React.ComponentType<
+  React.PropsWithChildren<object>
+>;
 
 /* Explicit local preview only (?maintenance=1): the office's way to see the
    notice on demand. Visitors on a fresh deploy see it until Publish clears it. */
@@ -232,11 +233,11 @@ export function App() {
         {/* Never a loader page: nothing flashes while the admin chunk arrives —
             the site shell stays on screen, and a crash inside it lands on the
             error card — not a white page. */}
-        <ErrorBoundary>
+        <AppErrorBoundary>
           <React.Suspense fallback={null}>
             <Admin />
           </React.Suspense>
-        </ErrorBoundary>
+        </AppErrorBoundary>
         <LangAsk />
       </>
     );
@@ -370,9 +371,9 @@ function SiteApp() {
       {previewing && <PreviewBanner />}
       <Header />
       <main id="main" key={to}>
-        <ErrorBoundary>
+        <AppErrorBoundary>
           <React.Suspense fallback={null}>{page}</React.Suspense>
-        </ErrorBoundary>
+        </AppErrorBoundary>
       </main>
       <Footer />
       <ScrollTop />

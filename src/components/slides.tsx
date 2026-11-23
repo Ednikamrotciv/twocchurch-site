@@ -911,14 +911,12 @@ export function AnnouncementSlides({ slides = SLIDES }: { slides?: AnnouncementS
   /* Read once: flipping the OS setting mid-visit does not rebuild the stage. */
   const [calm] = useState(() => prefersReducedMotion());
   const webgl = useWebGLAvailable();
+  /* Warm the 3D chunk the moment the welcome band mounts — never when the
+     browser happens to idle. The lazy import below would otherwise leave the
+     box blank for the whole three/fiber/drei download on slow links. */
   useEffect(() => {
     if (calm || !webgl) return;
-    const ric = (window as unknown as { requestIdleCallback?: (cb: () => void) => number }).requestIdleCallback;
-    if (!ric) return;
-    const id = ric(() => {
-      void import("./slides3d");
-    });
-    return () => (window as unknown as { cancelIdleCallback?: (id: number) => void }).cancelIdleCallback?.(id);
+    void import("./slides3d").catch(() => {});
   }, [calm, webgl]);
   /* The 3D cuboid turns itself, slowly and without steps; the arrows, swipe,
      keys or a tap just lend it speed. */
@@ -928,6 +926,18 @@ export function AnnouncementSlides({ slides = SLIDES }: { slides?: AnnouncementS
   const swiperRef = useRef<Swiper | null>(null);
   /* Which slide the flat face sits on — films play themselves while head-on. */
   const [activeIdx, setActiveIdx] = useState(0);
+  /* Instant poster: the first announcement paints flat from first paint (same
+     box, same frame) while the lazy 3D chunk downloads and the canvas warms
+     up. The canvas fades in over it the moment WebGL reports ready; the poster
+     unmounts after the fade so taps reach the box. The box is never blank. */
+  const [glReady, setGlReady] = useState(false);
+  const [posterGone, setPosterGone] = useState(false);
+  useEffect(() => {
+    if (!glReady) return;
+    const t = window.setTimeout(() => setPosterGone(true), 700);
+    return () => window.clearTimeout(t);
+  }, [glReady]);
+  const handleGlReady = useCallback(() => setGlReady(true), []);
   const push3d = (dir: 1 | -1) => {
     cuboidApi.current?.push(dir);
   };
@@ -1113,15 +1123,20 @@ export function AnnouncementSlides({ slides = SLIDES }: { slides?: AnnouncementS
             transition={{ duration: 0.6, ease: [0.22, 0.7, 0.3, 1] }}
           >
             <div
-              className="aslides aslides--3d"
+              className={"aslides aslides--3d" + (glReady ? " is-live" : "")}
               style={shapeVar}
               onKeyDown={onKeyDown3d}
               role="img"
               aria-label={ct("auto.site.ed1bc718392f9ee1")}
             >
+              {!posterGone && (
+                <div className={"aslides__poster" + (glReady ? " is-fading" : "")}>
+                  <img className="aslide__photo" src={standIn} alt="" />
+                </div>
+              )}
               <StageErrorBoundary fallback={<img className="aslide__photo" src={standIn} alt="" />}>
                 <React.Suspense fallback={null}>
-                  <CuboidSpace3D slides={[]} apiRef={cuboidApi} held={held} />
+                  <CuboidSpace3D slides={[]} apiRef={cuboidApi} held={held} onReady={handleGlReady} />
                 </React.Suspense>
               </StageErrorBoundary>
               {/* Desktop arrows never hide — they are the swipe equivalent. */}
@@ -1194,7 +1209,7 @@ export function AnnouncementSlides({ slides = SLIDES }: { slides?: AnnouncementS
           transition={{ duration: 0.6, ease: [0.22, 0.7, 0.3, 1] }}
         >
           <div
-            className="aslides aslides--3d"
+            className={"aslides aslides--3d" + (glReady ? " is-live" : "")}
             style={shapeVar}
             onMouseEnter={() => setHeld(true)}
             onMouseLeave={() => setHeld(false)}
@@ -1236,9 +1251,14 @@ export function AnnouncementSlides({ slides = SLIDES }: { slides?: AnnouncementS
             aria-roledescription="carousel"
             aria-label={ct("auto.site.ed1bc718392f9ee1")}
           >
+            {!posterGone && live.length > 0 && (
+              <div className={"aslides__poster" + (glReady ? " is-fading" : "")}>
+                <AnnouncementSlide slide={live[0]} design={designs[0] || "plate"} index={1} total={count} videoActive={false} />
+              </div>
+            )}
             <StageErrorBoundary fallback={<img className="aslide__photo" src={standIn} alt="" />}>
               <React.Suspense fallback={null}>
-                <CuboidSpace3D slides={live} apiRef={cuboidApi} held={held} />
+                <CuboidSpace3D slides={live} apiRef={cuboidApi} held={held} onReady={handleGlReady} />
               </React.Suspense>
             </StageErrorBoundary>
             {/* The arrows are always present on the 3D stage — desktops

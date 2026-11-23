@@ -1089,7 +1089,7 @@ function CameraRig() {
   return null;
 }
 
-export function CuboidSpace3D({ slides, apiRef, held }: { slides: SlideT[]; apiRef?: { current: CuboidApi | null }; held?: boolean }) {
+export function CuboidSpace3D({ slides, apiRef, held, onReady }: { slides: SlideT[]; apiRef?: { current: CuboidApi | null }; held?: boolean; onReady?: () => void }) {
   /* The stage light follows the page theme, and the canvas stays transparent
      so the box revolves against the light or dark page background itself. */
   const [theme, setTheme] = useState(() => {
@@ -1120,6 +1120,11 @@ export function CuboidSpace3D({ slides, apiRef, held }: { slides: SlideT[]; apiR
         dpr={[1, Math.min(3, 1.75 * Math.max(1, pageZoom))]}
         camera={{ fov: FOV, position: CAM_POS }}
         gl={{ antialias: true, alpha: true, preserveDrawingBuffer: true }}
+        onCreated={() => {
+          try {
+            onReady?.();
+          } catch {}
+        }}
       >
         <ambientLight intensity={light ? 1.25 : 0.95} />
         <directionalLight position={[5, 7, 8]} intensity={light ? 1.35 : 1.15} />

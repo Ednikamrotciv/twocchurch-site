@@ -62,7 +62,6 @@ import { photoOr } from "../data/photos";
 import { BRANCHES, DEFAULT_BRANCH_ID, HQ, branchFlag, branchZone, subBranchesOf, type Branch } from "../data/branches";
 import { LIVE, type WatchOption } from "../data/live";
 import type { RecentService } from "../lib/recentstreams";
-import { publishedChannelId } from "../lib/recentstreams";
 import { type Sermon, sermonDate, sermonThumb, ytWatch } from "../data/sermons";
 import { SCRIPTURES, TESTIMONY_CATEGORIES, type ChurchEvent } from "../data/content";
 import { Badge, Btn, Card, Icon, IconBtn, Modal, Notice, Reveal, Stat, TagList, Eyebrow, Field, Input, Monogram, ShareRow } from "./ui";
@@ -604,12 +603,11 @@ export function VideoPlayer({
            channel opens the player — a live answer from another channel, or
            an unverified channel follow with no video, waits instead of
            playing. The guest's own stamped answer passes while IT is live
-           (note 380). Resolved from the main address (UC id or known handle)
-           plus the id the last read resolved beside this same field value;
+           (note 380). Resolved from the main address (UC id or known handle);
            unknown stays permissive because the check itself already held the
            answer to the field's own owner. */
-        const designatedId = designatedChannelIdForTarget(liveTarget()?.url || "") || publishedChannelId();
-        if (!isDesignatedChannel(st.channelId || "", designatedId) && !(guestWatchUrl && isGuestTargetUrl(st.target || "", guestWatchUrl))) {
+        const allowedTapId = designatedChannelIdForTarget(liveTarget()?.url || "");
+        if (!isDesignatedChannel(st.channelId || "", allowedTapId) && !(guestWatchUrl && isGuestTargetUrl(st.target || "", guestWatchUrl))) {
           setChecking(false);
           setNotLive(true);
           /* Somebody else's video can never play here: the centered arrow
@@ -639,7 +637,7 @@ export function VideoPlayer({
               setNotLive(true);
             });
         } else if (
-          (st.state === "live" && st.channelId && (!designatedId || st.channelId === designatedId)) ||
+          (st.state === "live" && st.channelId && (!allowedTapId || st.channelId === allowedTapId)) ||
           (guestWatchUrl && st.state === "live" && !!st.channelId && isGuestTargetUrl(st.target || "", guestWatchUrl))
         ) {
           setChecking(false);

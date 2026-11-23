@@ -515,3 +515,22 @@ body {
     background: var(--ink-3, #12121a);
   }
 }
+
+/* Phones: branch cards/panels paint solid instead of frosted. A full-screen
+   backdrop blur per card blows the mobile GPU budget and composites as empty
+   dark tiles (sub-branches blank), besides scrolling far smoother solid. */
+@media (max-width: 640px) {
+  .branch-card,
+  .branch-panel {
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+    background: var(--ink-3, #12121a);
+  }
+  [data-theme="light"] .branch-card,
+  [data-theme="light"] .branch-panel {
+    background: #fffdf8;
+  }
+  .branch-card__media {
+    background: rgba(255, 255, 255, 0.04);
+  }
+}

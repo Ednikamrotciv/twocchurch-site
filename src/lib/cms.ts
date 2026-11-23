@@ -3095,6 +3095,12 @@ async function uploadNameMissing(name: string): Promise<boolean> {
     if (!res.ok) return true;
     const type = String(res.headers.get("content-type") || "").toLowerCase();
     if (type.includes("text/html")) return true;
+    /* A zero-byte survivor is not a file: without this it read as "present"
+       forever and no heal ever refetched it. */
+    try {
+      const len = res.headers.get("content-length");
+      if (len !== null && Number(len) === 0) return true;
+    } catch {}
     return false;
   } catch {
     return false;
@@ -3130,6 +3136,13 @@ export async function healMissingUploads(): Promise<{ restored: number; checked:
       try {
         const dataUrl = await getCachedDataUrl(name);
         let blob = dataUrlToBlob(dataUrl || "");
+        /* A poisoned browser cache must not block healing: invalid cached
+           bytes fall through to the live box, origins and mirrors below. */
+        try {
+          if (blob && !(await blobUploadBytesOk(blob as Blob, name))) blob = null;
+        } catch {
+          blob = null;
+        }
         /* Wipe durability (feed): when this browser never cached the file,
            anything the office pushed is fetchable off the public repo — so
            ANY open copy heals the server, not just the uploader's browser.
@@ -3148,8 +3161,12 @@ export async function healMissingUploads(): Promise<{ restored: number; checked:
                   const b = await r.blob();
                   if (b && (b as any).size && !String((b as any).type || "").toLowerCase().includes("text/html")) {
                     if ((b as any).size <= BACKUP_FILE_MAX_BYTES) {
-                      blob = b;
-                      try { await cacheUploadBlob(name, b); } catch {}
+                      let ok = false;
+                      try { ok = await blobUploadBytesOk(b as any, name); } catch { ok = false; }
+                      if (ok) {
+                        blob = b;
+                        try { await cacheUploadBlob(name, b); } catch {}
+                      }
                     }
                   }
                 }
@@ -3174,6 +3191,9 @@ export async function healMissingUploads(): Promise<{ restored: number; checked:
               if (!b || !(b as any).size) continue;
               if (String((b as any).type || "").toLowerCase().includes("text/html")) continue;
               if ((b as any).size > BACKUP_FILE_MAX_BYTES) continue;
+              let ok = false;
+              try { ok = await blobUploadBytesOk(b as any, name); } catch { ok = false; }
+              if (!ok) continue;
               blob = b;
               try { await cacheUploadBlob(name, b); } catch {}
               break;
@@ -3181,6 +3201,12 @@ export async function healMissingUploads(): Promise<{ restored: number; checked:
           }
         }
         if (!blob || !(blob as any).size) continue;
+        /* Final gate: only proven bytes ride to the server. */
+        try {
+          if (!(await blobUploadBytesOk(blob as any, name))) continue;
+        } catch {
+          continue;
+        }
         const put = await fetch("/__restore-file?conn=" + encodeURIComponent(officeFileConn()) + "&name=" + encodeURIComponent(name), {
           method: "POST",
           headers: { "content-type": (blob as any).type || guessUploadType(name) },
@@ -3240,6 +3266,13 @@ async function redownloadUploads(names: string[], origins: string[] = []): Promi
       } catch {
         blob = null;
       }
+      /* A poisoned browser cache must not block repair: invalid cached bytes
+         fall through to the live box, origins and mirrors below. */
+      try {
+        if (blob && !(await blobUploadBytesOk(blob as Blob, name))) blob = null;
+      } catch {
+        blob = null;
+      }
       if (!blob || !(blob as any).size) {
         try {
           const liveBase = await liveBaseUrl().catch(() => "");
@@ -3248,8 +3281,12 @@ async function redownloadUploads(names: string[], origins: string[] = []): Promi
             if (r.ok && !String(r.headers.get("content-type") || "").toLowerCase().includes("text/html")) {
               const b = await r.blob();
               if (b && (b as any).size && !String((b as any).type || "").toLowerCase().includes("text/html") && (b as any).size <= BACKUP_FILE_MAX_BYTES) {
-                blob = b;
-                try { await cacheUploadBlob(name, b); } catch {}
+                let ok = false;
+                try { ok = await blobUploadBytesOk(b as any, name); } catch { ok = false; }
+                if (ok) {
+                  blob = b;
+                  try { await cacheUploadBlob(name, b); } catch {}
+                }
               }
             }
           }
@@ -3274,6 +3311,9 @@ async function redownloadUploads(names: string[], origins: string[] = []): Promi
               if (!b || !(b as any).size) continue;
               if (String((b as any).type || "").toLowerCase().includes("text/html")) continue;
               if ((b as any).size > BACKUP_FILE_MAX_BYTES) continue;
+              let ok = false;
+              try { ok = await blobUploadBytesOk(b as any, name); } catch { ok = false; }
+              if (!ok) continue;
               blob = b;
               try { await cacheUploadBlob(name, b); } catch {}
               break;
@@ -3282,6 +3322,17 @@ async function redownloadUploads(names: string[], origins: string[] = []): Promi
         } catch {}
       }
       if (!blob || !(blob as any).size) {
+        failed.push(name);
+        continue;
+      }
+      /* Final gate: only proven bytes ride to the server — a poisoned mirror
+         must count as failed, never as restored. */
+      try {
+        if (!(await blobUploadBytesOk(blob as any, name))) {
+          failed.push(name);
+          continue;
+        }
+      } catch {
         failed.push(name);
         continue;
       }
@@ -6536,9 +6587,9 @@ function storedUploadAddresses(content: Snapshot): Map<string, string> {
   return map;
 }
 
-/* GET a remote upload into validated bytes (errors, html bodies, empties and
-   oversize files are all "no"). Used by the restore/publish repair loops for
-   non-mirror hosts. Never throws. */
+/* GET a remote upload into validated bytes (errors, html bodies, empties,
+   oversize files and magic-mismatched bodies are all "no"). Used by the
+   restore/publish repair loops for non-mirror hosts. Never throws. */
 async function fetchUploadBytes(url: string): Promise<Blob | null> {
   try {
     const res = await fetch(url, { cache: "no-store" });
@@ -6547,6 +6598,14 @@ async function fetchUploadBytes(url: string): Promise<Blob | null> {
     const blob = await res.blob();
     if (!blob || !(blob as any).size || (blob as any).size > BACKUP_FILE_MAX_BYTES) return null;
     if (String((blob as any).type || "").toLowerCase().includes("text/html")) return null;
+    /* Byte truth: headers lie — a poisoned door serves the fallback page as
+       image/jpeg. Magic bytes decide, or the bytes are refused. */
+    try {
+      const nm = uploadNameOf(url) || url;
+      if (!(await blobUploadBytesOk(blob as Blob, nm))) return null;
+    } catch {
+      return null;
+    }
     return blob as Blob;
   } catch {
     return null;
@@ -6562,7 +6621,11 @@ async function fetchUploadFromOrigins(origins: string[], name: string): Promise<
     if (!root) continue;
     try {
       const blob = await fetchUploadBytes(root + "/data/uploads/" + encodeURIComponent(name));
+      /* fetchUploadBytes already byte-checks, but never cache unproven bytes. */
       if (blob) {
+        let ok = false;
+        try { ok = await blobUploadBytesOk(blob as Blob, name); } catch { ok = false; }
+        if (!ok) continue;
         try { await cacheUploadBlob(name, blob); } catch {}
         return blob;
       }
@@ -6682,6 +6745,25 @@ function backupBytesMatchExtension(name: string, bytes: Uint8Array): boolean {
     if (ext === "aac") return b[0] === 0xff && (b[1] === 0xf1 || b[1] === 0xf9);
     if (ext === "mid" || ext === "midi") return b[0] === 0x4d && b[1] === 0x54 && b[2] === 0x68 && b[3] === 0x64;
     if (ext === "svg" || ext === "svgz") return false;
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/* Byte truth for heal/restore writes (broken/infected repair): a fetched blob
+   is only a repair when its decoded bytes look like the extension they ride
+   under and never like the app fallback page — headers and extensions lie (a
+   poisoned mirror serves HTML as image/jpeg), magic bytes do not. Blob-based
+   (fetch/cache/feed answers); never throws. */
+async function blobUploadBytesOk(blob: Blob | null, name: string): Promise<boolean> {
+  try {
+    if (!blob || !(blob as any).size) return false;
+    if (String((blob as any).type || "").toLowerCase().includes("text/html")) return false;
+    const head = new Uint8Array(await (blob as Blob).slice(0, 2048).arrayBuffer().catch(() => new ArrayBuffer(0)));
+    if (!head.length) return false;
+    if (backupBytesLookLikeHtml(head)) return false;
+    if (!backupBytesMatchExtension(name, head)) return false;
     return true;
   } catch {
     return false;

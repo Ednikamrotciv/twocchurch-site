@@ -66,6 +66,61 @@ try {
   /* a missing trash dir on first boot is normal */
 }
 
+/* Upload byte truth (broken/infected-upload repair): extension allow-lists and
+   content-type headers lie — a poisoned mirror can serve the HTML fallback as
+   image/jpeg, and a truncated write is still "image/jpeg". Only magic bytes
+   prove a file, so both upload doors below refuse empty bodies, HTML bodies
+   and magic-mismatched bodies. Mirrors src/lib/cms.ts backupBytesMatchExtension. */
+function uploadBytesLookLikeHtml(buf) {
+  try {
+    const head = buf.slice(0, 2048).toString("latin1").toLowerCase();
+    if (head.includes("<!doctype") || head.includes("<html") || head.includes("<head") || head.includes("<meta") || head.includes("<script") || head.includes("<link") || head.includes("wom-deploy") || head.includes("wom-notes") || head.includes("__wom")) return true;
+    if (head.trimStart().startsWith("<")) return true;
+    return false;
+  } catch { return false; }
+}
+function uploadBytesMatchExtension(name, buf) {
+  try {
+    if (!buf || buf.length < 4) return false;
+    const ext = String(name.split(".").pop() || "").toLowerCase();
+    const b = buf;
+    if (ext === "jpg" || ext === "jpeg") return b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff;
+    if (ext === "png") return b[0] === 0x89 && b[1] === 0x50 && b[2] === 0x4e && b[3] === 0x47;
+    if (ext === "gif") return b[0] === 0x47 && b[1] === 0x49 && b[2] === 0x46 && b[3] === 0x38;
+    if (ext === "webp") return b.length >= 12 && b[0] === 0x52 && b[1] === 0x49 && b[2] === 0x46 && b[3] === 0x46 && b[8] === 0x57 && b[9] === 0x45 && b[10] === 0x42 && b[11] === 0x50;
+    if (ext === "avif") {
+      if (b.length < 12) return false;
+      const box = String.fromCharCode(b[4], b[5], b[6], b[7]);
+      const brand = String.fromCharCode(b[8], b[9], b[10], b[11]).toLowerCase();
+      return box === "ftyp" && (brand.indexOf("avif") !== -1 || brand.indexOf("heic") !== -1 || brand.indexOf("mif1") !== -1 || brand.indexOf("msf1") !== -1);
+    }
+    if (ext === "mp4" || ext === "mov" || ext === "m4v" || ext === "m4a") {
+      if (b.length < 8) return false;
+      return String.fromCharCode(b[4], b[5], b[6], b[7]) === "ftyp";
+    }
+    if (ext === "webm") return b[0] === 0x1a && b[1] === 0x45 && b[2] === 0xdf && b[3] === 0xa3;
+    if (ext === "ogv" || ext === "ogg" || ext === "oga" || ext === "opus") return b[0] === 0x4f && b[1] === 0x67 && b[2] === 0x67 && b[3] === 0x53;
+    if (ext === "mp3") {
+      if (b[0] === 0x49 && b[1] === 0x44 && b[2] === 0x33) return true;
+      return b[0] === 0xff && (b[1] === 0xfb || b[1] === 0xf3 || b[1] === 0xf2 || (b[1] & 0xe0) === 0xe0);
+    }
+    if (ext === "wav") return b.length >= 12 && b[0] === 0x52 && b[1] === 0x49 && b[2] === 0x46 && b[3] === 0x46 && b[8] === 0x57 && b[9] === 0x41 && b[10] === 0x56 && b[11] === 0x45;
+    if (ext === "flac") return b[0] === 0x66 && b[1] === 0x4c && b[2] === 0x61 && b[3] === 0x43;
+    if (ext === "aac") return b[0] === 0xff && (b[1] === 0xf1 || b[1] === 0xf9);
+    if (ext === "mid" || ext === "midi") return b[0] === 0x4d && b[1] === 0x54 && b[2] === 0x68 && b[3] === 0x64;
+    if (ext === "svg" || ext === "svgz") return false;
+    return true;
+  } catch { return false; }
+}
+function uploadBytesOk(name, buf) {
+  try {
+    if (!buf || !buf.length) return false;
+    if (uploadBytesLookLikeHtml(buf)) return false;
+    if (!uploadBytesMatchExtension(name, buf)) return false;
+    return true;
+  } catch { return false; }
+}
+
 /* Served pages are the production build (`npm run build`). The shim connects
    the local browser to this backend (sign-in, publish, uploads) — deployed
    copies join the office server through server.json instead. */
@@ -714,7 +769,16 @@ const server = http.createServer(async (req, res) => {
           const dir = path.join(ROOT, "data", "uploads");
           await mkdir(dir, { recursive: true });
           const fname = Date.now().toString(36) + "-" + safe;
-          await writeFile(path.join(dir, fname), Buffer.concat(chunks));
+          const bodyBuf = Buffer.concat(chunks);
+          /* Byte truth (broken/infected repair): refuse empty, HTML and
+             magic-mismatched bodies — the extension allow-list above is not
+             proof by itself. */
+          if (!uploadBytesOk(safe, bodyBuf)) {
+            res.writeHead(400, { "cache-control": "no-store" });
+            res.end("bad file");
+            return;
+          }
+          await writeFile(path.join(dir, fname), bodyBuf);
           const body = JSON.stringify({ url: "/data/uploads/" + fname });
           res.writeHead(200, { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" });
           res.end(body);
@@ -787,16 +851,15 @@ const server = http.createServer(async (req, res) => {
           const dir = path.join(ROOT, "data", "uploads");
           await mkdir(dir, { recursive: true });
           const bodyBuf = Buffer.concat(chunks);
-          /* Blank-page guard (note 440): never let the HTML fallback page land
-             as a photo — a poisoned backup entry used to blank good files. */
-          try {
-            const head = bodyBuf.slice(0, 2048).toString("latin1").toLowerCase();
-            if (head.includes("<!doctype") || head.includes("<html") || head.includes("<head") || head.includes("<meta") || head.includes("<script") || head.includes("wom-deploy") || head.trimStart().startsWith("<")) {
-              res.writeHead(400, { "cache-control": "no-store" });
-              res.end("bad filetype");
-              return;
-            }
-          } catch {}
+          /* Byte truth (broken/infected repair, note 440): never let an
+             empty body, the HTML fallback page, or magic-mismatched bytes
+             land as a photo — a poisoned backup entry used to blank good
+             files, and truncated writes used to sit as unhealable files. */
+          if (!uploadBytesOk(asked, bodyBuf)) {
+            res.writeHead(400, { "cache-control": "no-store" });
+            res.end("bad file");
+            return;
+          }
           await writeFile(path.join(dir, asked), bodyBuf);
           const body = JSON.stringify({ url: "/data/uploads/" + asked, restored: true });
           res.writeHead(200, { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" });

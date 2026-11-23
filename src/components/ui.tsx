@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState, type ButtonHTMLAttributes, type ReactNode } from "react";
 import { tx } from "../lib/i18n";
-import { AnimatePresence, motion } from "framer-motion";
+import { AnimatePresence, motion, useAnimation, useInView } from "framer-motion";
 import { EASE, SPRING_SNAPPY, SPRING_SOFT, fold, modalBackdrop, modalPanel, rise, toastCard } from "../lib/motion";
 import { Link } from "../lib/router";
 import { useClickOutside, useToasts, useReveal, useBodyLock } from "../lib/hooks";
@@ -469,16 +469,32 @@ export function Loader({ label = ct("auto.site.eebf8a74ab3dd8fd") }: { label?: s
   );
 }
 
+/* Sub-branch cards below the fold must never stick at opacity 0: the observer
+   behind `whileInView` can misfire in mobile webviews (and the old margin came
+   from a translatable string, so a translation could invalidate it). Drive the
+   animation with controls + a timed safety net instead — in view shows at once,
+   otherwise the timeout shows it anyway. */
+const REVEAL_MARGIN = "0px 0px -48px 0px";
 export function Reveal({ children, delay = 0, className = "", as = "div" }: { children: ReactNode; delay?: number; className?: string; as?: any }) {
   const tag = typeof as === "string" ? as : "div";
   const MTag = ((motion as any)[tag] ?? motion.div) as typeof motion.div;
+  const controls = useAnimation();
+  const ref = useRef<HTMLDivElement | null>(null);
+  const inView = useInView(ref, { once: true, margin: REVEAL_MARGIN as any });
+  useEffect(() => {
+    if (inView) controls.start("shown");
+  }, [inView, controls]);
+  useEffect(() => {
+    const t = window.setTimeout(() => controls.start("shown"), 2200);
+    return () => window.clearTimeout(t);
+  }, [controls]);
   return (
     <MTag
+      ref={ref}
       className={["mreveal", className].filter(Boolean).join(" ")}
       variants={rise}
       initial="hidden"
-      whileInView="shown"
-      viewport={{ once: true, margin: ct("auto.site.eb0695f10668f798") }}
+      animate={controls}
       transition={{ duration: 0.65, ease: EASE, delay: Math.min(delay, 400) / 1000 }}
     >
       {children}

@@ -1483,7 +1483,21 @@ h2 em {
 /* --------------------------------------------------------------- reveal */
 
 .mreveal {
-  will-change: opacity, transform;
+  /* No perpetual will-change: a permanent composited layer per card blanks
+     mobile GPUs (sub-branch cards painted as empty dark tiles) and costs
+     memory on long lists. Framer promotes the layer while animating anyway. */
+  will-change: auto;
+  min-width: 0;
+}
+
+.grid > .mreveal {
+  min-width: 0;
+}
+
+@media (max-width: 640px) {
+  .mreveal {
+    will-change: auto;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
