@@ -344,6 +344,40 @@
   text-align: left;
 }
 
+/* Recent uploads (no-copy reuse): one tap puts any recent upload in this field. */
+.admin__reuse-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+  align-items: center;
+}
+.admin__reuse-label {
+  font-size: 0.75rem;
+  color: var(--muted);
+  margin-right: 0.15rem;
+}
+.admin__reuse-thumb {
+  padding: 0;
+  border: 1px solid var(--line-2);
+  border-radius: 8px;
+  overflow: hidden;
+  background: var(--panel-2);
+  cursor: pointer;
+  width: 44px;
+  height: 34px;
+  flex: none;
+}
+.admin__reuse-thumb img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.admin__reuse-thumb--on {
+  outline: 2px solid var(--gold);
+  outline-offset: 1px;
+}
+
 /* the slide helper: prompts when a pasted slide picture is not landscape */
 .admin__agent {
   display: grid;
