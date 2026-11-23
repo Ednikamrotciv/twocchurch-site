@@ -30,6 +30,9 @@ export type RecentServices = {
   at: number;
   /** The channel the list came from, once it is known. */
   channelId: string;
+  /** The cleaned channel input this list was read for — a retyped channel
+      drops the old channel's list instead of merging it. */
+  for?: string;
 };
 
 export const RECENT_KEY = "wom.recentstreams";
@@ -483,13 +486,17 @@ export async function fetchRecentServices(): Promise<RecentServices | null> {
 
   /* Never lose a service to a thin read: the channel only ever carries the
      latest uploads, so a read that comes back short must not evict the older
-     services already saved — they stay until newer ones push them past KEEP. */
+     services already saved — they stay until newer ones push them past KEEP.
+     A retyped channel still drops everything: keeps read for another channel
+     never merge into the new handle's list. */
   const known = new Set(collapsed.map((it) => it.videoId));
+  const curList = readRecentServices();
+  const keepsBase = curList.channelId && channelId && curList.channelId !== channelId ? [] : curList.items;
   /* Only @twocorg's own videos stay (note 418): a kept card without a feed date
      was never proven the handle's — wall garbage and foreign endings linger
      exactly here — so on the designated channel dateless keeps go. Fresh
      just-ended seeds are not keeps (they never reach this filter). */
-  const kept = readRecentServices().items.filter(
+  const kept = keepsBase.filter(
     (it) => !it.seeded && !known.has(it.videoId) && (!designatedRead || Number(it.at) > 0)
   );
   const merged = [...collapsed, ...kept].sort((a, b) => whenOf(b, now) - whenOf(a, now));
@@ -668,6 +675,18 @@ export function readRecentServices(): RecentServices {
      other channel's list falls to the fallback. */
   const designated = publishedChannelId();
   if (designated && cachedChannelId && cachedChannelId !== designated) return designatedFallback();
+  /* Only the field's own list survives a retype (strict-channel rule): the
+     saved list remembers which channel input it was read for, so typing a new
+     channel drops the old channel's services at once instead of merging
+     them — no other livestream rides along. Unstamped older caches read as
+     before. */
+  try {
+    const pastedNow = cleanChannelInput(LIVE.youtubeChannel);
+    const savedFor = String((cached as { for?: unknown }).for || "");
+    if (savedFor && pastedNow && savedFor !== pastedNow) return designatedFallback();
+  } catch {
+    /* unjudgeable cache reads as before */
+  }
   const now = Date.now();
   const items = cached.items
     .filter((it) => it && parseYoutubeId(String(it.videoId || "")))
@@ -693,7 +712,13 @@ export function readRecentServices(): RecentServices {
 }
 
 function saveRecentServices(next: RecentServices) {
-  writeStore(RECENT_KEY, next);
+  let stamped: RecentServices = next;
+  try {
+    stamped = { ...next, for: cleanChannelInput(LIVE.youtubeChannel) };
+  } catch {
+    /* save unstamped — reads as before */
+  }
+  writeStore(RECENT_KEY, stamped);
 }
 
 /* A proven new update drops the old card once (note 362): the next read, or

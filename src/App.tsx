@@ -9,7 +9,11 @@ import {
   PreviewBanner,
 } from "./components/layout";
 import { Toaster } from "./components/ui";
-import { ErrorBoundary } from "./components/ErrorBoundary";
+import { ErrorBoundary as ErrorBoundaryImpl } from "./components/ErrorBoundary";
+
+const ErrorBoundary = ErrorBoundaryImpl as unknown as React.ComponentType<{
+  children?: React.ReactNode;
+}>;
 import {
   startCms,
   useCmsVersion,
@@ -228,13 +232,11 @@ export function App() {
         {/* Never a loader page: nothing flashes while the admin chunk arrives —
             the site shell stays on screen, and a crash inside it lands on the
             error card — not a white page. */}
-        {React.createElement(
-          ErrorBoundary as any,
-          null,
+        <ErrorBoundary>
           <React.Suspense fallback={null}>
             <Admin />
-          </React.Suspense>,
-        )}
+          </React.Suspense>
+        </ErrorBoundary>
         <LangAsk />
       </>
     );
@@ -368,11 +370,9 @@ function SiteApp() {
       {previewing && <PreviewBanner />}
       <Header />
       <main id="main" key={to}>
-        {React.createElement(
-          ErrorBoundary as any,
-          null,
-          <React.Suspense fallback={null}>{page}</React.Suspense>,
-        )}
+        <ErrorBoundary>
+          <React.Suspense fallback={null}>{page}</React.Suspense>
+        </ErrorBoundary>
       </main>
       <Footer />
       <ScrollTop />
