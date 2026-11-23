@@ -1,8 +1,9 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import { tx } from "../lib/i18n";
 import { SITE, VALUES, BELIEFS, TIMELINE, LEADERSHIP, FAQS, MINISTRIES, img } from "../data/site";
 import { BRANCHES, branchFlag } from "../data/branches";
 import { Badge, Btn, Card, Eyebrow, Icon, Reveal, Rich, Section, SectionHeading, Accordion, Tiles } from "../components/ui";
+import { PhotoImg } from "../components/photoimg";
 import { ct } from "../data/copy";
 import { PageHead } from "../components/layout";
 import { StatStrip } from "../components/blocks";
@@ -152,13 +153,16 @@ export function About() {
 
 function PersonCardLite({ person }: { person: (typeof LEADERSHIP)[number] }) {
   const [open, setOpen] = useState(false);
+  /* A dead upload falls back to the monogram instead of a blank/broken frame. */
+  const [photoDead, setPhotoDead] = useState(false);
+  useEffect(() => { setPhotoDead(false); }, [(person as any).image]);
   /* A cleared bio must never blank the page: read it defensively. */
   const bioText = String((person as any).bio || "");
   return (
     <Card pad={false} className="person-card" hover>
       <div className="person-card__photo">
-        {person.image ? (
-          <img src={person.image} alt={person.name} loading="lazy" />
+        {(person as any).image && !photoDead ? (
+          <PhotoImg src={(person as any).image} alt={person.name} loading="lazy" onExhausted={() => setPhotoDead(true)} />
         ) : (
           <span className="person-card__mono">
             <span className="monogram monogram--gold" style={{ width: 96, height: 96, fontSize: 34 }}>

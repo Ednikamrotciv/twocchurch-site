@@ -16,6 +16,7 @@ export function PhotoImg({
   className,
   loading,
   style,
+  onExhausted,
 }: {
   src: string;
   fallback?: string;
@@ -23,6 +24,8 @@ export function PhotoImg({
   className?: string;
   loading?: "lazy" | "eager";
   style?: React.CSSProperties;
+  /** Called when every address in the chain failed (so callers can show a monogram instead of an empty frame). */
+  onExhausted?: () => void;
 }) {
   const stored = String(src || "");
   const session = useUploadPreviewUrl(stored);
@@ -41,7 +44,13 @@ export function PhotoImg({
   useEffect(() => {
     setIdx(0);
   }, [addrs.join("\0")]);
-  if (!addrs.length || idx >= addrs.length) return null;
+  const exhausted = !addrs.length || idx >= addrs.length;
+  useEffect(() => {
+    if (exhausted) {
+      try { onExhausted?.(); } catch {}
+    }
+  }, [exhausted]);
+  if (exhausted) return null;
   const cur = addrs[idx];
   return (
     <img

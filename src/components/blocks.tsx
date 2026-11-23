@@ -1924,6 +1924,9 @@ export function EventCard({ event, layout = "grid" }: { event: ChurchEvent; layo
 
 export function TestimonyCard({ testimony, onOpen, onAmen }: { testimony: Testimony; onOpen?: () => void; onAmen: () => void }) {
   const cat = testimony.category;
+  /* A dead upload falls back to the monogram instead of a broken icon. */
+  const [photoDead, setPhotoDead] = useState(false);
+  useEffect(() => { setPhotoDead(false); }, [testimony.photo]);
   return (
     <Card hover className="testimony-card">
       <span className="testimony-card__quote"><Icon name="quote" size={22} /></span>
@@ -1932,7 +1935,7 @@ export function TestimonyCard({ testimony, onOpen, onAmen }: { testimony: Testim
       <p className="testimony-card__body">{tx(testimony.body.length > 210 && !onOpen ? testimony.body.slice(0, 205) + "…" : testimony.body)}</p>
       <div className="testimony-card__foot">
         <div className="testimony-card__who">
-          {testimony.photo ? <img src={testimony.photo} alt="" className="testimony-card__photo" /> : <Monogram name={testimony.name} letters={testimony.monogram} size={38} />}
+          {testimony.photo && !photoDead ? <PhotoImg src={testimony.photo} alt="" className="testimony-card__photo" onExhausted={() => setPhotoDead(true)} /> : <Monogram name={testimony.name} letters={testimony.monogram} size={38} />}
           <span>
             <b>{testimony.name === "Anonymous" ? ct("auto.testimonies.7baab97d05cbcf14") : testimony.name}</b>
             <em>
@@ -1999,10 +2002,13 @@ export function MinistryCard({ ministry, onJoin }: { ministry: { id: string; nam
 
 export function PersonCard({ person }: { person: Person }) {
   const [open, setOpen] = useState(false);
+  /* A dead upload falls back to the monogram instead of a blank/broken frame. */
+  const [photoDead, setPhotoDead] = useState(false);
+  useEffect(() => { setPhotoDead(false); }, [person.image]);
   return (
     <Card className="person-card" pad={false}>
       <div className="person-card__photo">
-        {person.image ? <img src={person.image} alt={person.name} loading="lazy" /> : <span className="person-card__mono"><Monogram name={person.name} size={92} /></span>}
+        {person.image && !photoDead ? <PhotoImg src={person.image} alt={person.name} loading="lazy" onExhausted={() => setPhotoDead(true)} /> : <span className="person-card__mono"><Monogram name={person.name} size={92} /></span>}
       </div>
       <div className="person-card__body">
         <h3>{person.name}</h3>

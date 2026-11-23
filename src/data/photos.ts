@@ -204,14 +204,24 @@ export function photoSrc(key: string): string {
  */
 export function resolvePhoto(value: string): string {
   if (!value) return "";
-  /* Office uploads move between hosts (an old absolute address keeps working
-     after a restore elsewhere): any /data/uploads/ address paints from the
-     copy being read, so a new device shows its own restored file instead of
-     the old host's — blank-free on every device. Pasted links pass through. */
-  const m = /\/data\/uploads\/([A-Za-z0-9][A-Za-z0-9._-]*)/.exec(String(value || ""));
-  if (m) return "/data/uploads/" + m[1];
-  const key = photoKeyOf(value);
-  return key ? photoSrc(key) : value;
+  const raw = String(value);
+  /* Office uploads keep the address the office wrote: an absolute office
+     address names the disk just written — the only copy guaranteed to hold
+     the fresh bytes — so it must stay in every chain ahead of the
+     host-relative copy, the same-copy fallback and the repo mirrors.
+     Stripping it here used to blank every remote-admin preview and every
+     public photo until a redeploy baked the file, painting stale repo
+     copies ("old uploads") or nothing at all instead. */
+  const m = /\/data\/uploads\/([A-Za-z0-9][A-Za-z0-9._-]*)/.exec(raw);
+  if (m) {
+    if (/^https?:\/\//i.test(raw.trim())) return raw;
+    return "/data/uploads/" + m[1];
+  }
+  /* A slash-less office address ("data/uploads/x") is the same file. */
+  const m2 = /^data\/uploads\/([A-Za-z0-9][A-Za-z0-9._-]*)/.exec(raw.trim());
+  if (m2) return "/data/uploads/" + m2[1];
+  const key = photoKeyOf(raw);
+  return key ? photoSrc(key) : raw;
 }
 
 /** A record's own photo, or a bundled one when empty — never a broken picture. */
