@@ -109,7 +109,8 @@ const PHOTO_BLURBS: Record<string, string> = {
   "Leadership photos": "The photos of the leadership team on the About page.",
 };
 
-/* Photo sections hide from the Update tab (notes 51, 58, 62); the Photos card still opens them. */
+/* Photo sections render as one combined "Photos and Banners" card, in Edit
+   (Photos job) and in the Update tab. */
 const PHOTO_SECTION_IDS: Record<string, string> = {
   "Page banners": "photos-banners",
   "Ministries & programmes": "photos-ministries",
@@ -121,11 +122,10 @@ const photoSections: SectionDef[] = PHOTO_GROUPS.map((group) => {
   return {
     id: PHOTO_SECTION_IDS[group] || "photos",
     label: group,
-    group: "Photos & covers",
+    group: "Photos and Banners",
     icon: "camera",
     blurb: PHOTO_BLURBS[group] || "",
     kind: "object" as const,
-    everythingHidden: true,
     fields: slots.map((slot) => ({
       path: slot.key,
       label: slot.label,

@@ -692,8 +692,8 @@ function PagePanel({
   }, [mode, view]);
 
   /* The full list (*Update* tab): every section the drawer offers except the
-     ones the church had taken out of the editor, and the photo sections, which
-     the *Photos & banners* card carries (SPEC note 62). */
+     ones the church had taken out of the editor. The three photo sections
+     render as one combined "Photos and Banners" card (PhotosAllBlock below). */
   const groups = useMemo(() => {
     const map = new Map<string, SectionDef[]>();
     for (const def of SECTION_DEFS) {
@@ -741,9 +741,31 @@ function PagePanel({
     />
   );
   const isPairMember = (id: string) => pairReady && (id === "prayerFocus" || id === "prayerCategories");
+  /* Photos and Banners is one card (PhotosAllBlock below), in Edit and
+     Update: the three photo sections (Page banners, Ministries & programmes,
+     Leadership photos) open together, each image named under its category. */
+  const PHOTO_IDS = ["photos-banners", "photos-ministries", "photos-leadership"];
+  const photoReady = PHOTO_IDS.every((id) => {
+    const def = sectionById(id);
+    return !!def && !sectionIsHidden(def.id);
+  });
+  const photoOpen = PHOTO_IDS.some((id) => open.includes(id));
+  const togglePhoto = () => setOpen((cur) => (photoOpen ? [] : [...PHOTO_IDS]));
+  const photoBlock = (focusEntry?: string) => (
+    <PhotosAllBlock
+      key="photos-all"
+      draft={draft}
+      dirty={PHOTO_IDS.some((id) => changedIds.includes(id))}
+      open={photoOpen}
+      focusEntry={focusEntry}
+      onToggle={togglePhoto}
+    />
+  );
+  const isPhotoMember = (id: string) => photoReady && PHOTO_IDS.includes(id);
   const blocksFor = (defs: SectionDef[], focusEntry?: string) => {
     const out: React.ReactNode[] = [];
     let paired = false;
+    let photoDone = false;
     for (const def of defs) {
       if (def.id === "prayerFocus" || def.id === "prayerCategories") {
         if (!pairReady) {
@@ -751,6 +773,11 @@ function PagePanel({
         } else if (!paired) {
           paired = true;
           out.push(pairBlock(focusEntry));
+        }
+      } else if (isPhotoMember(def.id)) {
+        if (!photoDone) {
+          photoDone = true;
+          out.push(photoBlock(focusEntry));
         }
       } else {
         out.push(block(def, focusEntry));
@@ -864,7 +891,7 @@ function PagePanel({
                 </button>
                 <p className="epanel__viewTitle">{view.title}</p>
                 {view.entryKey && <p className="epanel__lede">We found this for you — it is highlighted below.</p>}
-                {sectionView ? (sectionView.id === "prayerFocus" || sectionView.id === "prayerCategories") && pairReady ? pairBlock(view.entryKey) : block(sectionView, view.entryKey) : <p className="epanel__empty">That part of the site could not be found.</p>}
+                {sectionView ? (sectionView.id === "prayerFocus" || sectionView.id === "prayerCategories") && pairReady ? pairBlock(view.entryKey) : isPhotoMember(sectionView.id) ? photoBlock(view.entryKey) : block(sectionView, view.entryKey) : <p className="epanel__empty">That part of the site could not be found.</p>}
               </>
             ) : job ? (
               <>
@@ -1184,8 +1211,9 @@ function HelpModal({
             <b className="ehelp__title">Open the page you want to change</b>
             <p>
               Open the panel with <b>What do you want to change?</b> in the bar at the bottom, then pick the job that sounds closest —
-              the service times, the sermons, the giving, the church details. Between them the jobs hold every word, item and photo on
-              the site, so whatever you need to change is behind one of them. The box at the top searches every word, photo and
+              the service times, the sermons, the giving, the church details. Between them the jobs hold every word, item and
+              picture on the site, so whatever you need to change is behind one of them — pictures live together under
+              <b>Photos and Banners</b>, named by category. The box at the top searches every word, photo and
               detail, so typing “Sunday” or “Pastor” takes you straight to it.
             </p>
           </div>
@@ -1299,6 +1327,93 @@ function PrayerPairBlock({
           {sub("prayerFocus")}
           <hr className="pblock__div" />
           {sub("prayerCategories")}
+        </div>
+      )}
+    </Card>
+  );
+}
+
+/* Every picture on the site in one card, named under its own category
+   (Page banners, Ministries & programmes, Leadership photos). The three photo
+   sections underneath are untouched — this only draws them together. */
+function PhotosAllBlock({
+  draft,
+  dirty,
+  open,
+  focusEntry,
+  onToggle,
+}: {
+  draft: cms.Snapshot;
+  dirty: boolean;
+  open: boolean;
+  focusEntry?: string;
+  onToggle: () => void;
+}) {
+  const IDS = ["photos-banners", "photos-ministries", "photos-leadership"];
+  const sub = (id: string) => {
+    const def = sectionById(id);
+    if (!def) return null;
+    const value = draft[def.id] || {};
+    const commit = (next: any) => cms.setSectionValue(def.id, next);
+    const patch = (mutate: (v: any) => void) => {
+      const latest = cms.getDraft();
+      const next = clone(latest && latest[def.id] !== undefined ? latest[def.id] : value);
+      mutate(next);
+      commit(next);
+    };
+    return (
+      <div key={def.id} data-photo-category={def.id} data-focus-entry={focusEntry || ""}>
+        <h4 className="pblock__sub">{def.label}</h4>
+        {def.blurb ? <p className="pblock__blurb">{def.blurb}</p> : null}
+        <div className="admin__form">
+          {def.fields.map((f) => (
+            <FieldControl
+              key={f.path}
+              def={f}
+              value={getPath(value, f.path)}
+              onChange={(v) => {
+                patch((next) => setPath(next, f.path, v));
+              }}
+              draft={draft}
+              label={f.label}
+            />
+          ))}
+        </div>
+        <div className="pblock__foot">
+          <button
+            type="button"
+            className="pblock__reset"
+            onClick={() => {
+              cms.resetSection(def.id);
+              fireToast(`${def.label} is back to the original pictures (in your draft).`, "info");
+            }}
+          >
+            Put this back to the original
+          </button>
+        </div>
+      </div>
+    );
+  };
+  return (
+    <Card className={"pblock" + (open ? " is-open" : "")} pad={false}>
+      <button type="button" className="pblock__head" onClick={onToggle} aria-expanded={open}>
+        <span className="pblock__icon">
+          <Icon name="camera" size={16} />
+        </span>
+        <span className="pblock__title">
+          <b>Photos and Banners</b>
+          <em>Every picture on the site, named by its category</em>
+        </span>
+        {dirty && <i className="pblock__dot" title="Changed since the last publish" />}
+        <Icon name="chevronDown" size={16} className={"pblock__chev" + (open ? " is-open" : "")} />
+      </button>
+      {open && (
+        <div className="pblock__body">
+          {sub(IDS[0])}
+          <hr className="pblock__div" />
+          {sub(IDS[1])}
+          <hr className="pblock__div" />
+          {sub(IDS[2])}
         </div>
       )}
     </Card>
