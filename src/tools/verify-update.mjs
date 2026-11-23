@@ -853,7 +853,7 @@ export async function runAll(fs) {
   ok("report carries the channel", has(live, "channelId: status.channelId") && has(srvLive, "channelId: channelId") && has(srvLive, "/^UC[\\w-]{20,24}$/.test(channelId)"), "office answers and server validation must know the channel id");
   ok("player embeds the channel", has(emb, "youtubeChannelEmbed") && has(emb, "live_stream?channel=") && has(emb, "youtubeChannelEmbed(source.youtubeChannelId"), "a live answer with no video id must still play on the site");
   const watchPage = text["src/pages/WatchLive.tsx"];
-  ok("watch follows the channel", has(watchPage, "detectedChannel") && has(watchPage, "youtubeChannelId: detectedChannel") && has(watchPage, "liveTarget()?.url"), "the ended screen must not cover a channel-followed broadcast");
+  ok("watch follows the channel", has(watchPage, "detectedChannel") && has(watchPage, "followChannel") && has(watchPage, "youtubeChannelId:") && has(watchPage, "liveTarget()?.url"), "the ended screen must not cover a channel-followed broadcast");
   try {
     const eb5 = await import("https://esm.sh/esbuild-wasm@0.21.5?bundle");
     try {
@@ -1306,12 +1306,12 @@ export async function runAll(fs) {
   const watchBB = text["src/pages/WatchLive.tsx"];
   const blocksBB = text["src/components/blocks.tsx"];
   ok("designation baked, never read", has(liveBB, '"@twocorg": "UCQ0KIUXUV7gTZmDDlvd3ZcQ"') && has(liveBB, "designatedChannelIdForTarget(target.url)"), "the gate must know whose video counts with no page read");
-  ok("candidates prove designation", has(liveBB, "candidateStandsForDesignated(watchChannelId(watchHtml), designatedId, vid === liveTabId)"), "a suggestion must stand for @twocorg, not the grab-bag");
-  ok("follow needs the designated owner", has(liveBB, 'extractChannelId(html, target.url) : "", designatedId'), "a chrome-only page follows nobody unnamed or foreign");
+  ok("candidates prove designation", has(liveBB, "candidateStandsForDesignated(watchChannelId(watchHtml), allowedId, vid === liveTabId)"), "a suggestion must stand for @twocorg, not the grab-bag");
+  ok("follow needs the designated owner", has(liveBB, 'extractChannelId(html, target.url) : "", allowedId'), "a chrome-only page follows nobody unnamed or foreign");
   ok("office reports verified ids only", has(liveBB, 'if (status.state === "live" && !status.videoId) return;'), "an unverified channel-live answer must stay local");
   ok("readers wait on videoless reports", has(liveBB, "officeRep.target === target.url && reportCarriesVideo(officeRep)"), "a live report with no video must never open the player");
-  ok("screen plays only the designation", has(watchBB, "isDesignatedChannel(airForTarget.channelId, designatedId)") && has(watchBB, "designatedChannelIdForTarget(targetUrl)"), "the Watch page must wait until @twocorg is proven live");
-  ok("tap plays only the designation", has(blocksBB, "isDesignatedChannel(st.channelId") && has(blocksBB, "st.channelId && (!designatedId || st.channelId === designatedId)"), "a tap must wait on foreign or videoless live answers");
+  ok("screen plays only the designation", has(watchBB, "isDesignatedChannel(airForTarget.channelId, allowedMainId)") && has(watchBB, "designatedChannelIdForTarget(targetUrl)"), "the Watch page must wait until @twocorg is proven live");
+  ok("tap plays only the designation", has(blocksBB, "isDesignatedChannel(st.channelId") && has(blocksBB, "designatedChannelIdForTarget(liveTarget()"), "a tap must wait on foreign or videoless live answers");
   try {
     const ebBB = await import("https://esm.sh/esbuild-wasm@0.21.5?bundle");
     try {
@@ -2156,7 +2156,7 @@ export async function runAll(fs) {
   ok("fresh copies never read as stopped", has(liveHHH, "liveCut: 0"), "the seed ships no cut");
   ok("main stop clears the guest", has(liveHHH, 'externalYoutubeChannel: "", guestIsLive: false') && has(edHHH, "write(clearGuestOnStop({ ...cms.getDraft().live, isLive: false, liveSince: 0"), "one Stop must end the live and empty the guest slot stamped");
   ok("section publish drops its unsaved row", has(cmsHHH, "(draft as any)[sectionId] = clone(publishedSection(sectionId))"), "publishing live must clear the unsaved change too");
-  ok("stopped screen skips the clock", has(watchHHH, "const officeStopped = officeStopActive(LIVE)") && has(watchHHH, "&& !shutNow && !officeStopped ? (") && has(watchHHH, "const waitingForClick = !shutNow && !officeStopped"), "a stopped live must show the previous thumbnail, never the ticking clock");
+  ok("stopped screen skips the clock", has(watchHHH, "const officeStopped = officeStopActive(LIVE)") && has(watchHHH, "const waitingForClick = !shutNow && !officeStopped") && has(watchHHH, "!onAirNow && !waitingForClick") && has(watchHHH, "screenAir.state === \"live\" && !shutNow && !officeStopped"), "a stopped live must show the previous thumbnail, never the ticking clock");
   /* III. the notice holds on feed-backed copies (note 416): a standalone
      copy with a baked feed has visitors to protect like a server-backed one,
      so an unpublished deploy waits there too — pure static (no server, no
