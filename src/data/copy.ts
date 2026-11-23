@@ -397,7 +397,7 @@ const HAND_PAGES: CopyPage[] = [
       { id: "giving.step1", label: "Wizard — step 1 heading", value: "Step 1 — choose an amount" },
       { id: "giving.step2", label: "Wizard — step 2 heading", value: "Step 2 — choose a fund" },
       { id: "giving.step3", label: "Wizard — step 3 heading", value: "Step 3 — how would you like to give?" },
-      { id: "giving.alloc.title", label: "Allocation — heading", value: "Where every $100 goes" },
+      { id: "giving.alloc.title", label: "Allocation — heading", value: "Where every Giving goes" },
       {
         id: "giving.alloc.note",
         locked: true,

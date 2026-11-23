@@ -214,7 +214,7 @@ export const AUTO_ENTRIES: Record<string, CopyEntry[]> = {
     { id: "auto.giving.9a21a322a1f658b3", label: "Where it goes", value: "Where it goes" },
     { id: "auto.giving.d5e1031bb2373cc2", label: "Account details", value: "Account details" },
     { id: "auto.giving.8b75c7788a548651", label: "Note to the finance team (optional)", value: "Note to the finance team (optional)" },
-    { id: "auto.giving.d6394240a9ba3e61", label: "e.g. This gift is in memory of my mother.", value: "e.g. This gift is in memory of my mother." },
+    { id: "auto.giving.d6394240a9ba3e61", label: "e.g. This gift is for my thanksgiving.", value: "e.g. This gift is for my thanksgiving." },
     { id: "auto.giving.52dbf311bdd548c0", label: "Give to this fund", value: "Give to this fund", role: "button" },
     { id: "auto.giving.104b940be6bb5f3a", label: "Account", value: "Account" },
     { id: "auto.giving.c59940ad33337564", label: "Copy account number", value: "Copy account number", role: "button" },

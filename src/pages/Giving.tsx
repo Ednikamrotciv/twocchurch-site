@@ -83,7 +83,7 @@ export function Giving() {
                 <h3>{ct("giving.step3")}</h3>
                 <div className="method-grid">
                   {METHODS.map((m) => (
-                    <button key={m.id} type="button" className={"method-btn" + (method === m.id ? " method-btn--active" : "")} onClick={() => setMethod(m.id)}>
+                    <button key={m.id} type="button" className={"method-btn" + (method === m.id ? " method-btn--active" : "")} onClick={() => { setMethod(m.id); if (m.id === "transfer") setTab("other"); }}>
                       <Icon name={m.id === "transfer" ? "home" : "people"} size={18} />
                       <span>
                         <b>{tx(m.label)}</b>
