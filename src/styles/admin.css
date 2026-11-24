@@ -304,6 +304,31 @@
   object-fit: contain;
   background: #14121a;
 }
+/* Photos and Banners uses the phone-style full-photo fit on desktop too:
+   stacked fields with full-width natural-shape previews, never a cropped
+   strip — a portrait keeps its face, a wide banner keeps its edges. Other
+   image fields keep their small thumbs (whole image via contain above). */
+[data-photo-category] .admin__imagefield {
+  flex-direction: column;
+}
+[data-photo-category] .admin__imagepreview {
+  width: 100%;
+  height: auto;
+  min-height: 72px;
+  aspect-ratio: auto;
+}
+[data-photo-category] .admin__imagepreview img {
+  position: relative;
+  top: auto;
+  left: auto;
+  width: auto;
+  max-width: 100%;
+  height: auto;
+  max-height: 50vh;
+  margin: auto;
+  object-fit: contain;
+  object-position: center;
+}
 .admin__imageinputs {
   flex: 1;
   min-width: 0;

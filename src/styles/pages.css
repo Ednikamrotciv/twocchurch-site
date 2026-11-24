@@ -1667,7 +1667,7 @@
 
 .branch-card__media {
   position: relative;
-  aspect-ratio: 16 / 9;
+  aspect-ratio: auto;
   overflow: hidden;
   /* A missing/slow photo must read as a panel, never a black hole. */
   background: var(--panel-2);
@@ -1682,7 +1682,8 @@
 
 .branch-card__media img {
   width: 100%;
-  height: 100%;
+  height: auto;
+  max-width: 100%;
   object-fit: contain;
   object-position: center;
   transition: transform 0.6s ease;
@@ -2410,14 +2411,15 @@
 
 .event-card__media {
   position: relative;
-  aspect-ratio: 16 / 9;
+  aspect-ratio: auto;
   overflow: hidden;
   background: var(--panel-2);
 }
 
 .event-card__media img {
   width: 100%;
-  height: 100%;
+  height: auto;
+  max-width: 100%;
   object-fit: contain;
   object-position: center;
   transition: transform 0.6s ease;
@@ -4845,7 +4847,7 @@
 }
 
 .person-card__photo {
-  aspect-ratio: 4 / 3.2;
+  aspect-ratio: auto;
   overflow: hidden;
   background: var(--panel-2);
   display: flex;
@@ -4855,7 +4857,8 @@
 
 .person-card__photo img {
   width: 100%;
-  height: 100%;
+  height: auto;
+  max-width: 100%;
   object-fit: contain;
   object-position: center;
 }
@@ -4903,14 +4906,15 @@
 
 .ministry-card__media {
   position: relative;
-  aspect-ratio: 16 / 9;
+  aspect-ratio: auto;
   overflow: hidden;
   background: var(--panel-2);
 }
 
 .ministry-card__media img {
   width: 100%;
-  height: 100%;
+  height: auto;
+  max-width: 100%;
   object-fit: contain;
   object-position: center;
   transition: transform 0.6s ease;
