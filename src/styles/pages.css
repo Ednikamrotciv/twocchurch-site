@@ -3368,41 +3368,6 @@
   gap: 0.4rem;
 }
 
-/* Bank-transfer spotlight: the Other panel's card lands below the sticky
-   chrome and flashes gold ~2s so the numbers are impossible to miss. */
-#bank-details {
-  scroll-margin-top: 132px;
-}
-@media (max-width: 640px) {
-  #bank-details {
-    scroll-margin-top: 112px;
-  }
-}
-#bank-details.bank-flash {
-  border-color: var(--gold);
-  animation: bankFlash 2s ease;
-}
-@keyframes bankFlash {
-  0% {
-    box-shadow: 0 0 0 0 rgba(227, 183, 92, 0);
-  }
-  18% {
-    box-shadow: 0 0 0 4px rgba(227, 183, 92, 0.65), 0 0 32px rgba(227, 183, 92, 0.35);
-  }
-  70% {
-    box-shadow: 0 0 0 3px rgba(227, 183, 92, 0.45), 0 0 24px rgba(227, 183, 92, 0.25);
-  }
-  100% {
-    box-shadow: var(--shadow);
-  }
-}
-@media (prefers-reduced-motion: reduce) {
-  #bank-details.bank-flash {
-    animation: none;
-    border-color: var(--gold);
-  }
-}
-
 .bank-card span {
   font-size: 0.84rem;
   color: var(--muted);
@@ -3435,6 +3400,40 @@
 .bank-card .icon-btn {
   width: 28px;
   height: 28px;
+}
+
+/* Bank transfer target: lands below the sticky topbar+header, flashes gold so the numbers are impossible to miss. */
+#bank-details {
+  scroll-margin-top: 140px;
+}
+@media (max-width: 768px) {
+  #bank-details {
+    scroll-margin-top: 120px;
+  }
+}
+#bank-details.bank-details--flash {
+  border-color: var(--gold);
+  box-shadow: 0 0 0 3px rgba(227, 183, 92, 0.45), 0 0 32px rgba(227, 183, 92, 0.35);
+  animation: bankFlash 2.1s ease-out;
+}
+@keyframes bankFlash {
+  0% {
+    box-shadow: 0 0 0 5px rgba(227, 183, 92, 0.65), 0 0 44px rgba(227, 183, 92, 0.5);
+    background: rgba(227, 183, 92, 0.14);
+  }
+  30% {
+    box-shadow: 0 0 0 3px rgba(227, 183, 92, 0.45), 0 0 32px rgba(227, 183, 92, 0.35);
+    background: rgba(227, 183, 92, 0.1);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(227, 183, 92, 0);
+    background: var(--panel);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  #bank-details.bank-details--flash {
+    animation: none;
+  }
 }
 
 .giving-log__total {
@@ -6724,34 +6723,5 @@
   .page-head__bg::before,
   .page-head__bg::after {
     transition: none;
-  }
-}
-
-/* Mobile fit-to-screen for photos and banners (leadership faces, ministry /
-   event / branch pictures): the whole image shows on a phone — width fits
-   the screen, shape kept, never a cropped strip. Desktop keeps its uniform
-   cover crops. */
-@media (max-width: 620px) {
-  .person-card__photo,
-  .ministry-card__media,
-  .event-card__media,
-  .branch-card__media {
-    aspect-ratio: auto;
-    height: auto;
-  }
-  .person-card__photo img,
-  .ministry-card__media img,
-  .event-card__media img,
-  .branch-card__media img {
-    width: 100%;
-    height: auto;
-    max-width: 100%;
-    object-fit: contain;
-    object-position: center;
-  }
-  .ministry-card:hover .ministry-card__media img,
-  .event-card:hover .event-card__media img,
-  .branch-card:hover .branch-card__media img {
-    transform: none;
   }
 }

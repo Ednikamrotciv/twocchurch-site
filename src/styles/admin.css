@@ -783,25 +783,7 @@
   }
   .admin__imagepreview {
     width: 100%;
-    height: auto;
-    min-height: 72px;
-    aspect-ratio: auto;
-  }
-  /* Fit-to-screen on phones: the whole photo shows, never a cropped strip —
-     portrait leadership photos keep their faces, wide banners keep their
-     edges. The image sizes to the screen width with its own shape kept. */
-  .admin__imagepreview img {
-    position: relative;
-    top: auto;
-    left: auto;
-    width: auto;
-    max-width: 100%;
-    height: auto;
-    max-height: 62vh;
-    margin: auto;
-    object-fit: contain;
-    object-position: center;
-    background: var(--panel-2);
+    height: 128px;
   }
   /* The slide frame keeps its shape on a phone too — the whole picture, not
      a cropped strip. */

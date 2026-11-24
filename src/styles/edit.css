@@ -1473,14 +1473,3 @@ hr.pblock__div {
     width: auto !important;
   }
 }
-
-/* Mobile fit-to-screen for the edit popup photo: whole image on phones. */
-@media (max-width: 620px) {
-  .epop__photo {
-    aspect-ratio: auto;
-  }
-  .epop__photo img {
-    height: auto;
-    object-fit: contain;
-  }
-}
