@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useRef, useState } from "react";
+import React, { useCallback, useEffect, useState } from "react";
 import { tx } from "../lib/i18n";
 import { GIVING_FUNDS, GIVING_BREAKDOWN, BANK_ACCOUNTS, SITE, FAQS, img } from "../data/site";
 import { GIVING_FAQS, GIVING_METHODS } from "../data/content";
@@ -13,6 +13,36 @@ const METHODS = GIVING_METHODS;
 const TABS = ["give", "funds", "other"] as const;
 type TabId = (typeof TABS)[number];
 
+const BANK_DETAILS_ID = "bank-details";
+
+/* Smooth-scroll the bank card into view with a ~2s gold flash so the numbers
+   are impossible to miss. Works on mobile + desktop (block:start + reduced-
+   motion fallback). Retries briefly so it also lands when the Other panel
+   has just mounted after a tab switch. */
+function flashBankCard() {
+  try {
+    const el = document.getElementById(BANK_DETAILS_ID);
+    if (!el) return;
+    let reduce = false;
+    try { reduce = !!window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches; } catch {}
+    try { el.scrollIntoView({ behavior: reduce ? "auto" : "smooth", block: "start" }); } catch { try { el.scrollIntoView(); } catch {} }
+    el.classList.remove("bank-flash");
+    void (el as HTMLElement).offsetWidth;
+    el.classList.add("bank-flash");
+    window.setTimeout(() => { try { el.classList.remove("bank-flash"); } catch {} }, 2300);
+  } catch {}
+}
+
+function scrollBankIntoViewSoon(retries = 10) {
+  let n = 0;
+  const tick = () => {
+    const el = document.getElementById(BANK_DETAILS_ID);
+    if (el) { flashBankCard(); return; }
+    if (++n < retries) window.setTimeout(tick, 80);
+  };
+  window.setTimeout(tick, 40);
+}
+
 export function Giving() {
   // Which of the three panels is open lives in the address ("#/giving?tab=other"),
   // so a link — or the "Give now" button — can open the panel it means. The first
@@ -25,39 +55,36 @@ export function Giving() {
   const [fund, setFund] = useState("tithe");
   const [method, setMethod] = useState("transfer");
   const [note, setNote] = useState("");
-  const flashTimer = useRef<number | null>(null);
-  useEffect(() => () => { if (flashTimer.current) window.clearTimeout(flashTimer.current); }, []);
-  const scrollToBankDetails = useCallback(() => {
-    let attempts = 0;
-    const tryScroll = () => {
-      const el = document.getElementById("bank-details");
-      if (!el) {
-        if (attempts++ < 20) window.setTimeout(tryScroll, 50);
-        return;
-      }
-      try { el.scrollIntoView({ behavior: "smooth", block: "start" }); }
-      catch { try { (el as HTMLElement).scrollIntoView(); } catch {} }
-      el.classList.remove("bank-details--flash");
-      void (el as HTMLElement).offsetWidth;
-      el.classList.add("bank-details--flash");
-      if (flashTimer.current) window.clearTimeout(flashTimer.current);
-      flashTimer.current = window.setTimeout(() => {
-        try { el.classList.remove("bank-details--flash"); } catch {}
-      }, 2100);
-    };
-    window.setTimeout(tryScroll, 70);
-  }, []);
-  const goToBankDetails = () => { setTab("other"); scrollToBankDetails(); };
-  /* Deep link: /giving?tab=other#bank-details (legacy #/giving?tab=other#bank-details) jumps straight to the card. */
+
+  /* Both entry points — the header action + the "Bank transfer" method button —
+     open the Other panel then land on the exact #bank-details card. */
+  const goToBankDetails = useCallback(() => {
+    if (tab !== "other") setTab("other");
+    scrollBankIntoViewSoon();
+  }, [tab]);
+
+  /* #bank-details deep-link: /giving?tab=other#bank-details (or the legacy
+     #/giving?tab=other#bank-details) jumps straight to the card on load. */
   useEffect(() => {
-    if (tab !== "other") return;
-    let h = "";
-    try { h = String(window.location.hash || ""); } catch {}
-    if (!h.includes("bank-details")) return;
-    const t1 = window.setTimeout(() => scrollToBankDetails(), 250);
-    const t2 = window.setTimeout(() => scrollToBankDetails(), 800);
-    return () => { window.clearTimeout(t1); window.clearTimeout(t2); };
-  }, [tab, scrollToBankDetails]);
+    try {
+      const h = String(window.location.hash || "");
+      if (tab === "other" && h.includes(BANK_DETAILS_ID)) scrollBankIntoViewSoon();
+    } catch {}
+  }, [tab]);
+
+  /* Same link pasted while already on the page. */
+  useEffect(() => {
+    const onHash = () => {
+      try {
+        if (String(window.location.hash || "").includes(BANK_DETAILS_ID)) {
+          if (tab !== "other") setTab("other");
+          scrollBankIntoViewSoon();
+        }
+      } catch {}
+    };
+    window.addEventListener("hashchange", onHash);
+    return () => window.removeEventListener("hashchange", onHash);
+  }, [tab]);
 
   return (
     <>
@@ -116,7 +143,7 @@ export function Giving() {
                 <h3>{ct("giving.step3")}</h3>
                 <div className="method-grid">
                   {METHODS.map((m) => (
-                    <button key={m.id} type="button" className={"method-btn" + (method === m.id ? " method-btn--active" : "")} onClick={() => { setMethod(m.id); if (m.id === "transfer") goToBankDetails(); }}>
+                    <button key={m.id} type="button" className={"method-btn" + (method === m.id ? " method-btn--active" : "")} onClick={() => { if (m.id === "transfer") { setMethod(m.id); goToBankDetails(); } else setMethod(m.id); }}>
                       <Icon name={m.id === "transfer" ? "home" : "people"} size={18} />
                       <span>
                         <b>{tx(m.label)}</b>
@@ -165,7 +192,7 @@ export function Giving() {
 
             {tab === "other" && (
               <div className="other-panel">
-                <Card id="bank-details">
+                <Card id={BANK_DETAILS_ID} className="bank-details">
                   <h3>{ct("giving.bank.title")}</h3>
                   <p className="muted">{ct("giving.bank.note")}</p>
                   <div className="bank-grid">

@@ -3402,38 +3402,27 @@
   height: 28px;
 }
 
-/* Bank transfer target: lands below the sticky topbar+header, flashes gold so the numbers are impossible to miss. */
+/* Bank-transfer target: sits below the sticky topbar+header, flashes gold so
+   the account numbers are impossible to miss (~2.2s). */
 #bank-details {
-  scroll-margin-top: 140px;
+  scroll-margin-top: 176px;
 }
 @media (max-width: 768px) {
   #bank-details {
-    scroll-margin-top: 120px;
+    scroll-margin-top: 148px;
   }
 }
-#bank-details.bank-details--flash {
-  border-color: var(--gold);
-  box-shadow: 0 0 0 3px rgba(227, 183, 92, 0.45), 0 0 32px rgba(227, 183, 92, 0.35);
-  animation: bankFlash 2.1s ease-out;
+#bank-details.bank-flash {
+  border-color: var(--gold, #e3b75c) !important;
+  box-shadow: 0 0 0 3px rgba(227, 183, 92, 0.85), 0 0 34px rgba(227, 183, 92, 0.45) !important;
+  animation: bank-flash-pulse 2.2s ease;
 }
-@keyframes bankFlash {
-  0% {
-    box-shadow: 0 0 0 5px rgba(227, 183, 92, 0.65), 0 0 44px rgba(227, 183, 92, 0.5);
-    background: rgba(227, 183, 92, 0.14);
-  }
-  30% {
-    box-shadow: 0 0 0 3px rgba(227, 183, 92, 0.45), 0 0 32px rgba(227, 183, 92, 0.35);
-    background: rgba(227, 183, 92, 0.1);
-  }
-  100% {
-    box-shadow: 0 0 0 0 rgba(227, 183, 92, 0);
-    background: var(--panel);
-  }
+@keyframes bank-flash-pulse {
+  0% { box-shadow: 0 0 0 5px rgba(227, 183, 92, 0.95), 0 0 40px rgba(227, 183, 92, 0.55); }
+  100% { box-shadow: 0 0 0 3px rgba(227, 183, 92, 0.85), 0 0 34px rgba(227, 183, 92, 0.45); }
 }
 @media (prefers-reduced-motion: reduce) {
-  #bank-details.bank-details--flash {
-    animation: none;
-  }
+  #bank-details.bank-flash { animation: none; }
 }
 
 .giving-log__total {
