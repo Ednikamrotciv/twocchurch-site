@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { tx } from "../lib/i18n";
 import { GIVING_FUNDS, GIVING_BREAKDOWN, BANK_ACCOUNTS, SITE, FAQS, img } from "../data/site";
 import { GIVING_FAQS, GIVING_METHODS } from "../data/content";
@@ -25,6 +25,62 @@ export function Giving() {
   const [fund, setFund] = useState("tithe");
   const [method, setMethod] = useState("transfer");
   const [note, setNote] = useState("");
+  /* Bank-transfer deep link: the transfer button opens the account-details
+     panel AND lands the visitor on the exact details (both mobile and
+     desktop), with a short highlight so the numbers are impossible to miss. */
+  const bankRef = useRef<HTMLDivElement | null>(null);
+  const flashTimer = useRef<number>(0);
+  const didDeepLink = useRef(false);
+  const revealBankDetails = () => {
+    if (tab !== "other") setTab("other");
+    let tries = 0;
+    const attempt = () => {
+      tries++;
+      const el = bankRef.current || document.getElementById("bank-details");
+      if (el) {
+        try {
+          el.scrollIntoView({ behavior: "smooth", block: "start" });
+        } catch {
+          el.scrollIntoView();
+        }
+        try {
+          el.classList.remove("bank-flash");
+          void (el as HTMLElement).offsetWidth;
+          el.classList.add("bank-flash");
+        } catch {}
+        try {
+          window.clearTimeout(flashTimer.current);
+        } catch {}
+        try {
+          flashTimer.current = window.setTimeout(() => {
+            try {
+              el.classList.remove("bank-flash");
+            } catch {}
+          }, 2200);
+        } catch {}
+        return;
+      }
+      if (tries < 12) setTimeout(attempt, 80);
+    };
+    setTimeout(attempt, 60);
+  };
+  useEffect(() => {
+    try {
+      if (tab === "other" && !didDeepLink.current) {
+        didDeepLink.current = true;
+        if (window.location.hash.includes("bank-details")) revealBankDetails();
+      }
+    } catch {}
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tab]);
+  useEffect(
+    () => () => {
+      try {
+        window.clearTimeout(flashTimer.current);
+      } catch {}
+    },
+    []
+  );
 
   return (
     <>
@@ -35,7 +91,7 @@ export function Giving() {
         image={img("giving")}
         crumbs={[{ label: ct("auto.giving.2594c065b729d044"), to: "/" }, { label: ct("auto.giving.0c826e9a9722c32b") }]}
         actions={
-          <Btn icon="gift" onClick={() => setTab("other")}>
+          <Btn icon="gift" onClick={() => revealBankDetails()}>
             {ct("auto.giving.69337ad1b8cc24c8")}</Btn>
         }
       />
@@ -83,7 +139,7 @@ export function Giving() {
                 <h3>{ct("giving.step3")}</h3>
                 <div className="method-grid">
                   {METHODS.map((m) => (
-                    <button key={m.id} type="button" className={"method-btn" + (method === m.id ? " method-btn--active" : "")} onClick={() => { setMethod(m.id); if (m.id === "transfer") setTab("other"); }}>
+                    <button key={m.id} type="button" className={"method-btn" + (method === m.id ? " method-btn--active" : "")} onClick={() => { setMethod(m.id); if (m.id === "transfer") revealBankDetails(); }}>
                       <Icon name={m.id === "transfer" ? "home" : "people"} size={18} />
                       <span>
                         <b>{tx(m.label)}</b>
@@ -132,6 +188,7 @@ export function Giving() {
 
             {tab === "other" && (
               <div className="other-panel">
+                <div id="bank-details" ref={bankRef} tabIndex={-1} className="bank-details">
                 <Card>
                   <h3>{ct("giving.bank.title")}</h3>
                   <p className="muted">{ct("giving.bank.note")}</p>
@@ -170,6 +227,7 @@ export function Giving() {
                     ))}
                   </div>
                 </Card>
+                </div>
               </div>
             )}
           </div>

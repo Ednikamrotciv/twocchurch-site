@@ -1683,7 +1683,8 @@
 .branch-card__media img {
   width: 100%;
   height: 100%;
-  object-fit: cover;
+  object-fit: contain;
+  object-position: center;
   transition: transform 0.6s ease;
 }
 
@@ -2411,12 +2412,14 @@
   position: relative;
   aspect-ratio: 16 / 9;
   overflow: hidden;
+  background: var(--panel-2);
 }
 
 .event-card__media img {
   width: 100%;
   height: 100%;
-  object-fit: cover;
+  object-fit: contain;
+  object-position: center;
   transition: transform 0.6s ease;
 }
 
@@ -3400,6 +3403,31 @@
 .bank-card .icon-btn {
   width: 28px;
   height: 28px;
+}
+
+/* Bank-transfer deep link: the details sit below the sticky header, and the
+   flash marks the exact numbers for a couple of seconds after the jump. */
+#bank-details {
+  scroll-margin-top: 84px;
+  border-radius: var(--radius);
+}
+
+#bank-details:focus {
+  outline: none;
+}
+
+.bank-flash {
+  animation: bank-flash 2.2s ease;
+}
+
+@keyframes bank-flash {
+  0%,
+  35% {
+    box-shadow: 0 0 0 3px var(--gold, #e3b75c);
+  }
+  100% {
+    box-shadow: none;
+  }
 }
 
 .giving-log__total {
@@ -4828,8 +4856,8 @@
 .person-card__photo img {
   width: 100%;
   height: 100%;
-  object-fit: cover;
-  object-position: center 20%;
+  object-fit: contain;
+  object-position: center;
 }
 
 .person-card__body {
@@ -4877,12 +4905,14 @@
   position: relative;
   aspect-ratio: 16 / 9;
   overflow: hidden;
+  background: var(--panel-2);
 }
 
 .ministry-card__media img {
   width: 100%;
   height: 100%;
-  object-fit: cover;
+  object-fit: contain;
+  object-position: center;
   transition: transform 0.6s ease;
 }
 
@@ -6689,5 +6719,34 @@
   .page-head__bg::before,
   .page-head__bg::after {
     transition: none;
+  }
+}
+
+/* Mobile fit-to-screen for photos and banners (leadership faces, ministry /
+   event / branch pictures): the whole image shows on a phone — width fits
+   the screen, shape kept, never a cropped strip. Desktop keeps its uniform
+   cover crops. */
+@media (max-width: 620px) {
+  .person-card__photo,
+  .ministry-card__media,
+  .event-card__media,
+  .branch-card__media {
+    aspect-ratio: auto;
+    height: auto;
+  }
+  .person-card__photo img,
+  .ministry-card__media img,
+  .event-card__media img,
+  .branch-card__media img {
+    width: 100%;
+    height: auto;
+    max-width: 100%;
+    object-fit: contain;
+    object-position: center;
+  }
+  .ministry-card:hover .ministry-card__media img,
+  .event-card:hover .event-card__media img,
+  .branch-card:hover .branch-card__media img {
+    transform: none;
   }
 }

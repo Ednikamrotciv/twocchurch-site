@@ -279,9 +279,9 @@
   background: var(--panel-2);
   color: var(--faint);
 }
-/* The photo always fills its frame exactly — every upload, phone and desktop:
-   absolutely positioned, so no aspect ratio, inline gap or grid quirk can ever
-   leave it torn or shifted inside the frame. */
+/* The whole photo shows inside its frame — every upload, phone and desktop:
+   contained (letterboxed on the panel colour), never a cropped strip, so a
+   portrait keeps its face and a wide banner keeps its edges. */
 .admin__imagepreview img {
   position: absolute;
   top: 0;
@@ -289,7 +289,9 @@
   display: block;
   width: 100%;
   height: 100%;
-  object-fit: cover;
+  object-fit: contain;
+  object-position: center;
+  background: var(--panel-2);
 }
 /* A slide's own picture shows whole, in the slide's own 4:3 frame — never a
    cropped strip — so the office sees what the stage will carry. */
@@ -783,7 +785,25 @@
   }
   .admin__imagepreview {
     width: 100%;
-    height: 128px;
+    height: auto;
+    min-height: 72px;
+    aspect-ratio: auto;
+  }
+  /* Fit-to-screen on phones: the whole photo shows, never a cropped strip —
+     portrait leadership photos keep their faces, wide banners keep their
+     edges. The image sizes to the screen width with its own shape kept. */
+  .admin__imagepreview img {
+    position: relative;
+    top: auto;
+    left: auto;
+    width: auto;
+    max-width: 100%;
+    height: auto;
+    max-height: 62vh;
+    margin: auto;
+    object-fit: contain;
+    object-position: center;
+    background: var(--panel-2);
   }
   /* The slide frame keeps its shape on a phone too — the whole picture, not
      a cropped strip. */
