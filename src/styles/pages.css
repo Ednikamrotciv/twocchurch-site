@@ -1667,7 +1667,7 @@
 
 .branch-card__media {
   position: relative;
-  aspect-ratio: auto;
+  aspect-ratio: 16 / 9;
   overflow: hidden;
   /* A missing/slow photo must read as a panel, never a black hole. */
   background: var(--panel-2);
@@ -1682,10 +1682,8 @@
 
 .branch-card__media img {
   width: 100%;
-  height: auto;
-  max-width: 100%;
-  object-fit: contain;
-  object-position: center;
+  height: 100%;
+  object-fit: cover;
   transition: transform 0.6s ease;
 }
 
@@ -2411,17 +2409,14 @@
 
 .event-card__media {
   position: relative;
-  aspect-ratio: auto;
+  aspect-ratio: 16 / 9;
   overflow: hidden;
-  background: var(--panel-2);
 }
 
 .event-card__media img {
   width: 100%;
-  height: auto;
-  max-width: 100%;
-  object-fit: contain;
-  object-position: center;
+  height: 100%;
+  object-fit: cover;
   transition: transform 0.6s ease;
 }
 
@@ -3373,6 +3368,41 @@
   gap: 0.4rem;
 }
 
+/* Bank-transfer spotlight: the Other panel's card lands below the sticky
+   chrome and flashes gold ~2s so the numbers are impossible to miss. */
+#bank-details {
+  scroll-margin-top: 132px;
+}
+@media (max-width: 640px) {
+  #bank-details {
+    scroll-margin-top: 112px;
+  }
+}
+#bank-details.bank-flash {
+  border-color: var(--gold);
+  animation: bankFlash 2s ease;
+}
+@keyframes bankFlash {
+  0% {
+    box-shadow: 0 0 0 0 rgba(227, 183, 92, 0);
+  }
+  18% {
+    box-shadow: 0 0 0 4px rgba(227, 183, 92, 0.65), 0 0 32px rgba(227, 183, 92, 0.35);
+  }
+  70% {
+    box-shadow: 0 0 0 3px rgba(227, 183, 92, 0.45), 0 0 24px rgba(227, 183, 92, 0.25);
+  }
+  100% {
+    box-shadow: var(--shadow);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  #bank-details.bank-flash {
+    animation: none;
+    border-color: var(--gold);
+  }
+}
+
 .bank-card span {
   font-size: 0.84rem;
   color: var(--muted);
@@ -3405,31 +3435,6 @@
 .bank-card .icon-btn {
   width: 28px;
   height: 28px;
-}
-
-/* Bank-transfer deep link: the details sit below the sticky header, and the
-   flash marks the exact numbers for a couple of seconds after the jump. */
-#bank-details {
-  scroll-margin-top: 84px;
-  border-radius: var(--radius);
-}
-
-#bank-details:focus {
-  outline: none;
-}
-
-.bank-flash {
-  animation: bank-flash 2.2s ease;
-}
-
-@keyframes bank-flash {
-  0%,
-  35% {
-    box-shadow: 0 0 0 3px var(--gold, #e3b75c);
-  }
-  100% {
-    box-shadow: none;
-  }
 }
 
 .giving-log__total {
@@ -4847,7 +4852,7 @@
 }
 
 .person-card__photo {
-  aspect-ratio: auto;
+  aspect-ratio: 4 / 3.2;
   overflow: hidden;
   background: var(--panel-2);
   display: flex;
@@ -4857,10 +4862,9 @@
 
 .person-card__photo img {
   width: 100%;
-  height: auto;
-  max-width: 100%;
-  object-fit: contain;
-  object-position: center;
+  height: 100%;
+  object-fit: cover;
+  object-position: center 20%;
 }
 
 .person-card__body {
@@ -4906,17 +4910,14 @@
 
 .ministry-card__media {
   position: relative;
-  aspect-ratio: auto;
+  aspect-ratio: 16 / 9;
   overflow: hidden;
-  background: var(--panel-2);
 }
 
 .ministry-card__media img {
   width: 100%;
-  height: auto;
-  max-width: 100%;
-  object-fit: contain;
-  object-position: center;
+  height: 100%;
+  object-fit: cover;
   transition: transform 0.6s ease;
 }
 

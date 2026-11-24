@@ -320,9 +320,9 @@ export function SectionHeading({
   );
 }
 
-export function Card({ children, className = "", pad = true, hover = false, as = "div" }: { children: ReactNode; className?: string; pad?: boolean; hover?: boolean; as?: any }) {
+export function Card({ children, className = "", pad = true, hover = false, as = "div", id }: { children: ReactNode; className?: string; pad?: boolean; hover?: boolean; as?: any; id?: string }) {
   const Tag = as;
-  return <Tag className={["card", pad ? "card--pad" : "", hover ? "card--hover" : "", className].filter(Boolean).join(" ")}>{children}</Tag>;
+  return <Tag id={id} className={["card", pad ? "card--pad" : "", hover ? "card--hover" : "", className].filter(Boolean).join(" ")}>{children}</Tag>;
 }
 
 export function Badge({ children, accent = "gold", icon }: { children: ReactNode; accent?: string; icon?: string }) {

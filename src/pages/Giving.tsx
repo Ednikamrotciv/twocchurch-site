@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useState } from "react";
 import { tx } from "../lib/i18n";
 import { GIVING_FUNDS, GIVING_BREAKDOWN, BANK_ACCOUNTS, SITE, FAQS, img } from "../data/site";
 import { GIVING_FAQS, GIVING_METHODS } from "../data/content";
@@ -13,6 +13,42 @@ const METHODS = GIVING_METHODS;
 const TABS = ["give", "funds", "other"] as const;
 type TabId = (typeof TABS)[number];
 
+/* Bank-transfer spotlight: opening the Other panel lands on the exact
+   #bank-details card (below the sticky chrome) with a ~2s gold flash so the
+   account numbers are impossible to miss. Works on mobile + desktop.
+   Deep-link: /giving?tab=other#bank-details (or legacy
+   #/giving?tab=other#bank-details, which the router rewrites to the same
+   path + hash on load) jumps straight there. */
+function scrollToBankDetails(): boolean {
+  const el = document.getElementById("bank-details");
+  if (!el) return false;
+  try {
+    const reduce =
+      typeof window !== "undefined" &&
+      typeof window.matchMedia === "function" &&
+      window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    el.scrollIntoView({ behavior: reduce ? "auto" : "smooth", block: "start" });
+  } catch {
+    try { el.scrollIntoView(); } catch {}
+  }
+  try {
+    el.classList.remove("bank-flash");
+    void (el as HTMLElement).offsetWidth;
+    el.classList.add("bank-flash");
+    window.setTimeout(() => {
+      try { el.classList.remove("bank-flash"); } catch {}
+    }, 2100);
+  } catch {}
+  return true;
+}
+
+function stampBankHash() {
+  try {
+    const cur = window.location.pathname + window.location.search;
+    window.history.replaceState(null, "", cur + "#bank-details");
+  } catch {}
+}
+
 export function Giving() {
   // Which of the three panels is open lives in the address ("#/giving?tab=other"),
   // so a link — or the "Give now" button — can open the panel it means. The first
@@ -25,62 +61,58 @@ export function Giving() {
   const [fund, setFund] = useState("tithe");
   const [method, setMethod] = useState("transfer");
   const [note, setNote] = useState("");
-  /* Bank-transfer deep link: the transfer button opens the account-details
-     panel AND lands the visitor on the exact details (both mobile and
-     desktop), with a short highlight so the numbers are impossible to miss. */
-  const bankRef = useRef<HTMLDivElement | null>(null);
-  const flashTimer = useRef<number>(0);
-  const didDeepLink = useRef(false);
-  const revealBankDetails = () => {
-    if (tab !== "other") setTab("other");
-    let tries = 0;
-    const attempt = () => {
-      tries++;
-      const el = bankRef.current || document.getElementById("bank-details");
-      if (el) {
-        try {
-          el.scrollIntoView({ behavior: "smooth", block: "start" });
-        } catch {
-          el.scrollIntoView();
-        }
-        try {
-          el.classList.remove("bank-flash");
-          void (el as HTMLElement).offsetWidth;
-          el.classList.add("bank-flash");
-        } catch {}
-        try {
-          window.clearTimeout(flashTimer.current);
-        } catch {}
-        try {
-          flashTimer.current = window.setTimeout(() => {
-            try {
-              el.classList.remove("bank-flash");
-            } catch {}
-          }, 2200);
-        } catch {}
-        return;
-      }
-      if (tries < 12) setTimeout(attempt, 80);
-    };
-    setTimeout(attempt, 60);
-  };
-  useEffect(() => {
+
+  /* Open Other + land on the bank card. Tab switch re-renders async, so
+     retry across frames — first paint + a late pass for slow chunks. */
+  const goBankDetails = () => {
+    setTab("other");
     try {
-      if (tab === "other" && !didDeepLink.current) {
-        didDeepLink.current = true;
-        if (window.location.hash.includes("bank-details")) revealBankDetails();
-      }
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          if (scrollToBankDetails()) stampBankHash();
+        });
+      });
     } catch {}
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    window.setTimeout(() => {
+      if (scrollToBankDetails()) stampBankHash();
+    }, 160);
+    window.setTimeout(() => {
+      if (scrollToBankDetails()) stampBankHash();
+    }, 450);
+  };
+
+  /* Deep-link in: ?tab=other#bank-details (or legacy hash form) scrolls + flashes. */
+  useEffect(() => {
+    if (tab !== "other") return;
+    let want = false;
+    try {
+      const h = window.location.hash || "";
+      const href = window.location.href || "";
+      if (h.includes("bank-details") || href.includes("#bank-details")) want = true;
+    } catch {}
+    if (!want) return;
+    const t1 = window.setTimeout(() => scrollToBankDetails(), 90);
+    const t2 = window.setTimeout(() => scrollToBankDetails(), 380);
+    const t3 = window.setTimeout(() => scrollToBankDetails(), 900);
+    return () => {
+      window.clearTimeout(t1);
+      window.clearTimeout(t2);
+      window.clearTimeout(t3);
+    };
   }, [tab]);
-  useEffect(
-    () => () => {
+
+  /* Late hash (user pastes the link while already here) still finds the card. */
+  useEffect(() => {
+    const onHash = () => {
       try {
-        window.clearTimeout(flashTimer.current);
+        if ((window.location.hash || "").includes("bank-details")) {
+          window.setTimeout(() => scrollToBankDetails(), 60);
+        }
       } catch {}
-    },
-    []
-  );
+    };
+    window.addEventListener("hashchange", onHash);
+    return () => window.removeEventListener("hashchange", onHash);
+  }, []);
 
   return (
     <>
@@ -91,7 +123,7 @@ export function Giving() {
         image={img("giving")}
         crumbs={[{ label: ct("auto.giving.2594c065b729d044"), to: "/" }, { label: ct("auto.giving.0c826e9a9722c32b") }]}
         actions={
-          <Btn icon="gift" onClick={() => revealBankDetails()}>
+          <Btn icon="gift" onClick={goBankDetails}>
             {ct("auto.giving.69337ad1b8cc24c8")}</Btn>
         }
       />
@@ -139,7 +171,7 @@ export function Giving() {
                 <h3>{ct("giving.step3")}</h3>
                 <div className="method-grid">
                   {METHODS.map((m) => (
-                    <button key={m.id} type="button" className={"method-btn" + (method === m.id ? " method-btn--active" : "")} onClick={() => { setMethod(m.id); if (m.id === "transfer") revealBankDetails(); }}>
+                    <button key={m.id} type="button" className={"method-btn" + (method === m.id ? " method-btn--active" : "")} onClick={() => { setMethod(m.id); if (m.id === "transfer") goBankDetails(); }}>
                       <Icon name={m.id === "transfer" ? "home" : "people"} size={18} />
                       <span>
                         <b>{tx(m.label)}</b>
@@ -188,8 +220,7 @@ export function Giving() {
 
             {tab === "other" && (
               <div className="other-panel">
-                <div id="bank-details" ref={bankRef} tabIndex={-1} className="bank-details">
-                <Card>
+                <Card id="bank-details">
                   <h3>{ct("giving.bank.title")}</h3>
                   <p className="muted">{ct("giving.bank.note")}</p>
                   <div className="bank-grid">
@@ -227,7 +258,6 @@ export function Giving() {
                     ))}
                   </div>
                 </Card>
-                </div>
               </div>
             )}
           </div>
